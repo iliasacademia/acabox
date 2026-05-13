@@ -32,6 +32,9 @@ beforeAll(() => {
   (window as any).scannedFilesAPI = {
     getAll: mockGetAll,
   };
+  (window as any).electronAPI = {
+    invoke: jest.fn().mockResolvedValue({ hasPermission: true, started: true }),
+  };
 });
 
 beforeEach(() => {
@@ -50,6 +53,7 @@ afterAll(() => {
   delete (window as any).filesAPI;
   delete (window as any).fileMonitorAPI;
   delete (window as any).scannedFilesAPI;
+  delete (window as any).electronAPI;
 });
 
 function flushPromises() {
@@ -73,7 +77,8 @@ describe('FilesTab – Open in Word button', () => {
     const btn = container.querySelector('[title="Open in Word"]') as HTMLButtonElement;
     expect(btn).not.toBeNull();
 
-    act(() => { btn.click(); });
+    await act(async () => { btn.click(); });
+    await flushPromises();
 
     expect(mockOpenFile).toHaveBeenCalledWith(
       'file:///workspace/Paper.docx',

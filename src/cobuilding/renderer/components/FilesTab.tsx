@@ -11,6 +11,7 @@ import {
   TrashIcon,
   FileTextIcon,
 } from 'lucide-react';
+import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
 
 const INTERNAL_DRAG_TYPE = 'application/x-filetree-path';
 
@@ -656,8 +657,9 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
                 type="button"
                 className="fileTreeRowAction fileTreeRowAction--word"
                 title="Open in Word"
-                onClick={(e) => {
+                onClick={async (e) => {
                   e.stopPropagation();
+                  if (!(await ensureAccessibilityPermission())) return;
                   const fileUrl = `file://${node.path}`;
                   window.fileMonitorAPI.openFile(fileUrl, 'com.microsoft.Word');
                   window.fileMonitorAPI.setDockRightForDocument(node.path, true);

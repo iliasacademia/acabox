@@ -27,11 +27,13 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
+  ExternalLinkIcon,
   FileTextIcon,
   LoaderIcon,
   PencilIcon,
   RefreshCwIcon,
 } from 'lucide-react';
+import { ensureAccessibilityPermission } from '../../utils/ensureAccessibilityPermission';
 import type { FC } from 'react';
 
 interface ThreadProps {
@@ -107,11 +109,30 @@ const ThreadDocumentHeader: FC = () => {
 
   if (!documentPath) return null;
   const filename = documentPath.split('/').pop() || documentPath;
+  const isDocx = /\.docx$/i.test(filename);
+
+  const handleOpenInWord = async () => {
+    if (!(await ensureAccessibilityPermission())) return;
+    const fileUrl = documentPath.startsWith('file://') ? documentPath : `file://${documentPath}`;
+    window.fileMonitorAPI.openFile(fileUrl, 'com.microsoft.Word');
+    window.fileMonitorAPI.setDockRightForDocument(documentPath, true);
+  };
 
   return (
     <div className="threadDocumentHeader" title={documentPath}>
       <FileTextIcon className="threadDocumentHeaderIcon" />
       <span className="threadDocumentHeaderName">{filename}</span>
+      {isDocx && (
+        <button
+          type="button"
+          className="threadDocumentHeaderAction"
+          title="Open in Word"
+          onClick={handleOpenInWord}
+        >
+          <ExternalLinkIcon style={{ width: 13, height: 13 }} />
+          <span>Open in Word</span>
+        </button>
+      )}
     </div>
   );
 };

@@ -1106,6 +1106,28 @@ body.cobuild-resizing webview {
   text-overflow: ellipsis;
 }
 
+.threadDocumentHeaderAction {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 3px 8px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: #2563eb;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.threadDocumentHeaderAction:hover {
+  background: rgba(37, 99, 235, 0.1);
+}
+
 .threadDropzone {
   display: flex;
   flex-direction: column;

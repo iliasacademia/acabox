@@ -1394,7 +1394,7 @@ export class WindowMonitorService {
    */
   setDockRightForDocument(documentPath: string, docked: boolean): void {
     const POLL_MS = 250;
-    const TIMEOUT_MS = 6_000;
+    const TIMEOUT_MS = 15_000;
     const startedAt = Date.now();
     const tryDock = () => {
       const wid = this.getWindowIdForDocumentPath(documentPath);
