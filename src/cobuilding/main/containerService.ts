@@ -663,7 +663,7 @@ class CobuildingContainerService {
       'exec',
       '-e', 'COBUILDING_INSIDE_CONTAINER=1',
       CONTAINER_NAME,
-      'node', '--max-old-space-size=4096', '/data/.academia/agent-server.js',
+      'node', '--max-old-space-size=1536', '/data/.academia/agent-server.js',
     ], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     this.agentServerProc = proc;
 
@@ -742,8 +742,8 @@ class CobuildingContainerService {
         }
         if (procs.length > 0) {
           log.info(`[Container:Memory] total=${totalMB}MB | ${procs.join(', ')}`);
-          if (totalMB > 4800) {
-            log.warn(`[Container:Memory] Usage above 4.8GB (${totalMB}MB) — OOM risk`);
+          if (totalMB > 1600) {
+            log.warn(`[Container:Memory] Usage above 1.6GB (${totalMB}MB) — OOM risk`);
           }
         }
       } catch { /* container not running */ }
@@ -1685,7 +1685,7 @@ class CobuildingContainerService {
       'run', '-d',
       '--replace',
       '--privileged',
-      '--memory=6g',
+      '--memory=2g',
       '--name', CONTAINER_NAME,
       '-v', `${mountPath}:/data-host`,
       '-p', `${agentHostPort}:8080`,
@@ -1693,7 +1693,7 @@ class CobuildingContainerService {
       'sh', '-c',
       // The container rootfs is itself overlay (podman storage driver), so
       // upper/work dirs can't live on it. Mount a tmpfs first.
-      'mount -t tmpfs tmpfs /tmp -o size=4G && ' +
+      'mount -t tmpfs tmpfs /tmp -o size=1G && ' +
       'mkdir -p /tmp/overlay-upper /tmp/overlay-work && ' +
       'mount -t overlay overlay -o lowerdir=/data-host,upperdir=/tmp/overlay-upper,workdir=/tmp/overlay-work /data && ' +
       '(command -v rsync >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq rsync >/dev/null 2>&1)) && ' +
@@ -1701,7 +1701,7 @@ class CobuildingContainerService {
     ] : [
       'run', '-d',
       '--replace',
-      '--memory=6g',
+      '--memory=2g',
       '--name', CONTAINER_NAME,
       '-v', `${mountPath}:/data`,
       '-p', `${agentHostPort}:8080`,
