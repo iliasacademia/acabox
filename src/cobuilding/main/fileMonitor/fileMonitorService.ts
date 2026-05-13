@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import log from 'electron-log';
+import { processCpuMonitor } from '../../../utils/processCpuMonitor';
 import { ulid } from 'ulid';
 const appVersion = app.getVersion();
 import { createFileSession, updateFileSession, updateFileSessionDiff, updateFileSessionLastModified, findFileSession } from './repository';
@@ -252,6 +253,7 @@ export function startFileMonitor(): void {
   log.info('[FileMonitor] Starting:', binPath);
 
   childProcess = spawn(binPath, [], { stdio: ['ignore', 'pipe', 'pipe'] });
+  if (childProcess.pid) processCpuMonitor.register('fileMonitor', childProcess.pid);
 
   const rl = createInterface({ input: childProcess.stdout! });
   let eventQueue = Promise.resolve();
@@ -285,6 +287,7 @@ export function startFileMonitor(): void {
 
 export function stopFileMonitor(): void {
   if (!childProcess) return;
+  processCpuMonitor.unregister('fileMonitor');
   if (currentFocus) {
     const now = new Date().toISOString();
     const dwellIncrement = calcDwellIncrement(now);
