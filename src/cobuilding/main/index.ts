@@ -2342,7 +2342,10 @@ async function generateSessionTitle(sessionId: string, firstMessage: string): Pr
     const { apiKey, baseURL } = getCredentials();
     log.info(`[TitleGen] sessionId=${sessionId} hasApiKey=${!!apiKey} baseURL=${baseURL ?? '(default)'}`);
     if (!apiKey) return;
-    const client = new Anthropic({ apiKey, baseURL });
+    // Electron replaces globalThis.fetch with Chromium's net.fetch, which can
+    // fail to connect to certain endpoints. Use Node's undici fetch instead.
+    const { fetch: nodeFetch } = require('undici');
+    const client = new Anthropic({ apiKey, baseURL, fetch: nodeFetch });
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 30,
