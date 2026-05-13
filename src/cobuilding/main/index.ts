@@ -1086,6 +1086,14 @@ app.whenReady().then(async () => {
                 }));
               });
             }
+
+            // Auto-start the window monitor so overlays appear immediately
+            // for host apps like Google Docs that don't have an explicit
+            // "open" action from the desktop UI.
+            if (!windowMonitorService.isRunning() && process.platform === 'darwin' && wordAccessibility.checkPermission()) {
+              windowMonitorService.start(baseUrl, authToken, false);
+              log.info('[HTTP Server] Window monitor auto-started');
+            }
           }
 
         } catch (error) {

@@ -655,7 +655,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
                 documentDisplayName={activeDocumentDisplayName}
                 selectedText={pollData?.selectedText}
                 onBack={handleBackToSessions}
-                canGoBack={workspaceSessions.length > 0}
+                canGoBack={true}
                 initialPrompt={pendingKickoffPrompt ?? undefined}
                 onInitialPromptSent={() => setPendingKickoffPrompt(null)}
               />

@@ -903,6 +903,10 @@ export class WindowMonitorService {
     return focused?.window.id ?? null;
   }
 
+  getLastFocusedWindowId(): string | null {
+    return this.lastV4FocusedWindowId;
+  }
+
   /**
    * Find the tracked window ID for a given document path.
    * Normalizes file:// URLs to plain paths for matching.
