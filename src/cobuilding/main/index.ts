@@ -13,7 +13,8 @@ import type { CalendarMutationEvent } from './calendarAgentSession';
 import { registerSession, unregisterSession, getRegisteredSession, hasSession, destroyAllSessions } from './sessionRegistry';
 import type { IPCAttachment } from '../shared/types';
 import { provisionWorkspace } from './skills';
-import { containerService } from './containerService';
+import { containerService, skipImageBuild } from './containerService';
+import { processCpuMonitor } from '../../utils/processCpuMonitor';
 import { getAllPodmanDataPaths } from './podmanBinaries';
 import { ensureClaudeBinaryReady } from './sdkBinarySetup';
 import { scanWorkspaceDirectory } from './directoryScanner';
@@ -80,8 +81,7 @@ import { packageInstaller, installStepsToRequests, type Registry, type PackageSt
 import { checkLogin, getCurrentUser, logout, setBaseUrl, BASE_URL, hasSessionCookie } from '../../apiClient';
 import { getDeviceId } from '../../utils/deviceId';
 import { createCobuildingAuthSession, verifyCobuildingAuthCode } from './cobuildingAuthService';
-import { fetchGatewayCredentials, getAnthropicConfig, setRefreshCallback, destroyTokenManager, type AnthropicConfig } from './cobuildingTokenManager';
-import { updateApiKey } from './db/workspaceRepository';
+import { fetchGatewayCredentials, destroyTokenManager, getCredentials, setCredentials } from './cobuildingTokenManager';
 import { createQuickChatWindow, showQuickChat, updateMainWindowRef } from './quickChat';
 import { registerCalendarHandlers } from './ipc/calendar';
 import { registerDebugHandlers } from './ipc/debug';
@@ -326,8 +326,6 @@ function handleNotificationNavigation(action: NotificationNavigationAction | nul
 }
 let activeWorkspace: Workspace | null = null;
 
-let cachedApiKey: string | null = null;
-let cachedBaseURL: string | undefined = undefined;
 let activeApiBaseUrl: string = (() => {
   if (app.isPackaged) return BASE_URL;
   try {
@@ -343,23 +341,8 @@ let activeApiBaseUrl: string = (() => {
 
 async function refreshCredentialsForSession(): Promise<{ apiKey: string; baseURL?: string }> {
   const result = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
-  cachedApiKey = result.apiKey;
-  cachedBaseURL = result.baseURL;
-  if (activeWorkspace) {
-    updateApiKey(activeWorkspace.id, result.apiKey);
-    activeWorkspace = { ...activeWorkspace, api_key: result.apiKey };
-  }
   return { apiKey: result.apiKey, baseURL: result.baseURL };
 }
-
-setRefreshCallback((config: AnthropicConfig) => {
-  cachedApiKey = config.apiKey;
-  cachedBaseURL = config.baseURL;
-  if (activeWorkspace) {
-    updateApiKey(activeWorkspace.id, config.apiKey);
-    activeWorkspace = { ...activeWorkspace, api_key: config.apiKey };
-  }
-});
 
 // Shared edit state store — keyed by toolCallId, synced between overlay and desktop
 const editStates = new Map<string, string>();
@@ -556,6 +539,8 @@ function createMainWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  processCpuMonitor.start();
+
   if (process.platform === 'darwin') {
     systemPreferences.setUserDefault('NSNavPanelExpandedStateForSaveMode2', 'boolean', true as any);
   }
@@ -908,8 +893,8 @@ app.whenReady().then(async () => {
                 }
 
                 if (isNewSession) notifySessionsChanged();
-                if (isNewSession && activeWorkspace.api_key) {
-                  generateSessionTitle(sessionId, text, activeWorkspace.api_key, cachedBaseURL);
+                if (isNewSession) {
+                  generateSessionTitle(sessionId, text);
                 }
 
                 const session = getRegisteredSession(sessionId)!;
@@ -997,8 +982,8 @@ app.whenReady().then(async () => {
               registerSession(sessionId, session);
             }
             if (isNewSession) notifySessionsChanged();
-            if (isNewSession && activeWorkspace!.api_key) {
-              generateSessionTitle(sessionId, text, activeWorkspace!.api_key, cachedBaseURL);
+            if (isNewSession) {
+              generateSessionTitle(sessionId, text);
             }
 
             const session = getRegisteredSession(sessionId)!;
@@ -1086,6 +1071,15 @@ app.whenReady().then(async () => {
                 }));
               });
             }
+            // Auto-start the overlay so it appears over Word without
+            // requiring the user to visit the desktop app home tab first.
+            if (process.platform === 'darwin' && !windowMonitorService.isRunning()) {
+              const hasPermission = wordAccessibility.checkPermission();
+              if (hasPermission) {
+                windowMonitorService.start(baseUrl, authToken, false);
+                log.info('[overlay:autoStart] Window monitor started automatically');
+              }
+            }
           }
 
         } catch (error) {
@@ -1136,13 +1130,11 @@ ipcMain.handle(
     const name = validateWorkspaceName(data.name);
     const directoryPath = validateDirectoryPath(data.directoryPath);
 
-    let apiKey = cachedApiKey ?? '';
+    let apiKey = getCredentials().apiKey ?? '';
     if (!apiKey) {
       try {
-        const result = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
-        cachedApiKey = result.apiKey;
-        cachedBaseURL = result.baseURL;
-        apiKey = result.apiKey;
+        await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
+        apiKey = getCredentials().apiKey ?? '';
       } catch (err) {
         log.warn('[workspaces:create] Could not fetch API key:', err);
       }
@@ -1218,7 +1210,7 @@ ipcMain.handle(
       containerService.writeStartContainerScript(directoryPath);
     }
 
-    updateWorkspace(activeWorkspace.id, name, directoryPath, cachedApiKey ?? activeWorkspace.api_key);
+    updateWorkspace(activeWorkspace.id, name, directoryPath, getCredentials().apiKey ?? activeWorkspace.api_key);
     activeWorkspace = getActiveWorkspace() ?? null;
     return activeWorkspace ?? null;
   },
@@ -1362,14 +1354,10 @@ ipcMain.handle('scanner:start', async () => {
   if (!activeWorkspace) {
     throw new Error('No active workspace');
   }
-  let apiKey = activeWorkspace.api_key;
+  let { apiKey, baseURL } = getCredentials();
   if (!apiKey) {
-    const result = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
-    cachedApiKey = result.apiKey;
-    cachedBaseURL = result.baseURL;
-    apiKey = result.apiKey;
-    updateApiKey(activeWorkspace.id, apiKey);
-    activeWorkspace = { ...activeWorkspace, api_key: apiKey };
+    await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
+    ({ apiKey, baseURL } = getCredentials());
   }
   if (scannerRunning) {
     log.warn('[scanner:start] Scan already in progress — ignoring duplicate request');
@@ -1380,8 +1368,8 @@ ipcMain.handle('scanner:start', async () => {
   scanWorkspaceDirectory({
     workspaceId: activeWorkspace.id,
     directoryPath: activeWorkspace.directory_path,
-    apiKey,
-    baseURL: cachedBaseURL,
+    apiKey: apiKey ?? '',
+    baseURL,
     onMessage: (event) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('scanner:event', event);
@@ -1805,7 +1793,8 @@ async function generateManifestForApp(workspace: Workspace, dirName: string): Pr
     return;
   } catch { /* keep going */ }
 
-  if (!workspace.api_key) {
+  const { apiKey: manifestApiKey, baseURL: manifestBaseURL } = getCredentials();
+  if (!manifestApiKey) {
     log.warn(`[ManifestMigration] No API key — skipping ${dirName}`);
     return;
   }
@@ -1816,7 +1805,7 @@ async function generateManifestForApp(workspace: Workspace, dirName: string): Pr
   } catch { /* fall back to dir name */ }
   if (appSource.length > 8000) appSource = appSource.slice(0, 8000);
 
-  const client = new Anthropic({ apiKey: workspace.api_key, baseURL: cachedBaseURL });
+  const client = new Anthropic({ apiKey: manifestApiKey, baseURL: manifestBaseURL });
   const message = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 400,
@@ -1890,12 +1879,13 @@ async function startAgentInfrastructure(workspacePath: string): Promise<void> {
   registerHostMcpServers(activeWorkspace, handleNotificationNavigation);
 
   // 3. Write agent config and start the agent server inside the container
+  const { apiKey: agentApiKey, baseURL: agentBaseURL } = getCredentials();
   const agentConfig = {
     port: 8080,
     claudeBinaryPath: '/data/.academia/claude',
     mcpServers: {},  // MCP tools are relayed via SSE, not direct HTTP
-    anthropicApiKey: activeWorkspace.api_key,
-    ...(cachedBaseURL ? { anthropicBaseURL: cachedBaseURL } : {}),
+    anthropicApiKey: agentApiKey ?? '',
+    ...(agentBaseURL ? { anthropicBaseURL: agentBaseURL } : {}),
     model: 'claude-opus-4-7',
     systemPrompt: { type: 'preset', preset: 'claude_code' },
     allowedTools: [
@@ -2002,6 +1992,14 @@ ipcMain.handle('container:getImageSource', () => {
 
 ipcMain.handle('container:setImageSource', (_event, source: string) => {
   containerService.setImageSource(source as 'registry' | 'local');
+});
+
+ipcMain.handle('container:getSkipImageBuild', () => {
+  return containerService.getSkipImageBuild();
+});
+
+ipcMain.handle('container:setSkipImageBuild', (_event, skip: boolean) => {
+  containerService.setSkipImageBuild(skip);
 });
 
 ipcMain.handle('settings:getMaxAttachmentSizeMB', () => {
@@ -2144,6 +2142,10 @@ packageInstaller.on('package:line', (e: { registry: Registry; package: string; l
 });
 
 ipcMain.handle('container:rebuildEnvironment', async () => {
+  if (skipImageBuild()) {
+    log.info('[container:rebuildEnvironment] Skip-image-build mode, skipping');
+    return;
+  }
   if (!activeWorkspace) throw new Error('No active workspace');
   const envDir = path.join(activeWorkspace.directory_path, '.applications', '_environment');
   fs.rmSync(envDir, { recursive: true, force: true });
@@ -2154,6 +2156,11 @@ ipcMain.handle('container:rebuildEnvironment', async () => {
 });
 
 ipcMain.handle('app:quit', () => {
+  app.quit();
+});
+
+ipcMain.handle('app:relaunch', () => {
+  if (app.isPackaged) app.relaunch();
   app.quit();
 });
 
@@ -2366,8 +2373,11 @@ ipcMain.handle('sessions:findForApp', async (_event, dirName: string) => {
   return sessionId;
 });
 
-async function generateSessionTitle(sessionId: string, firstMessage: string, apiKey: string, baseURL?: string): Promise<void> {
+async function generateSessionTitle(sessionId: string, firstMessage: string): Promise<void> {
   try {
+    const { apiKey, baseURL } = getCredentials();
+    log.info(`[TitleGen] sessionId=${sessionId} hasApiKey=${!!apiKey} baseURL=${baseURL ?? '(default)'}`);
+    if (!apiKey) return;
     const client = new Anthropic({ apiKey, baseURL });
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
@@ -2380,6 +2390,7 @@ async function generateSessionTitle(sessionId: string, firstMessage: string, api
       ],
     });
     const title = (response.content[0].type === 'text' ? response.content[0].text : '').trim();
+    log.info(`[TitleGen] sessionId=${sessionId} title="${title}"`);
     if (title) {
       updateSessionTitle(sessionId, title);
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sessions:titleUpdated', sessionId, title);
@@ -2387,8 +2398,11 @@ async function generateSessionTitle(sessionId: string, firstMessage: string, api
       const { wordPollEventBus } = require('../../server/events/wordPollEventBus');
       wordPollEventBus.emit('change', 'session-title-updated');
     }
-  } catch (err) {
-    log.warn('[TitleGen] Failed to generate session title:', err);
+  } catch (err: any) {
+    const { apiKey, baseURL } = getCredentials();
+    log.warn(`[TitleGen] Failed sessionId=${sessionId} apiKey=${apiKey} baseURL=${baseURL ?? '(default)'}`);
+    log.warn(`[TitleGen] error:`, err);
+    if (err?.cause) log.warn(`[TitleGen] cause:`, err.cause);
   }
 }
 
@@ -2415,10 +2429,11 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPa
     isFirstMessage = !existingDbSession;
 
     if (isCalendarSession) {
+      const { apiKey: calApiKey, baseURL: calBaseURL } = getCredentials();
       const session = createCalendarAgentSession(
         threadId,
         activeWorkspace.id,
-        activeWorkspace.api_key,
+        calApiKey ?? '',
         activeWorkspace.directory_path,
         {
           onEvent: () => { },
@@ -2430,7 +2445,7 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPa
             mainWindow.webContents.send('calendar:mutation', mutation);
           }
         },
-        cachedBaseURL,
+        calBaseURL,
         refreshCredentialsForSession,
       );
       registerSession(threadId, session);
@@ -2470,8 +2485,8 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPa
   ensureSseFanout(threadId);
   getRegisteredSession(threadId)!.sendMessage(text, attachments);
 
-  if (isFirstMessage && !isCalendarSession && activeWorkspace.api_key) {
-    generateSessionTitle(threadId, text, activeWorkspace.api_key, cachedBaseURL);
+  if (isFirstMessage && !isCalendarSession) {
+    generateSessionTitle(threadId, text);
   }
 });
 
@@ -2735,14 +2750,13 @@ async function validateAnthropicParams(params: unknown, workspaceDir: string): P
 // Non-streaming completion. Uses ipcMain.handle so the result is automatically
 // returned as a promise reply — no manual event sending required.
 ipcMain.handle('anthropic:complete', async (_event, params: unknown) => {
-  if (!activeWorkspace?.api_key) throw new Error('No active workspace API key');
-  if (!activeWorkspace.directory_path) throw new Error('No active workspace directory');
+  const { apiKey: completeApiKey, baseURL: completeBaseURL } = getCredentials();
+  if (!completeApiKey) throw new Error('No API credentials available');
+  if (!activeWorkspace?.directory_path) throw new Error('No active workspace directory');
   const validated = await validateAnthropicParams(params, activeWorkspace.directory_path);
-  // Log call metadata for audit purposes. Message content is intentionally
-  // omitted to avoid writing user data to the log file.
   log.info('[anthropic:complete] workspace=%s model=%s max_tokens=%d messages=%d',
     activeWorkspace.id, validated.model, validated.max_tokens, validated.messages.length);
-  const client = new Anthropic({ apiKey: activeWorkspace.api_key, baseURL: cachedBaseURL });
+  const client = new Anthropic({ apiKey: completeApiKey, baseURL: completeBaseURL });
   return client.messages.create({
     model: validated.model,
     max_tokens: validated.max_tokens,
@@ -2765,11 +2779,12 @@ ipcMain.on('anthropic:stream', async (event, { streamKey, params }: { streamKey:
     log.warn('[anthropic:stream] Invalid streamKey');
     return;
   }
-  if (!activeWorkspace?.api_key) {
-    event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: 'No active workspace API key' });
+  const { apiKey: streamApiKey, baseURL: streamBaseURL } = getCredentials();
+  if (!streamApiKey) {
+    event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: 'No API credentials available' });
     return;
   }
-  if (!activeWorkspace.directory_path) {
+  if (!activeWorkspace?.directory_path) {
     event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: 'No active workspace directory' });
     return;
   }
@@ -2782,7 +2797,7 @@ ipcMain.on('anthropic:stream', async (event, { streamKey, params }: { streamKey:
   }
   log.info('[anthropic:stream] workspace=%s model=%s max_tokens=%d messages=%d',
     activeWorkspace.id, validated.model, validated.max_tokens, validated.messages.length);
-  const client = new Anthropic({ apiKey: activeWorkspace.api_key, baseURL: cachedBaseURL });
+  const client = new Anthropic({ apiKey: streamApiKey, baseURL: streamBaseURL });
   const stream = client.messages.stream({
     model: validated.model,
     max_tokens: validated.max_tokens,
@@ -2829,19 +2844,12 @@ ipcMain.handle('auth:checkLogin', async () => {
   try {
     const loggedIn = await checkLogin();
     if (loggedIn && getApiProvider() !== 'custom') {
-      fetchGatewayCredentials(getApiProvider() === 'cloudflare').then(({ apiKey, baseURL }) => {
-        cachedApiKey = apiKey;
-        cachedBaseURL = baseURL;
-        if (activeWorkspace) {
-          updateApiKey(activeWorkspace.id, apiKey);
-          activeWorkspace = { ...activeWorkspace, api_key: apiKey };
-        }
-      }).catch((err) => log.warn('[Auth] fetchGatewayCredentials error:', err));
+      await fetchGatewayCredentials(getApiProvider() === 'cloudflare')
+        .catch((err) => log.warn('[Auth] fetchGatewayCredentials error:', err));
     } else if (loggedIn && getApiProvider() === 'custom') {
       const customKey = getCustomAnthropicKey();
       if (customKey) {
-        cachedApiKey = customKey;
-        cachedBaseURL = getCustomAnthropicBaseURL();
+        setCredentials(customKey, getCustomAnthropicBaseURL());
       }
     }
     const appInfo = {
@@ -2883,14 +2891,8 @@ ipcMain.handle('auth:verifyQRCode', async (_event, deviceId: string, code: strin
       return { success: false, error: result.error };
     }
     if (result.authorized) {
-      fetchGatewayCredentials(getApiProvider() === 'cloudflare').then(({ apiKey, baseURL }) => {
-        cachedApiKey = apiKey;
-        cachedBaseURL = baseURL;
-        if (activeWorkspace) {
-          updateApiKey(activeWorkspace.id, apiKey);
-          activeWorkspace = { ...activeWorkspace, api_key: apiKey };
-        }
-      }).catch((err) => log.warn('[Auth] fetchGatewayCredentials after verify error:', err));
+      await fetchGatewayCredentials(getApiProvider() === 'cloudflare')
+        .catch((err) => log.warn('[Auth] fetchGatewayCredentials after verify error:', err));
     }
     return { success: true, authorized: result.authorized, userId: result.user_id };
   } catch (error: any) {
@@ -2900,7 +2902,8 @@ ipcMain.handle('auth:verifyQRCode', async (_event, deviceId: string, code: strin
 });
 
 ipcMain.handle('auth:getApiKey', () => {
-  return { apiKey: cachedApiKey, baseURL: cachedBaseURL, provider: getApiProvider() };
+  const { apiKey, baseURL } = getCredentials();
+  return { apiKey, baseURL, provider: getApiProvider() };
 });
 
 ipcMain.handle('auth:getApiProvider', () => {
@@ -2918,25 +2921,14 @@ ipcMain.handle('auth:setApiProvider', async (_event, provider: string, customKey
     if (!customKey) return { success: false, error: 'API key is required for custom mode' };
     const baseURL = customBaseURL?.trim() || undefined;
     setCustomAnthropicKey(customKey, baseURL);
-    cachedApiKey = customKey;
-    cachedBaseURL = baseURL;
     destroyTokenManager();
-    if (activeWorkspace) {
-      updateApiKey(activeWorkspace.id, customKey);
-      activeWorkspace = { ...activeWorkspace, api_key: customKey };
-    }
+    setCredentials(customKey, baseURL);
     log.info('[Auth] Using custom Anthropic API key');
     return { success: true };
   }
 
   try {
-    const result = await fetchGatewayCredentials(provider === 'cloudflare');
-    cachedApiKey = result.apiKey;
-    cachedBaseURL = result.baseURL;
-    if (activeWorkspace) {
-      updateApiKey(activeWorkspace.id, result.apiKey);
-      activeWorkspace = { ...activeWorkspace, api_key: result.apiKey };
-    }
+    await fetchGatewayCredentials(provider === 'cloudflare');
     return { success: true };
   } catch (error: any) {
     log.error('[Auth] Failed to fetch credentials after provider switch:', error);
@@ -2947,12 +2939,6 @@ ipcMain.handle('auth:setApiProvider', async (_event, provider: string, customKey
 ipcMain.handle('auth:refetchApiKey', async () => {
   try {
     const result = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
-    cachedApiKey = result.apiKey;
-    cachedBaseURL = result.baseURL;
-    if (activeWorkspace) {
-      updateApiKey(activeWorkspace.id, result.apiKey);
-      activeWorkspace = getActiveWorkspace() ?? null;
-    }
     log.debug('[Auth] Refetched API key successfully');
     return { success: true, keyIdentifier: result.keyIdentifier };
   } catch (error: any) {
@@ -2971,7 +2957,7 @@ ipcMain.handle('auth:logout', async () => {
     getTaskScheduler()?.stop();
     deactivateAllWorkspaces();
     activeWorkspace = null;
-    cachedApiKey = null;
+    destroyTokenManager();
     const result = await logout();
     return result;
   } catch (error: any) {

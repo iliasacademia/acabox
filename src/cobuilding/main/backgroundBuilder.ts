@@ -18,7 +18,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import log from 'electron-log';
 import type { BrowserWindow } from 'electron';
-import { containerService } from './containerService';
+import { containerService, skipImageBuild } from './containerService';
 import type { CommandLogEntry } from './commandLogger';
 import { getInstallSteps } from './environmentGenerator';
 import { packageInstaller, installStepsToRequests } from './packageInstaller';
@@ -174,6 +174,8 @@ export class BackgroundBuilder {
   // ─── Debounce ────────────────────────────────────────────────
 
   private scheduleRebuild(): void {
+    if (skipImageBuild()) return;
+
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
     }

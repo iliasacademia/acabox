@@ -28,6 +28,7 @@ import { wordIntegrationDataStoreV2 } from './wordIntegrationDataStoreV2';
 import { sessionsTracker } from './sessionsTracker';
 import { remoteFeatureFlags, REMOTE_FLAGS } from './remoteFeatureFlags';
 import { sessionSyncService } from './sessionSyncService';
+import { processCpuMonitor } from './utils/processCpuMonitor';
 import { refreshManuscriptPaths } from './server/services/manuscriptPathsService';
 import { podmanService } from './podmanService';
 import { getLocalConversationDb } from './localConversationDb';
@@ -936,6 +937,8 @@ app.whenReady().then(async () => {
         windowMonitorService.start(baseUrl, authToken, store.get('windowMonitorAllAppsEnabled', false) as boolean);
       }
     }
+
+    processCpuMonitor.register('electron-main', process.pid);
   } catch (error) {
     logger.error('[HTTP Server] ✗ Failed to start server:', error);
   }
@@ -2001,7 +2004,7 @@ app.on('before-quit', async (event) => {
   const forceQuitTimeout = setTimeout(() => {
     logger.warn('[APP] Cleanup timeout - forcing quit');
     app.exit(0);
-  }, 5000); // 5 second timeout
+  }, 15000); // 15 second timeout (VM poweroff via SSH can take ~10s)
 
   try {
     // Close all activity sessions and stop periodic flush
@@ -2010,6 +2013,8 @@ app.on('before-quit', async (event) => {
       sessionsTracker.stopPeriodicFlush();
       sessionSyncService.stop();
     }
+
+    processCpuMonitor.stop();
 
     // Stop window monitor service (V2 Rust processes)
     windowMonitorService.stop();

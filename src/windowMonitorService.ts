@@ -5,6 +5,7 @@ import { readFileSync, existsSync, watch, FSWatcher } from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
 import { defaultLogger as logger } from './utils/logger';
+import { processCpuMonitor } from './utils/processCpuMonitor';
 import { SystemState, WindowMonitorEvent, WindowBounds, TextSelectionInfo, DocumentTextInfo } from './windowMonitor/types';
 import { wordPollEventBus } from './server/events/wordPollEventBus';
 import { createInitialState } from './windowMonitor/initialState';
@@ -15,6 +16,7 @@ import { FEATURES } from './shared/types';
 import {
   computeWebviewStateV4,
   getFocusedWindowInfo,
+  applyFocusLossCarryForward,
   DesiredWebviewState,
   WebviewTypeConfig,
 } from './windowMonitor/computeWebviewState';
@@ -362,6 +364,7 @@ export class WindowMonitorService {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     this.processStartTimes.set('webview-manager', Date.now());
+    if (this.webviewManagerProcess.pid) processCpuMonitor.register('windowMonitor:webviewManager', this.webviewManagerProcess.pid);
 
     // Spawn one window-monitor per registered host app (or a single all-apps
     // monitor when in review-button-v3 mode). When only Word is registered,
@@ -414,6 +417,7 @@ export class WindowMonitorService {
           const bin = getWebviewManagerBinPath();
           this.webviewManagerProcess = spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] });
           this.processStartTimes.set('webview-manager', Date.now());
+          if (this.webviewManagerProcess.pid) processCpuMonitor.register('windowMonitor:webviewManager', this.webviewManagerProcess.pid);
           this.setupWebviewManagerHandlers();
           // Re-send last known state so overlay is restored
           this.pushWebviewState();
@@ -460,6 +464,7 @@ export class WindowMonitorService {
           const bin = getWebviewManagerBinPath();
           this.webviewManagerProcess = spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] });
           this.processStartTimes.set('webview-manager', Date.now());
+          if (this.webviewManagerProcess.pid) processCpuMonitor.register('windowMonitor:webviewManager', this.webviewManagerProcess.pid);
           this.setupWebviewManagerHandlers();
           this.pushWebviewState();
           logger.info('[WindowMonitorService] webview-manager respawned successfully');
@@ -477,6 +482,7 @@ export class WindowMonitorService {
     });
     this.windowMonitorProcesses.set(processKey, proc);
     this.windowMonitorProcessKeys.set(proc, processKey);
+    if (proc.pid) processCpuMonitor.register(`windowMonitor:${processKey}`, proc.pid);
     this.processStartTimes.set(`wm:${processKey}`, Date.now());
 
     // Handle window-monitor stdout: line-delimited JSON events
@@ -713,22 +719,14 @@ export class WindowMonitorService {
       windowId = [...this.dockedRightWindows][0];
     }
 
-    // In cobuilding mode, keep the open chat panel visible when Word loses focus
-    // by reusing its last desired state. Drops to normal window level
-    // (background: true) so it sits behind the active app's windows.
-    // The launcher button (button-v2) is intentionally NOT carried over —
-    // it's only meaningful when Word is the focused app.
-    if (this.workspaceDirectory && !windowId && this.lastV4FocusedWindowId) {
-      const hasOverlay = Object.keys(desiredState).length > 0;
-      const lastPopup = this.lastDesiredState['popup-v2'];
-      if (!hasOverlay && lastPopup?.visible) {
-        windowId = this.lastV4FocusedWindowId;
-        desiredState['popup-v2'] = { ...lastPopup, background: true };
-      }
-    }
+    const hostAppFocused = this.state.focusedAppIdentifier !== null;
+    const carryForward = applyFocusLossCarryForward(desiredState, this.lastDesiredState, hostAppFocused, this.lastV4FocusedWindowId);
+    Object.assign(desiredState, carryForward.desiredState);
+    if (carryForward.windowId) windowId = carryForward.windowId;
 
-    // Apply per-window overrides using global keys
-    if (desiredState['popup-v2'] && windowId) {
+    // Apply per-window overrides only when the host app is focused —
+    // skip when carrying forward hidden state during focus loss.
+    if (desiredState['popup-v2'] && windowId && hostAppFocused) {
       const isToggledOpen = this.popupToggledOpen.has(windowId);
       desiredState['popup-v2'].visible = isToggledOpen;
       if (isToggledOpen) {
@@ -746,12 +744,12 @@ export class WindowMonitorService {
       }
     }
 
-    if (desiredState['review-panel-v3'] && windowId) {
+    if (desiredState['review-panel-v3'] && windowId && hostAppFocused) {
       const isPanelOpen = this.reviewPanelV3Open.has(windowId);
       desiredState['review-panel-v3'].visible = isPanelOpen;
     }
 
-    if (desiredState['button-v2'] && windowId) {
+    if (desiredState['button-v2'] && windowId && hostAppFocused) {
       const buttonWidthOverride = this.buttonV2WidthOverrides.get(windowId);
       if (buttonWidthOverride !== undefined) {
         desiredState['button-v2'].frame.width = buttonWidthOverride;
@@ -772,7 +770,7 @@ export class WindowMonitorService {
     }
 
     // Apply drag offset for the focused window
-    if (windowId && this.buttonDragOffsets.has(windowId) && desiredState['button-v2']) {
+    if (windowId && hostAppFocused && this.buttonDragOffsets.has(windowId) && desiredState['button-v2']) {
       const offset = this.buttonDragOffsets.get(windowId)!;
       const buttonKey = 'button-v2';
       const popupKey = 'popup-v2';
@@ -818,7 +816,7 @@ export class WindowMonitorService {
     // override so the panel falls back to the regular floating overlay behavior.
     // Look up bounds by windowId directly — clicking the overlay causes Word to lose focus,
     // so focused?.window.bounds may be null.
-    if (windowId && this.dockedRightWindows.has(windowId) && desiredState['popup-v2']) {
+    if (windowId && hostAppFocused && this.dockedRightWindows.has(windowId) && desiredState['popup-v2']) {
       let dockedWindowBounds: WindowBounds | null = focused?.window.bounds ?? null;
       if (!dockedWindowBounds) {
         for (const app of this.state.apps) {
@@ -1621,12 +1619,14 @@ export class WindowMonitorService {
 
     for (const [key, proc] of this.windowMonitorProcesses) {
       logger.info(`[WindowMonitorService] Stopping window-monitor (${key})`);
+      processCpuMonitor.unregister(`windowMonitor:${key}`);
       proc.kill();
     }
     this.windowMonitorProcesses.clear();
     this.windowMonitorProcessKeys.clear();
     if (this.webviewManagerProcess) {
       logger.info('[WindowMonitorService] Stopping webview-manager');
+      processCpuMonitor.unregister('windowMonitor:webviewManager');
       this.webviewManagerProcess.kill();
       this.webviewManagerProcess = null;
     }

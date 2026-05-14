@@ -5841,6 +5841,30 @@ body.cobuild-resizing webview {
 
 
 
+.logViewer__export {
+  margin-left: auto;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  font-weight: 500;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.logViewer__export:hover {
+  background: #f0f0f0;
+  border-color: #bbb;
+}
+
+.logViewer__export:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .logViewer__scroll {
   flex: 1;
   overflow-y: auto;

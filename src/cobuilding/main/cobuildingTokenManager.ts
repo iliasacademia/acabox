@@ -12,12 +12,22 @@ interface GatewayToken {
   expiresAt: Date;
 }
 
+let currentApiKey: string | null = null;
+let currentBaseURL: string | undefined = undefined;
 let cachedToken: GatewayToken | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-let onRefresh: ((config: AnthropicConfig) => void) | null = null;
 
 const REFRESH_BEFORE_EXPIRY_MS = 30 * 60 * 1000;
 const RETRY_DELAY_MS = 5 * 60 * 1000;
+
+export function getCredentials(): { apiKey: string | null; baseURL: string | undefined } {
+  return { apiKey: currentApiKey, baseURL: currentBaseURL };
+}
+
+export function setCredentials(apiKey: string | null, baseURL?: string): void {
+  currentApiKey = apiKey;
+  currentBaseURL = baseURL;
+}
 
 export async function fetchGatewayCredentials(useGateway = true): Promise<AnthropicConfig & { keyIdentifier?: string }> {
   const client = await APIclient();
@@ -46,6 +56,7 @@ export async function fetchGatewayCredentials(useGateway = true): Promise<Anthro
     scheduleRefresh();
     const baseURL = `${gateway_endpoint}/anthropic`;
     log.info(`[TokenManager] Using Cloudflare AI Gateway: ${baseURL} (expires: ${expires_at})`);
+    setCredentials(token, baseURL);
     return { apiKey: token, baseURL, keyIdentifier: key_identifier };
   }
 
@@ -53,6 +64,7 @@ export async function fetchGatewayCredentials(useGateway = true): Promise<Anthro
   cachedToken = null;
   cancelRefresh();
   log.info(`[TokenManager] Using Anthropic API directly: https://api.anthropic.com (identifier: ${key_identifier})`);
+  setCredentials(api_key, undefined);
   return { apiKey: api_key, keyIdentifier: key_identifier };
 }
 
@@ -66,7 +78,6 @@ function scheduleRefresh() {
     try {
       const config = await fetchGatewayCredentials();
       log.info('[TokenManager] Token refreshed successfully');
-      onRefresh?.(config);
     } catch (err) {
       log.warn('[TokenManager] Token refresh failed, retrying in 5 minutes:', err);
       refreshTimer = setTimeout(() => scheduleRefresh(), RETRY_DELAY_MS);
@@ -81,20 +92,9 @@ function cancelRefresh() {
   }
 }
 
-export function getAnthropicConfig(): AnthropicConfig | null {
-  if (!cachedToken) return null;
-  return {
-    apiKey: cachedToken.token,
-    baseURL: `${cachedToken.gatewayEndpoint}/anthropic`,
-  };
-}
-
-export function setRefreshCallback(cb: (config: AnthropicConfig) => void) {
-  onRefresh = cb;
-}
-
 export function destroyTokenManager() {
   cancelRefresh();
   cachedToken = null;
-  onRefresh = null;
+  currentApiKey = null;
+  currentBaseURL = undefined;
 }
