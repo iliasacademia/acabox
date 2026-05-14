@@ -1,0 +1,61 @@
+# Lightweight core image for mini-apps that use Python and/or JavaScript.
+# Excludes R, Bioconductor, LaTeX, and LibreOffice — those live in the
+# full cobuilding-base image for bioinformatics / academic users.
+#
+# Build & push via the "Build & Push Cobuilding Base Core Image" workflow,
+# or locally:
+#   docker buildx build --platform linux/amd64,linux/arm64 \
+#     -f src/cobuilding/Dockerfile.base-core -t cobuilding-base-core:local .
+
+FROM ubuntu:24.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tini \
+    python3 \
+    python3-venv \
+    python3-dev \
+    gcc \
+    pandoc \
+    poppler-utils \
+    curl \
+    rsync \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+
+# Node.js and npm packages for mini-app bundling and document creation
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install -g docx pptxgenjs esbuild react react-dom @types/react @types/react-dom react-plotly.js plotly.js lucide-react
+
+ENV NODE_PATH=/usr/lib/node_modules
+
+# Python virtual environment
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3 -m venv $VIRTUAL_ENV
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+# Python packages used by skills and mini-apps
+RUN pip install --no-cache-dir \
+    defusedxml \
+    lxml \
+    pypdf \
+    pdfplumber \
+    pdf2image \
+    Pillow \
+    openpyxl \
+    "markitdown[pptx]" \
+    jupyter_kernel_gateway \
+    jupyter-client \
+    ipykernel \
+    requests \
+    pandas \
+    matplotlib
+
+# Fix Python kernel spec to use absolute venv path.
+RUN sed -i 's|"python"|"/opt/venv/bin/python"|g' \
+    /opt/venv/share/jupyter/kernels/python3/kernel.json
+
+WORKDIR /data
