@@ -13,7 +13,7 @@ import type { CalendarMutationEvent } from './calendarAgentSession';
 import { registerSession, unregisterSession, getRegisteredSession, hasSession, destroyAllSessions } from './sessionRegistry';
 import type { IPCAttachment } from '../shared/types';
 import { provisionWorkspace } from './skills';
-import { containerService } from './containerService';
+import { containerService, skipImageBuild } from './containerService';
 import { processCpuMonitor } from '../../utils/processCpuMonitor';
 import { getAllPodmanDataPaths } from './podmanBinaries';
 import { ensureClaudeBinaryReady } from './sdkBinarySetup';
@@ -1985,6 +1985,14 @@ ipcMain.handle('container:setImageSource', (_event, source: string) => {
   containerService.setImageSource(source as 'registry' | 'local');
 });
 
+ipcMain.handle('container:getSkipImageBuild', () => {
+  return containerService.getSkipImageBuild();
+});
+
+ipcMain.handle('container:setSkipImageBuild', (_event, skip: boolean) => {
+  containerService.setSkipImageBuild(skip);
+});
+
 ipcMain.handle('settings:getMaxAttachmentSizeMB', () => {
   return getMaxAttachmentSizeMB();
 });
@@ -2125,6 +2133,10 @@ packageInstaller.on('package:line', (e: { registry: Registry; package: string; l
 });
 
 ipcMain.handle('container:rebuildEnvironment', async () => {
+  if (skipImageBuild()) {
+    log.info('[container:rebuildEnvironment] Skip-image-build mode, skipping');
+    return;
+  }
   if (!activeWorkspace) throw new Error('No active workspace');
   const envDir = path.join(activeWorkspace.directory_path, '.applications', '_environment');
   fs.rmSync(envDir, { recursive: true, force: true });
@@ -2135,6 +2147,11 @@ ipcMain.handle('container:rebuildEnvironment', async () => {
 });
 
 ipcMain.handle('app:quit', () => {
+  app.quit();
+});
+
+ipcMain.handle('app:relaunch', () => {
+  if (app.isPackaged) app.relaunch();
   app.quit();
 });
 

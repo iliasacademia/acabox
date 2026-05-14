@@ -32,10 +32,11 @@ export const PodmanDebug: React.FC = () => {
   const [overlayEnabled, setOverlayEnabled] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
+  const [skipImageBuild, setSkipImageBuild] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     try {
-      const [{ running: isRunning }, mode, bundled, name, baseDownloaded, imgSource, env] = await Promise.all([
+      const [{ running: isRunning }, mode, bundled, name, baseDownloaded, imgSource, env, skipBuild] = await Promise.all([
         window.containerAPI.status(),
         window.containerAPI.getBinaryMode(),
         window.containerAPI.getBundledStatus(),
@@ -43,6 +44,7 @@ export const PodmanDebug: React.FC = () => {
         window.containerAPI.isBaseImageDownloaded(),
         window.containerAPI.getImageSource(),
         window.containerAPI.getEnvironmentInfo(),
+        window.containerAPI.getSkipImageBuild(),
       ]);
       setRunning(isRunning);
       setBinaryMode(mode);
@@ -51,6 +53,7 @@ export const PodmanDebug: React.FC = () => {
       setBaseImageDownloaded(baseDownloaded);
       setImageSource(imgSource);
       setEnvInfo(env);
+      setSkipImageBuild(skipBuild);
       const overlay = await window.debugAPI.isOverlayEnabled();
       setOverlayEnabled(overlay);
       // Clear transient states when underlying state settles
@@ -146,6 +149,18 @@ export const PodmanDebug: React.FC = () => {
       else next.add(name);
       return next;
     });
+  };
+
+  const handleToggleSkipImageBuild = async () => {
+    const newValue = !skipImageBuild;
+    setError(null);
+    try {
+      await window.containerAPI.setSkipImageBuild(newValue);
+      setSkipImageBuild(newValue);
+      await window.containerAPI.relaunchApp();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const handleImageSourceChange = async (source: ImageSource) => {
@@ -350,6 +365,26 @@ export const PodmanDebug: React.FC = () => {
           Build Locally
         </button>
         {running && <span className="debugSection__modeLock">locked while running</span>}
+      </div>
+
+      <div className="debugSection__modeToggle">
+        <span className="debugSection__modeLabel">Skip Image Build:</span>
+        <button
+          className={`debugSection__modeBtn ${skipImageBuild ? 'debugSection__modeBtn--active' : ''}`}
+          onClick={skipImageBuild ? undefined : handleToggleSkipImageBuild}
+          disabled={skipImageBuild}
+          title="Skip building workspace image layers — use base image directly and install deps live"
+        >
+          {skipImageBuild ? 'Enabled' : 'Enable & Relaunch'}
+        </button>
+        <button
+          className={`debugSection__modeBtn ${!skipImageBuild ? 'debugSection__modeBtn--active' : ''}`}
+          onClick={!skipImageBuild ? undefined : handleToggleSkipImageBuild}
+          disabled={!skipImageBuild}
+          title="Build workspace image layers as normal"
+        >
+          {!skipImageBuild ? 'Disabled' : 'Disable & Relaunch'}
+        </button>
       </div>
 
       <div className="debugSection__infoRow">
