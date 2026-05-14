@@ -573,9 +573,23 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
     adapter: sessionListAdapter,
   });
 
-  // Refresh on every render so we always close over the current state setters.
-  // Cheap — assigning a function reference.
+  // Refresh on every render so we always close over the current state setters
+  // and view flags. Cheap — assigning a function reference.
+  //
+  // Skip navigation when the user is already typing into a side-panel chat
+  // (rendered as `<Thread />` inside one of the tools detail views). In those
+  // modes the GlobalComposer is hidden, so the only composer available is the
+  // side-panel one — and the chat the user is sending to is already on
+  // screen. Switching tabs would close the miniapp/paper-monitor/reactions
+  // view the user was looking at.
   navigateToChatDetailRef.current = () => {
+    const inToolsSidePanel = sidebarTab === 'tools' && (
+      (toolsViewMode === 'detail' && activeTab?.kind === 'miniapp') ||
+      toolsViewMode === 'paper-monitor' ||
+      toolsViewMode === 'reactions'
+    );
+    if (inToolsSidePanel) return;
+
     setSidebarTab('chats');
     setChatViewMode('detail');
     deactivateAllTabs();
