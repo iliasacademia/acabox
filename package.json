@@ -141,6 +141,7 @@
     "exceljs": "^4.4.0",
     "fastify": "^5.6.1",
     "form-data": "^4.0.3",
+    "fzstd": "^0.1.1",
     "google-auth-library": "^10.6.2",
     "html-react-parser": "^6.1.0",
     "http-cookie-agent": "^7.0.2",
