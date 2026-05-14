@@ -14,7 +14,6 @@ import {
   ActionBarPrimitive,
   AttachmentPrimitive,
   AuiIf,
-  BranchPickerPrimitive,
   ComposerPrimitive,
   ErrorPrimitive,
   MessagePrimitive,
@@ -24,8 +23,6 @@ import {
 import {
   ArrowDownIcon,
   CheckIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   CopyIcon,
   ExternalLinkIcon,
   FileTextIcon,
@@ -246,7 +243,6 @@ const AssistantMessage: FC = () => {
       </div>
 
       <div className="assistantMessageFooter">
-        <BranchPicker />
         <AssistantActionBar />
       </div>
     </MessagePrimitive.Root>
@@ -327,8 +323,6 @@ const UserMessage: FC = () => {
           <UserActionBar />
         </div>
       </div>
-
-      <BranchPicker className="userBranchPicker" />
     </MessagePrimitive.Root>
   );
 };
@@ -372,29 +366,3 @@ const EditComposer: FC = () => {
   );
 };
 
-const BranchPicker: FC<BranchPickerPrimitive.Root.Props> = ({
-  className,
-  ...rest
-}) => {
-  return (
-    <BranchPickerPrimitive.Root
-      hideWhenSingleBranch
-      className={`branchPicker${className ? ` ${className}` : ''}`}
-      {...rest}
-    >
-      <BranchPickerPrimitive.Previous asChild>
-        <TooltipIconButton tooltip="Previous">
-          <ChevronLeftIcon />
-        </TooltipIconButton>
-      </BranchPickerPrimitive.Previous>
-      <span className="branchPickerState">
-        <BranchPickerPrimitive.Number /> / <BranchPickerPrimitive.Count />
-      </span>
-      <BranchPickerPrimitive.Next asChild>
-        <TooltipIconButton tooltip="Next">
-          <ChevronRightIcon />
-        </TooltipIconButton>
-      </BranchPickerPrimitive.Next>
-    </BranchPickerPrimitive.Root>
-  );
-};

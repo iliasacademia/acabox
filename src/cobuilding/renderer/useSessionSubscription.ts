@@ -46,9 +46,25 @@ export function useSessionSubscription() {
 
   useEffect(() => {
     if (!remoteId) return;
-    return window.sessionsAPI.onSessionsChanged(() => {
-      setSubscriptionEpoch((e) => e + 1);
+    const bump = () => setSubscriptionEpoch((e) => e + 1);
+    // Three signals that mean "the current subscription may be stale, try
+    // again": session list mutated, a foreign surface emitted a user-message
+    // on a (possibly the active) session, or a turn just ended for some
+    // thread. Each one is a moment where a previously-orphaned slot could
+    // have freed up or a new turn could have started.
+    const offSessions = window.sessionsAPI.onSessionsChanged(bump);
+    const offForeign = window.sessionsAPI.onForeignTurnDone((sessionId: string) => {
+      if (sessionId === remoteId) bump();
     });
+    const onTurnEnd = (e: Event) => {
+      if ((e as CustomEvent).detail?.threadId === remoteId) bump();
+    };
+    window.addEventListener('chat:turn-end', onTurnEnd);
+    return () => {
+      offSessions();
+      offForeign();
+      window.removeEventListener('chat:turn-end', onTurnEnd);
+    };
   }, [remoteId]);
 
   useEffect(() => {
