@@ -190,6 +190,39 @@ function SessionTitleUpdater() {
 }
 
 /**
+ * Force a thread's history adapter to re-fetch from SQLite and merge
+ * the new state into assistant-ui's repository.
+ *
+ * assistant-ui's `LocalThreadRuntimeCore` caches `load()` in `_loadPromise`
+ * and only calls the adapter once per thread per runtime lifetime. By
+ * clearing that field and re-invoking `__internal_load()`, the adapter is
+ * called again; `repository.import()` then upserts the messages so any
+ * blocks the agent persisted while the user was elsewhere (or while a
+ * foreign surface drove the turn) become visible without a remount.
+ *
+ * Safe to call repeatedly — `import` is upsert; calling during an
+ * in-flight load just makes the next load wait its turn. No-ops cleanly
+ * if the runtime hasn't materialized the per-thread core yet.
+ */
+function reloadThreadHistory(runtime: any, threadId: string): void {
+  try {
+    const threadsCore = runtime?._core?.threads;
+    const threadCore = threadsCore?.getThreadRuntimeCore?.(threadId)
+      ?? threadsCore?._threads?.get?.(threadId)
+      ?? null;
+    if (!threadCore) {
+      window.debugAPI.log(`[ReloadThreadHistory] threadId=${threadId} skipped — no thread core`);
+      return;
+    }
+    threadCore._loadPromise = null;
+    threadCore.__internal_load?.();
+    window.debugAPI.log(`[ReloadThreadHistory] threadId=${threadId} reloaded`);
+  } catch (err) {
+    console.warn('[ReloadThreadHistory] failed', err);
+  }
+}
+
+/**
  * Refresh the thread list when main broadcasts `sessions:changed`
  * (e.g. overlay creates a chat or sends a message that re-sorts).
  *
@@ -272,43 +305,36 @@ function ForeignTurnWatcherDesktop() {
         return;
       }
       window.debugAPI.log('[ForeignTurnWatcher] gate=proceed');
-      try {
-        // Best-effort: nudge the runtime to drop cached per-thread state
-        // and reload via the history adapter. Whether
-        // `__internal_loadHistory` exists is version-dependent (logs
-        // confirmed it's missing in our current assistant-ui — see
-        // `cachePoke=noMethod`), so this is a no-op until we find the
-        // real reload API. Left in place as documentation of the
-        // mechanism we WOULD want, and so log lines surface clearly
-        // when the API does land.
-        //
-        // The previous implementation chained switchToThread(other) +
-        // switchToThread(sessionId) hoping to force a re-mount. Logs
-        // showed assistant-ui silently dropped the back-switch, leaving
-        // the user stranded on the away thread — exactly the "switched
-        // to a different conversation" regression. That trick is
-        // removed. Until the proper reload mechanism lands, we accept
-        // that the desktop's view of an active foreign session won't
-        // refresh in-place; the user can navigate away and back to
-        // force a re-load if needed.
-        const threadsCore: any = (runtime as any)?._core?.threads;
-        const threadCore: any = threadsCore?.getThreadRuntimeCore?.(sessionId)
-          ?? threadsCore?._threads?.get?.(sessionId)
-          ?? null;
-        if (threadCore) {
-          const hadMethod = typeof threadCore.__internal_loadHistory === 'function';
-          threadCore._loadHistoryPromise = null;
-          threadCore.__internal_loadHistory?.();
-          window.debugAPI.log(`[ForeignTurnWatcher] cachePoke=${hadMethod ? 'ran' : 'noMethod'}`);
-        } else {
-          window.debugAPI.log('[ForeignTurnWatcher] cachePoke=noThreadCore');
-        }
-      } catch (err) {
-        console.warn('[ForeignTurnWatcher] reload nudge failed', err);
-      }
+      // The previous implementation here targeted `__internal_loadHistory` /
+      // `_loadHistoryPromise`, which don't exist on this assistant-ui
+      // version — the real internals are `__internal_load` /
+      // `_loadPromise`, used by `reloadThreadHistory`.
+      reloadThreadHistory(runtime, sessionId);
     });
     return unsubscribe;
   }, [runtime]);
+
+  return null;
+}
+
+/**
+ * Reload the active thread's history from SQLite every time the user
+ * enters chat detail (or switches to a different thread while in detail).
+ *
+ * SQLite is the durable record of every agent block: the SSE reader writes
+ * a row for every assistant message, tool_result, and result it receives,
+ * even when no surface is watching. The renderer just needs to re-read on
+ * return to see what the background agent produced — no extra buffer or
+ * subscription is required.
+ */
+function RefreshOnEnterChatDetail({ isInChatDetail }: { isInChatDetail: boolean }) {
+  const runtime = useAssistantRuntime();
+  const activeRemoteId = useAuiState((s: any) => s.threadListItem?.remoteId) as string | undefined;
+
+  useEffect(() => {
+    if (!isInChatDetail || !activeRemoteId) return;
+    reloadThreadHistory(runtime, activeRemoteId);
+  }, [isInChatDetail, activeRemoteId, runtime]);
 
   return null;
 }
@@ -695,6 +721,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
       <OpenMiniAppHandler onOpen={handleSelectApp} />
       <QuickChatInjector onSwitchToChat={() => { setSidebarTab('chats'); setChatViewMode('detail'); deactivateAllTabs(); }} />
       <ResetThreadOnLeavingDetail isInChatDetail={sidebarTab === 'chats' && chatViewMode === 'detail'} suppressRef={suppressThreadDeactivateRef} suppressResetRef={suppressThreadResetRef} />
+      <RefreshOnEnterChatDetail isInChatDetail={sidebarTab === 'chats' && chatViewMode === 'detail'} />
       <NotificationNavigator setSidebarTab={setSidebarTab} setChatViewMode={setChatViewMode} setToolsViewMode={setToolsViewMode} deactivateAllTabs={deactivateAllTabs} />
       <OverlayNavigationHandler setSidebarTab={setSidebarTab} setChatViewMode={setChatViewMode} deactivateAllTabs={deactivateAllTabs} />
       <TooltipProvider>
