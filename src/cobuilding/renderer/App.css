@@ -3164,6 +3164,11 @@ body.cobuild-resizing webview {
   background: #f3e8ff;
 }
 
+.fileTreeTag--reference {
+  color: #b45309;
+  background: #fef3c7;
+}
+
 /* Tight icon groups (workspace toolbar + per-row rename/delete) */
 .fileTreeRowActions {
   display: flex;

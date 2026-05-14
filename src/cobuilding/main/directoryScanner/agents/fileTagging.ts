@@ -124,22 +124,22 @@ const FILE_TAGGING_SCHEMA = {
           },
           file_type: {
             type: "string",
-            enum: ["manuscript", "grant", "presentation"],
+            enum: ["manuscript", "grant", "presentation", "reference"],
             description:
-              "manuscript = academic paper, thesis, chapter, or dissertation (.tex, .docx, .md). grant = grant proposal, funding application, NIH/NSF/R01 submission. presentation = .pptx, .key, talks, slides, lab-meeting files.",
+              "manuscript = academic paper, thesis, chapter, or dissertation (.tex, .docx, .md). grant = grant proposal, funding application, NIH/NSF/R01 submission. presentation = .pptx, .key, talks, slides, lab-meeting files. reference = PDF papers, journal articles, preprints, or other reference materials used as citations or background reading.",
           },
         },
         required: ["file_path", "file_name", "file_type"],
       },
       description:
-        "All manuscript, grant, and presentation files found in the directory.",
+        "All manuscript, grant, presentation, and reference files found in the directory.",
     },
   },
   required: ["tagged_files"],
 };
 
 function buildSystemPrompt(): string {
-  return `You are a research directory file tagger. Your job is to quickly scan a researcher's file directory and identify all manuscripts, grants, and presentations.
+  return `You are a research directory file tagger. Your job is to quickly scan a researcher's file directory and identify all manuscripts, grants, presentations, and references.
 
 ${SYSTEM_PROMPT_PREAMBLE}
 
@@ -147,10 +147,11 @@ ${SYSTEM_PROMPT_PREAMBLE}
 
 Produce a JSON report with one field:
 
-**tagged_files**: A comprehensive list of ALL manuscript, grant, and presentation files you find. For each file, record the relative path, the filename, and its type:
+**tagged_files**: A comprehensive list of ALL manuscript, grant, presentation, and reference files you find. For each file, record the relative path, the filename, and its type:
 - \`manuscript\`: .tex, .docx, .md files that are academic papers, theses, chapters, or dissertations
 - \`grant\`: files or directories whose names or contents indicate grant proposals, funding applications, or NIH/NSF/R01 submissions
 - \`presentation\`: .pptx or .key files, or directories with names like "talks", "slides", "lab-meeting"
+- \`reference\`: PDF files that are published papers, journal articles, preprints, or other reference materials used as citations or background reading. Typically found in directories named "references", "papers", "literature", "pdfs", "readings", or similar. Do NOT tag the researcher's own manuscripts as references.
 
 Cast a wide net — include every file you are reasonably confident belongs to one of these categories. This list populates file pickers in writing tools, so completeness matters. Do NOT include code, data, or general documents.
 
@@ -158,7 +159,7 @@ You can largely identify files from the directory tree — use file extensions a
 }
 
 function buildPrompt(directoryPath: string, treeOutput: string): string {
-  return `Identify and tag all manuscript, grant, and presentation files in this research directory.
+  return `Identify and tag all manuscript, grant, presentation, and reference files in this research directory.
 
 The directory to analyze is the current working directory: ${directoryPath}
 

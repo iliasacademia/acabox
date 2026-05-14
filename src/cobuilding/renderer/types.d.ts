@@ -721,12 +721,12 @@ declare global {
     report_id: string | null;
     file_path: string;
     file_name: string;
-    file_type: 'manuscript' | 'grant' | 'presentation';
+    file_type: 'manuscript' | 'grant' | 'presentation' | 'reference';
     created_at: string;
   }
 
   interface ScannedFilesAPI {
-    getByType(fileType: 'manuscript' | 'grant' | 'presentation'): Promise<ScannedFile[]>;
+    getByType(fileType: 'manuscript' | 'grant' | 'presentation' | 'reference'): Promise<ScannedFile[]>;
     getAll(): Promise<ScannedFile[]>;
   }
 

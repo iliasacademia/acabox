@@ -42,12 +42,13 @@ interface ContextMenuState {
   node: TreeNode;
 }
 
-type FileTagType = 'manuscript' | 'grant' | 'presentation';
+type FileTagType = 'manuscript' | 'grant' | 'presentation' | 'reference';
 
 const FILE_TAG_LABEL: Record<FileTagType, string> = {
   manuscript: 'MANUSCRIPT',
   grant: 'GRANT',
   presentation: 'SLIDES',
+  reference: 'REFERENCE',
 };
 
 interface FilesTabProps {
