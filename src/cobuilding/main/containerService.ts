@@ -227,6 +227,7 @@ class CobuildingContainerService {
         const baseImage = this.getBaseImageRef();
         log.info(`[ContainerService] Skip-image-build mode, starting from base image (${baseImage})`);
         await this.runContainer(podmanBin, workspacePath, baseImage);
+        void this.pruneImages(podmanBin);
       } else {
         // Start the container from whatever image is available — either the full
         // image (with workspace deps baked in) or just the base image. The agent
@@ -243,8 +244,9 @@ class CobuildingContainerService {
         const backgroundBuildAndFinalize = (): Promise<void> => {
           if (this.backgroundBuildPromise) return this.backgroundBuildPromise;
           const p = this.ensureImageBuilt(podmanBin, onBackgroundProgress, workspacePath)
-            .then(() => {
+            .then(async () => {
               onBackgroundProgress?.('ready', 'Image build complete');
+              await this.pruneImages(podmanBin);
             })
             .catch((err) => {
               const message = (err as Error).message;
@@ -278,6 +280,7 @@ class CobuildingContainerService {
       }
 
       log.debug('[ContainerService] Container started successfully');
+      void this.logDiskUsage('post-start');
       onProgress?.('ready', 'Container ready');
     } catch (error) {
       log.error('[ContainerService] Error:', (error as Error).message);
@@ -2444,6 +2447,91 @@ class CobuildingContainerService {
         else resolve({ stdout, stderr });
       });
     });
+  }
+
+  private async pruneImages(podmanBin: string): Promise<void> {
+    try {
+      await this.logDiskUsage('pre-prune');
+      const pruneArgs = skipImageBuild()
+        ? ['image', 'prune', '-a', '-f']
+        : ['image', 'prune', '-f'];
+      log.info(`[ContainerService] Pruning images (all-unused=${skipImageBuild()})...`);
+      const { stdout } = await execFileAsync(podmanBin, pruneArgs, { env: this.getExecEnv(), timeout: 60_000 });
+      const pruned = stdout.trim().split('\n').filter(Boolean);
+      log.info(`[ContainerService] Pruned ${pruned.length} image(s)`);
+      try {
+        log.info('[ContainerService] Running fstrim to reclaim VM disk space...');
+        await execFileAsync(podmanBin, ['machine', 'ssh', '--', 'sudo', 'fstrim', '-v', '/'], { env: this.getExecEnv(), timeout: 120_000 });
+        log.info('[ContainerService] fstrim complete');
+      } catch (err) {
+        log.warn(`[ContainerService] fstrim failed: ${(err as Error).message}`);
+      }
+      await this.logDiskUsage('post-prune');
+    } catch (err) {
+      log.warn(`[ContainerService] Image prune failed: ${(err as Error).message}`);
+    }
+  }
+
+  private async logDiskUsage(label: string): Promise<void> {
+    const tag = `[ContainerService] [DiskUsage:${label}]`;
+    try {
+      const parts: string[] = [];
+
+      // VM disk file (macOS only — sparse .raw file)
+      if (process.platform === 'darwin') {
+        const vmDir = path.join(
+          app.getPath('userData'),
+          'cobuilding-podman-data', 'data', 'containers', 'podman', 'machine', 'applehv',
+        );
+        try {
+          const entries = await fs.promises.readdir(vmDir);
+          for (const entry of entries) {
+            if (entry.endsWith('.raw')) {
+              const stat = await fs.promises.stat(path.join(vmDir, entry));
+              const actualGB = (stat.blocks * 512 / 1e9).toFixed(1);
+              parts.push(`VM disk: ${actualGB} GB`);
+            }
+          }
+        } catch { /* VM dir may not exist */ }
+      }
+
+      // podman system df
+      const podmanBin = this.getPodmanBinIfExists();
+      if (podmanBin) {
+        try {
+          const { stdout } = await execFileAsync(podmanBin, [
+            'system', 'df', '--format',
+            '{{.Type}}\t{{.Total}}\t{{.Active}}\t{{.Size}}\t{{.Reclaimable}}',
+          ], { env: this.getExecEnv(), timeout: 15_000 });
+          for (const line of stdout.trim().split('\n').filter(Boolean)) {
+            const [type, total, active, size, reclaimable] = line.trim().split('\t');
+            if (type === 'Images') {
+              parts.push(`Images: ${total} total, ${active} active, ${size} size, ${reclaimable} reclaimable`);
+            }
+          }
+        } catch { /* podman not reachable */ }
+      }
+
+      // Package cache
+      try {
+        const cacheDir = path.join(app.getPath('userData'), 'pkg-cache');
+        const sizes: string[] = [];
+        for (const sub of ['pip', 'npm', 'r']) {
+          try {
+            const { stdout } = await execFileAsync('du', ['-sk', path.join(cacheDir, sub)], { timeout: 10_000 });
+            const mb = (parseInt(stdout.split('\t')[0], 10) / 1024).toFixed(0);
+            sizes.push(`${sub}=${mb} MB`);
+          } catch { sizes.push(`${sub}=0 MB`); }
+        }
+        parts.push(`pkg-cache: ${sizes.join(', ')}`);
+      } catch { /* no cache dir */ }
+
+      if (parts.length > 0) {
+        log.info(`${tag} ${parts.join(' | ')}`);
+      }
+    } catch (err) {
+      log.debug(`${tag} failed: ${(err as Error).message}`);
+    }
   }
 
   private spawnAndWait(cmd: string, args: string[], env: NodeJS.ProcessEnv, label: string): Promise<void> {
