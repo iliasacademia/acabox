@@ -235,33 +235,34 @@ describe('applyFocusLossCarryForward', () => {
     },
   };
 
-  test('carries forward last state with visible:false when app loses focus', () => {
+  test('carries forward last state with background:true when app loses focus', () => {
     const desiredState: DesiredWebviewState = {};
-    const result = applyFocusLossCarryForward(desiredState, lastDesiredState, null, '42');
+    const result = applyFocusLossCarryForward(desiredState, lastDesiredState, false, '42');
 
     expect(result.windowId).toBe('42');
-    expect(result.desiredState['button-v2'].visible).toBe(false);
-    expect(result.desiredState['popup-v2'].visible).toBe(false);
+    expect(result.desiredState['button-v2'].visible).toBe(true);
+    expect(result.desiredState['button-v2'].background).toBe(true);
+    expect(result.desiredState['popup-v2'].visible).toBe(true);
+    expect(result.desiredState['popup-v2'].background).toBe(true);
     expect(result.desiredState['button-v2'].url).toBe('http://localhost:3000/button');
     expect(result.desiredState['popup-v2'].url).toBe('http://localhost:3000/popup');
   });
 
   test('preserves frames from last state', () => {
-    const result = applyFocusLossCarryForward({}, lastDesiredState, null, '42');
+    const result = applyFocusLossCarryForward({}, lastDesiredState, false, '42');
 
     expect(result.desiredState['button-v2'].frame).toEqual({ x: 100, y: 200, width: 150, height: 50 });
     expect(result.desiredState['popup-v2'].frame).toEqual({ x: 100, y: 260, width: 370, height: 280 });
   });
 
-  test('does not modify original desiredState entries', () => {
-    const result = applyFocusLossCarryForward({}, lastDesiredState, null, '42');
+  test('does not modify original lastDesiredState', () => {
+    const result = applyFocusLossCarryForward({}, lastDesiredState, false, '42');
 
-    expect(lastDesiredState['button-v2'].visible).toBe(true);
-    expect(lastDesiredState['popup-v2'].visible).toBe(true);
-    expect(result.desiredState['button-v2'].visible).toBe(false);
+    expect(result.desiredState).not.toBe(lastDesiredState);
+    expect(result.desiredState['button-v2'].visible).toBe(true);
   });
 
-  test('returns original state when app is focused (windowId present)', () => {
+  test('returns original state when app is focused', () => {
     const desiredState: DesiredWebviewState = {
       'button-v2': {
         url: 'http://localhost:3000/button',
@@ -269,16 +270,16 @@ describe('applyFocusLossCarryForward', () => {
         frame: { x: 50, y: 100, width: 150, height: 50 },
       },
     };
-    const result = applyFocusLossCarryForward(desiredState, lastDesiredState, '42', '42');
+    const result = applyFocusLossCarryForward(desiredState, lastDesiredState, true, '42');
 
-    expect(result.windowId).toBe('42');
+    expect(result.windowId).toBeNull();
     expect(result.desiredState).toBe(desiredState);
     expect(result.desiredState['button-v2'].visible).toBe(true);
   });
 
   test('returns original state when no lastWindowId', () => {
     const desiredState: DesiredWebviewState = {};
-    const result = applyFocusLossCarryForward(desiredState, lastDesiredState, null, null);
+    const result = applyFocusLossCarryForward(desiredState, lastDesiredState, false, null);
 
     expect(result.windowId).toBeNull();
     expect(result.desiredState).toEqual({});
@@ -286,7 +287,7 @@ describe('applyFocusLossCarryForward', () => {
 
   test('returns original state when lastDesiredState is empty', () => {
     const desiredState: DesiredWebviewState = {};
-    const result = applyFocusLossCarryForward(desiredState, {}, null, '42');
+    const result = applyFocusLossCarryForward(desiredState, {}, false, '42');
 
     expect(result.windowId).toBeNull();
     expect(result.desiredState).toEqual({});
@@ -300,7 +301,7 @@ describe('applyFocusLossCarryForward', () => {
         frame: { x: 50, y: 100, width: 150, height: 50 },
       },
     };
-    const result = applyFocusLossCarryForward(desiredState, lastDesiredState, null, '42');
+    const result = applyFocusLossCarryForward(desiredState, lastDesiredState, false, '42');
 
     expect(result.desiredState).toBe(desiredState);
     expect(result.windowId).toBeNull();
@@ -312,11 +313,11 @@ describe('applyFocusLossCarryForward', () => {
       'popup-v2': { url: 'http://localhost/popup', visible: true, frame: { x: 0, y: 50, width: 370, height: 280 } },
       'review-panel-v3': { url: 'http://localhost/review', visible: true, frame: { x: 400, y: 0, width: 300, height: 600 } },
     };
-    const result = applyFocusLossCarryForward({}, lastState, null, '10');
+    const result = applyFocusLossCarryForward({}, lastState, false, '10');
 
     expect(Object.keys(result.desiredState)).toEqual(['button-v2', 'popup-v2', 'review-panel-v3']);
-    expect(result.desiredState['button-v2'].visible).toBe(false);
-    expect(result.desiredState['popup-v2'].visible).toBe(false);
-    expect(result.desiredState['review-panel-v3'].visible).toBe(false);
+    expect(result.desiredState['button-v2'].background).toBe(true);
+    expect(result.desiredState['popup-v2'].background).toBe(true);
+    expect(result.desiredState['review-panel-v3'].background).toBe(true);
   });
 });

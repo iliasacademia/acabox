@@ -56,20 +56,20 @@ export function getFocusedWindowInfo(state: SystemState): { app: AppState; windo
 export function applyFocusLossCarryForward(
   desiredState: DesiredWebviewState,
   lastDesiredState: DesiredWebviewState,
-  windowId: string | null,
+  hostAppFocused: boolean,
   lastWindowId: string | null,
 ): { desiredState: DesiredWebviewState; windowId: string | null } {
-  if (!windowId && lastWindowId) {
+  if (!hostAppFocused && lastWindowId) {
     const hasOverlay = Object.keys(desiredState).length > 0;
     if (!hasOverlay && Object.keys(lastDesiredState).length > 0) {
       const carried: DesiredWebviewState = {};
       for (const [key, entry] of Object.entries(lastDesiredState)) {
-        carried[key] = { ...entry, visible: false };
+        carried[key] = { ...entry, background: true };
       }
       return { desiredState: carried, windowId: lastWindowId };
     }
   }
-  return { desiredState, windowId };
+  return { desiredState, windowId: null };
 }
 
 export function computeWebviewStateV4(

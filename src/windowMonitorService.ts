@@ -720,9 +720,9 @@ export class WindowMonitorService {
     }
 
     const hostAppFocused = this.state.focusedAppIdentifier !== null;
-    const carryForward = applyFocusLossCarryForward(desiredState, this.lastDesiredState, windowId, this.lastV4FocusedWindowId);
+    const carryForward = applyFocusLossCarryForward(desiredState, this.lastDesiredState, hostAppFocused, this.lastV4FocusedWindowId);
     Object.assign(desiredState, carryForward.desiredState);
-    windowId = carryForward.windowId;
+    if (carryForward.windowId) windowId = carryForward.windowId;
 
     // Apply per-window overrides only when the host app is focused —
     // skip when carrying forward hidden state during focus loss.
