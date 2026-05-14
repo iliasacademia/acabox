@@ -318,6 +318,41 @@ function RefreshOnEnterChatDetail({ isInChatDetail }: { isInChatDetail: boolean 
   return null;
 }
 
+/**
+ * Catches every turn-complete (fired as a window event by preload's
+ * chat:event handler) and pulls SQLite if the renderer isn't already
+ * driving a local run.
+ *
+ * Belt-and-braces: `useSessionSubscription`'s driving-path post-turn reload
+ * covers the case where the subscription itself fed the run, but doesn't
+ * help when chatAdapter was the driver (its run already ended) and an
+ * out-of-band sync is still needed — e.g. a foreign turn slipped in
+ * between turns and we want SQLite to be the visible truth. Gating on
+ * `thread.isRunning` skips the local-driver case where the in-memory
+ * state is already current and a reload would just move messages into
+ * an orphan branch.
+ */
+function RefreshOnTurnEnd({ isInChatDetail }: { isInChatDetail: boolean }) {
+  const runtime = useAssistantRuntime();
+  const activeRemoteId = useAuiState((s: any) => s.threadListItem?.remoteId) as string | undefined;
+  const isRunningRef = useRef(false);
+  isRunningRef.current = useAuiState((s: any) => s.thread?.isRunning ?? false) as boolean;
+
+  useEffect(() => {
+    if (!isInChatDetail || !activeRemoteId) return;
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { threadId?: string } | undefined;
+      if (detail?.threadId !== activeRemoteId) return;
+      if (isRunningRef.current) return;
+      void reloadThreadHistory(runtime, activeRemoteId);
+    };
+    window.addEventListener('chat:turn-end', handler);
+    return () => window.removeEventListener('chat:turn-end', handler);
+  }, [isInChatDetail, activeRemoteId, runtime]);
+
+  return null;
+}
+
 /** When the user picks a different thread, deactivate tabs so chat is shown.
  *  Suppressed when the switch is app-initiated (e.g. opening a miniapp tab). */
 function ShowChatOnThreadSelect({ onShowChat, suppressRef }: { onShowChat: () => void; suppressRef: React.RefObject<boolean> }) {
@@ -730,6 +765,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
       <QuickChatInjector onSwitchToChat={() => { setSidebarTab('chats'); setChatViewMode('detail'); deactivateAllTabs(); }} />
       <ResetThreadWhenComposerVisible globalComposerVisible={globalComposerVisible} isInChatDetail={isInChatDetail} suppressRef={suppressThreadDeactivateRef} suppressResetRef={suppressThreadResetRef} />
       <RefreshOnEnterChatDetail isInChatDetail={isInChatDetail} />
+      <RefreshOnTurnEnd isInChatDetail={isInChatDetail} />
       <NotificationNavigator setSidebarTab={setSidebarTab} setChatViewMode={setChatViewMode} setToolsViewMode={setToolsViewMode} deactivateAllTabs={deactivateAllTabs} />
       <OverlayNavigationHandler setSidebarTab={setSidebarTab} setChatViewMode={setChatViewMode} deactivateAllTabs={deactivateAllTabs} />
       <TooltipProvider>

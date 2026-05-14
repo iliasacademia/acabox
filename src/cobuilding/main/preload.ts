@@ -405,6 +405,13 @@ const EVENT_BUFFER_CAP = 2000;
 ipcRenderer.on('chat:event', (_event: any, threadId: string, token: any) => {
   if (token?.type === 'turn-complete') {
     console.log(`[Preload:buffer] turn-complete arrived, activeStream=${activeStreams.has(threadId)}`);
+    // Renderer-side fanout so non-stream consumers (e.g. a post-turn
+    // SQLite-resync component) can react regardless of who owned the
+    // primary stream. Fires for every turn-complete, including ones
+    // chatAdapter consumed itself — listeners are expected to gate on
+    // `thread.isRunning` to skip the local-driver case where the
+    // in-memory state is already current.
+    window.dispatchEvent(new CustomEvent('chat:turn-end', { detail: { threadId } }));
   }
   if (activeStreams.has(threadId)) return; // Active stream handles these
   console.warn(`[Preload:buffer] Buffering event type=${token?.type} for ${threadId} (no active stream)`);
@@ -575,7 +582,14 @@ contextBridge.exposeInMainWorld('chatAPI', {
         const message = err instanceof Error ? err.message : String(err);
         ipcRenderer.emit('chat:error', null, threadId, message);
       });
-    return createStreamIterator(threadId).stream;
+    // `release` is bound to THIS iterator's markDone, not the current slot
+    // occupant. If a takeover force-subscribes mid-turn (replacing this
+    // iterator with a new one), markDone's cleanup ownership check makes
+    // this release a harmless no-op on the new iterator instead of killing
+    // it. A global `activeStreams.get(threadId)?.()` would clobber the
+    // takeover and the takeover's resumeRun would terminate immediately.
+    const { stream, markDone } = createStreamIterator(threadId);
+    return { stream, release: markDone };
   },
   subscribe: (threadId: string, options?: { force?: boolean }) => {
     // Always ensure main-process forwarding is set up

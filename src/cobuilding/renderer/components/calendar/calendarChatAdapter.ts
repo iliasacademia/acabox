@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import type { ChatModelAdapter } from '@assistant-ui/react';
-import type { ChatMessageStream } from '../../../shared/types';
 import { responseBuilder, toAsyncIterable } from '../../chatAdapter';
 import { resetProgress } from '../../progressStore';
 
@@ -20,9 +19,8 @@ export function useCalendarChatAdapter(): ChatModelAdapter {
           .map((part) => part.text)
           .join('');
 
-        const responseStream = toAsyncIterable(
-          window.chatAPI.sendMessage(THREAD_ID, userText) as ChatMessageStream,
-        );
+        const { stream, release } = window.chatAPI.sendMessage(THREAD_ID, userText);
+        const responseStream = toAsyncIterable(stream);
 
         const response = responseBuilder();
         resetProgress();
@@ -39,6 +37,7 @@ export function useCalendarChatAdapter(): ChatModelAdapter {
         } finally {
           abortSignal.removeEventListener('abort', onAbort);
           resetProgress();
+          release();
         }
       },
     }),

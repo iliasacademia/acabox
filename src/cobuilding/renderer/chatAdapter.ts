@@ -74,9 +74,10 @@ function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefObject<(
       // surfaced via the chat:error channel that the stream iterator already
       // listens on. Awaiting across contextBridge would break the stream's
       // `next()` proxying — see preload's sendMessage comment.
-      const responseStream = toAsyncIterable(
-        window.chatAPI.sendMessage(threadId, userText, extractAttachments(lastUserMessage), model, pendingDocPath, messageId),
+      const { stream, release } = window.chatAPI.sendMessage(
+        threadId, userText, extractAttachments(lastUserMessage), model, pendingDocPath, messageId,
       );
+      const responseStream = toAsyncIterable(stream);
 
       const response = responseBuilder();
       resetProgress();
@@ -106,6 +107,15 @@ function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefObject<(
       } finally {
         abortSignal.removeEventListener('abort', onAbort);
         resetProgress();
+        // Free OUR stream iterator's slot. `release` is bound to the
+        // iterator returned by sendMessage above — if a takeover
+        // force-subscribed mid-turn and replaced it, this call's cleanup
+        // ownership check makes it a no-op on the takeover's iterator
+        // instead of killing it. A `chatAPI.releaseStream(threadId)` style
+        // call would do the latter and break the takeover's resumeRun.
+        // (Abort-path already calls markDone via `stopResponding`; this
+        // is a no-op in that case.)
+        release();
       }
     },
   };

@@ -74,7 +74,14 @@ export interface ChatAPI {
   // of a returned Promise, so awaiting across the bridge produces a
   // structured-cloned object whose `next` is undefined and the iterator
   // hangs forever.
-  sendMessage(threadId: string, text: string, attachments?: IPCAttachment[], model?: string, documentPath?: string, messageId?: string): ChatMessageStream;
+  /** Returns the response stream paired with a `release` callback bound to
+   *  this specific stream iterator. Callers MUST invoke `release()` when
+   *  finished consuming (normal exit, not abort — abort goes through
+   *  `stopResponding` which already releases). The binding ensures that if a
+   *  takeover force-subscribes mid-turn and replaces this iterator, the
+   *  caller's release is a no-op on the takeover's iterator rather than
+   *  terminating it. */
+  sendMessage(threadId: string, text: string, attachments?: IPCAttachment[], model?: string, documentPath?: string, messageId?: string): { stream: ChatMessageStream; release: () => void };
   /** `force: true` evicts any existing primary stream iterator and creates
    *  a fresh one. The evicted iterator's pending `next()` resolves with
    *  `done: true`, terminating its consumer cleanly. Needed when reattaching
