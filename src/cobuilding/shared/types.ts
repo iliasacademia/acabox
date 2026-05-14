@@ -106,6 +106,15 @@ export interface Workspace {
   last_accessed_at: string | null;
 }
 
+export interface WorkspaceDirectory {
+  id: string;
+  workspace_id: string;
+  directory_path: string;
+  display_name: string;
+  sort_order: number;
+  created_at: string;
+}
+
 export interface ScheduledTask {
   id: string;
   workspace_id: string;
