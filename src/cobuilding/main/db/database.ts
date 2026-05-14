@@ -350,6 +350,27 @@ const migrations = [
     version: 21,
     sql: `ALTER TABLE workspaces ADD COLUMN deleted_at TEXT DEFAULT NULL;`,
   },
+  {
+    version: 22,
+    sql: `
+      CREATE TABLE scanned_files_v22 (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        report_id TEXT REFERENCES workspace_reports(id) ON DELETE CASCADE,
+        file_path TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        file_type TEXT NOT NULL CHECK (file_type IN ('manuscript', 'grant', 'presentation', 'reference')),
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+      );
+      INSERT INTO scanned_files_v22
+        SELECT id, workspace_id, report_id, file_path, file_name, file_type, created_at
+        FROM scanned_files;
+      DROP TABLE scanned_files;
+      ALTER TABLE scanned_files_v22 RENAME TO scanned_files;
+      CREATE INDEX idx_scanned_files_workspace ON scanned_files(workspace_id);
+      CREATE INDEX idx_scanned_files_type ON scanned_files(workspace_id, file_type);
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database) {
