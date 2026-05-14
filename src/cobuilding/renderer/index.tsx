@@ -554,9 +554,13 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
   }, [workspace.directory_path]);
 
 
+  // Held in a ref so the chatAdapter's onSend callback always reads the
+  // latest setters without invalidating the adapter's memoized identity.
+  const navigateToChatDetailRef = useRef<() => void>(() => {});
+
   const runtime = useRemoteThreadListRuntime({
     runtimeHook: () => {
-      const chatAdapter = useElectronChatAdapter();
+      const chatAdapter = useElectronChatAdapter(() => navigateToChatDetailRef.current());
       const history = useThreadHistoryAdapter();
       const attachments = useMemo(
         () => createAttachmentAdapter(workspace.directory_path),
@@ -568,6 +572,14 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
     },
     adapter: sessionListAdapter,
   });
+
+  // Refresh on every render so we always close over the current state setters.
+  // Cheap — assigning a function reference.
+  navigateToChatDetailRef.current = () => {
+    setSidebarTab('chats');
+    setChatViewMode('detail');
+    deactivateAllTabs();
+  };
 
   const handleSelectFile = useCallback((filePath: string, from?: 'files' | 'chat') => {
     const ext = filePath.split('.').pop()?.toLowerCase();
@@ -993,14 +1005,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
            !(sidebarTab === 'tools' && toolsViewMode === 'detail' && activeTab?.kind === 'miniapp') &&
            !(sidebarTab === 'tools' && toolsViewMode === 'paper-monitor') &&
            !(sidebarTab === 'tools' && toolsViewMode === 'reactions') && (
-            <GlobalComposer
-              isInChatDetail={sidebarTab === 'chats' && chatViewMode === 'detail'}
-              onNavigateToChat={() => {
-                setSidebarTab('chats');
-                setChatViewMode('detail');
-                deactivateAllTabs();
-              }}
-            />
+            <GlobalComposer />
           )}
         </div>
         </div>
