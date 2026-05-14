@@ -519,6 +519,25 @@ function createMcpRelayServers(state: SessionState) {
         }, relay('grants', 'update_project')),
       ],
     }),
+
+    workspace: createSdkMcpServer({
+      name: 'workspace',
+      tools: [
+        tool('get_scanned_files',
+          'List files discovered in the workspace during the onboarding scan, with their type tags (manuscript, grant, presentation, reference). Optionally filter by file_type.',
+          {
+            file_type: z.enum(['manuscript', 'grant', 'presentation', 'reference']).optional()
+              .describe('Filter results to a specific file type. Returns all types if omitted.'),
+          },
+          relay('workspace', 'get_scanned_files'),
+        ),
+        tool('get_research_profile',
+          'Get the user\'s research profile generated during the workspace onboarding scan. Returns a summary of who the user is, their research field, and what they are currently working on.',
+          {},
+          relay('workspace', 'get_research_profile'),
+        ),
+      ],
+    }),
   };
 }
 
