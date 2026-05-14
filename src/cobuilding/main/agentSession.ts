@@ -115,6 +115,10 @@ export function createAgentSession(
   // turn-complete event so the renderer can correlate the response back to
   // the originating send. Null between turns and for legacy callers.
   const turnState: { currentMessageId: string | null } = { currentMessageId: null };
+  // Cursor into the agent-server's per-session event sequence. Updated as we
+  // parse `id:` lines from the SSE stream. On reconnect we send this as the
+  // `Last-Event-Id` header so the server resumes from the next event.
+  const sseCursor: { lastEventId: number | null } = { lastEventId: null };
   const sessionState = { stopped: false }; // object so connectSSE sees mutations by reference
 
   // Register the initial callbacks as the first listener
@@ -259,11 +263,32 @@ export function createAgentSession(
       }
       pendingMessages.length = 0;
 
-      // Connect to SSE event stream
+      // Connect to SSE event stream. connectSSE resolves on a clean terminal
+      // event ('done' or 'error') and rejects on transport failures
+      // (TCP reset, ECONNREFUSED, etc.). Wrap it so transport rejections
+      // trigger a bounded reconnect with `Last-Event-Id`, while clean
+      // terminations exit immediately.
       const eventUrl = `${agentBaseUrl}/sessions/${agentSessionId}/events`;
-      await connectSSE(eventUrl, state, sessionId, emitEvent, emitDone, emitError, sessionState, (req) => {
-        sseRequest = req;
-      }, agentBaseUrl, agentSessionId!, turnState);
+      const RETRY_BACKOFFS_MS = [250, 500, 1000, 2000, 5000];
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await connectSSE(eventUrl, state, sessionId, emitEvent, emitDone, emitError, sessionState, (req) => {
+            sseRequest = req;
+          }, agentBaseUrl, agentSessionId!, turnState, sseCursor);
+          break; // clean terminal event — done with this turn
+        } catch (err) {
+          if (sessionState.stopped) break;
+          if (attempt >= RETRY_BACKOFFS_MS.length) {
+            const msg = err instanceof Error ? err.message : String(err);
+            log.error(`[AgentSession] SSE failed to reconnect after ${RETRY_BACKOFFS_MS.length} attempts (lastEventId=${sseCursor.lastEventId}):`, msg);
+            throw err;
+          }
+          const backoff = RETRY_BACKOFFS_MS[attempt];
+          const errMsg = err instanceof Error ? err.message : String(err);
+          log.warn(`[AgentSession] SSE disconnected (${errMsg}); reconnecting in ${backoff}ms (attempt ${attempt + 1}/${RETRY_BACKOFFS_MS.length}, lastEventId=${sseCursor.lastEventId})`);
+          await new Promise((r) => setTimeout(r, backoff));
+        }
+      }
     } catch (err: unknown) {
       if (sessionState.stopped) {
         emitDone();
@@ -402,15 +427,22 @@ async function connectSSE(
   agentBaseUrl: string,
   agentSessionId: string,
   turnState: { currentMessageId: string | null },
+  sseCursor: { lastEventId: number | null },
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const parsed = new URL(url);
+    const headers: Record<string, string> = { Accept: 'text/event-stream' };
+    // On reconnect, ask the agent-server to resume from the last id we saw.
+    // First connection has no cursor and gets the full buffer (existing behavior).
+    if (sseCursor.lastEventId !== null) {
+      headers['Last-Event-Id'] = String(sseCursor.lastEventId);
+    }
     const req = http.request({
       hostname: parsed.hostname,
       port: parsed.port,
       path: parsed.pathname,
       method: 'GET',
-      headers: { Accept: 'text/event-stream' },
+      headers,
     }, (res) => {
       let buffer = '';
 
@@ -425,14 +457,23 @@ async function connectSSE(
           const lines = part.split('\n');
           let eventType = '';
           let data = '';
+          let eventId: number | null = null;
 
           for (const line of lines) {
             if (line.startsWith('event: ')) {
               eventType = line.slice(7);
             } else if (line.startsWith('data: ')) {
               data = line.slice(6);
+            } else if (line.startsWith('id: ')) {
+              const parsedId = Number.parseInt(line.slice(4), 10);
+              if (Number.isFinite(parsedId)) eventId = parsedId;
             }
           }
+
+          // Advance the cursor as soon as we've seen the id line, even if
+          // the event handler below errors. That way a partial-event failure
+          // still resumes from the right place on reconnect.
+          if (eventId !== null) sseCursor.lastEventId = eventId;
 
           if (!eventType || !data) continue;
 

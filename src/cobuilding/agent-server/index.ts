@@ -60,7 +60,13 @@ interface SessionState {
   sseClients: Set<ServerResponse>;
   running: boolean;
   stopped: boolean;
-  bufferedEvents: Array<{ event: string; data: unknown }>;
+  // Monotonic per-session counter stamped on every SSE event as `id:` so the
+  // host can replay from a known cursor after a reconnect.
+  eventSeq: number;
+  // Ring buffer of the most recent 500 events (drop-oldest). Stays populated
+  // even while clients are attached, so a reconnect with `Last-Event-Id` can
+  // replay anything the client missed during the disconnect window.
+  bufferedEvents: Array<{ id: number; event: string; data: unknown }>;
   pendingMcpCalls: Map<string, { resolve: (result: unknown) => void; reject: (error: Error) => void }>;
 }
 
@@ -616,6 +622,7 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
     sseClients: new Set(),
     running: false,
     stopped: false,
+    eventSeq: 0,
     bufferedEvents: [],
     pendingMcpCalls: new Map(),
   };
@@ -722,20 +729,26 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
   return state;
 }
 
+const SSE_RING_BUFFER_SIZE = 500;
+
 function broadcastSSE(state: SessionState, event: string, data: unknown): void {
   if (event === 'error') {
     console.error(`[AgentServer] Broadcasting error:`, JSON.stringify(data));
   }
 
-  if (state.sseClients.size === 0) {
-    // Cap buffer to prevent unbounded growth if SSE client is slow to connect
-    if (state.bufferedEvents.length < 500) {
-      state.bufferedEvents.push({ event, data });
-    }
-    return;
+  const id = ++state.eventSeq;
+
+  // Always retain the event in the ring buffer (drop oldest at cap) so a
+  // reconnect with `Last-Event-Id` can replay missed events, regardless of
+  // whether any client is currently attached.
+  state.bufferedEvents.push({ id, event, data });
+  if (state.bufferedEvents.length > SSE_RING_BUFFER_SIZE) {
+    state.bufferedEvents.shift();
   }
 
-  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  if (state.sseClients.size === 0) return;
+
+  const payload = formatSSEEvent(id, event, data);
   for (const client of state.sseClients) {
     client.write(payload);
     if (event === 'done' || event === 'error') {
@@ -745,6 +758,10 @@ function broadcastSSE(state: SessionState, event: string, data: unknown): void {
   if (event === 'done' || event === 'error') {
     state.sseClients.clear();
   }
+}
+
+function formatSSEEvent(id: number, event: string, data: unknown): string {
+  return `id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
 // ---------------------------------------------------------------------------
@@ -824,16 +841,26 @@ function startServer(config: AgentConfig): void {
           res.write(':ok\n\n');
           state.sseClients.add(res);
 
-          // Replay buffered events
+          // Replay events the client hasn't seen yet. `Last-Event-Id` is the
+          // last id the client processed; we resume from id+1. If the client
+          // has no cursor (fresh connect), replay the entire buffer.
+          const lastEventIdHeader = req.headers['last-event-id'];
+          const lastEventId = typeof lastEventIdHeader === 'string' ? Number.parseInt(lastEventIdHeader, 10) : NaN;
+          const resumeFrom = Number.isFinite(lastEventId) ? lastEventId : 0;
+          let replayed = 0;
           for (const buffered of state.bufferedEvents) {
-            const payload = `event: ${buffered.event}\ndata: ${JSON.stringify(buffered.data)}\n\n`;
-            res.write(payload);
+            if (buffered.id <= resumeFrom) continue;
+            res.write(formatSSEEvent(buffered.id, buffered.event, buffered.data));
+            replayed++;
             if (buffered.event === 'done' || buffered.event === 'error') {
               res.end();
               state.sseClients.delete(res);
+              break;
             }
           }
-          state.bufferedEvents = [];
+          if (Number.isFinite(lastEventId)) {
+            console.log(`[AgentServer] SSE reconnect sessionId=${route.sessionId} resumeFrom=${resumeFrom} replayed=${replayed}`);
+          }
 
           req.on('close', () => { state.sseClients.delete(res); });
           return;
