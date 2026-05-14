@@ -2,9 +2,10 @@ name: Build & Upload Core Image Tar
 
 on:
   push:
-    branches: [cobuild]
+    branches: [cobuild, melvyn/image-download, melvyn/image-download-2]
     paths:
       - 'src/cobuilding/Dockerfile.base-core'
+      - '.github/workflows/container-base-core.yml'
   workflow_dispatch:
 
 permissions:
