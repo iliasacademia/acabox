@@ -1,230 +1,166 @@
-import { useEffect, useState } from 'react';
-import { useThreadRuntime, useAuiState } from '@assistant-ui/react';
-import type { ChatStreamMessage, ChatMessageStream } from '../shared/types';
-import type { ThreadAssistantMessagePart, ToolCallMessagePart } from '@assistant-ui/react';
-import { setToolProgress, clearToolProgress, resetProgress, setSubagentStarted, updateSubagentProgress, setSubagentDone, setProcessingLabel } from './progressStore';
+import { useEffect, useRef, useState } from 'react';
+import { useAssistantRuntime, useThreadRuntime, useAuiState } from '@assistant-ui/react';
+import type { ChatStreamMessage } from '../shared/types';
+import { resetProgress } from './progressStore';
+import { responseBuilder, toAsyncIterable } from './chatAdapter';
+import { reloadThreadHistory } from './reloadThreadHistory';
 
 const IDLE_TIMEOUT_MS = 60_000;
 
 /**
- * Subscribes to agent session events whenever a thread is opened.
- * Assumes any thread might have a running session. If events arrive,
- * feeds them into the assistant-ui thread runtime via resumeRun().
- * Auto-unsubscribes after 60s of no new events (heartbeat events from
- * the agent session prevent this from firing during active processing).
+ * Subscribes to agent session events for the active thread and routes them
+ * into assistant-ui via `resumeRun`. Two entry conditions, gated by
+ * `chatAPI.isTurnInProgress` + the local `thread.isRunning`:
  *
- * Re-subscribes when sessions:changed fires, so overlay-initiated turns
- * that arrive after the idle timeout still show live processing state.
+ *   - **Idle thread**: subscribe and wait for the first event (foreign
+ *     turn started by overlay etc.), then `resumeRun`.
+ *   - **Reattach mid-turn**: the user navigated away while a local
+ *     chatAdapter run was streaming, then came back. chatAdapter's
+ *     generator returned (assistant-ui drops runs across
+ *     `switchToNewThread`), but its stream iterator stays registered in
+ *     preload's `activeStreams`, so a plain `subscribe` would defer to
+ *     the orphan and return a no-op. We force-subscribe to evict the
+ *     orphan, reload SQLite so the new `resumeRun` is parented to the
+ *     consolidated tail (without this each cycle stacks an in-flight
+ *     onto the previous one), and start the run eagerly.
+ *
+ * After the inner generator exits (turn-complete / abort / cancel), only
+ * the takeover path re-pulls SQLite to keep the chats-list view in sync
+ * with the SQLite-backed views (tools-list, sessions API). When
+ * chatAdapter is the driver, its own yields produced an already-consistent
+ * in-memory state and a reload would clobber it.
+ *
+ * Idle-timeout (60s) tears down on long silence; `sessions:changed` bumps
+ * an epoch to re-subscribe after that, so overlay-initiated turns that
+ * arrive late still get picked up.
  */
 export function useSessionSubscription() {
+  const runtime = useAssistantRuntime();
   const threadRuntime = useThreadRuntime();
   const remoteId = useAuiState((s: any) => s.threadListItem?.remoteId) as string | undefined;
-  // Bumped on sessions:changed to re-trigger the subscription effect,
-  // so a stale idle-timeout doesn't prevent picking up new overlay turns.
+  // Captured at effect-fire time. Keeping `isRunning` out of deps avoids
+  // churning the subscription on every transition.
+  const isRunningRef = useRef(false);
+  isRunningRef.current = useAuiState((s: any) => s.thread?.isRunning ?? false) as boolean;
   const [subscriptionEpoch, setSubscriptionEpoch] = useState(0);
 
   useEffect(() => {
     if (!remoteId) return;
-    const unsubscribe = window.sessionsAPI.onSessionsChanged(() => {
+    return window.sessionsAPI.onSessionsChanged(() => {
       setSubscriptionEpoch((e) => e + 1);
     });
-    return unsubscribe;
   }, [remoteId]);
 
   useEffect(() => {
     if (!remoteId) return;
 
-    const { stream, unsubscribe } = window.chatAPI.subscribe(remoteId);
     let cancelled = false;
     let started = false;
+    let driving = false;
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    let unsubscribe: (() => void) | null = null;
+
+    const cleanupLocal = () => {
+      cancelled = true;
+      if (idleTimer) clearTimeout(idleTimer);
+      unsubscribe?.();
+    };
 
     const resetIdleTimer = () => {
       if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => {
-        cancelled = true;
-        unsubscribe();
-      }, IDLE_TIMEOUT_MS);
+      idleTimer = setTimeout(cleanupLocal, IDLE_TIMEOUT_MS);
     };
 
-    // Start the idle timer immediately
-    resetIdleTimer();
+    void (async () => {
+      const serverTurnInProgress = await window.chatAPI.isTurnInProgress(remoteId);
+      if (cancelled) return;
+      const takeover = serverTurnInProgress && !isRunningRef.current;
 
-    (async () => {
-      const iterable = toAsyncIterable(stream);
+      const sub = window.chatAPI.subscribe(remoteId, takeover ? { force: true } : undefined);
+      unsubscribe = sub.unsubscribe;
+      if (cancelled) { sub.unsubscribe(); return; }
+      resetIdleTimer();
+
+      const iterable = toAsyncIterable(sub.stream);
       const response = responseBuilder();
 
-      for await (const msg of iterable) {
-        if (cancelled) break;
-        resetIdleTimer();
-        response.onMessage(msg);
+      // Resolved by the inner generator on exit. We need to act after the
+      // generator finishes — doing the post-turn reload earlier would race
+      // the import against final yields and orphan them.
+      let generatorDoneResolve: (() => void) | null = null;
+      const generatorDone = new Promise<void>((r) => { generatorDoneResolve = r; });
 
-        if (!started) {
-          started = true;
-          try {
-            const messages = threadRuntime.getState().messages;
-            const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : null;
-            threadRuntime.resumeRun({
-              parentId: lastMessageId,
-              stream: async function* ({ abortSignal }) {
-                const onAbort = () => window.chatAPI.stopResponding(remoteId!);
-                abortSignal.addEventListener('abort', onAbort, { once: true });
-
-                try {
-                  // Yield the first event we already processed
+      const startResumeRun = (firstMsg: ChatStreamMessage | null) => {
+        if (started) return;
+        started = true;
+        driving = true;
+        if (firstMsg) response.onMessage(firstMsg);
+        try {
+          const messages = threadRuntime.getState().messages;
+          const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : null;
+          threadRuntime.resumeRun({
+            parentId: lastMessageId,
+            stream: async function* ({ abortSignal }) {
+              const onAbort = () => window.chatAPI.stopResponding(remoteId!);
+              abortSignal.addEventListener('abort', onAbort, { once: true });
+              try {
+                yield { content: response.getContent() };
+                for await (const nextMsg of iterable) {
+                  if (abortSignal.aborted || cancelled) break;
+                  resetIdleTimer();
+                  response.onMessage(nextMsg);
                   yield { content: response.getContent() };
-
-                  // Continue yielding subsequent events
-                  for await (const nextMsg of iterable) {
-                    if (abortSignal.aborted || cancelled) break;
-                    resetIdleTimer();
-                    response.onMessage(nextMsg);
-                    yield { content: response.getContent() };
-                  }
-                } finally {
-                  abortSignal.removeEventListener('abort', onAbort);
+                  if (nextMsg.type === 'turn-complete') break;
                 }
-              },
-            });
-          } catch {
-            // Ignore — a concurrent run() from chatAdapter may already be active
-          }
-          break; // The inner generator now owns the stream iteration
+              } finally {
+                abortSignal.removeEventListener('abort', onAbort);
+                generatorDoneResolve?.();
+              }
+            },
+          });
+        } catch {
+          // Concurrent local run beat us to it — let it drive.
+          driving = false;
+          generatorDoneResolve?.();
+        }
+      };
+
+      if (takeover) {
+        window.debugAPI.log(`[useSessionSubscription] takeover for ${remoteId}`);
+        // Reload before resumeRun so the new in-flight message is parented
+        // to the consolidated SQLite tail. fromArray generates fresh IDs,
+        // which moves any prior takeover chain into an orphan branch and
+        // resets the rendered lineage to U1 → A_merged → A_inflight.
+        await reloadThreadHistory(runtime, remoteId);
+        if (cancelled) return;
+        startResumeRun(null);
+      } else {
+        for await (const msg of iterable) {
+          if (cancelled) break;
+          resetIdleTimer();
+          startResumeRun(msg);
+          break;
         }
       }
+
+      if (!driving) return;
+
+      await generatorDone;
+      if (cancelled || isRunningRef.current) return;
+      // The generator may have exited because a new local chatAdapter run
+      // claimed the stream — re-verify before clobbering its in-flight state.
+      const stillRunning = await window.chatAPI.isTurnInProgress(remoteId);
+      if (cancelled || isRunningRef.current || stillRunning) return;
+      window.debugAPI.log(`[useSessionSubscription] turn ended for ${remoteId} — reloading SQLite`);
+      await reloadThreadHistory(runtime, remoteId);
     })();
 
     return () => {
-      cancelled = true;
-      if (idleTimer) clearTimeout(idleTimer);
-      unsubscribe();
-      // Main-process signal — `unsubscribe()` above only tears down the
-      // local stream; the registry's visibility cleanup needs this.
+      cleanupLocal();
+      // Drops the registry's visibility refcount; local cleanup alone only
+      // tears down the renderer stream.
       window.chatAPI.unsubscribe(remoteId);
       resetProgress();
     };
-  }, [remoteId, threadRuntime, subscriptionEpoch]);
-}
-
-function toAsyncIterable(stream: ChatMessageStream): AsyncIterable<ChatStreamMessage> {
-  return {
-    [Symbol.asyncIterator]() {
-      return stream as AsyncIterator<ChatStreamMessage>;
-    },
-  };
-}
-
-function responseBuilder() {
-  const messages: ThreadAssistantMessagePart[] = [];
-  let streamingText = '';
-  let streamingReasoning = '';
-  let streamingToolCall: {
-    toolCallId: string;
-    toolName: string;
-    argsText: string;
-  } | null = null;
-
-  const getContent = (): ThreadAssistantMessagePart[] => {
-    const content: ThreadAssistantMessagePart[] = [...messages];
-    if (streamingReasoning) {
-      content.push({ type: 'reasoning', text: streamingReasoning });
-    }
-    if (streamingText) {
-      content.push({ type: 'text', text: streamingText });
-    }
-    if (streamingToolCall) {
-      content.push({
-        type: 'tool-call',
-        toolCallId: streamingToolCall.toolCallId,
-        toolName: streamingToolCall.toolName,
-        args: {} as any,
-        argsText: streamingToolCall.argsText,
-      });
-    }
-    return content;
-  };
-
-  const onMessage = (msg: ChatStreamMessage) => {
-    switch (msg.type) {
-      case 'thinking-delta':
-        streamingReasoning += msg.text;
-        return;
-      case 'thinking-end':
-        if (streamingReasoning) {
-          messages.push({ type: 'reasoning', text: streamingReasoning });
-          streamingReasoning = '';
-        }
-        return;
-      case 'tool-progress':
-        setToolProgress(msg.toolCallId, msg.toolName, msg.elapsedSeconds);
-        return;
-      case 'subagent-started':
-        setSubagentStarted(msg.parentToolCallId, msg.taskId, msg.description);
-        return;
-      case 'subagent-progress':
-        updateSubagentProgress(msg.parentToolCallId, {
-          summary: msg.summary,
-          lastToolName: msg.lastToolName,
-          toolUseCount: msg.toolUseCount,
-          durationMs: msg.durationMs,
-        });
-        return;
-      case 'subagent-done':
-        setSubagentDone(msg.parentToolCallId, msg.status, msg.summary);
-        return;
-      case 'text-delta':
-        streamingText += msg.text;
-        return;
-      case 'tool-call-start':
-        streamingToolCall = {
-          toolCallId: msg.toolCallId,
-          toolName: msg.toolName,
-          argsText: '',
-        };
-        return;
-      case 'tool-call-args-delta':
-        if (streamingToolCall) {
-          streamingToolCall.argsText += msg.argsText;
-        }
-        return;
-      case 'tool-call-end':
-        clearToolProgress(msg.toolCallId);
-        streamingToolCall = null;
-        return;
-      case 'text':
-        streamingText = '';
-        messages.push(msg);
-        return;
-      case 'tool-call':
-        streamingToolCall = null;
-        messages.push({
-          type: 'tool-call',
-          toolCallId: msg.toolCallId,
-          toolName: msg.toolName,
-          args: msg.args as any,
-          argsText: msg.argsText,
-        });
-        return;
-      case 'status':
-        setProcessingLabel((msg as any).status || null);
-        return;
-      case 'tool-result': {
-        clearToolProgress(msg.toolCallId);
-        const existingIndex = messages.findIndex(
-          (m) => m.type === 'tool-call' && m.toolCallId === msg.toolCallId,
-        );
-        if (existingIndex !== -1) {
-          const existing = messages[existingIndex];
-          messages[existingIndex] = {
-            ...(existing as ToolCallMessagePart),
-            result: msg.result,
-            isError: msg.isError,
-          };
-        }
-        return;
-      }
-    }
-  };
-
-  return { onMessage, getContent };
+  }, [remoteId, threadRuntime, runtime, subscriptionEpoch]);
 }
