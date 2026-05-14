@@ -2559,6 +2559,13 @@ ipcMain.on('chat:subscribe', (event, threadId: string) => {
   ensureForwarding(threadId, event.sender);
 });
 
+// Authoritative server-side "is the agent mid-turn on this thread" signal.
+// Survives renderer detach/reattach, unlike assistant-ui's `thread.isRunning`
+// which is tied to the local run generator's lifetime.
+ipcMain.handle('chat:isTurnInProgress', (_event, threadId: string): boolean => {
+  return getRegisteredSession(threadId)?.isTurnInProgress ?? false;
+});
+
 // Renderer signals it's no longer viewing this thread. Whether the
 // session itself is torn down is the registry's decision.
 ipcMain.on('chat:unsubscribe', (event, threadId: string) => {

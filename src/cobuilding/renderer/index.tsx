@@ -28,6 +28,7 @@ import { sessionListAdapter } from './sessionListAdapter';
 import { useThreadHistoryAdapter } from './threadHistoryAdapter';
 import { createAttachmentAdapter } from './attachmentAdapter';
 import { useSessionSubscription } from './useSessionSubscription';
+import { reloadThreadHistory } from './reloadThreadHistory';
 import WorkspaceOnboarding from './components/WorkspaceOnboarding';
 import ScanningProgress from './components/ScanningProgress';
 import ScanResultsReview from './components/ScanResultsReview';
@@ -189,38 +190,6 @@ function SessionTitleUpdater() {
   return null;
 }
 
-/**
- * Force a thread's history adapter to re-fetch from SQLite and merge
- * the new state into assistant-ui's repository.
- *
- * assistant-ui's `LocalThreadRuntimeCore` caches `load()` in `_loadPromise`
- * and only calls the adapter once per thread per runtime lifetime. By
- * clearing that field and re-invoking `__internal_load()`, the adapter is
- * called again; `repository.import()` then upserts the messages so any
- * blocks the agent persisted while the user was elsewhere (or while a
- * foreign surface drove the turn) become visible without a remount.
- *
- * Safe to call repeatedly — `import` is upsert; calling during an
- * in-flight load just makes the next load wait its turn. No-ops cleanly
- * if the runtime hasn't materialized the per-thread core yet.
- */
-function reloadThreadHistory(runtime: any, threadId: string): void {
-  try {
-    const threadsCore = runtime?._core?.threads;
-    const threadCore = threadsCore?.getThreadRuntimeCore?.(threadId)
-      ?? threadsCore?._threads?.get?.(threadId)
-      ?? null;
-    if (!threadCore) {
-      window.debugAPI.log(`[ReloadThreadHistory] threadId=${threadId} skipped — no thread core`);
-      return;
-    }
-    threadCore._loadPromise = null;
-    threadCore.__internal_load?.();
-    window.debugAPI.log(`[ReloadThreadHistory] threadId=${threadId} reloaded`);
-  } catch (err) {
-    console.warn('[ReloadThreadHistory] failed', err);
-  }
-}
 
 /**
  * Refresh the thread list when main broadcasts `sessions:changed`
@@ -309,7 +278,7 @@ function ForeignTurnWatcherDesktop() {
       // `_loadHistoryPromise`, which don't exist on this assistant-ui
       // version — the real internals are `__internal_load` /
       // `_loadPromise`, used by `reloadThreadHistory`.
-      reloadThreadHistory(runtime, sessionId);
+      void reloadThreadHistory(runtime, sessionId);
     });
     return unsubscribe;
   }, [runtime]);
@@ -318,22 +287,32 @@ function ForeignTurnWatcherDesktop() {
 }
 
 /**
- * Reload the active thread's history from SQLite every time the user
- * enters chat detail (or switches to a different thread while in detail).
+ * Reloads the active thread's history from SQLite when entering chat detail
+ * or switching threads. Skips when a turn is in flight — `import` resets the
+ * message tree, which orphans the in-flight assistant message and silences
+ * `ProcessingIndicator`.
  *
- * SQLite is the durable record of every agent block: the SSE reader writes
- * a row for every assistant message, tool_result, and result it receives,
- * even when no surface is watching. The renderer just needs to re-read on
- * return to see what the background agent produced — no extra buffer or
- * subscription is required.
+ * Two signals together: `thread.isRunning` covers the just-sent window
+ * before the agent loop has flipped `turnState.turnInProgress`;
+ * `isTurnInProgress` covers reattach after the local run has ended but
+ * the server-side turn continues. Both checked so each window is caught.
  */
 function RefreshOnEnterChatDetail({ isInChatDetail }: { isInChatDetail: boolean }) {
   const runtime = useAssistantRuntime();
   const activeRemoteId = useAuiState((s: any) => s.threadListItem?.remoteId) as string | undefined;
+  const isRunningRef = useRef(false);
+  isRunningRef.current = useAuiState((s: any) => s.thread?.isRunning ?? false) as boolean;
 
   useEffect(() => {
     if (!isInChatDetail || !activeRemoteId) return;
-    reloadThreadHistory(runtime, activeRemoteId);
+    let cancelled = false;
+    void (async () => {
+      if (isRunningRef.current) return;
+      const inProgress = await window.chatAPI.isTurnInProgress(activeRemoteId);
+      if (cancelled || isRunningRef.current || inProgress) return;
+      void reloadThreadHistory(runtime, activeRemoteId);
+    })();
+    return () => { cancelled = true; };
   }, [isInChatDetail, activeRemoteId, runtime]);
 
   return null;

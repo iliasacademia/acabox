@@ -601,7 +601,9 @@ async function connectSSE(
           if (eventType === 'message') {
             try {
               const message = JSON.parse(data) as SDKMessage;
-              log.debug(`[AgentSession:SSE] message type=${message.type}`);
+              if (message.type !== 'stream_event') {
+                log.debug(`[AgentSession:SSE] message type=${message.type}`);
+              }
               processQueryMessage(message, state, emitEvent);
 
               if (message.type === 'system') {

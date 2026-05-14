@@ -1208,7 +1208,7 @@ class CobuildingContainerService {
     if (!running) {
       onProgress?.('start-machine', 'Starting Podman VM...');
       log.debug('[ContainerService] Machine not running, starting...');
-      await this.spawnAndWait(podmanBin, ['machine', 'start'], env, 'machine start');
+      await this.startMachineIdempotent(podmanBin, env);
     }
 
     // Verify the API socket is actually responsive. podman machine list
@@ -1228,7 +1228,7 @@ class CobuildingContainerService {
       }
 
       onProgress?.('start-machine', 'Restarting Podman VM...');
-      await this.spawnAndWait(podmanBin, ['machine', 'start'], env, 'machine start');
+      await this.startMachineIdempotent(podmanBin, env);
 
       const readyAfterRestart = await this.waitForSocket(podmanBin, env, 10, 2000);
       if (!readyAfterRestart) {
@@ -1238,6 +1238,23 @@ class CobuildingContainerService {
         );
       }
       log.info('[ContainerService] Machine recovered — connection config refreshed by machine start');
+    }
+  }
+
+  // `podman machine start` exits 125 with "VM already running or starting"
+  // when another caller is already starting (or has just started) the VM.
+  // That's the state we want, so treat it as success. Happens in practice when
+  // multiple renderer windows each fire ensureSetup() concurrently.
+  private async startMachineIdempotent(podmanBin: string, env: NodeJS.ProcessEnv): Promise<void> {
+    try {
+      await this.spawnAndWait(podmanBin, ['machine', 'start'], env, 'machine start');
+    } catch (err) {
+      const msg = (err as Error).message || '';
+      if (msg.includes('VM already running or starting')) {
+        log.info('[ContainerService] machine start: VM already running or starting — treating as success');
+        return;
+      }
+      throw err;
     }
   }
 

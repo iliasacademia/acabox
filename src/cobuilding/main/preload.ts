@@ -576,11 +576,11 @@ contextBridge.exposeInMainWorld('chatAPI', {
       });
     return createStreamIterator(threadId).stream;
   },
-  subscribe: (threadId: string) => {
+  subscribe: (threadId: string, options?: { force?: boolean }) => {
     // Always ensure main-process forwarding is set up
     ipcRenderer.send('chat:subscribe', threadId);
 
-    if (activeStreams.has(threadId)) {
+    if (!options?.force && activeStreams.has(threadId)) {
       // sendMessage already owns a primary stream for this thread.
       // Return an immediately-done stream so the subscription defers to chatAdapter
       // instead of creating a competing consumer.
@@ -592,6 +592,11 @@ contextBridge.exposeInMainWorld('chatAPI', {
       };
     }
 
+    if (options?.force && activeStreams.has(threadId)) {
+      console.debug(`[StreamIterator] subscribe: force-taking over existing primary stream for ${threadId}`);
+    }
+    // createStreamIterator already calls markDone on any existing entry in
+    // activeStreams, so force is implemented by simply not short-circuiting.
     const { stream, markDone } = createStreamIterator(threadId);
     return { stream, unsubscribe: () => { markDone(); } };
   },
@@ -604,6 +609,9 @@ contextBridge.exposeInMainWorld('chatAPI', {
   stopResponding: (threadId: string) => {
     activeStreams.get(threadId)?.();
     ipcRenderer.send('chat:stop', threadId);
+  },
+  isTurnInProgress: (threadId: string): Promise<boolean> => {
+    return ipcRenderer.invoke('chat:isTurnInProgress', threadId);
   },
 });
 

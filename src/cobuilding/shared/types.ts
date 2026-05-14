@@ -75,7 +75,13 @@ export interface ChatAPI {
   // structured-cloned object whose `next` is undefined and the iterator
   // hangs forever.
   sendMessage(threadId: string, text: string, attachments?: IPCAttachment[], model?: string, documentPath?: string, messageId?: string): ChatMessageStream;
-  subscribe(threadId: string): ChatSubscription;
+  /** `force: true` evicts any existing primary stream iterator and creates
+   *  a fresh one. The evicted iterator's pending `next()` resolves with
+   *  `done: true`, terminating its consumer cleanly. Needed when reattaching
+   *  to a thread with a server-side turn in progress but no live local
+   *  consumer — otherwise subscribe returns a no-op stream and the renderer
+   *  can't drive resumeRun. */
+  subscribe(threadId: string, options?: { force?: boolean }): ChatSubscription;
   /** Tell main the renderer has navigated away from this thread. Does NOT
    *  cancel the current turn — the agent runs to completion, then the
    *  registry evicts the session if no other surface remains subscribed.
@@ -84,6 +90,10 @@ export interface ChatAPI {
   unsubscribe(threadId: string): void;
   stopResponding(threadId: string): void;
   onQuickChatInject(callback: (data: { text: string; context: any }) => void): () => void;
+  /** Server-side authoritative check for whether the agent is currently mid-turn
+   *  on this thread. Unlike assistant-ui's `thread.isRunning`, this survives the
+   *  renderer's chatAdapter run ending (e.g. when the user navigates away). */
+  isTurnInProgress(threadId: string): Promise<boolean>;
 }
 
 export interface Workspace {

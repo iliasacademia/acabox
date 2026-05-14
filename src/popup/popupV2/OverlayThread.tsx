@@ -298,7 +298,7 @@ const ProcessingIndicator: FC = () => {
   return (
     <div className="processingIndicator">
       <LoaderIcon className="processingIndicatorIcon" />
-      <span className="processingIndicatorLabel">Processing</span>
+      <span className="processingIndicatorLabel">Processing...</span>
     </div>
   );
 };
