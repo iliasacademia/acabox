@@ -35,14 +35,16 @@ export type ChatStreamMessage =
   // Turn complete — the agent finished this turn's response. Unlike chat:done
   // (which kills the stream iterator), this is a regular event that the
   // chatAdapter uses to break from its loop while keeping the stream alive.
-  | { type: 'turn-complete' }
+  // `messageId` correlates back to the user turn that prompted this response;
+  // null for legacy turns that started before the messageId plumbing landed.
+  | { type: 'turn-complete'; messageId?: string }
   // Cross-surface user message — emitted server-side right after a user
   // message is inserted into the DB, so subscribers on OTHER surfaces
   // (the desktop chat when the overlay sent it, or vice versa) can refresh
   // and show the user turn before the assistant streams. Without this, the
   // assistant's reply lands via the existing fanout but the prompting user
   // turn stays missing on the non-originating surface.
-  | { type: 'user-message'; text: string };
+  | { type: 'user-message'; text: string; messageId?: string };
 
 export interface ChatMessageStream {
   next(): Promise<{ value: ChatStreamMessage | null; done: boolean }>;
@@ -62,7 +64,7 @@ export interface ChatSubscription {
 }
 
 export interface ChatAPI {
-  sendMessage(threadId: string, text: string, attachments?: IPCAttachment[], model?: string, documentPath?: string): ChatMessageStream;
+  sendMessage(threadId: string, text: string, attachments?: IPCAttachment[], model?: string, documentPath?: string, messageId?: string): ChatMessageStream;
   subscribe(threadId: string): ChatSubscription;
   stopResponding(threadId: string): void;
   onQuickChatInject(callback: (data: { text: string; context: any }) => void): () => void;

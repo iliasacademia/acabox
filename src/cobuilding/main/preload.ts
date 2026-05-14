@@ -548,8 +548,8 @@ contextBridge.exposeInMainWorld('chatAPI', {
     ipcRenderer.on('quick-chat:inject', handler);
     return () => { ipcRenderer.removeListener('quick-chat:inject', handler); };
   },
-  sendMessage: (threadId: string, text: string, attachments?: any[], model?: string, documentPath?: string) => {
-    ipcRenderer.send('chat:send', { threadId, text, attachments, model, documentPath });
+  sendMessage: (threadId: string, text: string, attachments?: any[], model?: string, documentPath?: string, messageId?: string) => {
+    ipcRenderer.send('chat:send', { threadId, text, attachments, model, documentPath, messageId });
     return createStreamIterator(threadId).stream;
   },
   subscribe: (threadId: string) => {

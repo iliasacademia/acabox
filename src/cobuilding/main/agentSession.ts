@@ -85,7 +85,10 @@ export interface ChatCallbacks {
 }
 
 export interface AgentSession {
-  sendMessage(userMessage: string, attachments?: IPCAttachment[]): void;
+  // `messageId` is a renderer-generated UUID that correlates a turn end-to-end.
+  // Optional so internal callers (scheduled tasks, calendar) that don't model
+  // turns this way can omit it.
+  sendMessage(userMessage: string, attachments?: IPCAttachment[], messageId?: string): void;
   destroy(): void;
   addListener(callbacks: Partial<ChatCallbacks>): () => void;
   readonly isRunning: boolean;
@@ -106,7 +109,12 @@ export function createAgentSession(
   let running = true;
   let agentSessionId: string | null = null;
   let sseRequest: http.ClientRequest | null = null;
-  const pendingMessages: Array<{ text: string; attachments?: IPCAttachment[] }> = [];
+  const pendingMessages: Array<{ text: string; attachments?: IPCAttachment[]; messageId?: string }> = [];
+  // The messageId of the user turn currently being processed. Set by
+  // sendMessage(), read by the SSE reader when it emits the synthetic
+  // turn-complete event so the renderer can correlate the response back to
+  // the originating send. Null between turns and for legacy callers.
+  const turnState: { currentMessageId: string | null } = { currentMessageId: null };
   const sessionState = { stopped: false }; // object so connectSSE sees mutations by reference
 
   // Register the initial callbacks as the first listener
@@ -246,7 +254,7 @@ export function createAgentSession(
       for (const pending of pendingMessages) {
         httpPost(
           `${agentBaseUrl}/sessions/${agentSessionId}/messages`,
-          JSON.stringify({ text: pending.text, attachments: pending.attachments }),
+          JSON.stringify({ text: pending.text, attachments: pending.attachments, messageId: pending.messageId }),
         ).catch((err) => log.error('[AgentSession] Failed to send pending message:', err));
       }
       pendingMessages.length = 0;
@@ -255,7 +263,7 @@ export function createAgentSession(
       const eventUrl = `${agentBaseUrl}/sessions/${agentSessionId}/events`;
       await connectSSE(eventUrl, state, sessionId, emitEvent, emitDone, emitError, sessionState, (req) => {
         sseRequest = req;
-      }, agentBaseUrl, agentSessionId!);
+      }, agentBaseUrl, agentSessionId!, turnState);
     } catch (err: unknown) {
       if (sessionState.stopped) {
         emitDone();
@@ -271,7 +279,11 @@ export function createAgentSession(
   })();
 
   return {
-    sendMessage(userMessage: string, attachments?: IPCAttachment[]) {
+    sendMessage(userMessage: string, attachments?: IPCAttachment[], messageId?: string) {
+      // Stamp the turn so the SSE reader's synthetic turn-complete event can
+      // include the same messageId. Cleared when the turn completes.
+      turnState.currentMessageId = messageId ?? null;
+
       const storedAttachments = attachments?.map((att) => {
         if (att.type === 'file_reference') {
           return { type: att.type, filePath: att.filePath, name: att.name };
@@ -283,13 +295,13 @@ export function createAgentSession(
           title: att.type === 'document' ? att.title : undefined,
         };
       });
-      insertMessage(sessionId, 'user', JSON.stringify({ text: userMessage, attachments: storedAttachments }));
+      insertMessage(sessionId, 'user', JSON.stringify({ text: userMessage, attachments: storedAttachments }), messageId);
       // Broadcast the user message to every surface subscribed to this
       // session. Without this, a message typed in the overlay would land
       // in SQLite but the desktop chat (subscribing via IPC fanout) would
       // never see the user turn — only the assistant's streamed reply.
-      log.info(`[AgentSession] emitting user-message sessionId=${sessionId} textLen=${userMessage.length}`);
-      emitEvent({ type: 'user-message', text: userMessage });
+      log.info(`[AgentSession] emitting user-message sessionId=${sessionId} messageId=${messageId ?? '(none)'} textLen=${userMessage.length}`);
+      emitEvent({ type: 'user-message', text: userMessage, messageId });
 
       const processedText = messagePreprocessor ? messagePreprocessor(userMessage) : userMessage;
 
@@ -304,12 +316,12 @@ export function createAgentSession(
       if (agentSessionId) {
         httpPost(
           `${agentBaseUrl}/sessions/${agentSessionId}/messages`,
-          JSON.stringify({ text: processedText, attachments: translatedAttachments }),
+          JSON.stringify({ text: processedText, attachments: translatedAttachments, messageId }),
         ).catch((err) => log.error('[AgentSession] Failed to send message:', err));
       } else {
         // Session not ready yet — queue the message for delivery after creation
         log.debug('[AgentSession] Session not ready, queuing message');
-        pendingMessages.push({ text: processedText, attachments: translatedAttachments });
+        pendingMessages.push({ text: processedText, attachments: translatedAttachments, messageId });
       }
     },
 
@@ -389,6 +401,7 @@ async function connectSSE(
   onRequest: (req: http.ClientRequest) => void,
   agentBaseUrl: string,
   agentSessionId: string,
+  turnState: { currentMessageId: string | null },
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const parsed = new URL(url);
@@ -433,25 +446,29 @@ async function connectSSE(
                 setSdkSessionId(sessionId, (message as any).session_id);
               }
               if (message.type === 'assistant' && (message as any).message?.content) {
-                insertMessage(sessionId, 'assistant', JSON.stringify((message as any).message.content));
+                insertMessage(sessionId, 'assistant', JSON.stringify((message as any).message.content), turnState.currentMessageId ?? undefined);
               }
               if (message.type === 'user' && (message as any).message?.content) {
                 const content = (message as any).message.content;
                 if (Array.isArray(content)) {
                   const hasToolResults = content.some((b: any) => typeof b !== 'string' && b.type === 'tool_result');
                   if (hasToolResults) {
-                    insertMessage(sessionId, 'tool_result', JSON.stringify(content));
+                    insertMessage(sessionId, 'tool_result', JSON.stringify(content), turnState.currentMessageId ?? undefined);
                   }
                 }
               }
               if (message.type === 'result') {
-                log.info(`[AgentSession:SSE] RESULT received, emitting turn-complete`);
+                const completedMessageId = turnState.currentMessageId;
+                log.info(`[AgentSession:SSE] RESULT received, emitting turn-complete messageId=${completedMessageId ?? '(none)'}`);
                 insertMessage(sessionId, 'result', JSON.stringify({
                   subtype: (message as any).subtype,
                   result: (message as any).subtype === 'success' ? (message as any).result : undefined,
                   is_error: (message as any).is_error,
-                }));
-                emitEvent({ type: 'turn-complete' } as ChatStreamMessage);
+                }), completedMessageId ?? undefined);
+                emitEvent({ type: 'turn-complete', messageId: completedMessageId ?? undefined } as ChatStreamMessage);
+                // Turn over — clear so a subsequent send's messageId isn't
+                // inherited if the SSE stream emits stray events.
+                turnState.currentMessageId = null;
               }
             } catch (err) {
               log.error('[AgentSession] Failed to parse SSE message:', err);

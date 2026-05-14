@@ -49,8 +49,13 @@ function createElectronChatAdapter(aui: any): ChatModelAdapter {
         delete (window as any).__nextSessionDocumentPath;
       }
 
+      // Single correlation id for the full renderer → main → agent-server →
+      // SSE round-trip. Grep this id across logs to reconstruct a turn.
+      const messageId = crypto.randomUUID();
+      console.log(`[ChatAdapter] send messageId=${messageId} threadId=${threadId} textLen=${userText.length}`);
+
       const responseStream = toAsyncIterable(
-        window.chatAPI.sendMessage(threadId, userText, extractAttachments(lastUserMessage), model, pendingDocPath),
+        window.chatAPI.sendMessage(threadId, userText, extractAttachments(lastUserMessage), model, pendingDocPath, messageId),
       );
 
       const response = responseBuilder();

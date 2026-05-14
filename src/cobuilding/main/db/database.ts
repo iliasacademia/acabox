@@ -350,6 +350,18 @@ const migrations = [
     version: 21,
     sql: `ALTER TABLE workspaces ADD COLUMN deleted_at TEXT DEFAULT NULL;`,
   },
+  {
+    // messageId end-to-end: a renderer-generated UUID that correlates a turn
+    // across renderer → main → agent-server → SSE events → DB. Nullable so
+    // historical rows from before this column existed remain untouched.
+    // The partial index supports dedup lookups (PR2) without bloating storage
+    // for the legacy NULL rows.
+    version: 22,
+    sql: `
+      ALTER TABLE messages ADD COLUMN message_id TEXT DEFAULT NULL;
+      CREATE INDEX idx_messages_message_id ON messages(message_id) WHERE message_id IS NOT NULL;
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database) {

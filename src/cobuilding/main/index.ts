@@ -2397,18 +2397,20 @@ async function generateSessionTitle(sessionId: string, firstMessage: string): Pr
   }
 }
 
-ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPath }: { threadId: string; text: string; attachments?: IPCAttachment[]; model?: string; documentPath?: string }) => {
+ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPath, messageId }: { threadId: string; text: string; attachments?: IPCAttachment[]; model?: string; documentPath?: string; messageId?: string }) => {
   if (!activeWorkspace) {
     event.sender.send('chat:error', threadId, 'No active workspace');
     return;
   }
+
+  log.info(`[chat:send] messageId=${messageId ?? '(none)'} threadId=${threadId} textLen=${text.length}`);
 
   const existingRunning = getRegisteredSession(threadId);
   if (existingRunning?.isRunning) {
     // Session is already running (e.g. scheduled task or previous user chat).
     // Ensure IPC forwarding is set up (idempotent — won't duplicate).
     ensureForwarding(threadId, event.sender);
-    existingRunning.sendMessage(text, attachments);
+    existingRunning.sendMessage(text, attachments, messageId);
     return;
   }
 
@@ -2474,7 +2476,7 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPa
   // Also fan events out to overlays watching this session — they live on
   // the WKWebView side of an HTTP boundary so the IPC path can't reach them.
   ensureSseFanout(threadId);
-  getRegisteredSession(threadId)!.sendMessage(text, attachments);
+  getRegisteredSession(threadId)!.sendMessage(text, attachments, messageId);
 
   if (isFirstMessage && !isCalendarSession) {
     generateSessionTitle(threadId, text);

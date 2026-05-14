@@ -15,6 +15,7 @@ export interface Message {
   session_id: string;
   type: string;
   content: string;
+  message_id: string | null;
   created_at: string;
 }
 
@@ -104,12 +105,13 @@ export function insertMessage(
   sessionId: string,
   type: string,
   content: string,
+  messageId?: string,
 ): number {
   const result = getDatabase()
     .prepare(
-      'INSERT INTO messages (session_id, type, content) VALUES (?, ?, ?)',
+      'INSERT INTO messages (session_id, type, content, message_id) VALUES (?, ?, ?, ?)',
     )
-    .run(sessionId, type, content);
+    .run(sessionId, type, content, messageId ?? null);
 
   // Touch the session's updated_at
   getDatabase()

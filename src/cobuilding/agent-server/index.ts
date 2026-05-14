@@ -804,6 +804,10 @@ function startServer(config: AgentConfig): void {
         // POST /sessions/:id/messages
         if (route.action === 'messages' && req.method === 'POST') {
           const body = JSON.parse(await readBody(req));
+          // messageId is a host-generated correlation id for the turn. We just
+          // log it here so an engineer grepping for the id can see when the
+          // container received the corresponding POST.
+          console.log(`[AgentServer] message received sessionId=${route.sessionId} messageId=${body.messageId ?? '(none)'} textLen=${(body.text ?? '').length}`);
           state.messageQueue.push({ text: body.text ?? '', attachments: body.attachments });
           sendJSON(res, 200, { ok: true });
           return;
