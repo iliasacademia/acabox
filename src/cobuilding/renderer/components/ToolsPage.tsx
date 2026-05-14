@@ -79,8 +79,8 @@ function hoursAgoIso(hours: number): string {
 
 const AVAILABLE_TOOLS_STUB: AvailableStub[] = [
   {
-    name: 'Introduction Review',
-    description: 'Review the introduction section of your manuscript and propose edits in MS Word',
+    name: 'Peer Review',
+    description: 'Review your manuscript and provide structured feedback in MS Word',
     tag: 'ON-DEMAND',
     preBuilt: true,
     lastOpened: hoursAgoIso(2),
