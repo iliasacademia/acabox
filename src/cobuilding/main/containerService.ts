@@ -2449,7 +2449,8 @@ class CobuildingContainerService {
     });
   }
 
-  private async pruneImages(podmanBin: string): Promise<void> {
+  async pruneImages(podmanBinOverride?: string): Promise<void> {
+    const podmanBin = podmanBinOverride ?? this.getPodmanBin();
     try {
       await this.logDiskUsage('pre-prune');
       const pruneArgs = skipImageBuild()

@@ -33,6 +33,8 @@ export const PodmanDebug: React.FC = () => {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [skipImageBuild, setSkipImageBuild] = useState(false);
+  const [pruning, setPruning] = useState(false);
+  const [pruneResult, setPruneResult] = useState<string | null>(null);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -233,6 +235,20 @@ export const PodmanDebug: React.FC = () => {
       setBundledDownloaded(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handlePruneImages = async () => {
+    setPruning(true);
+    setPruneResult(null);
+    setError(null);
+    try {
+      await window.debugAPI.pruneImages();
+      setPruneResult('Prune complete — check logs for details');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPruning(false);
     }
   };
 
@@ -461,7 +477,18 @@ export const PodmanDebug: React.FC = () => {
         >
           {stopping ? 'Stopping...' : 'Stop'}
         </button>
+        <button
+          className="debugSection__btn"
+          onClick={handlePruneImages}
+          disabled={pruning}
+          title="Remove unused images and reclaim VM disk space"
+        >
+          {pruning ? 'Pruning...' : 'Prune Images'}
+        </button>
       </div>
+      {pruneResult && (
+        <span style={{ fontSize: 12, color: '#28a745', marginTop: 4, display: 'block' }}>{pruneResult}</span>
+      )}
 
       {running && overlayEnabled && (
         <div style={{ margin: '12px 0', padding: '12px', background: '#f0f7ff', borderRadius: 6, border: '1px solid #b3d4fc' }}>
