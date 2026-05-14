@@ -315,7 +315,13 @@ export function createAgentSession(
     sendMessage(userMessage: string, attachments?: IPCAttachment[], messageId?: string) {
       // Stamp the turn so the SSE reader's synthetic turn-complete event can
       // include the same messageId. Cleared when the turn completes.
-      turnState.currentMessageId = messageId ?? null;
+      // Only update when a messageId is actually provided — callers without
+      // one (overlay HTTP/WS, scheduled tasks) must not clobber an existing
+      // turn's correlation. The result handler is responsible for clearing
+      // back to null when its turn finishes.
+      if (messageId) {
+        turnState.currentMessageId = messageId;
+      }
 
       const storedAttachments = attachments?.map((att) => {
         if (att.type === 'file_reference') {
