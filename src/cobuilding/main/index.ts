@@ -28,7 +28,7 @@ import {
   setBriefingStatus,
   type BriefingStatus,
 } from './db/briefingsRepository';
-import { getScannedFilesByType, getScannedFiles } from './db/scannedFilesRepository';
+import { getScannedFilesByType, getScannedFiles, updateFileTag, removeFileTag } from './db/scannedFilesRepository';
 import { kernelGatewayService } from './kernelGatewayService';
 import { initDatabase, getDatabase, closeDatabase } from './db/database';
 import { initObservationsDatabase, getObservationsDatabase, closeObservationsDatabase } from './db/observationsDatabase';
@@ -1320,6 +1320,21 @@ ipcMain.handle('scannedFiles:getAll', () => {
   const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return [];
   return getScannedFiles(activeWorkspace.id);
+});
+
+ipcMain.handle(
+  'scannedFiles:updateTag',
+  (_event, filePath: string, fileName: string, fileType: string) => {
+    const activeWorkspace = workspaceController.activeWorkspace;
+    if (!activeWorkspace) return;
+    updateFileTag(activeWorkspace.id, filePath, fileName, fileType);
+  },
+);
+
+ipcMain.handle('scannedFiles:removeTag', (_event, filePath: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
+  if (!activeWorkspace) return;
+  removeFileTag(activeWorkspace.id, filePath);
 });
 
 // ─── Directory Scanner IPC ──────────────────────────────────────

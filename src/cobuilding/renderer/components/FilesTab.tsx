@@ -282,6 +282,32 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile, onFil
     await window.filesAPI.revealInFinder(targetPath);
   }, [contextMenu]);
 
+  const handleSetTag = useCallback(async (tagType: FileTagType) => {
+    if (!contextMenu || contextMenu.node.isDirectory) return;
+    const node = contextMenu.node;
+    setContextMenu(null);
+    const relPath = node.path.startsWith(workspacePath + '/')
+      ? node.path.slice(workspacePath.length + 1)
+      : node.path;
+    await window.scannedFilesAPI.updateTag(relPath, node.name, tagType);
+    setFileTagMap((prev) => new Map(prev).set(relPath, tagType));
+  }, [contextMenu, workspacePath]);
+
+  const handleRemoveTag = useCallback(async () => {
+    if (!contextMenu || contextMenu.node.isDirectory) return;
+    const node = contextMenu.node;
+    setContextMenu(null);
+    const relPath = node.path.startsWith(workspacePath + '/')
+      ? node.path.slice(workspacePath.length + 1)
+      : node.path;
+    await window.scannedFilesAPI.removeTag(relPath);
+    setFileTagMap((prev) => {
+      const next = new Map(prev);
+      next.delete(relPath);
+      return next;
+    });
+  }, [contextMenu, workspacePath]);
+
   const handleRenameNodePath = useCallback((path: string) => {
     setRenamingPath(path);
   }, []);
@@ -475,6 +501,36 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile, onFil
               <button className="fileTreeContextMenuItem" onClick={() => handleCreateNew(contextMenu.node.path, 'folder')}>
                 New Folder
               </button>
+              <div className="fileTreeContextMenuSeparator" />
+            </>
+          )}
+          {!contextMenu.node.isDirectory && (
+            <>
+              {(['manuscript', 'grant', 'presentation', 'reference'] as FileTagType[]).map((t) => {
+                const relPath = contextMenu.node.path.startsWith(workspacePath + '/')
+                  ? contextMenu.node.path.slice(workspacePath.length + 1)
+                  : contextMenu.node.path;
+                const isActive = fileTagMap.get(relPath) === t;
+                return (
+                  <button
+                    key={t}
+                    className={`fileTreeContextMenuItem${isActive ? ' fileTreeContextMenuItem--active' : ''}`}
+                    onClick={() => handleSetTag(t)}
+                  >
+                    Tag as {FILE_TAG_LABEL[t]}
+                  </button>
+                );
+              })}
+              {(() => {
+                const relPath = contextMenu.node.path.startsWith(workspacePath + '/')
+                  ? contextMenu.node.path.slice(workspacePath.length + 1)
+                  : contextMenu.node.path;
+                return fileTagMap.has(relPath) ? (
+                  <button className="fileTreeContextMenuItem fileTreeContextMenuItem--destructive" onClick={handleRemoveTag}>
+                    Remove Tag
+                  </button>
+                ) : null;
+              })()}
               <div className="fileTreeContextMenuSeparator" />
             </>
           )}
