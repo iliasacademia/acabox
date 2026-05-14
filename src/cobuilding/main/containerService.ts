@@ -15,6 +15,7 @@ import {
 } from './podmanBinaries';
 import { commandLogger, parseAppDirFromArgs, type CommandSource } from './commandLogger';
 import { generateEnvironment } from './environmentGenerator';
+import { ensureImageTarDownloaded, writeLoadedImageVersion, readLoadedImageVersion } from './imageTarManager';
 
 import * as net from 'net';
 import * as http from 'http';
@@ -45,8 +46,17 @@ function findFreePort(start: number, end: number): Promise<number> {
 
 const GHCR_BASE_IMAGE = 'ghcr.io/academia-edu/cobuilding-base:latest';
 const LOCAL_BASE_IMAGE = 'cobuilding-base:local';
+const CORE_BASE_IMAGE = 'cobuilding-base-core:local';
 const IMAGE_NAME = 'cobuilding-container';
 const CONTAINER_NAME = 'cobuilding-container';
+
+function useLocalImage(): boolean {
+  return process.env.COBUILDING_LOCAL_IMAGE === '1';
+}
+
+function getImageTier(): 'core' | 'full' {
+  return process.env.COBUILDING_IMAGE_TIER === 'core' ? 'core' : 'full';
+}
 
 type BinaryMode = 'system' | 'bundled';
 type ImageSource = 'registry' | 'local';
@@ -1156,7 +1166,11 @@ class CobuildingContainerService {
   }
 
   private getBaseImageRef(): string {
-    return readImageSource() === 'registry' ? GHCR_BASE_IMAGE : LOCAL_BASE_IMAGE;
+    if (readImageSource() !== 'registry') return LOCAL_BASE_IMAGE;
+    if (useLocalImage()) {
+      return getImageTier() === 'core' ? CORE_BASE_IMAGE : GHCR_BASE_IMAGE;
+    }
+    return GHCR_BASE_IMAGE;
   }
 
   // ─── Podman Binary Resolution ──────────────────────────────────
@@ -1346,6 +1360,35 @@ class CobuildingContainerService {
     log.debug('[ContainerService] Base image pulled successfully');
   }
 
+  private async ensureBaseImageLoaded(podmanBin: string, onProgress?: ProgressCallback): Promise<void> {
+    const tier = getImageTier();
+    const { tarPath, version } = await ensureImageTarDownloaded(tier, onProgress);
+
+    const loadedVersion = readLoadedImageVersion(tier);
+    if (loadedVersion === version) {
+      log.debug(`[ContainerService] Image already loaded (version: ${version})`);
+      try { fs.unlinkSync(tarPath); } catch { /* leftover from interrupted load */ }
+      return;
+    }
+
+    onProgress?.('load', 'Loading image into Podman VM...');
+    log.debug(`[ContainerService] Loading image from tar: ${tarPath}`);
+
+    await this.spawnAndWait(podmanBin, ['load', '-i', tarPath], this.getExecEnv(), 'image load');
+
+    writeLoadedImageVersion(tier, version);
+    log.info(`[ContainerService] Image loaded successfully (version: ${version})`);
+
+    try {
+      fs.unlinkSync(tarPath);
+      log.debug(`[ContainerService] Deleted tar file: ${tarPath}`);
+    } catch (err) {
+      log.warn(`[ContainerService] Failed to delete tar: ${(err as Error).message}`);
+    }
+
+    onProgress?.('load', 'Image loaded', 100);
+  }
+
   async updateBaseImage(onProgress?: ProgressCallback): Promise<void> {
     const podmanBin = this.getPodmanBin();
     log.debug(`[ContainerService] Force-pulling latest base image: ${GHCR_BASE_IMAGE}`);
@@ -1533,13 +1576,15 @@ class CobuildingContainerService {
     }
   }
 
-  /** Ensure the base image is available (pull from registry or build locally). */
+  /** Ensure the base image is available (pull from registry, load from tar, or build locally). */
   private async ensureBaseImage(podmanBin: string, onProgress?: ProgressCallback): Promise<void> {
     const imageSource = readImageSource();
-    if (imageSource === 'registry') {
-      await this.ensureBaseImagePulled(podmanBin, onProgress);
-    } else {
+    if (imageSource === 'local') {
       await this.buildBaseImageLocally(podmanBin, onProgress);
+    } else if (useLocalImage()) {
+      await this.ensureBaseImageLoaded(podmanBin, onProgress);
+    } else {
+      await this.ensureBaseImagePulled(podmanBin, onProgress);
     }
   }
 
