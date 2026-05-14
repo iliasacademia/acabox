@@ -126,7 +126,7 @@ const FILE_TAGGING_SCHEMA = {
             type: "string",
             enum: ["manuscript", "grant", "presentation", "reference"],
             description:
-              "manuscript = academic paper, thesis, chapter, or dissertation (.tex, .docx, .md). grant = grant proposal, funding application, NIH/NSF/R01 submission. presentation = .pptx, .key, talks, slides, lab-meeting files. reference = PDF papers, journal articles, preprints, or other reference materials used as citations or background reading.",
+              "manuscript = academic paper, thesis, chapter, or dissertation (.tex, .docx, .md). grant = grant proposal, funding application, NIH/NSF/R01 submission. presentation = .pptx, .key, talks, slides, lab-meeting files. reference = published journal articles, preprints, or background reading PDFs (NOT generated analysis plots, figures, or charts).",
           },
         },
         required: ["file_path", "file_name", "file_type"],
@@ -151,9 +151,11 @@ Produce a JSON report with one field:
 - \`manuscript\`: .tex, .docx, .md files that are academic papers, theses, chapters, or dissertations
 - \`grant\`: files or directories whose names or contents indicate grant proposals, funding applications, or NIH/NSF/R01 submissions
 - \`presentation\`: .pptx or .key files, or directories with names like "talks", "slides", "lab-meeting"
-- \`reference\`: PDF files that are published papers, journal articles, preprints, or other reference materials used as citations or background reading. Typically found in directories named "references", "papers", "literature", "pdfs", "readings", or similar. Do NOT tag the researcher's own manuscripts as references.
+- \`reference\`: PDF files that are published journal articles, preprints, or background reading papers written by OTHER researchers that this researcher is citing or reading. Filenames often contain author names, journal abbreviations, or publication years.
+  **NOT references**: PDFs that are generated computational outputs — plots, figures, charts, heatmaps, enrichment results, statistical summaries, or any file produced by an analysis pipeline. These typically sit inside sequencing, proteomics, or bioinformatics analysis directories and have short descriptive names. Do NOT tag these as references.
+  When in doubt about a PDF, skip it — false positives clutter the reference list.
 
-Cast a wide net — include every file you are reasonably confident belongs to one of these categories. This list populates file pickers in writing tools, so completeness matters. Do NOT include code, data, or general documents.
+Cast a wide net for manuscripts, grants, and presentations. For references, be selective — only tag PDFs you are confident are published papers or preprints, not analysis outputs. This list populates file pickers in writing tools, so accuracy matters. Do NOT include code, data, or general documents.
 
 You can largely identify files from the directory tree — use file extensions and directory names. Only use Read/Grep on ambiguous files where you need to check content to determine the type.`;
 }
