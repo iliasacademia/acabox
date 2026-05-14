@@ -96,6 +96,10 @@ function readImageSource(): ImageSource {
   }
 }
 
+export function skipImageBuild(): boolean {
+  return process.env.COBUILDING_SKIP_IMAGE_BUILD === '1';
+}
+
 function writeImageSource(source: ImageSource): void {
   const settingsPath = getSettingsPath();
   let data: Record<string, unknown> = {};
@@ -179,6 +183,7 @@ class CobuildingContainerService {
       this.stop();
     }
     this.isStarting = true;
+    log.info(`[ContainerService] COBUILDING_SKIP_IMAGE_BUILD=${skipImageBuild() ? '1' : '0'}`);
 
     try {
       // Ensure podman is available
@@ -195,52 +200,58 @@ class CobuildingContainerService {
       // Remove any stale container from a previous crash
       await this.removeStaleContainer(podmanBin);
 
-      // Start the container from whatever image is available — either the full
-      // image (with workspace deps baked in) or just the base image. The agent
-      // becomes available immediately. If the full image isn't up to date, it
-      // builds in the background for next restart.
-      const hasFullImage = await this.imageExists(podmanBin, IMAGE_NAME);
-      // Only check hash if the image exists with correct architecture
-      const imageUpToDate = hasFullImage && await this.isImageUpToDate(podmanBin, workspacePath);
-      log.info(`[ContainerService] Image state: upToDate=${imageUpToDate}, hasFullImage=${hasFullImage}`);
-
-      // Guarantee a terminal `ready`/`error` event so renderer indicators clear.
-      // Single-flight: if a build is already running, reuse its promise instead
-      // of racing a second `podman build` against the same image tag.
-      const backgroundBuildAndFinalize = (): Promise<void> => {
-        if (this.backgroundBuildPromise) return this.backgroundBuildPromise;
-        const p = this.ensureImageBuilt(podmanBin, onBackgroundProgress, workspacePath)
-          .then(() => {
-            onBackgroundProgress?.('ready', 'Image build complete');
-          })
-          .catch((err) => {
-            const message = (err as Error).message;
-            log.warn(`[ContainerService] Background image build failed: ${message}`);
-            onBackgroundProgress?.('error', `Image build failed: ${message}`);
-          })
-          .finally(() => {
-            this.backgroundBuildPromise = null;
-          });
-        this.backgroundBuildPromise = p;
-        return p;
-      };
-
-      if (imageUpToDate) {
-        // Full image is current — start directly
-        await this.runContainer(podmanBin, workspacePath);
-      } else if (hasFullImage) {
-        // Full image exists but is stale — start from it now, rebuild in background
-        log.info('[ContainerService] Starting from existing image, rebuilding in background');
-        await this.runContainer(podmanBin, workspacePath);
-        backgroundBuildAndFinalize();
-      } else {
-        // No full image — start from the base image immediately so the agent
-        // is available. Build the full image (with workspace deps) in the
-        // background for next restart. App deps install live via backgroundBuilder.
+      if (skipImageBuild()) {
         const baseImage = this.getBaseImageRef();
-        log.info(`[ContainerService] Starting from base image (${baseImage}), building full image in background`);
+        log.info(`[ContainerService] Skip-image-build mode, starting from base image (${baseImage})`);
         await this.runContainer(podmanBin, workspacePath, baseImage);
-        backgroundBuildAndFinalize();
+      } else {
+        // Start the container from whatever image is available — either the full
+        // image (with workspace deps baked in) or just the base image. The agent
+        // becomes available immediately. If the full image isn't up to date, it
+        // builds in the background for next restart.
+        const hasFullImage = await this.imageExists(podmanBin, IMAGE_NAME);
+        // Only check hash if the image exists with correct architecture
+        const imageUpToDate = hasFullImage && await this.isImageUpToDate(podmanBin, workspacePath);
+        log.info(`[ContainerService] Image state: upToDate=${imageUpToDate}, hasFullImage=${hasFullImage}`);
+
+        // Guarantee a terminal `ready`/`error` event so renderer indicators clear.
+        // Single-flight: if a build is already running, reuse its promise instead
+        // of racing a second `podman build` against the same image tag.
+        const backgroundBuildAndFinalize = (): Promise<void> => {
+          if (this.backgroundBuildPromise) return this.backgroundBuildPromise;
+          const p = this.ensureImageBuilt(podmanBin, onBackgroundProgress, workspacePath)
+            .then(() => {
+              onBackgroundProgress?.('ready', 'Image build complete');
+            })
+            .catch((err) => {
+              const message = (err as Error).message;
+              log.warn(`[ContainerService] Background image build failed: ${message}`);
+              onBackgroundProgress?.('error', `Image build failed: ${message}`);
+            })
+            .finally(() => {
+              this.backgroundBuildPromise = null;
+            });
+          this.backgroundBuildPromise = p;
+          return p;
+        };
+
+        if (imageUpToDate) {
+          // Full image is current — start directly
+          await this.runContainer(podmanBin, workspacePath);
+        } else if (hasFullImage) {
+          // Full image exists but is stale — start from it now, rebuild in background
+          log.info('[ContainerService] Starting from existing image, rebuilding in background');
+          await this.runContainer(podmanBin, workspacePath);
+          backgroundBuildAndFinalize();
+        } else {
+          // No full image — start from the base image immediately so the agent
+          // is available. Build the full image (with workspace deps) in the
+          // background for next restart. App deps install live via backgroundBuilder.
+          const baseImage = this.getBaseImageRef();
+          log.info(`[ContainerService] Starting from base image (${baseImage}), building full image in background`);
+          await this.runContainer(podmanBin, workspacePath, baseImage);
+          backgroundBuildAndFinalize();
+        }
       }
 
       log.debug('[ContainerService] Container started successfully');
@@ -1486,6 +1497,11 @@ class CobuildingContainerService {
   }
 
   private async ensureImageBuilt(podmanBin: string, onProgress?: ProgressCallback, workspacePath?: string): Promise<void> {
+    if (skipImageBuild()) {
+      log.debug('[ContainerService] Skip-image-build mode, skipping image build');
+      return;
+    }
+
     const imageSource = readImageSource();
     const baseImage = this.getBaseImageRef();
 
@@ -1688,6 +1704,24 @@ class CobuildingContainerService {
     const useImage = imageName || IMAGE_NAME;
     const useOverlay = process.env.OVERLAYFS_ENABLED === '1' && process.platform === 'darwin';
     this.overlayEnabled = useOverlay;
+
+    const cacheVolumes: string[] = [];
+    if (skipImageBuild()) {
+      const cacheDir = path.join(app.getPath('userData'), 'pkg-cache');
+      const pipCache = path.join(cacheDir, 'pip');
+      const npmCache = path.join(cacheDir, 'npm');
+      const rLibs = path.join(cacheDir, 'r');
+      fs.mkdirSync(pipCache, { recursive: true });
+      fs.mkdirSync(npmCache, { recursive: true });
+      fs.mkdirSync(rLibs, { recursive: true });
+      cacheVolumes.push(
+        '-v', `${toMountPath(pipCache)}:/root/.cache/pip`,
+        '-v', `${toMountPath(npmCache)}:/root/.npm`,
+        '-v', `${toMountPath(rLibs)}:/opt/r-user-library`,
+        '-e', 'R_LIBS_USER=/opt/r-user-library',
+      );
+    }
+
     const args = useOverlay ? [
       'run', '-d',
       '--replace',
@@ -1696,6 +1730,7 @@ class CobuildingContainerService {
       '--name', CONTAINER_NAME,
       '-v', `${mountPath}:/data-host`,
       '-p', `${agentHostPort}:8080`,
+      ...cacheVolumes,
       useImage,
       'sh', '-c',
       // The container rootfs is itself overlay (podman storage driver), so
@@ -1713,6 +1748,7 @@ class CobuildingContainerService {
       '-v', `${mountPath}:/data`,
       '-p', `${agentHostPort}:8080`,
       '-p', `${kernelHostPort}:8888`,
+      ...cacheVolumes,
       useImage,
       'sleep', 'infinity',
     ];

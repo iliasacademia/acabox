@@ -13,7 +13,7 @@ import type { CalendarMutationEvent } from './calendarAgentSession';
 import { registerSession, unregisterSession, getRegisteredSession, hasSession, destroyAllSessions } from './sessionRegistry';
 import type { IPCAttachment } from '../shared/types';
 import { provisionWorkspace } from './skills';
-import { containerService } from './containerService';
+import { containerService, skipImageBuild } from './containerService';
 import { processCpuMonitor } from '../../utils/processCpuMonitor';
 import { getAllPodmanDataPaths } from './podmanBinaries';
 import { ensureClaudeBinaryReady } from './sdkBinarySetup';
@@ -2125,6 +2125,10 @@ packageInstaller.on('package:line', (e: { registry: Registry; package: string; l
 });
 
 ipcMain.handle('container:rebuildEnvironment', async () => {
+  if (skipImageBuild()) {
+    log.info('[container:rebuildEnvironment] Skip-image-build mode, skipping');
+    return;
+  }
   if (!activeWorkspace) throw new Error('No active workspace');
   const envDir = path.join(activeWorkspace.directory_path, '.applications', '_environment');
   fs.rmSync(envDir, { recursive: true, force: true });
