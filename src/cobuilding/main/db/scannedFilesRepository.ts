@@ -7,11 +7,11 @@ export interface ScannedFile {
   report_id: string | null;
   file_path: string;
   file_name: string;
-  file_type: 'manuscript' | 'grant' | 'presentation';
+  file_type: 'manuscript' | 'grant' | 'presentation' | 'reference';
   created_at: string;
 }
 
-const VALID_TYPES = new Set(['manuscript', 'grant', 'presentation']);
+const VALID_TYPES = new Set(['manuscript', 'grant', 'presentation', 'reference']);
 
 export function upsertScannedFiles(
   workspaceId: string,

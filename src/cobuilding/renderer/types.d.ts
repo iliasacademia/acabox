@@ -429,6 +429,7 @@ declare global {
     exportWorkspace(): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean; error?: string }>;
     importWorkspace(): Promise<{ ok: boolean; workspaceName?: string; workspaceDir?: string; workspaceId?: string; canceled?: boolean; error?: string }>;
     hardResetWorkspace(): Promise<{ ok: boolean; error?: string }>;
+    pruneImages(): Promise<void>;
     syncOverlay(): Promise<{ durationMs: number }>;
     isOverlayEnabled(): Promise<boolean>;
     /** Pipes a renderer-side log line into electron-log on the main process. */
@@ -732,12 +733,12 @@ declare global {
     report_id: string | null;
     file_path: string;
     file_name: string;
-    file_type: 'manuscript' | 'grant' | 'presentation';
+    file_type: 'manuscript' | 'grant' | 'presentation' | 'reference';
     created_at: string;
   }
 
   interface ScannedFilesAPI {
-    getByType(fileType: 'manuscript' | 'grant' | 'presentation'): Promise<ScannedFile[]>;
+    getByType(fileType: 'manuscript' | 'grant' | 'presentation' | 'reference'): Promise<ScannedFile[]>;
     getAll(): Promise<ScannedFile[]>;
   }
 

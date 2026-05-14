@@ -62,7 +62,7 @@ interface AvailableStub {
   preBuilt?: boolean;
   lastOpened: string;
   status?: string;
-  filePickerType?: 'manuscript' | 'grant' | 'presentation' | 'all' | 'manuscript_grant';
+  filePickerType?: 'manuscript' | 'grant' | 'presentation' | 'reference' | 'all' | 'manuscript_grant';
   chatPromptTemplate?: (filePath: string) => string;
   /**
    * If set, picking a file opens it in MS Word with the popup-v2 overlay
@@ -630,16 +630,16 @@ export function ToolsPage({
                     : 'No tagged files found from your last scan. Use "Browse files" to select manually.'}
                 </div>
               ) : (
-                (['manuscript', 'grant', 'presentation'] as const)
+                (['manuscript', 'grant', 'presentation', 'reference'] as const)
                   .filter((type) => {
                     if (filePicker.stub.filePickerType === 'all') return filePicker.files.some((f) => f.file_type === type);
-                    if (filePicker.stub.filePickerType === 'manuscript_grant') return type !== 'presentation' && filePicker.files.some((f) => f.file_type === type);
+                    if (filePicker.stub.filePickerType === 'manuscript_grant') return (type === 'manuscript' || type === 'grant') && filePicker.files.some((f) => f.file_type === type);
                     return type === filePicker.stub.filePickerType;
                   })
                   .map((type) => {
                     const group = filePicker.files.filter((f) => f.file_type === type);
                     if (group.length === 0) return null;
-                    const label = type === 'manuscript' ? 'Manuscripts' : type === 'grant' ? 'Grants' : 'Presentations';
+                    const label = type === 'manuscript' ? 'Manuscripts' : type === 'grant' ? 'Grants' : type === 'reference' ? 'References' : 'Presentations';
                     return (
                       <div key={type} className="filePickerModal__group">
                         <div className="filePickerModal__groupLabel">{label}</div>

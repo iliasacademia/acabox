@@ -16,6 +16,7 @@ import { FEATURES } from './shared/types';
 import {
   computeWebviewStateV4,
   getFocusedWindowInfo,
+  applyFocusLossCarryForward,
   DesiredWebviewState,
   WebviewTypeConfig,
 } from './windowMonitor/computeWebviewState';
@@ -718,22 +719,14 @@ export class WindowMonitorService {
       windowId = [...this.dockedRightWindows][0];
     }
 
-    // In cobuilding mode, keep the open chat panel visible when Word loses focus
-    // by reusing its last desired state. Drops to normal window level
-    // (background: true) so it sits behind the active app's windows.
-    // The launcher button (button-v2) is intentionally NOT carried over —
-    // it's only meaningful when Word is the focused app.
-    if (this.workspaceDirectory && !windowId && this.lastV4FocusedWindowId) {
-      const hasOverlay = Object.keys(desiredState).length > 0;
-      const lastPopup = this.lastDesiredState['popup-v2'];
-      if (!hasOverlay && lastPopup?.visible) {
-        windowId = this.lastV4FocusedWindowId;
-        desiredState['popup-v2'] = { ...lastPopup, background: true };
-      }
-    }
+    const hostAppFocused = this.state.focusedAppIdentifier !== null;
+    const carryForward = applyFocusLossCarryForward(desiredState, this.lastDesiredState, hostAppFocused, this.lastV4FocusedWindowId);
+    Object.assign(desiredState, carryForward.desiredState);
+    if (carryForward.windowId) windowId = carryForward.windowId;
 
-    // Apply per-window overrides using global keys
-    if (desiredState['popup-v2'] && windowId) {
+    // Apply per-window overrides only when the host app is focused —
+    // skip when carrying forward hidden state during focus loss.
+    if (desiredState['popup-v2'] && windowId && hostAppFocused) {
       const isToggledOpen = this.popupToggledOpen.has(windowId);
       desiredState['popup-v2'].visible = isToggledOpen;
       if (isToggledOpen) {
@@ -751,12 +744,12 @@ export class WindowMonitorService {
       }
     }
 
-    if (desiredState['review-panel-v3'] && windowId) {
+    if (desiredState['review-panel-v3'] && windowId && hostAppFocused) {
       const isPanelOpen = this.reviewPanelV3Open.has(windowId);
       desiredState['review-panel-v3'].visible = isPanelOpen;
     }
 
-    if (desiredState['button-v2'] && windowId) {
+    if (desiredState['button-v2'] && windowId && hostAppFocused) {
       const buttonWidthOverride = this.buttonV2WidthOverrides.get(windowId);
       if (buttonWidthOverride !== undefined) {
         desiredState['button-v2'].frame.width = buttonWidthOverride;
@@ -777,7 +770,7 @@ export class WindowMonitorService {
     }
 
     // Apply drag offset for the focused window
-    if (windowId && this.buttonDragOffsets.has(windowId) && desiredState['button-v2']) {
+    if (windowId && hostAppFocused && this.buttonDragOffsets.has(windowId) && desiredState['button-v2']) {
       const offset = this.buttonDragOffsets.get(windowId)!;
       const buttonKey = 'button-v2';
       const popupKey = 'popup-v2';
@@ -823,7 +816,7 @@ export class WindowMonitorService {
     // override so the panel falls back to the regular floating overlay behavior.
     // Look up bounds by windowId directly — clicking the overlay causes Word to lose focus,
     // so focused?.window.bounds may be null.
-    if (windowId && this.dockedRightWindows.has(windowId) && desiredState['popup-v2']) {
+    if (windowId && hostAppFocused && this.dockedRightWindows.has(windowId) && desiredState['popup-v2']) {
       let dockedWindowBounds: WindowBounds | null = focused?.window.bounds ?? null;
       if (!dockedWindowBounds) {
         for (const app of this.state.apps) {
