@@ -40,6 +40,7 @@ import {
   deleteSession,
   getMessages,
   findSessionForApp,
+  findMessageByMessageId,
 } from './db/chatRepository';
 import {
   createWorkspace,
@@ -2397,13 +2398,25 @@ async function generateSessionTitle(sessionId: string, firstMessage: string): Pr
   }
 }
 
-ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPath, messageId }: { threadId: string; text: string; attachments?: IPCAttachment[]; model?: string; documentPath?: string; messageId?: string }) => {
+ipcMain.handle('chat:send', (event, { threadId, text, attachments, model, documentPath, messageId }: { threadId: string; text: string; attachments?: IPCAttachment[]; model?: string; documentPath?: string; messageId?: string }) => {
   if (!activeWorkspace) {
-    event.sender.send('chat:error', threadId, 'No active workspace');
-    return;
+    throw new Error('No active workspace');
   }
 
   log.info(`[chat:send] messageId=${messageId ?? '(none)'} threadId=${threadId} textLen=${text.length}`);
+
+  // Dedup: if this messageId has already been persisted for this session, the
+  // renderer is re-firing a send that already landed (typical cause: reload
+  // with a queued draft). Re-attach forwarding for the new webContents but
+  // don't re-run the turn.
+  if (messageId) {
+    const existingMessage = findMessageByMessageId(threadId, messageId);
+    if (existingMessage) {
+      log.info(`[chat:send] dedup hit messageId=${messageId} sessionId=${threadId} — re-attaching forwarding only`);
+      ensureForwarding(threadId, event.sender);
+      return { messageId, deduped: true };
+    }
+  }
 
   const existingRunning = getRegisteredSession(threadId);
   if (existingRunning?.isRunning) {
@@ -2411,7 +2424,7 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPa
     // Ensure IPC forwarding is set up (idempotent — won't duplicate).
     ensureForwarding(threadId, event.sender);
     existingRunning.sendMessage(text, attachments, messageId);
-    return;
+    return { messageId };
   }
 
   const isCalendarSession = threadId === 'calendar-assistant';
@@ -2481,6 +2494,8 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPa
   if (isFirstMessage && !isCalendarSession) {
     generateSessionTitle(threadId, text);
   }
+
+  return { messageId };
 });
 
 ipcMain.on('chat:subscribe', (event, threadId: string) => {

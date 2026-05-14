@@ -548,8 +548,13 @@ contextBridge.exposeInMainWorld('chatAPI', {
     ipcRenderer.on('quick-chat:inject', handler);
     return () => { ipcRenderer.removeListener('quick-chat:inject', handler); };
   },
-  sendMessage: (threadId: string, text: string, attachments?: any[], model?: string, documentPath?: string, messageId?: string) => {
-    ipcRenderer.send('chat:send', { threadId, text, attachments, model, documentPath, messageId });
+  sendMessage: async (threadId: string, text: string, attachments?: any[], model?: string, documentPath?: string, messageId?: string) => {
+    // Acknowledged send: invoke either resolves (main accepted the send) or
+    // rejects (main refused — e.g. no active workspace). Events that arrive
+    // during the round-trip are captured by the global chat:event listener
+    // into eventBuffers and drained when the stream iterator is created
+    // below, so no events are lost between ack and subscription.
+    await ipcRenderer.invoke('chat:send', { threadId, text, attachments, model, documentPath, messageId });
     return createStreamIterator(threadId).stream;
   },
   subscribe: (threadId: string) => {

@@ -54,8 +54,11 @@ function createElectronChatAdapter(aui: any): ChatModelAdapter {
       const messageId = crypto.randomUUID();
       console.log(`[ChatAdapter] send messageId=${messageId} threadId=${threadId} textLen=${userText.length}`);
 
+      // sendMessage returns a Promise that resolves when main acks the send.
+      // If main refuses (e.g. no active workspace) the promise rejects and the
+      // error bubbles up through assistant-ui as the run's failure state.
       const responseStream = toAsyncIterable(
-        window.chatAPI.sendMessage(threadId, userText, extractAttachments(lastUserMessage), model, pendingDocPath, messageId),
+        await window.chatAPI.sendMessage(threadId, userText, extractAttachments(lastUserMessage), model, pendingDocPath, messageId),
       );
 
       const response = responseBuilder();

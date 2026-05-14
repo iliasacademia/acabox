@@ -64,7 +64,12 @@ export interface ChatSubscription {
 }
 
 export interface ChatAPI {
-  sendMessage(threadId: string, text: string, attachments?: IPCAttachment[], model?: string, documentPath?: string, messageId?: string): ChatMessageStream;
+  // Returns a promise that resolves once main has acknowledged the send.
+  // Resolves with the messageId that correlates the turn end-to-end; rejects
+  // if main refuses the send (e.g. no active workspace). Events that arrive
+  // between ack and stream-iterator creation are buffered by preload, so the
+  // returned stream catches up on resolve.
+  sendMessage(threadId: string, text: string, attachments?: IPCAttachment[], model?: string, documentPath?: string, messageId?: string): Promise<ChatMessageStream>;
   subscribe(threadId: string): ChatSubscription;
   stopResponding(threadId: string): void;
   onQuickChatInject(callback: (data: { text: string; context: any }) => void): () => void;

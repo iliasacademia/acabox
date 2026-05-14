@@ -123,6 +123,20 @@ export function insertMessage(
   return result.lastInsertRowid as number;
 }
 
+/**
+ * Look up an existing user-message row by its renderer-generated messageId.
+ * Used to dedupe `chat:send` invocations when a reload re-fires the same
+ * logical message. Returns undefined if no such row exists.
+ */
+export function findMessageByMessageId(
+  sessionId: string,
+  messageId: string,
+): Message | undefined {
+  return getDatabase()
+    .prepare('SELECT * FROM messages WHERE session_id = ? AND message_id = ? LIMIT 1')
+    .get(sessionId, messageId) as Message | undefined;
+}
+
 export function deleteSession(id: string): void {
   getDatabase().prepare('DELETE FROM sessions WHERE id = ?').run(id);
 }
