@@ -2142,14 +2142,45 @@ class CobuildingContainerService {
       '})',
     ].join('\n');
 
+    // Shell script that creates wrapper scripts in /usr/local/bin/ (earlier on
+    // PATH than /usr/bin/) for each tracked system binary. Each wrapper logs
+    // first use to the JSONL file, then exec's the real binary. This catches
+    // direct bash invocations (e.g. agent running `soffice --headless ...`).
+    // Uses a quoted heredoc (<< 'WEOF') so $vars stay literal in the template,
+    // then sed replaces __PLACEHOLDERS__ with actual values.
+    const wrapperScript = [
+      '#!/bin/sh',
+      'BINS="pandoc:pandoc soffice:libreoffice libreoffice:libreoffice pdftotext:poppler-utils pdftoppm:poppler-utils pdfinfo:poppler-utils pdftocairo:poppler-utils pdflatex:texlive xelatex:texlive lualatex:texlive"',
+      'for entry in $BINS; do',
+      '  name="${entry%%:*}"',
+      '  pkg="${entry#*:}"',
+      '  real=$(command -v "$name" 2>/dev/null)',
+      '  if [ -n "$real" ] && [ ! -f "/usr/local/bin/$name" ]; then',
+      '    cat > "/usr/local/bin/$name" << \'WEOF\'',
+      '#!/bin/sh',
+      'm="/tmp/.dep-used-__NAME__"',
+      'if [ ! -f "$m" ]; then',
+      '  touch "$m"',
+      '  printf \'{"type":"system","binary":"__NAME__","package":"__PKG__","time":"%s"}\\n\' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> /tmp/dep-usage.jsonl',
+      'fi',
+      'exec "__REAL__" "$@"',
+      'WEOF',
+      '    sed -i "s|__NAME__|$name|g;s|__PKG__|$pkg|g;s|__REAL__|$real|g" "/usr/local/bin/$name"',
+      '    chmod +x "/usr/local/bin/$name"',
+      '  fi',
+      'done',
+    ].join('\n');
+
     const pyB64 = Buffer.from(pythonScript).toString('base64');
     const rB64 = Buffer.from(rScript).toString('base64');
+    const wrapperB64 = Buffer.from(wrapperScript).toString('base64');
 
     const setupCmd = [
       'touch /tmp/dep-usage.jsonl',
       'SITE=$(/opt/venv/bin/python3 -c "import sysconfig;print(sysconfig.get_path(\'purelib\'))")',
       `echo '${pyB64}' | base64 -d > "$SITE/sitecustomize.py"`,
       `echo '${rB64}' | base64 -d > /root/.Rprofile`,
+      `echo '${wrapperB64}' | base64 -d | sh`,
     ].join(' && ');
 
     // Inject hooks, then start tailing the usage log
