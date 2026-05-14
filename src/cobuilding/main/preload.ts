@@ -591,6 +591,12 @@ contextBridge.exposeInMainWorld('chatAPI', {
     const { stream, markDone } = createStreamIterator(threadId);
     return { stream, unsubscribe: () => { markDone(); } };
   },
+  // Tells main this surface has navigated away. Does NOT cancel an
+  // in-flight turn (use stopResponding for that) — only drops the
+  // visibility refcount so the registry can decide to evict.
+  unsubscribe: (threadId: string) => {
+    ipcRenderer.send('chat:unsubscribe', threadId);
+  },
   stopResponding: (threadId: string) => {
     activeStreams.get(threadId)?.();
     ipcRenderer.send('chat:stop', threadId);

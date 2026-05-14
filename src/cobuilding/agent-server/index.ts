@@ -55,6 +55,7 @@ interface AgentConfig {
 }
 
 interface SessionState {
+  sessionId: string;
   queryInstance: Query | null;
   messageQueue: MessageQueue<UserMessagePayload>;
   sseClients: Set<ServerResponse>;
@@ -68,7 +69,33 @@ interface SessionState {
   // replay anything the client missed during the disconnect window.
   bufferedEvents: Array<{ id: number; event: string; data: unknown }>;
   pendingMcpCalls: Map<string, { resolve: (result: unknown) => void; reject: (error: Error) => void }>;
+  // Server-side backstop for orphan sessions: if the host crashes / drops
+  // its reference without calling /stop, the idle timer evicts the session
+  // after IDLE_EVICTION_MS of inactivity.
+  idleTimer: NodeJS.Timeout | null;
+  // Monotonic ms timestamp of the last time `bumpActivity` actually re-armed
+  // the timer. Throttles re-arming so a streaming turn doesn't pay
+  // clearTimeout+setTimeout on every SSE event.
+  lastBumpAt: number;
 }
+
+// Server-side idle eviction window. Host-side visibility cleanup is the
+// primary mechanism; this catches orphans and reclaims subprocess memory
+// from sessions the user opened but isn't actively engaging with. Short
+// enough that an idle chat sitting open doesn't pin agent processes for
+// long, with the host transparently recreating the session (resumed from
+// sdk_session_id) the next time the user sends a message.
+const IDLE_EVICTION_MS = 10 * 60 * 1000;
+// Don't re-arm the idle timer more often than this. Within a single turn
+// the agent can broadcast hundreds of SSE events per second, and each
+// bumpActivity call costs a clearTimeout+setTimeout pair. The throttle
+// is far smaller than IDLE_EVICTION_MS so the worst-case delay before
+// eviction fires after the last real activity is bounded.
+const BUMP_THROTTLE_MS = 30 * 1000;
+// Reschedule window when the eviction check finds an MCP call in flight.
+// The full IDLE_EVICTION_MS would mean a stalled MCP call delays eviction
+// by 10+ minutes; this lets us re-check soon after the call resolves.
+const BUSY_RECHECK_MS = 30 * 1000;
 
 interface UserMessagePayload {
   text: string;
@@ -617,6 +644,7 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
   const messageQueue = createMessageQueue<UserMessagePayload>();
 
   const state: SessionState = {
+    sessionId,
     queryInstance: null,
     messageQueue,
     sseClients: new Set(),
@@ -625,6 +653,8 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
     eventSeq: 0,
     bufferedEvents: [],
     pendingMcpCalls: new Map(),
+    idleTimer: null,
+    lastBumpAt: 0,
   };
 
   console.log(`[AgentServer] Creating session ${sessionId}`);
@@ -726,15 +756,65 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
   })();
 
   sessions.set(sessionId, state);
+  bumpActivity(sessionId, state);
   return state;
 }
 
 const SSE_RING_BUFFER_SIZE = 500;
 
+/**
+ * Resets the idle eviction timer. Called on every signal of activity
+ * (inbound POST, outbound SSE event). Re-arming is throttled by
+ * BUMP_THROTTLE_MS because a streaming turn can fire hundreds of SSE
+ * events per second and the timer doesn't need that resolution.
+ *
+ * The state.running flag tracks the lifetime of the query() loop, not
+ * per-turn activity — it stays true while the loop is idle-waiting for
+ * the next user message. So we gate eviction on `pendingMcpCalls`
+ * instead: an in-flight tool call means the agent is blocked on the
+ * host, not actually idle.
+ */
+function bumpActivity(sessionId: string, state: SessionState): void {
+  const now = Date.now();
+  if (state.idleTimer && now - state.lastBumpAt < BUMP_THROTTLE_MS) return;
+  if (state.idleTimer) clearTimeout(state.idleTimer);
+  state.lastBumpAt = now;
+  state.idleTimer = setTimeout(() => {
+    const current = sessions.get(sessionId);
+    if (!current || current !== state) return;
+    if (state.stopped) return;
+    if (state.pendingMcpCalls.size > 0) {
+      // Don't evict mid tool-call. Reschedule with a short window so we
+      // re-check soon after the call resolves rather than waiting a full
+      // IDLE_EVICTION_MS, which would delay eviction by 10+ minutes if
+      // the call hangs.
+      state.idleTimer = setTimeout(() => bumpActivity(sessionId, state), BUSY_RECHECK_MS);
+      return;
+    }
+    console.log(`[AgentServer] Idle eviction firing for session ${sessionId} after ${IDLE_EVICTION_MS}ms`);
+    state.stopped = true;
+    // Closing queryInstance unblocks startQuery's for-await, which then
+    // broadcasts a 'done' event to attached SSE clients. The host treats
+    // that as a clean session-end and will recreate-with-resume on the
+    // next user message.
+    if (state.queryInstance) {
+      state.queryInstance.close();
+      state.queryInstance = null;
+    }
+    state.messageQueue.done();
+    sessions.delete(sessionId);
+  }, IDLE_EVICTION_MS);
+}
+
 function broadcastSSE(state: SessionState, event: string, data: unknown): void {
   if (event === 'error') {
     console.error(`[AgentServer] Broadcasting error:`, JSON.stringify(data));
   }
+
+  // Any outbound activity counts as a liveness signal for idle eviction.
+  // Without this, the timer set on the last inbound POST would expire
+  // mid-turn even though the agent is actively producing output.
+  bumpActivity(state.sessionId, state);
 
   const id = ++state.eventSeq;
 
@@ -826,6 +906,7 @@ function startServer(config: AgentConfig): void {
           // container received the corresponding POST.
           console.log(`[AgentServer] message received sessionId=${route.sessionId} messageId=${body.messageId ?? '(none)'} textLen=${(body.text ?? '').length}`);
           state.messageQueue.push({ text: body.text ?? '', attachments: body.attachments });
+          bumpActivity(route.sessionId, state);
           sendJSON(res, 200, { ok: true });
           return;
         }
@@ -878,6 +959,7 @@ function startServer(config: AgentConfig): void {
               pending.resolve(result);
             }
           }
+          bumpActivity(route.sessionId, state);
           sendJSON(res, 200, { ok: true });
           return;
         }
@@ -885,6 +967,10 @@ function startServer(config: AgentConfig): void {
         // POST /sessions/:id/stop
         if (route.action === 'stop' && req.method === 'POST') {
           state.stopped = true;
+          if (state.idleTimer) {
+            clearTimeout(state.idleTimer);
+            state.idleTimer = null;
+          }
           if (state.queryInstance) {
             state.queryInstance.close();
             state.queryInstance = null;
@@ -917,6 +1003,7 @@ function startServer(config: AgentConfig): void {
     console.log('[AgentServer] SIGTERM received, shutting down...');
     for (const [id, state] of sessions) {
       state.stopped = true;
+      if (state.idleTimer) clearTimeout(state.idleTimer);
       state.queryInstance?.close();
       state.messageQueue.done();
       for (const [, pending] of state.pendingMcpCalls) {

@@ -76,6 +76,12 @@ export interface ChatAPI {
   // hangs forever.
   sendMessage(threadId: string, text: string, attachments?: IPCAttachment[], model?: string, documentPath?: string, messageId?: string): ChatMessageStream;
   subscribe(threadId: string): ChatSubscription;
+  /** Tell main the renderer has navigated away from this thread. Does NOT
+   *  cancel the current turn — the agent runs to completion, then the
+   *  registry evicts the session if no other surface remains subscribed.
+   *  Use this in component-unmount / thread-switch cleanup paths, not in
+   *  local idle-stream optimizations. */
+  unsubscribe(threadId: string): void;
   stopResponding(threadId: string): void;
   onQuickChatInject(callback: (data: { text: string; context: any }) => void): () => void;
 }

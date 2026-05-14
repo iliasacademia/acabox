@@ -1,7 +1,7 @@
 
 import { type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatStreamMessage, IPCAttachment, Workspace, NotificationNavigationAction } from '../shared/types';
-import { createSession, setSdkSessionId, insertMessage, cleanupOrphanTurnRows } from './db/chatRepository';
+import { createSession, setSdkSessionId, insertMessage, cleanupOrphanTurnRows, getSession } from './db/chatRepository';
 import * as fs from 'fs';
 import path from 'path';
 import log from 'electron-log';
@@ -91,7 +91,13 @@ export interface AgentSession {
   sendMessage(userMessage: string, attachments?: IPCAttachment[], messageId?: string): void;
   destroy(): void;
   addListener(callbacks: Partial<ChatCallbacks>): () => void;
+  /** True while the session loop is alive — does NOT track per-turn busy state. */
   readonly isRunning: boolean;
+  /** True iff the agent is currently processing a user turn (between user
+   *  message dispatch and the result event). The registry consults this when
+   *  the last subscriber detaches: if false, destroy now; if true, defer
+   *  until the turn-complete event lands. */
+  readonly isTurnInProgress: boolean;
 }
 
 export function createAgentSession(
@@ -110,11 +116,17 @@ export function createAgentSession(
   let agentSessionId: string | null = null;
   let sseRequest: http.ClientRequest | null = null;
   const pendingMessages: Array<{ text: string; attachments?: IPCAttachment[]; messageId?: string }> = [];
-  // The messageId of the user turn currently being processed. Set by
-  // sendMessage(), read by the SSE reader when it emits the synthetic
-  // turn-complete event so the renderer can correlate the response back to
-  // the originating send. Null between turns and for legacy callers.
-  const turnState: { currentMessageId: string | null } = { currentMessageId: null };
+  // Shared with connectSSE (module-scope) by reference.
+  //   currentMessageId — set by sendMessage so the SSE reader can stamp it
+  //     on turn-complete for renderer correlation. May be null (overlay,
+  //     scheduled tasks don't supply one).
+  //   turnInProgress — set by sendMessage, cleared on 'result'. Distinct
+  //     from the session-lifetime `running` flag; read by the registry to
+  //     decide destroy-now vs defer-until-turn-end.
+  const turnState: { currentMessageId: string | null; turnInProgress: boolean } = {
+    currentMessageId: null,
+    turnInProgress: false,
+  };
   // Cursor into the agent-server's per-session event sequence. Updated as we
   // parse `id:` lines from the SSE stream. On reconnect we send this as the
   // `Last-Event-Id` header so the server resumes from the next event.
@@ -240,76 +252,112 @@ export function createAgentSession(
     .filter(Boolean)
     .join('\n\n');
 
-  (async () => {
-    try {
-      // Wait for the agent server to be ready (emits status updates automatically)
-      agentBaseUrl = await waitForAgent();
+  // Non-null while the create-session + SSE-listen loop is running. Drops
+  // back to null when the loop ends (idle eviction, /stop). The next
+  // sendMessage observes the null and re-runs the loop with resume.
+  let loopPromise: Promise<void> | null = null;
 
-      // Create session on the agent server.
-      // Sessions are persisted via a custom sessionStore that writes JSONL files
-      // to /data/.academia/sessions/ on the workspace mount. This enables full
-      // resume — the agent retains context across app restarts.
-      const createBody = JSON.stringify({
-        sessionId,
-        resumeSessionId: sdkSessionId,
-        model: model || undefined,
-        soulMd: soulMdContent,
-        hostGuidance,
-      });
+  function startLoop(): Promise<void> {
+    if (loopPromise) return loopPromise;
+    if (sessionState.stopped) return Promise.resolve();
+    loopPromise = (async () => {
+      try {
+        agentBaseUrl = await waitForAgent();
 
-      const createRes = await httpPost(`${agentBaseUrl}/sessions`, createBody);
-      const createData = JSON.parse(createRes);
-      agentSessionId = createData.sessionId;
-      log.debug(`[AgentSession] Session created: ${agentSessionId}`);
+        // Always re-read sdk_session_id from the DB at start. After the
+        // first turn the agent advances its conversation id and we persist
+        // it via setSdkSessionId; on a post-eviction restart we want to
+        // resume from the latest, not the one captured when this
+        // AgentSession object was constructed.
+        const dbSession = getSession(sessionId);
+        const resumeId = dbSession?.sdk_session_id ?? sdkSessionId;
 
-      // Flush any messages that arrived before the session was ready
-      for (const pending of pendingMessages) {
-        httpPost(
-          `${agentBaseUrl}/sessions/${agentSessionId}/messages`,
-          JSON.stringify({ text: pending.text, attachments: pending.attachments, messageId: pending.messageId }),
-        ).catch((err) => log.error('[AgentSession] Failed to send pending message:', err));
-      }
-      pendingMessages.length = 0;
+        // Sessions are persisted via a custom sessionStore that writes
+        // JSONL files to /data/.academia/sessions/ on the workspace mount,
+        // so resume restores the full conversation across restarts.
+        const createBody = JSON.stringify({
+          sessionId,
+          resumeSessionId: resumeId,
+          model: model || undefined,
+          soulMd: soulMdContent,
+          hostGuidance,
+        });
 
-      // Connect to SSE event stream. connectSSE resolves on a clean terminal
-      // event ('done' or 'error') and rejects on transport failures
-      // (TCP reset, ECONNREFUSED, etc.). Wrap it so transport rejections
-      // trigger a bounded reconnect with `Last-Event-Id`, while clean
-      // terminations exit immediately.
-      const eventUrl = `${agentBaseUrl}/sessions/${agentSessionId}/events`;
-      const RETRY_BACKOFFS_MS = [250, 500, 1000, 2000, 5000];
-      for (let attempt = 0; ; attempt++) {
-        try {
-          await connectSSE(eventUrl, state, sessionId, emitEvent, emitDone, emitError, sessionState, (req) => {
-            sseRequest = req;
-          }, agentBaseUrl, agentSessionId!, turnState, sseCursor);
-          break; // clean terminal event — done with this turn
-        } catch (err) {
-          if (sessionState.stopped) break;
-          if (attempt >= RETRY_BACKOFFS_MS.length) {
-            const msg = err instanceof Error ? err.message : String(err);
-            log.error(`[AgentSession] SSE failed to reconnect after ${RETRY_BACKOFFS_MS.length} attempts (lastEventId=${sseCursor.lastEventId}):`, msg);
-            throw err;
-          }
-          const backoff = RETRY_BACKOFFS_MS[attempt];
-          const errMsg = err instanceof Error ? err.message : String(err);
-          log.warn(`[AgentSession] SSE disconnected (${errMsg}); reconnecting in ${backoff}ms (attempt ${attempt + 1}/${RETRY_BACKOFFS_MS.length}, lastEventId=${sseCursor.lastEventId})`);
-          await new Promise((r) => setTimeout(r, backoff));
+        const createRes = await httpPost(`${agentBaseUrl}/sessions`, createBody);
+        const createData = JSON.parse(createRes);
+        agentSessionId = createData.sessionId;
+        log.debug(`[AgentSession] Session created: ${agentSessionId}${resumeId ? ` (resumed from ${resumeId})` : ''}`);
+
+        // Reset the SSE cursor on (re)start. The agent-server's eventSeq
+        // restarts from 0 for a fresh session, so a stale Last-Event-Id
+        // from a prior loop would either skip every replayed event or be
+        // silently ignored.
+        sseCursor.lastEventId = null;
+
+        // Flush any messages that arrived before the session was ready
+        // (or were re-queued by a 404 from a now-evicted server session).
+        const toFlush = pendingMessages.splice(0);
+        for (const pending of toFlush) {
+          httpPost(
+            `${agentBaseUrl}/sessions/${agentSessionId}/messages`,
+            JSON.stringify({ text: pending.text, attachments: pending.attachments, messageId: pending.messageId }),
+          ).catch((err) => log.error('[AgentSession] Failed to send pending message:', err));
         }
+
+        // Connect to SSE event stream. connectSSE resolves on a clean terminal
+        // event ('done' or 'error') and rejects on transport failures
+        // (TCP reset, ECONNREFUSED, etc.). Wrap it so transport rejections
+        // trigger a bounded reconnect with `Last-Event-Id`, while clean
+        // terminations exit immediately.
+        const eventUrl = `${agentBaseUrl}/sessions/${agentSessionId}/events`;
+        const RETRY_BACKOFFS_MS = [250, 500, 1000, 2000, 5000];
+        for (let attempt = 0; ; attempt++) {
+          try {
+            await connectSSE(eventUrl, state, sessionId, emitEvent, emitDone, emitError, sessionState, (req) => {
+              sseRequest = req;
+            }, agentBaseUrl, agentSessionId!, turnState, sseCursor);
+            break; // clean terminal event — done with this turn
+          } catch (err) {
+            if (sessionState.stopped) break;
+            if (attempt >= RETRY_BACKOFFS_MS.length) {
+              const msg = err instanceof Error ? err.message : String(err);
+              log.error(`[AgentSession] SSE failed to reconnect after ${RETRY_BACKOFFS_MS.length} attempts (lastEventId=${sseCursor.lastEventId}):`, msg);
+              throw err;
+            }
+            const backoff = RETRY_BACKOFFS_MS[attempt];
+            const errMsg = err instanceof Error ? err.message : String(err);
+            log.warn(`[AgentSession] SSE disconnected (${errMsg}); reconnecting in ${backoff}ms (attempt ${attempt + 1}/${RETRY_BACKOFFS_MS.length}, lastEventId=${sseCursor.lastEventId})`);
+            await new Promise((r) => setTimeout(r, backoff));
+          }
+        }
+      } catch (err: unknown) {
+        if (sessionState.stopped) {
+          emitDone();
+        } else {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          emitError(errorMessage);
+        }
+      } finally {
+        // Loop is no longer active. Clear agentSessionId so a stale id
+        // doesn't get reused for a POST against the evicted session.
+        agentSessionId = null;
+        loopPromise = null;
+        if (running) {
+          // The SSE stream didn't deliver a turn-complete result. If this
+          // was a clean idle eviction the host has nothing to wait on, so
+          // settle the listener side. (Renderer is free to send another
+          // message; sendMessage will restart the loop.)
+          emitDone();
+        }
+        // If messages landed during shutdown, kick another loop so they
+        // don't sit pending forever. startLoop short-circuits if stopped.
+        if (pendingMessages.length > 0) startLoop();
       }
-    } catch (err: unknown) {
-      if (sessionState.stopped) {
-        emitDone();
-      } else {
-        const errorMessage = err instanceof Error ? err.message : String(err);
-        emitError(errorMessage);
-      }
-    } finally {
-      if (running) {
-        emitDone();
-      }
-    }
-  })();
+    })();
+    return loopPromise;
+  }
+
+  startLoop();
 
   return {
     sendMessage(userMessage: string, attachments?: IPCAttachment[], messageId?: string) {
@@ -335,6 +383,10 @@ export function createAgentSession(
         };
       });
       insertMessage(sessionId, 'user', JSON.stringify({ text: userMessage, attachments: storedAttachments }), messageId);
+      // Mark a turn as in flight. Cleared by the SSE reader on the next
+      // 'result' message. The registry uses this to decide whether a
+      // navigation-away triggers destroy-now or defer-until-turn-end.
+      turnState.turnInProgress = true;
       // Broadcast the user message to every surface subscribed to this
       // session. Without this, a message typed in the overlay would land
       // in SQLite but the desktop chat (subscribing via IPC fanout) would
@@ -352,15 +404,31 @@ export function createAgentSession(
         return att;
       });
 
-      if (agentSessionId) {
-        httpPost(
-          `${agentBaseUrl}/sessions/${agentSessionId}/messages`,
-          JSON.stringify({ text: processedText, attachments: translatedAttachments, messageId }),
-        ).catch((err) => log.error('[AgentSession] Failed to send message:', err));
-      } else {
-        // Session not ready yet — queue the message for delivery after creation
-        log.debug('[AgentSession] Session not ready, queuing message');
+      const restart = (reason: string) => {
+        log.info(`[AgentSession] ${reason} — re-queueing message and restarting session loop`);
         pendingMessages.push({ text: processedText, attachments: translatedAttachments, messageId });
+        startLoop();
+      };
+
+      if (agentSessionId && loopPromise) {
+        const targetSessionId = agentSessionId;
+        httpPostWithStatus(
+          `${agentBaseUrl}/sessions/${targetSessionId}/messages`,
+          JSON.stringify({ text: processedText, attachments: translatedAttachments, messageId }),
+        ).then(({ status, body }) => {
+          // 404 means the server evicted us between our check and the POST
+          // landing. Re-queue and restart; resume from sdk_session_id
+          // preserves context.
+          if (status === 404) {
+            restart(`message POST to ${targetSessionId} returned 404`);
+          } else if (status >= 400) {
+            log.error(`[AgentSession] Message POST failed: HTTP ${status} ${body}`);
+          }
+        }).catch((err) => log.error('[AgentSession] Failed to send message:', err));
+      } else {
+        log.debug('[AgentSession] Session not ready, queuing message and ensuring loop is running');
+        pendingMessages.push({ text: processedText, attachments: translatedAttachments, messageId });
+        startLoop();
       }
     },
 
@@ -383,6 +451,10 @@ export function createAgentSession(
 
     get isRunning() {
       return running;
+    },
+
+    get isTurnInProgress() {
+      return turnState.turnInProgress;
     },
   };
 }
@@ -409,7 +481,7 @@ function httpGet(url: string): Promise<string> {
   });
 }
 
-function httpPost(url: string, body: string): Promise<string> {
+function httpPostWithStatus(url: string, body: string): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const req = http.request({
@@ -421,12 +493,16 @@ function httpPost(url: string, body: string): Promise<string> {
     }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (c: Buffer) => chunks.push(c));
-      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf-8') }));
     });
     req.on('error', reject);
     req.write(body);
     req.end();
   });
+}
+
+function httpPost(url: string, body: string): Promise<string> {
+  return httpPostWithStatus(url, body).then((r) => r.body);
 }
 
 /**
@@ -471,7 +547,7 @@ async function connectSSE(
   onRequest: (req: http.ClientRequest) => void,
   agentBaseUrl: string,
   agentSessionId: string,
-  turnState: { currentMessageId: string | null },
+  turnState: { currentMessageId: string | null; turnInProgress: boolean },
   sseCursor: { lastEventId: number | null },
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
@@ -551,6 +627,10 @@ async function connectSSE(
                   result: (message as any).subtype === 'success' ? (message as any).result : undefined,
                   is_error: (message as any).is_error,
                 }), completedMessageId ?? undefined);
+                // Clear turnInProgress BEFORE emitting turn-complete so any
+                // listener that reacts to the event (e.g. registry's
+                // deferred-destroy hook) sees the up-to-date state.
+                turnState.turnInProgress = false;
                 emitEvent({ type: 'turn-complete', messageId: completedMessageId ?? undefined } as ChatStreamMessage);
                 // Turn over — clear so a subsequent send's messageId isn't
                 // inherited if the SSE stream emits stray events.
