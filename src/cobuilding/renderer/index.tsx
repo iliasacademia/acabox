@@ -343,23 +343,38 @@ function ShowChatOnThreadSelect({ onShowChat, suppressRef }: { onShowChat: () =>
 }
 
 /**
- * Switches to a new (empty) thread whenever the user leaves chat detail view.
- * This ensures the GlobalComposer always targets a fresh thread on non-chat pages.
+ * Ensures the GlobalComposer always targets a fresh thread by switching to
+ * a new thread whenever the user transitions *into* a state where the
+ * GlobalComposer is visible and they're not viewing a specific chat.
+ *
+ * Watching only the chat-detail edge wasn't enough: other components
+ * (`AppSessionSwitcher`, `ReactionsToolView`, notification navigation) call
+ * `switchToThread(existingId)` from views where the GlobalComposer is
+ * hidden, leaving `mainThreadId` pinned to that session. When the user
+ * navigates from one of those views back to home / files / chats-list,
+ * `mainThreadId` is still the existing session and the next GlobalComposer
+ * send routes there. Triggering on `(globalComposerVisible && !isInChatDetail)`
+ * catches every such transition; views that legitimately pin a thread
+ * (miniapp, paper-monitor, reactions) all hide the GlobalComposer, so the
+ * reset only fires when the user actually surfaces it again.
  */
-function ResetThreadOnLeavingDetail({
+function ResetThreadWhenComposerVisible({
+  globalComposerVisible,
   isInChatDetail,
   suppressRef,
   suppressResetRef,
 }: {
+  globalComposerVisible: boolean;
   isInChatDetail: boolean;
   suppressRef: React.MutableRefObject<boolean>;
   suppressResetRef: React.MutableRefObject<boolean>;
 }) {
   const runtime = useAssistantRuntime();
-  const prevRef = useRef(isInChatDetail);
+  const shouldHaveFreshThread = globalComposerVisible && !isInChatDetail;
+  const prevRef = useRef(shouldHaveFreshThread);
 
   useEffect(() => {
-    if (prevRef.current && !isInChatDetail) {
+    if (!prevRef.current && shouldHaveFreshThread) {
       if (suppressResetRef.current) {
         suppressResetRef.current = false;
       } else {
@@ -367,8 +382,8 @@ function ResetThreadOnLeavingDetail({
         runtime.switchToNewThread();
       }
     }
-    prevRef.current = isInChatDetail;
-  }, [isInChatDetail, runtime, suppressRef, suppressResetRef]);
+    prevRef.current = shouldHaveFreshThread;
+  }, [shouldHaveFreshThread, runtime, suppressRef, suppressResetRef]);
 
   return null;
 }
@@ -682,6 +697,16 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const activeMiniAppDirName = activeTab?.kind === 'miniapp' && activeTab.data.kind === 'miniapp' ? activeTab.data.dirName : null;
 
+  const isInChatDetail = sidebarTab === 'chats' && chatViewMode === 'detail';
+  // Views with their own side-panel composer hide the global composer; only
+  // pages where the user could plausibly initiate a *new* conversation count.
+  const globalComposerVisible =
+    sidebarTab !== 'settings' &&
+    sidebarTab !== 'debug' &&
+    !(sidebarTab === 'tools' && toolsViewMode === 'detail' && activeTab?.kind === 'miniapp') &&
+    !(sidebarTab === 'tools' && toolsViewMode === 'paper-monitor') &&
+    !(sidebarTab === 'tools' && toolsViewMode === 'reactions');
+
   // Toggle a body class while dragging any panel divider so iframes/webviews
   // don't swallow the mousemove/mouseup events. CSS pairs this with
   // `pointer-events: none` on iframes during drag.
@@ -699,8 +724,8 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
       <AppSessionSwitcher activeDirName={activeMiniAppDirName} cacheRef={appSessionCacheRef} suppressRef={suppressThreadDeactivateRef} />
       <OpenMiniAppHandler onOpen={handleSelectApp} />
       <QuickChatInjector onSwitchToChat={() => { setSidebarTab('chats'); setChatViewMode('detail'); deactivateAllTabs(); }} />
-      <ResetThreadOnLeavingDetail isInChatDetail={sidebarTab === 'chats' && chatViewMode === 'detail'} suppressRef={suppressThreadDeactivateRef} suppressResetRef={suppressThreadResetRef} />
-      <RefreshOnEnterChatDetail isInChatDetail={sidebarTab === 'chats' && chatViewMode === 'detail'} />
+      <ResetThreadWhenComposerVisible globalComposerVisible={globalComposerVisible} isInChatDetail={isInChatDetail} suppressRef={suppressThreadDeactivateRef} suppressResetRef={suppressThreadResetRef} />
+      <RefreshOnEnterChatDetail isInChatDetail={isInChatDetail} />
       <NotificationNavigator setSidebarTab={setSidebarTab} setChatViewMode={setChatViewMode} setToolsViewMode={setToolsViewMode} deactivateAllTabs={deactivateAllTabs} />
       <OverlayNavigationHandler setSidebarTab={setSidebarTab} setChatViewMode={setChatViewMode} deactivateAllTabs={deactivateAllTabs} />
       <TooltipProvider>
@@ -1020,13 +1045,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
             </div>
           </div>
           {/* Global composer — shown on all pages except settings, debug, tool detail view */}
-          {sidebarTab !== 'settings' &&
-           sidebarTab !== 'debug' &&
-           !(sidebarTab === 'tools' && toolsViewMode === 'detail' && activeTab?.kind === 'miniapp') &&
-           !(sidebarTab === 'tools' && toolsViewMode === 'paper-monitor') &&
-           !(sidebarTab === 'tools' && toolsViewMode === 'reactions') && (
-            <GlobalComposer />
-          )}
+          {globalComposerVisible && <GlobalComposer />}
         </div>
         </div>
       </TooltipProvider>
