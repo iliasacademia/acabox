@@ -21,7 +21,7 @@ export function useCalendarChatAdapter(): ChatModelAdapter {
           .join('');
 
         const responseStream = toAsyncIterable(
-          (await window.chatAPI.sendMessage(THREAD_ID, userText)) as ChatMessageStream,
+          window.chatAPI.sendMessage(THREAD_ID, userText) as ChatMessageStream,
         );
 
         const response = responseBuilder();

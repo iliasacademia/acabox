@@ -64,12 +64,17 @@ export interface ChatSubscription {
 }
 
 export interface ChatAPI {
-  // Returns a promise that resolves once main has acknowledged the send.
-  // Resolves with the messageId that correlates the turn end-to-end; rejects
-  // if main refuses the send (e.g. no active workspace). Events that arrive
-  // between ack and stream-iterator creation are buffered by preload, so the
-  // returned stream catches up on resolve.
-  sendMessage(threadId: string, text: string, attachments?: IPCAttachment[], model?: string, documentPath?: string, messageId?: string): Promise<ChatMessageStream>;
+  // Returns the response stream synchronously. The underlying IPC ack is
+  // fired in the background; failures (e.g. no active workspace, dedup
+  // reject) are surfaced through the same `chat:error` channel the stream
+  // iterator already listens on, so callers don't need a separate await.
+  //
+  // Sync return is required: contextBridge does not reliably re-proxy
+  // function methods (like the stream's `next`) through the resolved value
+  // of a returned Promise, so awaiting across the bridge produces a
+  // structured-cloned object whose `next` is undefined and the iterator
+  // hangs forever.
+  sendMessage(threadId: string, text: string, attachments?: IPCAttachment[], model?: string, documentPath?: string, messageId?: string): ChatMessageStream;
   subscribe(threadId: string): ChatSubscription;
   stopResponding(threadId: string): void;
   onQuickChatInject(callback: (data: { text: string; context: any }) => void): () => void;

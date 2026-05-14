@@ -557,13 +557,19 @@ contextBridge.exposeInMainWorld('chatAPI', {
     ipcRenderer.on('quick-chat:inject', handler);
     return () => { ipcRenderer.removeListener('quick-chat:inject', handler); };
   },
-  sendMessage: async (threadId: string, text: string, attachments?: any[], model?: string, documentPath?: string, messageId?: string) => {
-    // Acknowledged send: invoke either resolves (main accepted the send) or
-    // rejects (main refused — e.g. no active workspace). Events that arrive
-    // during the round-trip are captured by the global chat:event listener
-    // into eventBuffers and drained when the stream iterator is created
-    // below, so no events are lost between ack and subscription.
-    await ipcRenderer.invoke('chat:send', { threadId, text, attachments, model, documentPath, messageId });
+  sendMessage: (threadId: string, text: string, attachments?: any[], model?: string, documentPath?: string, messageId?: string) => {
+    // Fire-and-forget invoke for the ack/dedup round-trip. We can't await it
+    // here because contextBridge doesn't proxy nested methods through a
+    // resolved Promise — the renderer would receive a structured-cloned
+    // stream whose `next()` is missing and the iterator would hang.
+    // Errors are routed to the chat:error IPC channel so the stream iterator
+    // (which already listens for that) surfaces them the same way it
+    // surfaces in-stream errors.
+    ipcRenderer.invoke('chat:send', { threadId, text, attachments, model, documentPath, messageId })
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        ipcRenderer.emit('chat:error', null, threadId, message);
+      });
     return createStreamIterator(threadId).stream;
   },
   subscribe: (threadId: string) => {

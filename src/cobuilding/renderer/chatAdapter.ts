@@ -54,11 +54,12 @@ function createElectronChatAdapter(aui: any): ChatModelAdapter {
       const messageId = crypto.randomUUID();
       console.log(`[ChatAdapter] send messageId=${messageId} threadId=${threadId} textLen=${userText.length}`);
 
-      // sendMessage returns a Promise that resolves when main acks the send.
-      // If main refuses (e.g. no active workspace) the promise rejects and the
-      // error bubbles up through assistant-ui as the run's failure state.
+      // sendMessage returns the stream synchronously; failures from main are
+      // surfaced via the chat:error channel that the stream iterator already
+      // listens on. Awaiting across contextBridge would break the stream's
+      // `next()` proxying — see preload's sendMessage comment.
       const responseStream = toAsyncIterable(
-        await window.chatAPI.sendMessage(threadId, userText, extractAttachments(lastUserMessage), model, pendingDocPath, messageId),
+        window.chatAPI.sendMessage(threadId, userText, extractAttachments(lastUserMessage), model, pendingDocPath, messageId),
       );
 
       const response = responseBuilder();
