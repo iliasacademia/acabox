@@ -415,6 +415,37 @@ function httpPost(url: string, body: string): Promise<string> {
   });
 }
 
+/**
+ * Fire-and-forget retry wrapper for the mcp-result POST. `callId` is the
+ * idempotency key — the agent-server's pendingMcpCalls map resolves at most
+ * once for a given callId, so a duplicate POST after a transient failure is
+ * safely absorbed.
+ *
+ * No await at the call site: the SSE parser must not block on this. Final
+ * failure is logged; the agent's 120s pendingMcpCall timeout is the backstop.
+ */
+async function postMcpResultWithRetry(url: string, body: string, callId: string): Promise<void> {
+  const BACKOFFS_MS = [250, 500, 1000];
+  for (let attempt = 0; attempt <= BACKOFFS_MS.length; attempt++) {
+    try {
+      await httpPost(url, body);
+      if (attempt > 0) {
+        log.info(`[AgentSession] mcp-result POST succeeded after ${attempt} retries (callId=${callId})`);
+      }
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (attempt >= BACKOFFS_MS.length) {
+        log.error(`[AgentSession] mcp-result POST failed after ${BACKOFFS_MS.length} retries (callId=${callId}): ${msg}`);
+        return;
+      }
+      const backoff = BACKOFFS_MS[attempt];
+      log.warn(`[AgentSession] mcp-result POST failed (callId=${callId}, ${msg}); retrying in ${backoff}ms`);
+      await new Promise((r) => setTimeout(r, backoff));
+    }
+  }
+}
+
 async function connectSSE(
   url: string,
   state: MessageProcessingState,
@@ -521,17 +552,12 @@ async function connectSSE(
               const { callId, serverName, toolName, args } = mcpCall;
               log.debug(`[AgentSession] MCP relay: ${serverName}/${toolName} (callId=${callId})`);
 
+              const resultUrl = `${agentBaseUrl}/sessions/${agentSessionId}/mcp-result`;
               handleMcpRelay(serverName, toolName, args).then((result) => {
-                httpPost(
-                  `${agentBaseUrl}/sessions/${agentSessionId}/mcp-result`,
-                  JSON.stringify({ callId, result }),
-                ).catch((err) => log.error('[AgentSession] Failed to POST mcp-result:', err));
+                postMcpResultWithRetry(resultUrl, JSON.stringify({ callId, result }), callId);
               }).catch((err) => {
                 const errorMsg = err instanceof Error ? err.message : String(err);
-                httpPost(
-                  `${agentBaseUrl}/sessions/${agentSessionId}/mcp-result`,
-                  JSON.stringify({ callId, error: errorMsg }),
-                ).catch((err2) => log.error('[AgentSession] Failed to POST mcp-result error:', err2));
+                postMcpResultWithRetry(resultUrl, JSON.stringify({ callId, error: errorMsg }), callId);
               });
             } catch (err) {
               log.error('[AgentSession] Failed to parse mcp-call event:', err);
