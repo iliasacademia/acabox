@@ -6,7 +6,11 @@
  * join these with their own workspace root to reach the same physical location.
  */
 
+export const WORKSPACE_DATA_DIR = 'workspace-data';
+
 export const ACADEMIA_DIR = '.academia';
+export const APPLICATIONS_DIR = '.applications';
+export const CLAUDE_DIR = '.claude';
 
 export const AGENT_MEMORY_DIR = 'agent-memory';
 export const AGENT_MEMORY_SUBDIR = `${ACADEMIA_DIR}/${AGENT_MEMORY_DIR}`;

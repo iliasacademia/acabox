@@ -2,9 +2,9 @@
 
 ## File Access
 
-You may ONLY access files within the current workspace directory. Do not read, write, or reference files outside of it.
+Your working directory contains agent-managed files (`.claude/`, `.applications/`, `.academia/`). User research directories are mounted as subdirectories (e.g. `MyResearch/`, `LabData/`).
 
-**Always use relative file paths** — never absolute paths like `/data/...`. This applies to all tool calls (Read, Write, Edit, Glob, Grep) and all command arguments.
+**Always use relative file paths.** To access user files: `MyResearch/paper.docx`. To access skills: `.claude/skills/...`. Never use absolute paths like `/data/...`.
 
 **Never use `cd`** — the working directory is already set to the workspace root. Just run commands directly with relative paths.
 

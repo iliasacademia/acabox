@@ -31,6 +31,7 @@ export type ScannerEvent =
 export interface ScanParams {
   workspaceId: string;
   directoryPath: string;
+  memoryDir: string;
   apiKey: string;
   baseURL?: string;
   onMessage: (event: ScannerEvent) => void;

@@ -143,7 +143,8 @@ const TMPFS_SIZE_GB = 1;
 class CobuildingContainerService {
   private containerStarted = false;
   private isStarting = false;
-  private currentWorkspacePath: string | null = null;
+  private currentAgentDir: string | null = null;
+  private currentMountMap: Array<{ hostPath: string; containerPath: string }> = [];
   private logTailInterval: ReturnType<typeof setInterval> | null = null;
   private lastLogTime: string = new Date().toISOString();
   private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
@@ -189,20 +190,22 @@ class CobuildingContainerService {
   // ─── Public API ─────────────────────────────────────────────────
 
   async start(
-    workspacePath: string,
+    mountMap: Array<{ hostPath: string; containerPath: string }>,
     onProgress?: ProgressCallback,
     onBackgroundProgress?: ProgressCallback,
   ): Promise<void> {
-    if (this.isRunning() && this.currentWorkspacePath === workspacePath) {
+    const agentDir = mountMap[0]?.hostPath ?? null;
+    const mountMapChanged = JSON.stringify(mountMap) !== JSON.stringify(this.currentMountMap);
+    if (this.isRunning() && !mountMapChanged) {
       return;
     }
     if (this.isStarting) {
       return;
     }
 
-    // If running with a different workspace, stop the old container first
-    if (this.isRunning() && this.currentWorkspacePath !== workspacePath) {
-      log.debug(`[ContainerService] Workspace changed (${this.currentWorkspacePath} -> ${workspacePath}), restarting container...`);
+    // If running with different mounts, stop the old container first
+    if (this.isRunning() && mountMapChanged) {
+      log.debug(`[ContainerService] Mount map changed, restarting container...`);
       this.stop();
     }
     this.isStarting = true;
@@ -226,7 +229,7 @@ class CobuildingContainerService {
       if (skipImageBuild()) {
         const baseImage = this.getBaseImageRef();
         log.info(`[ContainerService] Skip-image-build mode, starting from base image (${baseImage})`);
-        await this.runContainer(podmanBin, workspacePath, baseImage);
+        await this.runContainer(podmanBin, mountMap, baseImage);
         void this.pruneImages(podmanBin);
       } else {
         // Start the container from whatever image is available — either the full
@@ -235,7 +238,7 @@ class CobuildingContainerService {
         // builds in the background for next restart.
         const hasFullImage = await this.imageExists(podmanBin, IMAGE_NAME);
         // Only check hash if the image exists with correct architecture
-        const imageUpToDate = hasFullImage && await this.isImageUpToDate(podmanBin, workspacePath);
+        const imageUpToDate = hasFullImage && await this.isImageUpToDate(podmanBin, agentDir);
         log.info(`[ContainerService] Image state: upToDate=${imageUpToDate}, hasFullImage=${hasFullImage}`);
 
         // Guarantee a terminal `ready`/`error` event so renderer indicators clear.
@@ -243,7 +246,7 @@ class CobuildingContainerService {
         // of racing a second `podman build` against the same image tag.
         const backgroundBuildAndFinalize = (): Promise<void> => {
           if (this.backgroundBuildPromise) return this.backgroundBuildPromise;
-          const p = this.ensureImageBuilt(podmanBin, onBackgroundProgress, workspacePath)
+          const p = this.ensureImageBuilt(podmanBin, onBackgroundProgress, agentDir)
             .then(async () => {
               onBackgroundProgress?.('ready', 'Image build complete');
               await this.pruneImages(podmanBin);
@@ -262,19 +265,19 @@ class CobuildingContainerService {
 
         if (imageUpToDate) {
           // Full image is current — start directly
-          await this.runContainer(podmanBin, workspacePath);
+          await this.runContainer(podmanBin, mountMap);
         } else if (hasFullImage) {
           // Full image exists but is stale — start from it now, rebuild in background
           log.info('[ContainerService] Starting from existing image, rebuilding in background');
-          await this.runContainer(podmanBin, workspacePath);
+          await this.runContainer(podmanBin, mountMap);
           backgroundBuildAndFinalize();
         } else {
           // No full image — start from the base image immediately so the agent
           // is available. Build the full image (with workspace deps) in the
-          // background for next restart. App deps install live via backgroundBuilder.
+          // background for next restart.
           const baseImage = this.getBaseImageRef();
           log.info(`[ContainerService] Starting from base image (${baseImage}), building full image in background`);
-          await this.runContainer(podmanBin, workspacePath, baseImage);
+          await this.runContainer(podmanBin, mountMap, baseImage);
           backgroundBuildAndFinalize();
         }
       }
@@ -300,7 +303,8 @@ class CobuildingContainerService {
     if (!podmanBin) {
       log.debug('[ContainerService] Podman binary not available, skipping container stop commands');
       this.containerStarted = false;
-      this.currentWorkspacePath = null;
+      this.currentAgentDir = null;
+      this.currentMountMap = [];
       this.overlayEnabled = false;
       return;
     }
@@ -363,7 +367,8 @@ class CobuildingContainerService {
     }
 
     this.containerStarted = false;
-    this.currentWorkspacePath = null;
+    this.currentAgentDir = null;
+    this.currentMountMap = [];
     this.agentPort = null;
     this.kernelPort = null;
     this.kernelStartPromise = null;
@@ -560,13 +565,13 @@ class CobuildingContainerService {
    * Rebuild the container image from current workspace dependencies.
    * Intended for background rebuilds — does NOT restart the container.
    */
-  async rebuildImage(workspacePath: string, onProgress?: ProgressCallback): Promise<void> {
+  async rebuildImage(agentDir: string, onProgress?: ProgressCallback): Promise<void> {
     if (this.isStarting) {
       log.debug('[ContainerService] Foreground start in progress, skipping background rebuild');
       return;
     }
     const podmanBin = this.getPodmanBin();
-    await this.ensureImageBuilt(podmanBin, onProgress, workspacePath);
+    await this.ensureImageBuilt(podmanBin, onProgress, agentDir);
   }
 
   async deleteImage(): Promise<void> {
@@ -626,8 +631,8 @@ class CobuildingContainerService {
    * Copy the agent server bundle and Linux claude binary to the workspace mount.
    * The binary is only re-copied when its size changes (new SDK version).
    */
-  async ensureAgentFilesInWorkspace(workspacePath: string): Promise<void> {
-    const agentDir = path.join(workspacePath, '.academia');
+  async ensureAgentFilesInWorkspace(agentControlledDir: string): Promise<void> {
+    const agentDir = path.join(agentControlledDir, '.academia');
     fs.mkdirSync(agentDir, { recursive: true });
 
     // Copy agent server bundle (small, always copy to pick up code changes)
@@ -688,12 +693,12 @@ class CobuildingContainerService {
    * SetupBanner module guard and re-fires ensureSetup) should not be
    * able to drop an active conversation underneath the user.
    */
-  async startAgentServer(configJson: string, workspacePath: string): Promise<void> {
+  async startAgentServer(configJson: string, agentDir: string): Promise<void> {
     // Cache params so the health-watch watchdog can revive the server if it
     // dies later. Cached params are cleared by stopAgentServer and stop(), so
     // an intentional teardown never auto-restarts.
     this.lastAgentServerConfig = configJson;
-    this.lastAgentServerWorkspacePath = workspacePath;
+    this.lastAgentServerWorkspacePath = agentDir;
 
     if (await this.isAgentServerHealthy()) {
       log.debug('[ContainerService] Agent server already healthy — skipping restart');
@@ -709,7 +714,7 @@ class CobuildingContainerService {
     if (this.overlayEnabled) {
       await this.writeContentToContainer(configJson, '/data/.academia/agent.json');
     } else {
-      const configPath = path.join(workspacePath, '.academia', 'agent.json');
+      const configPath = path.join(agentDir, '.academia', 'agent.json');
       fs.writeFileSync(configPath, configJson, 'utf-8');
     }
 
@@ -1013,8 +1018,10 @@ class CobuildingContainerService {
     log.debug('[ContainerService] Kernel gateway stopped');
   }
 
-  writeStartContainerScript(workspaceDir: string): void {
-    const academiaDir = path.join(workspaceDir, '.academia');
+  writeStartContainerScript(mountMap: Array<{ hostPath: string; containerPath: string }>): void {
+    const agentDir = mountMap[0]?.hostPath;
+    if (!agentDir) return;
+    const academiaDir = path.join(agentDir, '.academia');
     fs.mkdirSync(academiaDir, { recursive: true });
     const scriptPath = path.join(academiaDir, 'start-container');
 
@@ -1023,8 +1030,6 @@ class CobuildingContainerService {
     const podmanBin = this.useBundled()
       ? path.join(getBundledPodmanBinDir(), process.platform === 'win32' ? 'podman.exe' : 'podman')
       : 'podman';
-
-    const mountPath = toMountPath(path.resolve(workspaceDir));
 
     let envExports = '';
     if (this.useBundled()) {
@@ -1044,27 +1049,29 @@ class CobuildingContainerService {
         .join('\n') + '\n\n';
     }
 
+    const volumeFlags = mountMap
+      .map(m => `  -v "${toMountPath(m.hostPath)}:${m.containerPath}" \\`)
+      .join('\n');
+
     const script = [
       '#!/bin/bash',
       'set -euo pipefail',
       '',
-      `PODMAN_BIN="${podmanBin}"`,
-      `WORKSPACE_PATH="${mountPath}"`,
       `CONTAINER_NAME="${CONTAINER_NAME}"`,
       `IMAGE_NAME="${IMAGE_NAME}"`,
       '',
       envExports +
         '# If the container is already running, there is nothing to do.',
-      'if "$PODMAN_BIN" inspect --format \'{{.State.Running}}\' "$CONTAINER_NAME" 2>/dev/null | grep -q \'^true$\'; then',
+      `if "${podmanBin}" inspect --format '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null | grep -q '^true$'; then`,
       '  echo "Container is already running."',
       '  exit 0',
       'fi',
       '',
       'echo "Starting $CONTAINER_NAME..."',
-      '"$PODMAN_BIN" run -d \\',
+      `"${podmanBin}" run -d \\`,
       '  --replace \\',
       '  --name "$CONTAINER_NAME" \\',
-      '  -v "$WORKSPACE_PATH:/data" \\',
+      volumeFlags,
       '  -p 23300:8080 \\',
       '  -p 23330:8888 \\',
       '  "$IMAGE_NAME" \\',
@@ -1072,7 +1079,7 @@ class CobuildingContainerService {
       '',
       '# Wait up to 30 seconds for the container to become running.',
       'for i in $(seq 1 30); do',
-      '  if "$PODMAN_BIN" inspect --format \'{{.State.Running}}\' "$CONTAINER_NAME" 2>/dev/null | grep -q \'^true$\'; then',
+      `  if "${podmanBin}" inspect --format '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null | grep -q '^true$'; then`,
       '    echo "Container started."',
       '    exit 0',
       '  fi',
@@ -1730,9 +1737,10 @@ class CobuildingContainerService {
     return this.hostGatewayIp;
   }
 
-  private async runContainer(podmanBin: string, workspacePath: string, imageName?: string): Promise<void> {
+  private async runContainer(podmanBin: string, mountMap: Array<{ hostPath: string; containerPath: string }>, imageName?: string): Promise<void> {
     const env = this.getExecEnv();
-    const mountPath = toMountPath(workspacePath);
+    const agentDir = mountMap[0]?.hostPath;
+    const volumeArgs = mountMap.flatMap(m => ['-v', `${toMountPath(m.hostPath)}:${m.containerPath}`]);
 
     // Find free host ports for the agent server (8080) and Jupyter kernel
     // gateway (8888) — both are eagerly started inside the same container.
@@ -1762,19 +1770,26 @@ class CobuildingContainerService {
       );
     }
 
+    // In overlay mode, only the agent-controlled dir (first entry) is overlaid
+    // so container writes don't persist to the host. User directories are mounted
+    // directly (read-write, no overlay) because user file changes should persist
+    // immediately.
+    const overlayVolumeArgs = mountMap.map((m, i) => {
+      const containerPath = i === 0 ? '/data-host' : m.containerPath;
+      return ['-v', `${toMountPath(m.hostPath)}:${containerPath}`];
+    }).flat();
+
     const args = useOverlay ? [
       'run', '-d',
       '--replace',
       '--privileged',
       '--memory=2g',
       '--name', CONTAINER_NAME,
-      '-v', `${mountPath}:/data-host`,
+      ...overlayVolumeArgs,
       '-p', `${agentHostPort}:8080`,
       ...cacheVolumes,
       useImage,
       'sh', '-c',
-      // The container rootfs is itself overlay (podman storage driver), so
-      // upper/work dirs can't live on it. Mount a tmpfs first.
       `mount -t tmpfs tmpfs /tmp -o size=${TMPFS_SIZE_GB}G && ` +
       'mkdir -p /tmp/overlay-upper /tmp/overlay-work && ' +
       'mount -t overlay overlay -o lowerdir=/data-host,upperdir=/tmp/overlay-upper,workdir=/tmp/overlay-work /data && ' +
@@ -1785,7 +1800,7 @@ class CobuildingContainerService {
       '--replace',
       '--memory=2g',
       '--name', CONTAINER_NAME,
-      '-v', `${mountPath}:/data`,
+      ...volumeArgs,
       '-p', `${agentHostPort}:8080`,
       '-p', `${kernelHostPort}:8888`,
       ...cacheVolumes,
@@ -1871,7 +1886,8 @@ class CobuildingContainerService {
     }
 
     this.containerStarted = true;
-    this.currentWorkspacePath = workspacePath;
+    this.currentAgentDir = agentDir;
+    this.currentMountMap = mountMap;
     // Fresh container → fresh restart budget.
     this.kernelGatewayRestartAttempts = 0;
     this.agentServerConsecutiveFailures = 0;
@@ -2287,7 +2303,7 @@ class CobuildingContainerService {
   private startHealthWatch(podmanBin: string): void {
     this.stopHealthWatch();
     this.healthCheckInterval = setInterval(async () => {
-      if (!this.containerStarted || this.isStarting || !this.currentWorkspacePath) return;
+      if (!this.containerStarted || this.isStarting || !this.currentAgentDir) return;
 
       let running = false;
       try {
@@ -2303,7 +2319,7 @@ class CobuildingContainerService {
         log.warn('[ContainerService] Container stopped unexpectedly, restarting...');
         this.isStarting = true;
         try {
-          await this.runContainer(podmanBin, this.currentWorkspacePath);
+          await this.runContainer(podmanBin, this.currentMountMap);
           log.info('[ContainerService] Container restarted successfully');
         } catch (err) {
           log.error('[ContainerService] Auto-restart failed:', (err as Error).message);
