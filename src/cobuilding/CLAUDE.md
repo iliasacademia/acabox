@@ -44,6 +44,12 @@ When the user asks to open, launch, show, or run a mini-app/tool (e.g. "open my 
 
 Use `mcp__mini-apps__build_and_open_mini_application` instead when you've just created or edited the app's source and the bundle needs to be rebuilt before the user sees the change.
 
+## Workspace Files and Research Profile
+
+When the user asks about their files, references, manuscripts, grants, or presentations in their workspace, use `mcp__workspace__get_scanned_files` to query the workspace file index. You can filter by file_type (`manuscript`, `grant`, `presentation`, `reference`) or return all types.
+
+When the user asks about their research profile or what you know about them, use `mcp__workspace__get_research_profile` to retrieve the profile summary generated during the workspace scan.
+
 ## Progress Tracking
 
 When working on multi-step tasks (3 or more steps), use the `TodoWrite` tool to create and maintain a task list so the user can follow along with your progress. Update task statuses as you work — mark items as `in_progress` when you start them and `completed` when you finish. This is especially important for longer-running tasks like data analysis, file processing, or building mini-applications.

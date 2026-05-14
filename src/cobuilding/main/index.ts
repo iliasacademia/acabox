@@ -96,7 +96,7 @@ import { windowMonitorService } from '../../windowMonitorService';
 import { wordAccessibility } from '../../native/wordAccessibility';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
 import { validateExternalUrl } from '../../utils/urlValidation';
-import { ACADEMIA_DIR } from '../shared/paths';
+import { ACADEMIA_DIR, AGENT_MEMORY_SUBDIR } from '../shared/paths';
 const isSmokeTest = process.argv.includes('--smoke-test');
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
@@ -1601,6 +1601,53 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
         return ok(JSON.stringify(await grantsUpdateProject(args.project_id, { name: args.name, research_summary: args.research_summary })));
       },
     },
+
+    workspace: {
+      get_scanned_files: async (args: any) => {
+        try {
+          const files = args.file_type
+            ? getScannedFilesByType(workspace.id, args.file_type)
+            : getScannedFiles(workspace.id);
+          const cleaned = files.map(({ file_path, file_name, file_type }: { file_path: string; file_name: string; file_type: string }) => ({
+            file_path, file_name, file_type,
+          }));
+          return ok(JSON.stringify({ files: cleaned, count: cleaned.length }));
+        } catch (err: any) {
+          return fail(`Failed to get scanned files: ${err.message}`);
+        }
+      },
+
+      get_research_profile: async () => {
+        try {
+          const report = getLatestReport(workspace.id, 'directory_scan');
+          if (!report) {
+            return ok(JSON.stringify({ about_you: null, working_on: null, status: 'not_started' }));
+          }
+          if (report.status !== 'completed') {
+            return ok(JSON.stringify({ about_you: null, working_on: null, status: report.status }));
+          }
+          let aboutYou: string | null = null;
+          let workingOn: string | null = null;
+          try {
+            const parsed = JSON.parse(report.report_data);
+            aboutYou = parsed.about_you ?? null;
+            workingOn = parsed.working_on ?? null;
+          } catch { /* ignore */ }
+          if (!aboutYou || !workingOn) {
+            const memoryDir = path.join(workspace.directory_path, AGENT_MEMORY_SUBDIR);
+            if (!aboutYou) {
+              try { aboutYou = await fs.promises.readFile(path.join(memoryDir, 'about_you.md'), 'utf-8'); } catch { /* not available */ }
+            }
+            if (!workingOn) {
+              try { workingOn = await fs.promises.readFile(path.join(memoryDir, 'working_on.md'), 'utf-8'); } catch { /* not available */ }
+            }
+          }
+          return ok(JSON.stringify({ about_you: aboutYou, working_on: workingOn, status: report.status }));
+        } catch (err: any) {
+          return fail(`Failed to get research profile: ${err.message}`);
+        }
+      },
+    },
   };
 
   (globalThis as any).__hostMcpServers = handlers;
@@ -1860,6 +1907,8 @@ async function startAgentInfrastructure(workspacePath: string): Promise<void> {
       'mcp__grants__favorite_opportunity', 'mcp__grants__hide_opportunity',
       'mcp__grants__set_hidden_reason', 'mcp__grants__visit_opportunity',
       'mcp__grants__update_project',
+      'mcp__workspace__get_scanned_files',
+      'mcp__workspace__get_research_profile',
     ],
     settingSources: ['project'],
   };
