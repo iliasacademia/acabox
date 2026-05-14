@@ -17,6 +17,7 @@
 
 import {
   shouldAutoOpenFreshSession,
+  shouldAutoOpenBlankChat,
   findAutoOpenCandidate,
   shouldClearActiveOnDocChange,
   isActiveSessionStaleForDoc,
@@ -51,6 +52,30 @@ describe('shouldAutoOpenFreshSession', () => {
   it('returns false when no fresh session arrived', () => {
     expect(shouldAutoOpenFreshSession(null, null)).toBe(false);
     expect(shouldAutoOpenFreshSession('active-id', null)).toBe(false);
+  });
+});
+
+describe('shouldAutoOpenBlankChat', () => {
+  it('opens a blank chat when in workspace with no sessions and no active session', () => {
+    expect(shouldAutoOpenBlankChat(true, 0, null)).toBe(true);
+  });
+
+  it('does NOT open when sessions already exist', () => {
+    expect(shouldAutoOpenBlankChat(true, 3, null)).toBe(false);
+  });
+
+  it('does NOT open when a session is already active', () => {
+    expect(shouldAutoOpenBlankChat(true, 0, 'some-id')).toBe(false);
+  });
+
+  it('does NOT open when not in a workspace', () => {
+    expect(shouldAutoOpenBlankChat(false, 0, null)).toBe(false);
+  });
+
+  it('does NOT open when not in workspace even with zero sessions and no active', () => {
+    // Non-workspace documents use the legacy ConversationListView path —
+    // they should never trigger the blank-chat auto-open.
+    expect(shouldAutoOpenBlankChat(false, 0, null)).toBe(false);
   });
 });
 
