@@ -1071,6 +1071,15 @@ app.whenReady().then(async () => {
                 }));
               });
             }
+            // Auto-start the overlay so it appears over Word without
+            // requiring the user to visit the desktop app home tab first.
+            if (process.platform === 'darwin' && !windowMonitorService.isRunning()) {
+              const hasPermission = wordAccessibility.checkPermission();
+              if (hasPermission) {
+                windowMonitorService.start(baseUrl, authToken, false);
+                log.info('[overlay:autoStart] Window monitor started automatically');
+              }
+            }
           }
 
         } catch (error) {
