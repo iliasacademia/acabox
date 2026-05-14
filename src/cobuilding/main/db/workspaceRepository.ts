@@ -1,4 +1,6 @@
 import { getDatabase } from './database';
+import type { WorkspaceDirectory } from '../../shared/types';
+export type { WorkspaceDirectory } from '../../shared/types';
 
 export interface Workspace {
   id: string;
@@ -9,15 +11,6 @@ export interface Workspace {
   updated_at: string;
   last_accessed_at: string | null;
   deleted_at: string | null;
-}
-
-export interface WorkspaceDirectory {
-  id: string;
-  workspace_id: string;
-  directory_path: string;
-  display_name: string;
-  sort_order: number;
-  created_at: string;
 }
 
 export function createWorkspace(

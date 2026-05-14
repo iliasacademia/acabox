@@ -1,4 +1,4 @@
-import type { ChatAPI, Workspace, ScheduledTask, ScheduledTaskRun, CreateTaskData, UpdateTaskData, CalendarGroup, CalendarEvent, EventFile, GroupFile, CreateGroupData, UpdateGroupData, CreateEventData, UpdateEventData, EventDependency, CreateDependencyData, UpdateDependencyData, CascadeUpdate, CalendarResource, CalendarResourceType, CreateResourceData, UpdateResourceData, MoveResourceData, ListResourcesOptions, WorkspaceFileEntry } from '../shared/types';
+import type { ChatAPI, Workspace, WorkspaceDirectory, ScheduledTask, ScheduledTaskRun, CreateTaskData, UpdateTaskData, CalendarGroup, CalendarEvent, EventFile, GroupFile, CreateGroupData, UpdateGroupData, CreateEventData, UpdateEventData, EventDependency, CreateDependencyData, UpdateDependencyData, CascadeUpdate, CalendarResource, CalendarResourceType, CreateResourceData, UpdateResourceData, MoveResourceData, ListResourcesOptions, WorkspaceFileEntry } from '../shared/types';
 
 interface DirEntry {
   name: string;
@@ -50,6 +50,7 @@ interface WorkspacesAPI {
   update(data: { name: string; directoryPath: string }): Promise<Workspace>;
   selectDirectory(): Promise<string | undefined>;
   deleteAll(): Promise<void>;
+  listDirectories(): Promise<WorkspaceDirectory[]>;
 }
 
 interface SessionData {
@@ -231,6 +232,7 @@ declare global {
     update(data: { name: string; directoryPath: string }): Promise<Workspace>;
     selectDirectory(): Promise<string | undefined>;
     deleteAll(): Promise<void>;
+    listDirectories(): Promise<WorkspaceDirectory[]>;
   }
 
   interface SessionData {

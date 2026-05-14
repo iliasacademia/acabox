@@ -41,7 +41,7 @@ import { GlobalComposer } from './components/GlobalComposer';
 import { useTabs } from './tabs/useTabs';
 import type { TabDescriptor } from './tabs/types';
 import { kernelRegistry } from './components/notebook/kernelRegistry';
-import type { Workspace } from '../shared/types';
+import type { Workspace, WorkspaceDirectory } from '../shared/types';
 import { initFullStory, identifyUser, trackEvent } from './utils/fullstory';
 import './App.css';
 
@@ -574,6 +574,10 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
   const [fileOpenedFrom, setFileOpenedFrom] = useState<'files' | 'chat'>('files');
   const [fileReturnThreadId, setFileReturnThreadId] = useState<string | null>(null);
   const [fileCount, setFileCount] = useState(0);
+  const [userDirectories, setUserDirectories] = useState<WorkspaceDirectory[]>([]);
+  useEffect(() => {
+    window.workspacesAPI.listDirectories().then(setUserDirectories).catch((err) => console.error('[ChatView] listDirectories failed:', err));
+  }, [workspace.id]);
   const [debugSection, setDebugSection] = useState<DebugSection>(() => {
     const saved = localStorage.getItem('debug-section');
     return (saved as DebugSection) || 'apps';
@@ -1016,6 +1020,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
                     <div className="filesPage__explorerCard">
                       <FilesTab
                         workspacePath={workspace.directory_path}
+                        userDirectories={userDirectories}
                         onSelectFile={handleSelectFile}
                         onFileCount={setFileCount}
                       />
