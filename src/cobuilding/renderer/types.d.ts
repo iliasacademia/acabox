@@ -740,6 +740,8 @@ declare global {
   interface ScannedFilesAPI {
     getByType(fileType: 'manuscript' | 'grant' | 'presentation' | 'reference'): Promise<ScannedFile[]>;
     getAll(): Promise<ScannedFile[]>;
+    updateTag(filePath: string, fileName: string, fileType: 'manuscript' | 'grant' | 'presentation' | 'reference'): Promise<void>;
+    removeTag(filePath: string): Promise<void>;
   }
 
   interface Window {

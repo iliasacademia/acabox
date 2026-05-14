@@ -334,6 +334,9 @@ contextBridge.exposeInMainWorld('briefingsAPI', {
 contextBridge.exposeInMainWorld('scannedFilesAPI', {
   getByType: (fileType: string) => ipcRenderer.invoke('scannedFiles:getByType', fileType),
   getAll: () => ipcRenderer.invoke('scannedFiles:getAll'),
+  updateTag: (filePath: string, fileName: string, fileType: string) =>
+    ipcRenderer.invoke('scannedFiles:updateTag', filePath, fileName, fileType),
+  removeTag: (filePath: string) => ipcRenderer.invoke('scannedFiles:removeTag', filePath),
 });
 
 contextBridge.exposeInMainWorld('scannerAPI', {
