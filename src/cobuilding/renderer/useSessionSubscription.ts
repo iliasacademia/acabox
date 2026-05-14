@@ -98,6 +98,9 @@ export function useSessionSubscription() {
       cancelled = true;
       if (idleTimer) clearTimeout(idleTimer);
       unsubscribe();
+      // Main-process signal — `unsubscribe()` above only tears down the
+      // local stream; the registry's visibility cleanup needs this.
+      window.chatAPI.unsubscribe(remoteId);
       resetProgress();
     };
   }, [remoteId, threadRuntime, subscriptionEpoch]);

@@ -35,14 +35,16 @@ export type ChatStreamMessage =
   // Turn complete — the agent finished this turn's response. Unlike chat:done
   // (which kills the stream iterator), this is a regular event that the
   // chatAdapter uses to break from its loop while keeping the stream alive.
-  | { type: 'turn-complete' }
+  // `messageId` correlates back to the user turn that prompted this response;
+  // null for legacy turns that started before the messageId plumbing landed.
+  | { type: 'turn-complete'; messageId?: string }
   // Cross-surface user message — emitted server-side right after a user
   // message is inserted into the DB, so subscribers on OTHER surfaces
   // (the desktop chat when the overlay sent it, or vice versa) can refresh
   // and show the user turn before the assistant streams. Without this, the
   // assistant's reply lands via the existing fanout but the prompting user
   // turn stays missing on the non-originating surface.
-  | { type: 'user-message'; text: string };
+  | { type: 'user-message'; text: string; messageId?: string };
 
 export interface ChatMessageStream {
   next(): Promise<{ value: ChatStreamMessage | null; done: boolean }>;
@@ -62,8 +64,24 @@ export interface ChatSubscription {
 }
 
 export interface ChatAPI {
-  sendMessage(threadId: string, text: string, attachments?: IPCAttachment[], model?: string, documentPath?: string): ChatMessageStream;
+  // Returns the response stream synchronously. The underlying IPC ack is
+  // fired in the background; failures (e.g. no active workspace, dedup
+  // reject) are surfaced through the same `chat:error` channel the stream
+  // iterator already listens on, so callers don't need a separate await.
+  //
+  // Sync return is required: contextBridge does not reliably re-proxy
+  // function methods (like the stream's `next`) through the resolved value
+  // of a returned Promise, so awaiting across the bridge produces a
+  // structured-cloned object whose `next` is undefined and the iterator
+  // hangs forever.
+  sendMessage(threadId: string, text: string, attachments?: IPCAttachment[], model?: string, documentPath?: string, messageId?: string): ChatMessageStream;
   subscribe(threadId: string): ChatSubscription;
+  /** Tell main the renderer has navigated away from this thread. Does NOT
+   *  cancel the current turn — the agent runs to completion, then the
+   *  registry evicts the session if no other surface remains subscribed.
+   *  Use this in component-unmount / thread-switch cleanup paths, not in
+   *  local idle-stream optimizations. */
+  unsubscribe(threadId: string): void;
   stopResponding(threadId: string): void;
   onQuickChatInject(callback: (data: { text: string; context: any }) => void): () => void;
 }

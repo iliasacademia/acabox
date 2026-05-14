@@ -781,5 +781,12 @@ export function createCalendarAgentSession(
     get isRunning() {
       return running;
     },
+
+    // Registry registers calendar with kind='background' so this is never
+    // consulted. Returning false avoids any accidental future reader
+    // inferring a per-turn signal from a per-loop flag.
+    get isTurnInProgress() {
+      return false;
+    },
   };
 }

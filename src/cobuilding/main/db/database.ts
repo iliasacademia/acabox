@@ -371,6 +371,16 @@ const migrations = [
       CREATE INDEX idx_scanned_files_type ON scanned_files(workspace_id, file_type);
     `,
   },
+  {
+    // messageId end-to-end: a renderer-generated UUID that correlates a turn
+    // across renderer → main → agent-server → SSE events → DB. Nullable so
+    // historical rows pre-column remain untouched.
+    version: 23,
+    sql: `
+      ALTER TABLE messages ADD COLUMN message_id TEXT DEFAULT NULL;
+      CREATE INDEX idx_messages_message_id ON messages(message_id) WHERE message_id IS NOT NULL;
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database) {

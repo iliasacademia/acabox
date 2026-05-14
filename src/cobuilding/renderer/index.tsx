@@ -554,9 +554,13 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
   }, [workspace.directory_path]);
 
 
+  // Held in a ref so the chatAdapter's onSend callback always reads the
+  // latest setters without invalidating the adapter's memoized identity.
+  const navigateToChatDetailRef = useRef<() => void>(() => {});
+
   const runtime = useRemoteThreadListRuntime({
     runtimeHook: () => {
-      const chatAdapter = useElectronChatAdapter();
+      const chatAdapter = useElectronChatAdapter(() => navigateToChatDetailRef.current());
       const history = useThreadHistoryAdapter();
       const attachments = useMemo(
         () => createAttachmentAdapter(workspace.directory_path),
@@ -568,6 +572,28 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
     },
     adapter: sessionListAdapter,
   });
+
+  // Refresh on every render so we always close over the current state setters
+  // and view flags. Cheap — assigning a function reference.
+  //
+  // Skip navigation when the user is already typing into a side-panel chat
+  // (rendered as `<Thread />` inside one of the tools detail views). In those
+  // modes the GlobalComposer is hidden, so the only composer available is the
+  // side-panel one — and the chat the user is sending to is already on
+  // screen. Switching tabs would close the miniapp/paper-monitor/reactions
+  // view the user was looking at.
+  navigateToChatDetailRef.current = () => {
+    const inToolsSidePanel = sidebarTab === 'tools' && (
+      (toolsViewMode === 'detail' && activeTab?.kind === 'miniapp') ||
+      toolsViewMode === 'paper-monitor' ||
+      toolsViewMode === 'reactions'
+    );
+    if (inToolsSidePanel) return;
+
+    setSidebarTab('chats');
+    setChatViewMode('detail');
+    deactivateAllTabs();
+  };
 
   const handleSelectFile = useCallback((filePath: string, from?: 'files' | 'chat') => {
     const ext = filePath.split('.').pop()?.toLowerCase();
@@ -993,14 +1019,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
            !(sidebarTab === 'tools' && toolsViewMode === 'detail' && activeTab?.kind === 'miniapp') &&
            !(sidebarTab === 'tools' && toolsViewMode === 'paper-monitor') &&
            !(sidebarTab === 'tools' && toolsViewMode === 'reactions') && (
-            <GlobalComposer
-              isInChatDetail={sidebarTab === 'chats' && chatViewMode === 'detail'}
-              onNavigateToChat={() => {
-                setSidebarTab('chats');
-                setChatViewMode('detail');
-                deactivateAllTabs();
-              }}
-            />
+            <GlobalComposer />
           )}
         </div>
         </div>

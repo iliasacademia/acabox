@@ -12,7 +12,7 @@ import log from 'electron-log';
 import { createAgentSession } from './agentSession';
 import { createCalendarAgentSession } from './calendarAgentSession';
 import type { CalendarMutationEvent } from './calendarAgentSession';
-import { registerSession, unregisterSession, getRegisteredSession, hasSession, destroyAllSessions } from './sessionRegistry';
+import { registerSession, unregisterSession, getRegisteredSession, hasSession, destroyAllSessions, addSubscriber, removeSubscriber } from './sessionRegistry';
 import type { IPCAttachment } from '../shared/types';
 import { provisionWorkspace } from './skills';
 import { containerService, skipImageBuild } from './containerService';
@@ -42,6 +42,7 @@ import {
   deleteSession,
   getMessages,
   findSessionForApp,
+  findMessageByMessageId,
 } from './db/chatRepository';
 import {
   updateWorkspace,
@@ -339,6 +340,7 @@ const forwardingListeners = new Map<string, () => void>();
 // desktop-initiated and overlay-initiated turns.
 const sseSessionSubscribers = new Map<string, Set<NodeJS.WritableStream>>();
 const sseFanoutListeners = new Map<string, () => void>();
+let sseSubscriberSeq = 0;
 
 function broadcastSseToSubscribers(sessionId: string, event: string, data: unknown): void {
   const subs = sseSessionSubscribers.get(sessionId);
@@ -395,11 +397,18 @@ function ensureSseFanout(sessionId: string): void {
 
 function ensureForwarding(threadId: string, sender: Electron.WebContents): void {
   const key = `${threadId}:${sender.id}`;
+  // Always register the renderer's interest in this thread, even before a
+  // session exists. The registry tracks pre-session subscribers so a session
+  // created later inherits the right count, and visibility-based cleanup
+  // doesn't fire on a session that has subscribers waiting in the wings.
+  const subscriberKey = `ipc:${sender.id}`;
+  addSubscriber(threadId, subscriberKey);
+
   if (forwardingListeners.has(key)) return;
 
   const session = getRegisteredSession(threadId);
   if (!session) {
-    log.debug(`[Forwarding] No session found for ${threadId}, skipping`);
+    log.debug(`[Forwarding] No session found for ${threadId}, skipping listener attach (subscriber recorded)`);
     return;
   }
 
@@ -450,10 +459,32 @@ function ensureForwarding(threadId: string, sender: Electron.WebContents): void 
     unsubscribe();
     forwardingListeners.delete(key);
     sender.removeListener('destroyed', cleanup);
+    removeSubscriber(threadId, subscriberKey);
   };
 
   forwardingListeners.set(key, cleanup);
   sender.on('destroyed', cleanup);
+}
+
+/**
+ * Explicit cleanup path the renderer fires when it navigates away from a
+ * thread (component unmount, thread change, idle timeout in
+ * useSessionSubscription). Removing the forwarding listener drops the
+ * subscriber count for the (threadId, sender) pair; once the last surface
+ * detaches, the registry's visibility policy decides whether to destroy the
+ * agent session now or after the current turn finishes.
+ */
+function removeForwarding(threadId: string, senderId: number): void {
+  const key = `${threadId}:${senderId}`;
+  const cleanup = forwardingListeners.get(key);
+  if (cleanup) {
+    cleanup();
+    return;
+  }
+  // No forwarding listener was ever installed (e.g. renderer subscribed
+  // before the session existed). Still record the detach so the registry's
+  // pre-session subscriber count drops.
+  removeSubscriber(threadId, `ipc:${senderId}`);
 }
 
 function createMainWindow(): void {
@@ -683,6 +714,12 @@ app.whenReady().then(async () => {
                 }
                 subs.add(reply.raw);
 
+                // Each open SSE stream is one visibility-tracked subscriber.
+                // Unique per connection so concurrent overlay windows on the
+                // same session each hold the count up independently.
+                const subscriberKey = `sse:${++sseSubscriberSeq}`;
+                addSubscriber(sessionId, subscriberKey);
+
                 // If the session already exists (the common case — the user
                 // is opening an active conversation), attach the fanout
                 // listener now. Otherwise it'll be attached the first time
@@ -698,6 +735,7 @@ app.whenReady().then(async () => {
                     set.delete(reply.raw);
                     if (set.size === 0) sseSessionSubscribers.delete(sessionId);
                   }
+                  removeSubscriber(sessionId, subscriberKey);
                 });
               },
             );
@@ -2314,9 +2352,7 @@ ipcMain.handle('sessions:rename', (_event, id: string, title: string) => {
 });
 ipcMain.handle('sessions:delete', (_event, id: string) => {
   deleteSession(id);
-  const session = getRegisteredSession(id);
-  if (session) {
-    session.destroy();
+  if (getRegisteredSession(id)) {
     unregisterSession(id);
   }
   notifySessionsChanged();
@@ -2405,11 +2441,25 @@ async function generateSessionTitle(sessionId: string, firstMessage: string): Pr
   }
 }
 
-ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPath }: { threadId: string; text: string; attachments?: IPCAttachment[]; model?: string; documentPath?: string }) => {
+ipcMain.handle('chat:send', (event, { threadId, text, attachments, model, documentPath, messageId }: { threadId: string; text: string; attachments?: IPCAttachment[]; model?: string; documentPath?: string; messageId?: string }) => {
   const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) {
-    event.sender.send('chat:error', threadId, 'No active workspace');
-    return;
+    throw new Error('No active workspace');
+  }
+
+  log.info(`[chat:send] messageId=${messageId ?? '(none)'} threadId=${threadId} textLen=${text.length}`);
+
+  // Dedup: if this messageId has already been persisted for this session, the
+  // renderer is re-firing a send that already landed (typical cause: reload
+  // with a queued draft). Re-attach forwarding for the new webContents but
+  // don't re-run the turn.
+  if (messageId) {
+    const existingMessage = findMessageByMessageId(threadId, messageId);
+    if (existingMessage) {
+      log.info(`[chat:send] dedup hit messageId=${messageId} sessionId=${threadId} — re-attaching forwarding only`);
+      ensureForwarding(threadId, event.sender);
+      return { messageId, deduped: true };
+    }
   }
 
   const existingRunning = getRegisteredSession(threadId);
@@ -2417,8 +2467,8 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPa
     // Session is already running (e.g. scheduled task or previous user chat).
     // Ensure IPC forwarding is set up (idempotent — won't duplicate).
     ensureForwarding(threadId, event.sender);
-    existingRunning.sendMessage(text, attachments);
-    return;
+    existingRunning.sendMessage(text, attachments, messageId);
+    return { messageId };
   }
 
   const isCalendarSession = threadId === 'calendar-assistant';
@@ -2448,9 +2498,10 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPa
         calBaseURL,
         refreshCredentialsForSession,
       );
-      registerSession(threadId, session);
+      // Headless agent embedded in the desktop chat — opt out of
+      // subscriber-based eviction; lifecycle bound to the renderer.
+      registerSession(threadId, session, 'background');
       event.sender.on('destroyed', () => {
-        session.destroy();
         unregisterSession(threadId);
       });
     } else {
@@ -2470,12 +2521,9 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPa
         documentPath,
       );
 
+      // Default 'ui': subscriber tracking via ensureForwarding handles
+      // destroy when every surface detaches.
       registerSession(threadId, session);
-
-      event.sender.on('destroyed', () => {
-        session.destroy();
-        unregisterSession(threadId);
-      });
     }
   }
 
@@ -2483,27 +2531,30 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPa
   // Also fan events out to overlays watching this session — they live on
   // the WKWebView side of an HTTP boundary so the IPC path can't reach them.
   ensureSseFanout(threadId);
-  getRegisteredSession(threadId)!.sendMessage(text, attachments);
+  getRegisteredSession(threadId)!.sendMessage(text, attachments, messageId);
 
   if (isFirstMessage && !isCalendarSession) {
     generateSessionTitle(threadId, text);
   }
+
+  return { messageId };
 });
 
 ipcMain.on('chat:subscribe', (event, threadId: string) => {
   ensureForwarding(threadId, event.sender);
 });
 
+// Renderer signals it's no longer viewing this thread. Whether the
+// session itself is torn down is the registry's decision.
+ipcMain.on('chat:unsubscribe', (event, threadId: string) => {
+  removeForwarding(threadId, event.sender.id);
+});
 
+// Explicit user-initiated stop (Stop button). Tears the session down
+// regardless of other subscribers — "stop" means stop.
 ipcMain.on('chat:stop', (event, threadId: string) => {
-  // Clean up the forwarding listener synchronously before destroying the session,
-  // so that a subsequent chat:send can set up fresh forwarding for a new session.
-  const key = `${threadId}:${event.sender.id}`;
-  forwardingListeners.get(key)?.();
-
-  const session = getRegisteredSession(threadId);
-  if (session) {
-    session.destroy();
+  removeForwarding(threadId, event.sender.id);
+  if (getRegisteredSession(threadId)) {
     unregisterSession(threadId);
   }
 });
