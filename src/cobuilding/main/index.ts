@@ -361,7 +361,7 @@ function ensureSseFanout(sessionId: string): void {
   const unsubscribe = session.addListener({
     onEvent: (msg) => {
       if (msg.type !== 'heartbeat') {
-        log.info(`[SseFanout] event sessionId=${sessionId} type=${msg.type}`);
+        log.debug(`[SseFanout] event sessionId=${sessionId} type=${msg.type}`);
       }
       broadcastSseToSubscribers(sessionId, 'event', msg);
       // Also nudge the desktop renderer when a user-message lands from
