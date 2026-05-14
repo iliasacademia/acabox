@@ -154,21 +154,20 @@ jobs:
           TAR_SIZE=$(du -h "${FILENAME}" | cut -f1)
           echo "Tar size: ${TAR_SIZE}"
 
-          echo "Compressing with zstd..."
-          sudo apt-get install -y zstd
-          zstd -3 -T0 "${FILENAME}" -o "${FILENAME}.zst"
-          ZST_SIZE=$(du -h "${FILENAME}.zst" | cut -f1)
-          echo "Compressed size: ${ZST_SIZE}"
+          echo "Compressing with gzip..."
+          gzip -1 -k "${FILENAME}"
+          GZ_SIZE=$(du -h "${FILENAME}.gz" | cut -f1)
+          echo "Compressed size: ${GZ_SIZE}"
 
-          CHECKSUM=$(sha256sum "${FILENAME}.zst" | cut -d' ' -f1)
+          CHECKSUM=$(sha256sum "${FILENAME}.gz" | cut -d' ' -f1)
           echo "Checksum: ${CHECKSUM}"
 
-          SIZE_BYTES=$(stat --format=%s "${FILENAME}.zst")
+          SIZE_BYTES=$(stat --format=%s "${FILENAME}.gz")
           echo "Size bytes: ${SIZE_BYTES}"
 
           echo "checksum=${CHECKSUM}" >> $GITHUB_OUTPUT
           echo "size=${SIZE_BYTES}" >> $GITHUB_OUTPUT
-          echo "filename=${FILENAME}.zst" >> $GITHUB_OUTPUT
+          echo "filename=${FILENAME}.gz" >> $GITHUB_OUTPUT
 
           rm "${FILENAME}"
 
@@ -235,10 +234,10 @@ jobs:
 
           # Merge full entry (preserves existing core entry)
           jq --arg version "$VERSION" \
-             --arg arm64_url "full/cobuilding-base-arm64.tar.zst" \
+             --arg arm64_url "full/cobuilding-base-arm64.tar.gz" \
              --arg arm64_size "$ARM64_SIZE" \
              --arg arm64_checksum "sha256:${ARM64_CHECKSUM}" \
-             --arg amd64_url "full/cobuilding-base-amd64.tar.zst" \
+             --arg amd64_url "full/cobuilding-base-amd64.tar.gz" \
              --arg amd64_size "$AMD64_SIZE" \
              --arg amd64_checksum "sha256:${AMD64_CHECKSUM}" \
              '.full = {

@@ -3,8 +3,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as https from 'https';
 import * as crypto from 'crypto';
+import * as zlib from 'zlib';
 import log from 'electron-log';
-import { decompress as zstdDecompress } from 'fzstd';
 
 const CLOUDFRONT_IMAGES_BASE_URL = 'https://d2x7ktxhslqcvg.cloudfront.net/cobuilding-images';
 const IMAGE_MANIFEST_URL = `${CLOUDFRONT_IMAGES_BASE_URL}/manifest.json`;
@@ -56,7 +56,7 @@ export async function ensureImageTarDownloaded(
     throw new Error(`No ${arch} entry for "${tier}" in image manifest`);
   }
 
-  const tarFilename = path.basename(entry.url).replace(/\.zst$/, '');
+  const tarFilename = path.basename(entry.url).replace(/\.gz$/, '');
   const tarPath = path.join(cacheDir, tarFilename);
 
   const loadedVersion = readLoadedImageVersion(tier);
@@ -68,27 +68,26 @@ export async function ensureImageTarDownloaded(
   log.info(`[ImageTarManager] Downloading ${tier} image (${arch}): ${entry.url} (${Math.round(entry.size / 1024 / 1024)}MB)`);
   onProgress?.('image-download', `Downloading ${tier} image...`);
 
-  const zstPath = path.join(cacheDir, path.basename(entry.url));
-  await downloadFile(`${CLOUDFRONT_IMAGES_BASE_URL}/${entry.url}`, zstPath, (pct) => {
+  const gzPath = path.join(cacheDir, path.basename(entry.url));
+  await downloadFile(`${CLOUDFRONT_IMAGES_BASE_URL}/${entry.url}`, gzPath, (pct) => {
     onProgress?.('image-download', `Downloading ${tier} image: ${pct}%`);
   });
 
   onProgress?.('image-verify', 'Verifying download...');
   const expectedHash = entry.checksum.replace(/^sha256:/, '');
-  const fileBuffer = fs.readFileSync(zstPath);
-  const actualHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+  const actualHash = await hashFile(gzPath);
   if (actualHash !== expectedHash) {
-    fs.unlinkSync(zstPath);
+    fs.unlinkSync(gzPath);
     throw new Error(`Checksum mismatch for ${tier} image: expected ${expectedHash}, got ${actualHash}`);
   }
   log.debug(`[ImageTarManager] Checksum verified: ${actualHash}`);
 
   onProgress?.('image-decompress', 'Decompressing image...');
-  log.debug(`[ImageTarManager] Decompressing ${zstPath} → ${tarPath}`);
-  const decompressed = zstdDecompress(new Uint8Array(fileBuffer));
-  fs.writeFileSync(tarPath, decompressed);
-  fs.unlinkSync(zstPath);
-  log.info(`[ImageTarManager] Image tar ready: ${tarPath} (${Math.round(decompressed.length / 1024 / 1024)}MB)`);
+  log.debug(`[ImageTarManager] Decompressing ${gzPath} → ${tarPath}`);
+  await decompressGzip(gzPath, tarPath);
+  fs.unlinkSync(gzPath);
+  const tarSize = fs.statSync(tarPath).size;
+  log.info(`[ImageTarManager] Image tar ready: ${tarPath} (${Math.round(tarSize / 1024 / 1024)}MB)`);
 
   return { tarPath, version: tierManifest.version };
 }
@@ -116,6 +115,36 @@ export function writeLoadedImageVersion(tier: 'core' | 'full', version: string):
 }
 
 // ─── Internal Helpers ────────────────────────────────────────────
+
+function hashFile(filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', (chunk: Buffer) => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', reject);
+  });
+}
+
+function decompressGzip(gzPath: string, tarPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const input = fs.createReadStream(gzPath);
+    const gunzip = zlib.createGunzip();
+    const output = fs.createWriteStream(tarPath);
+    const cleanup = (err: Error) => {
+      input.destroy();
+      gunzip.destroy();
+      output.destroy();
+      try { fs.unlinkSync(tarPath); } catch { /* ok */ }
+      reject(err);
+    };
+    input.on('error', cleanup);
+    gunzip.on('error', cleanup);
+    output.on('error', cleanup);
+    input.pipe(gunzip).pipe(output);
+    output.on('finish', resolve);
+  });
+}
 
 function getSettingsPath(): string {
   return path.join(app.getPath('userData'), 'cobuilding-settings.json');

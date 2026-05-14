@@ -611,6 +611,13 @@ class CobuildingContainerService {
     } catch (error) {
       log.debug('[ContainerService] No local base image to remove (or already removed)');
     }
+    try {
+      const podmanBin = this.getPodmanBin();
+      await this.execAsync(podmanBin, ['rmi', '-f', CORE_BASE_IMAGE], this.getExecEnv());
+      log.debug('[ContainerService] Core base image deleted');
+    } catch (error) {
+      log.debug('[ContainerService] No core base image to remove (or already removed)');
+    }
   }
 
   getContainerName(): string {
@@ -1260,6 +1267,37 @@ class CobuildingContainerService {
       }
       log.info('[ContainerService] Machine recovered — connection config refreshed by machine start');
     }
+
+    if (useLocalImage()) {
+      await this.configureVmImageTmpDir(podmanBin, env);
+    }
+  }
+
+  private async configureVmImageTmpDir(podmanBin: string, env: NodeJS.ProcessEnv): Promise<void> {
+    const hostTmpDir = path.join(os.homedir(), '.cobuild-tmp');
+    fs.mkdirSync(hostTmpDir, { recursive: true });
+
+    try {
+      const { stdout } = await this.execAsync(podmanBin, [
+        'machine', 'ssh', '--', 'cat', '/etc/containers/containers.conf',
+      ], env);
+      if (stdout.includes('image_copy_tmp_dir')) {
+        log.debug('[ContainerService] image_copy_tmp_dir already configured in VM');
+        return;
+      }
+    } catch {
+      // File doesn't exist or SSH failed — proceed to write
+    }
+
+    try {
+      await this.execAsync(podmanBin, [
+        'machine', 'ssh', '--', 'sh', '-c',
+        `printf '[engine]\\nimage_copy_tmp_dir = "${hostTmpDir}"\\n' | sudo tee /etc/containers/containers.conf > /dev/null`,
+      ], env);
+      log.info(`[ContainerService] Configured image_copy_tmp_dir = ${hostTmpDir}`);
+    } catch (err) {
+      log.warn(`[ContainerService] Failed to configure image_copy_tmp_dir: ${(err as Error).message}`);
+    }
   }
 
   private async isMachineInitialized(podmanBin: string, env: NodeJS.ProcessEnv): Promise<boolean> {
@@ -1390,6 +1428,12 @@ class CobuildingContainerService {
   }
 
   async updateBaseImage(onProgress?: ProgressCallback): Promise<void> {
+    if (useLocalImage()) {
+      const podmanBin = this.getPodmanBin();
+      await this.ensureBaseImageLoaded(podmanBin, onProgress);
+      log.debug('[ContainerService] Base image updated (local tar)');
+      return;
+    }
     const podmanBin = this.getPodmanBin();
     log.debug(`[ContainerService] Force-pulling latest base image: ${GHCR_BASE_IMAGE}`);
     onProgress?.('pull', 'Pulling latest base image from registry...', 0);
@@ -1622,11 +1666,7 @@ class CobuildingContainerService {
       return;
     }
 
-    if (imageSource === 'registry') {
-      await this.ensureBaseImagePulled(podmanBin, onProgress);
-    } else {
-      await this.buildBaseImageLocally(podmanBin, onProgress);
-    }
+    await this.ensureBaseImage(podmanBin, onProgress);
 
     if (imageHash) {
       log.debug(`[ContainerService] Environment changed (${imageHash} -> ${currentHash}), rebuilding...`);
