@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, net, protocol, shell, systemPreferences } from 'electron';
+import { WorkspaceController } from './controllers/WorkspaceController';
+import { registerWorkspaceHandlers } from './ipc/workspaceIpc';
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
@@ -42,14 +44,10 @@ import {
   findSessionForApp,
 } from './db/chatRepository';
 import {
-  createWorkspace,
   updateWorkspace,
   getActiveWorkspace,
   listWorkspaces,
   touchWorkspace,
-  deactivateAllWorkspaces,
-  findInactiveWorkspaceByDirectory,
-  reactivateWorkspace,
   type Workspace,
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
@@ -202,38 +200,6 @@ process.on('unhandledRejection', (reason) => {
   log.error('[FATAL] Unhandled rejection:', reason);
 });
 
-const MAX_WORKSPACE_NAME_LENGTH = 100;
-
-function validateWorkspaceName(name: string): string {
-  const trimmed = name.trim();
-  if (trimmed.length === 0) {
-    throw new Error('Workspace name cannot be empty.');
-  }
-  if (trimmed.length > MAX_WORKSPACE_NAME_LENGTH) {
-    throw new Error(`Workspace name cannot exceed ${MAX_WORKSPACE_NAME_LENGTH} characters.`);
-  }
-  return trimmed;
-}
-
-const SENSITIVE_HOME_DIRS = ['.ssh', '.gnupg', '.aws', '.config', '.password-store'];
-
-function validateDirectoryPath(directoryPath: string): string {
-  const resolved = path.resolve(directoryPath);
-  const homeDir = app.getPath('home');
-
-  if (!resolved.startsWith(homeDir + path.sep) && resolved !== homeDir) {
-    throw new Error('Workspace directory must be within your home directory.');
-  }
-
-  const relative = path.relative(homeDir, resolved);
-  const firstSegment = relative.split(path.sep)[0];
-  if (SENSITIVE_HOME_DIRS.includes(firstSegment)) {
-    throw new Error('Cannot create a workspace in a sensitive directory.');
-  }
-
-  return resolved;
-}
-
 app.setName('Academia Coscientist');
 app.setPath('userData', path.join(app.getPath('appData'), 'academia-electron', app.isPackaged ? 'production' : 'development'));
 
@@ -324,7 +290,7 @@ function handleNotificationNavigation(action: NotificationNavigationAction | nul
     }
   }
 }
-let activeWorkspace: Workspace | null = null;
+const workspaceController = new WorkspaceController();
 
 let activeApiBaseUrl: string = (() => {
   if (app.isPackaged) return BASE_URL;
@@ -550,6 +516,7 @@ app.whenReady().then(async () => {
   protocol.handle('local-file', async (request) => {
     const filePath = decodeURIComponent(request.url.slice('local-file://'.length));
     const resolved = path.resolve(filePath);
+    const activeWorkspace = workspaceController.activeWorkspace;
     if (
       !activeWorkspace ||
       (!resolved.startsWith(activeWorkspace.directory_path + path.sep) &&
@@ -584,7 +551,7 @@ app.whenReady().then(async () => {
     log.info('[APP] Database initialized.');
 
     log.info('[APP] Loading active workspace...');
-    activeWorkspace = getActiveWorkspace() ?? null;
+    const activeWorkspace = workspaceController.loadActiveWorkspace();
     log.info('[APP] Active workspace:', activeWorkspace ? activeWorkspace.name : 'none');
 
     if (activeWorkspace) {
@@ -595,13 +562,14 @@ app.whenReady().then(async () => {
 
     createMainWindow();
 
-    registerFileHandlers(() => activeWorkspace?.directory_path ?? null, () => mainWindow);
-    initFileMonitor(() => activeWorkspace?.directory_path ?? null);
-    initActivityQuery(() => activeWorkspace?.directory_path ?? null);
-    initSessionFiles(() => activeWorkspace?.directory_path ?? null);
+    registerFileHandlers(() => workspaceController.workspacePath, () => mainWindow);
+    initFileMonitor(() => workspaceController.workspacePath);
+    initActivityQuery(() => workspaceController.workspacePath);
+    initSessionFiles(() => workspaceController.workspacePath);
     registerCalendarHandlers(() => mainWindow);
     registerDebugHandlers();
-    registerReactionsHandlers(() => activeWorkspace, rebuildTrayMenu);
+    registerWorkspaceHandlers(workspaceController, () => mainWindow);
+    registerReactionsHandlers(() => workspaceController.activeWorkspace, rebuildTrayMenu);
     setupUpdaterIpcHandlers();
     setupUpdater(rebuildTrayMenu);
     createTray();
@@ -801,6 +769,7 @@ app.whenReady().then(async () => {
                   reply.code(400).send({ error: 'text is required' });
                   return;
                 }
+                const activeWorkspace = workspaceController.activeWorkspace;
                 if (!activeWorkspace) {
                   reply.code(400).send({ error: 'No active workspace' });
                   return;
@@ -935,6 +904,7 @@ app.whenReady().then(async () => {
             const { setOverlayChatSendHandler, setOverlayBridgeHandler } = require('./overlayHandlers');
           setOverlayChatSendHandler((params: { sessionId: string; text: string; documentPath?: string; selectedText?: string; onEvent: (msg: any) => void; onDone: () => void; onError: (err: string) => void; onCleanup?: () => void }) => {
             const { sessionId, text, documentPath: ctxDocPath, selectedText: ctxSelectedText, onEvent, onDone, onError } = params;
+            const activeWorkspace = workspaceController.activeWorkspace;
             if (!activeWorkspace) {
               onError('No active workspace');
               return;
@@ -1056,6 +1026,7 @@ app.whenReady().then(async () => {
               );
             }
             // Set workspace directory so the overlay knows which docs are in the workspace
+            const activeWorkspace = workspaceController.activeWorkspace;
             if (activeWorkspace) {
               windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
               windowMonitorService.setSessionsProvider(({ documentPath, documentPathLike }) => {
@@ -1111,25 +1082,9 @@ app.on('activate', () => {
   }
 });
 
-// Workspace IPC handlers
-ipcMain.handle('workspaces:getActive', () => {
-  return activeWorkspace ?? null;
-});
-
-ipcMain.handle('workspaces:getDefaultDirectory', (_event, name: string) => {
-  const safeName = name.slice(0, MAX_WORKSPACE_NAME_LENGTH)
-    .replace(/[^a-zA-Z0-9_-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '') || 'my-workspace';
-  return path.join(app.getPath('desktop'), safeName);
-});
-
 ipcMain.handle(
   'workspaces:create',
   async (_event, data: { name: string; directoryPath: string }) => {
-    const name = validateWorkspaceName(data.name);
-    const directoryPath = validateDirectoryPath(data.directoryPath);
-
     let apiKey = getCredentials().apiKey ?? '';
     if (!apiKey) {
       try {
@@ -1139,22 +1094,9 @@ ipcMain.handle(
         log.warn('[workspaces:create] Could not fetch API key:', err);
       }
     }
-
-    fs.mkdirSync(directoryPath, { recursive: true });
-    provisionWorkspace(directoryPath);
-    containerService.writeStartContainerScript(directoryPath);
-
-    const existing = findInactiveWorkspaceByDirectory(directoryPath);
-    if (existing) {
-      reactivateWorkspace(existing.id, apiKey);
-      touchWorkspace(existing.id);
-    } else {
-      const id = randomUUID();
-      createWorkspace(id, name, directoryPath, apiKey);
-      touchWorkspace(id);
-    }
-    activeWorkspace = getActiveWorkspace() ?? null;
+    const activeWorkspace = await workspaceController.create(data.name, data.directoryPath, apiKey);
     if (activeWorkspace) {
+      containerService.writeStartContainerScript(activeWorkspace.directory_path);
       if (getReactionsEnabled()) {
         ensureReactionsTask(activeWorkspace.id);
       }
@@ -1178,24 +1120,16 @@ ipcMain.handle(
   },
 );
 
-ipcMain.handle('dialog:selectDirectory', async () => {
-  if (!mainWindow) return undefined;
-  const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openDirectory', 'createDirectory'],
-  });
-  if (result.canceled || result.filePaths.length === 0) return undefined;
-  return result.filePaths[0];
-});
-
 ipcMain.handle(
   'workspaces:update',
   (_event, data: { name: string; directoryPath: string }) => {
+    const activeWorkspace = workspaceController.activeWorkspace;
     if (!activeWorkspace) {
       throw new Error('No active workspace to update.');
     }
 
-    const name = validateWorkspaceName(data.name);
-    const directoryPath = validateDirectoryPath(data.directoryPath);
+    const name = workspaceController.validateWorkspaceName(data.name);
+    const directoryPath = workspaceController.validateDirectoryPath(data.directoryPath);
 
     if (directoryPath !== activeWorkspace.directory_path) {
       // Stop the container so it restarts with the new volume mount.
@@ -1211,8 +1145,8 @@ ipcMain.handle(
     }
 
     updateWorkspace(activeWorkspace.id, name, directoryPath, getCredentials().apiKey ?? activeWorkspace.api_key);
-    activeWorkspace = getActiveWorkspace() ?? null;
-    return activeWorkspace ?? null;
+    const updatedWorkspace = workspaceController.loadActiveWorkspace();
+    return updatedWorkspace ?? null;
   },
 );
 
@@ -1223,8 +1157,7 @@ ipcMain.handle('workspaces:deleteAll', async () => {
   await stopAgentInfrastructure();
   containerService.stop();
   getTaskScheduler()?.stop();
-  deactivateAllWorkspaces();
-  activeWorkspace = null;
+  workspaceController.deactivateAll();
 });
 
 ipcMain.handle('workspaces:list', () => {
@@ -1241,7 +1174,7 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
   containerService.stop();
 
   touchWorkspace(id);
-  activeWorkspace = getActiveWorkspace() ?? null;
+  const activeWorkspace = workspaceController.loadActiveWorkspace();
 
   if (activeWorkspace) {
     if (getReactionsEnabled()) {
@@ -1265,6 +1198,7 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
 // ─── Reports IPC ──────────────────────────────────────────────────
 
 ipcMain.handle('reports:getLatest', (_event, reportType: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return null;
   return getLatestReport(activeWorkspace.id, reportType);
 });
@@ -1292,6 +1226,7 @@ ipcMain.handle('papers:fetch', async (_event, input: FetchPapersInput) => {
         log.warn(`[Papers] ${e.source}/"${e.topic}": ${e.message}`);
       }
     }
+    const activeWorkspace = workspaceController.activeWorkspace;
     if (activeWorkspace && result.papers.length > 0) {
       try {
         persistPapersAsBriefings(activeWorkspace.id, result.papers);
@@ -1319,6 +1254,7 @@ ipcMain.handle('papers:fetch', async (_event, input: FetchPapersInput) => {
 ipcMain.handle(
   'briefings:list',
   (_event, filter?: { status?: BriefingStatus[]; limit?: number }) => {
+    const activeWorkspace = workspaceController.activeWorkspace;
     if (!activeWorkspace) return [];
     return listBriefings(activeWorkspace.id, filter ?? {});
   },
@@ -1337,11 +1273,13 @@ ipcMain.handle(
 // ─── Scanned Files IPC ──────────────────────────────────────────
 
 ipcMain.handle('scannedFiles:getByType', (_event, fileType: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return [];
   return getScannedFilesByType(activeWorkspace.id, fileType);
 });
 
 ipcMain.handle('scannedFiles:getAll', () => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return [];
   return getScannedFiles(activeWorkspace.id);
 });
@@ -1351,6 +1289,7 @@ ipcMain.handle('scannedFiles:getAll', () => {
 let scannerRunning = false;
 
 ipcMain.handle('scanner:start', async () => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) {
     throw new Error('No active workspace');
   }
@@ -1844,6 +1783,7 @@ Output JSON only. No prose, no code fences.`,
 }
 
 async function startAgentInfrastructure(workspacePath: string): Promise<void> {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return;
 
   try {
@@ -1934,6 +1874,7 @@ async function stopAgentInfrastructure(): Promise<void> {
 
 // Container IPC handlers
 ipcMain.handle('container:start', async () => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) {
     throw new Error('No active workspace');
   }
@@ -2043,6 +1984,7 @@ ipcMain.handle('container:downloadImage', async () => {
 });
 
 ipcMain.handle('container:ensureSetup', async () => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   await containerService.ensureSetup(makeSetupProgress(), activeWorkspace?.directory_path);
   if (activeWorkspace) {
     await containerService.start(
@@ -2060,6 +2002,7 @@ ipcMain.handle('container:ensureSetup', async () => {
 // ─── Environment IPC ──────────────────────────────────────────────
 
 ipcMain.handle('container:getEnvironmentInfo', async () => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return null;
   const info = getEnvironmentInfo(activeWorkspace.directory_path);
   const imageHash = await containerService.getImageEnvironmentHash();
@@ -2097,6 +2040,7 @@ ipcMain.handle('container:appDepsReady', (_event, dirName: string) => {
 });
 
 ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) throw new Error('No active workspace');
   if (!containerService.isRunning()) throw new Error('Container is not running');
   if (ensuredApps.has(dirName)) {
@@ -2123,6 +2067,7 @@ ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
 // "Installing software..." view. Each package's state and streamed lines
 // arrive on installer:packageState and installer:packageLine.
 ipcMain.handle('container:getAppInstallRequests', (_event, dirName: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return [];
   const appsDir = path.join(activeWorkspace.directory_path, '.applications');
   const steps = getInstallSteps(appsDir, dirName);
@@ -2146,6 +2091,7 @@ ipcMain.handle('container:rebuildEnvironment', async () => {
     log.info('[container:rebuildEnvironment] Skip-image-build mode, skipping');
     return;
   }
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) throw new Error('No active workspace');
   const envDir = path.join(activeWorkspace.directory_path, '.applications', '_environment');
   fs.rmSync(envDir, { recursive: true, force: true });
@@ -2167,6 +2113,7 @@ ipcMain.handle('app:relaunch', () => {
 // Jupyter kernel gateway IPC handlers
 ipcMain.handle('jupyter:startGateway', async () => {
   try {
+    const activeWorkspace = workspaceController.activeWorkspace;
     if (!activeWorkspace) {
       log.warn('[KernelGateway] startGateway called with no active workspace');
       return { error: 'No active workspace' };
@@ -2213,7 +2160,7 @@ ipcMain.handle('commandLog:getByApp', (_event, appDirName: string) => commandLog
 ipcMain.handle('commandLog:getAppNames', () => commandLogger.getAppNames());
 
 const backgroundBuilder = new BackgroundBuilder(
-  () => activeWorkspace?.directory_path ?? null,
+  () => workspaceController.workspacePath,
   () => mainWindow,
 );
 
@@ -2301,11 +2248,13 @@ ipcMain.handle('sessions:runningIds', () => {
   return ids;
 });
 ipcMain.handle('sessions:countForDocument', (_event, documentPath: string): number => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return 0;
   return listSessions(activeWorkspace.id, undefined, documentPath).length;
 });
 ipcMain.handle('sessions:get', (_event, id: string) => getSession(id));
 ipcMain.handle('sessions:setDocumentPath', (_event, id: string, documentPath: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return;
   setSessionDocumentPath(id, activeWorkspace.id, documentPath);
   notifySessionsChanged();
@@ -2327,6 +2276,7 @@ ipcMain.handle('messages:list', (_event, sessionId: string) => getMessages(sessi
 
 // Find or create a session associated with a mini app
 ipcMain.handle('sessions:findForApp', async (_event, dirName: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return null;
   if (!dirName || dirName.includes('/') || dirName.includes('\\') || dirName.startsWith('.')) {
     return null;
@@ -2407,6 +2357,7 @@ async function generateSessionTitle(sessionId: string, firstMessage: string): Pr
 }
 
 ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPath }: { threadId: string; text: string; attachments?: IPCAttachment[]; model?: string; documentPath?: string }) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) {
     event.sender.send('chat:error', threadId, 'No active workspace');
     return;
@@ -2461,7 +2412,7 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPa
           onDone: () => { },
           onError: () => { unregisterSession(threadId); },
         },
-        activeWorkspace,
+        activeWorkspace!,
         existingDbSession?.sdk_session_id ?? undefined,
         undefined,
         handleNotificationNavigation,
@@ -2750,6 +2701,7 @@ async function validateAnthropicParams(params: unknown, workspaceDir: string): P
 // Non-streaming completion. Uses ipcMain.handle so the result is automatically
 // returned as a promise reply — no manual event sending required.
 ipcMain.handle('anthropic:complete', async (_event, params: unknown) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   const { apiKey: completeApiKey, baseURL: completeBaseURL } = getCredentials();
   if (!completeApiKey) throw new Error('No API credentials available');
   if (!activeWorkspace?.directory_path) throw new Error('No active workspace directory');
@@ -2784,6 +2736,7 @@ ipcMain.on('anthropic:stream', async (event, { streamKey, params }: { streamKey:
     event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: 'No API credentials available' });
     return;
   }
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace?.directory_path) {
     event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: 'No active workspace directory' });
     return;
@@ -2955,8 +2908,7 @@ ipcMain.handle('auth:logout', async () => {
     await stopAgentInfrastructure();
     containerService.stop();
     getTaskScheduler()?.stop();
-    deactivateAllWorkspaces();
-    activeWorkspace = null;
+    workspaceController.deactivateAll();
     destroyTokenManager();
     const result = await logout();
     return result;
@@ -2990,6 +2942,7 @@ ipcMain.handle('auth:setEndpoint', (_event, endpoint: string) => {
 
 // Scheduled Tasks IPC handlers
 ipcMain.handle('scheduledTasks:list', () => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return [];
   return listTasks(activeWorkspace.id);
 });
@@ -2999,6 +2952,7 @@ ipcMain.handle('scheduledTasks:get', (_event, id: string) => {
 });
 
 ipcMain.handle('scheduledTasks:create', (_event, data: CreateTaskData) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) throw new Error('No active workspace');
   const task = createTask(activeWorkspace.id, data.name, data.description, data.prompt, data.cron_expression, data.session_source ?? null);
   getTaskScheduler()?.scheduleTask(task.id);
@@ -3040,6 +2994,7 @@ ipcMain.handle('scheduledTasks:setEnabled', (_event, id: string, enabled: boolea
 });
 
 ipcMain.handle('scheduledTasks:runNow', async (_event, id: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) throw new Error('No active workspace');
   const task = getTask(id);
   if (!task) throw new Error('Task not found');
@@ -3052,6 +3007,7 @@ ipcMain.handle('scheduledTasks:listRuns', (_event, taskId: string) => {
 
 // .academia/ file IPC handlers
 ipcMain.handle('academiaFile:read', async (_event, relativePath: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return { content: '' };
   const normalized = path.normalize(relativePath);
   if (normalized.startsWith('..') || path.isAbsolute(normalized)) {
@@ -3074,6 +3030,7 @@ ipcMain.handle('academiaFile:read', async (_event, relativePath: string) => {
 });
 
 ipcMain.handle('academiaFile:write', async (_event, relativePath: string, content: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) throw new Error('No active workspace');
   const normalized = path.normalize(relativePath);
   if (normalized.startsWith('..') || path.isAbsolute(normalized)) {
@@ -3285,6 +3242,7 @@ ipcMain.handle(IPC_CHANNELS.OVERLAY_ENSURE_READY, async () => {
   }
   if (cobuildingHttpBaseUrl && cobuildingHttpAuthToken && !windowMonitorService.isRunning()) {
     windowMonitorService.start(cobuildingHttpBaseUrl, cobuildingHttpAuthToken, false);
+    const activeWorkspace = workspaceController.activeWorkspace;
     if (activeWorkspace) {
       windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
       windowMonitorService.setSessionsProvider(({ documentPath, documentPathLike }) => {
