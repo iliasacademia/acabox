@@ -209,6 +209,10 @@ export function registerDebugHandlers() {
     return { cleared: results, errors };
   });
 
+  ipcMain.handle('debug:pruneImages', async () => {
+    await containerService.pruneImages();
+  });
+
   ipcMain.handle('debug:exportWorkspace', async () => {
     const workspace = getActiveWorkspace();
     if (!workspace) return { ok: false, error: 'No active workspace' };
