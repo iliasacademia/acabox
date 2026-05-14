@@ -4,7 +4,6 @@ import log from "electron-log";
 import { resolveClaudeBinary } from "../sdkBinarySetup";
 import { createReport, updateReportStatus } from "../db/reportRepository";
 import { createBriefing } from "../db/briefingsRepository";
-import { AGENT_MEMORY_SUBDIR } from "../../shared/paths";
 import {
   generateDirectoryTree,
   DIRECTORY_ORGANIZATION_PROMPT,
@@ -29,6 +28,7 @@ export async function scanWorkspaceDirectory(
   const {
     workspaceId,
     directoryPath,
+    memoryDir,
     apiKey,
     baseURL,
     onMessage,
@@ -59,7 +59,7 @@ export async function scanWorkspaceDirectory(
     treeOutput: generateDirectoryTree(directoryPath),
     workspaceId,
     reportId,
-    memoryDir: path.join(directoryPath, AGENT_MEMORY_SUBDIR),
+    memoryDir,
     onMessage,
     onBriefingsChanged,
   };

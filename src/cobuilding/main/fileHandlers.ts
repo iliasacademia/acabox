@@ -34,6 +34,18 @@ export function assertWithinWorkspace(filePath: string, workspaceDir: string): s
   return resolved;
 }
 
+export function assertWithinAllowedDirs(filePath: string, allowedDirs: string[]): string {
+  for (const dir of allowedDirs) {
+    const resolved = path.resolve(dir, filePath);
+    if (!resolved.startsWith(dir + path.sep) && resolved !== dir) continue;
+    const relative = path.relative(dir, resolved);
+    const firstSegment = relative.split(path.sep)[0];
+    if (SENSITIVE_DIRS.has(firstSegment)) continue;
+    return resolved;
+  }
+  throw new Error('Access denied: path is outside allowed directories.');
+}
+
 function validateFileName(name: string): string {
   const trimmed = name.trim();
   if (!trimmed || trimmed === '.' || trimmed === '..') {
@@ -48,19 +60,18 @@ function validateFileName(name: string): string {
   return trimmed;
 }
 
-function requireWorkspace(getWorkspacePath: () => string | null): string {
-  const wp = getWorkspacePath();
-  if (!wp) throw new Error('No active workspace.');
-  return wp;
+function requireAllowedPaths(getAllowedPaths: () => string[]): string[] {
+  const paths = getAllowedPaths();
+  if (paths.length === 0) throw new Error('No active workspace.');
+  return paths;
 }
 
-export function registerFileHandlers(getWorkspacePath: () => string | null, getMainWindow: () => BrowserWindow | null): void {
-  // Tracks the last directory the user navigated to in any file dialog.
-  // Falls back to the workspace directory on first use.
+export function registerFileHandlers(getAllowedPaths: () => string[], getMainWindow: () => BrowserWindow | null): void {
   let lastDialogDir: string | null = null;
 
   function getDialogDir(): string | undefined {
-    return lastDialogDir ?? getWorkspacePath() ?? undefined;
+    const paths = getAllowedPaths();
+    return lastDialogDir ?? paths[0] ?? undefined;
   }
 
   function updateDialogDir(filePath: string): void {
@@ -68,8 +79,8 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
   }
 
   ipcMain.handle('files:readDirectory', async (_event, dirPath: string) => {
-    const workspaceDir = requireWorkspace(getWorkspacePath);
-    const resolved = assertWithinWorkspace(dirPath, workspaceDir);
+    const allowedPaths = requireAllowedPaths(getAllowedPaths);
+    const resolved = assertWithinAllowedDirs(dirPath, allowedPaths);
 
     const entries = await fsPromises.readdir(resolved, { withFileTypes: true });
     return entries
@@ -87,7 +98,7 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
   ipcMain.handle(
     'files:findByExtension',
     async (_event, extensions: string[]): Promise<{ relPath: string; mtimeMs: number }[]> => {
-      const workspaceDir = requireWorkspace(getWorkspacePath);
+      const allowedPaths = requireAllowedPaths(getAllowedPaths);
       const exts = new Set(
         extensions.map((e) => (e.startsWith('.') ? e : `.${e}`).toLowerCase()),
       );
@@ -99,7 +110,7 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
         '.academia',
       ]);
       const results: { relPath: string; mtimeMs: number }[] = [];
-      function walk(dir: string): void {
+      function walk(dir: string, rootDir: string): void {
         let entries: fs.Dirent[];
         try {
           entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -108,33 +119,33 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
         }
         for (const e of entries) {
           if (e.name.startsWith('.') || SKIP.has(e.name)) continue;
-          // Word writes a ~$<name>.docx lock file beside any open document;
-          // exclude these from any extension-based listing.
           if (e.name.startsWith('~$')) continue;
           const full = path.join(dir, e.name);
           if (e.isDirectory()) {
-            walk(full);
+            walk(full, rootDir);
           } else if (exts.has(path.extname(e.name).toLowerCase())) {
             try {
               const st = fs.statSync(full);
               results.push({
-                relPath: path.relative(workspaceDir, full),
+                relPath: path.relative(rootDir, full),
                 mtimeMs: st.mtimeMs,
               });
             } catch { /* ignore */ }
           }
         }
       }
-      walk(workspaceDir);
+      for (const ap of allowedPaths) {
+        walk(ap, ap);
+      }
       results.sort((a, b) => b.mtimeMs - a.mtimeMs);
       return results;
     },
   );
 
   ipcMain.handle('files:exists', async (_event, filePath: string) => {
-    const workspaceDir = requireWorkspace(getWorkspacePath);
+    const allowedPaths = requireAllowedPaths(getAllowedPaths);
     try {
-      const resolved = assertWithinWorkspace(filePath, workspaceDir);
+      const resolved = assertWithinAllowedDirs(filePath, allowedPaths);
       await fsPromises.access(resolved);
       return true;
     } catch {
@@ -143,29 +154,33 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
   });
 
   ipcMain.handle('files:findByName', async (_event, filename: string, hintDirs: string[]) => {
-    const workspaceDir = requireWorkspace(getWorkspacePath);
+    const allowedPaths = requireAllowedPaths(getAllowedPaths);
 
     // Try hint directories first (from message context)
     for (const hint of hintDirs) {
       try {
         const candidate = path.join(hint, filename);
-        const resolved = assertWithinWorkspace(candidate, workspaceDir);
+        const resolved = assertWithinAllowedDirs(candidate, allowedPaths);
         await fsPromises.access(resolved);
         return candidate;
       } catch { /* continue */ }
     }
 
-    // Fall back: recursive search, prefer most recently modified
-    const entries = await fsPromises.readdir(workspaceDir, { recursive: true, withFileTypes: true });
     const matches: { rel: string; mtime: number }[] = [];
-    for (const entry of entries) {
-      if (!entry.isDirectory() && entry.name === filename) {
-        const full = path.join(entry.parentPath, entry.name);
-        const rel = path.relative(workspaceDir, full);
-        try {
-          const stat = await fsPromises.stat(full);
-          matches.push({ rel, mtime: stat.mtimeMs });
-        } catch { /* skip */ }
+    for (const ap of allowedPaths) {
+      let entries: fs.Dirent[];
+      try {
+        entries = await fsPromises.readdir(ap, { recursive: true, withFileTypes: true });
+      } catch { continue; }
+      for (const entry of entries) {
+        if (!entry.isDirectory() && entry.name === filename) {
+          const full = path.join(entry.parentPath, entry.name);
+          const rel = path.relative(ap, full);
+          try {
+            const stat = await fsPromises.stat(full);
+            matches.push({ rel, mtime: stat.mtimeMs });
+          } catch { /* skip */ }
+        }
       }
     }
     if (matches.length === 0) return null;
@@ -174,8 +189,8 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
   });
 
   ipcMain.handle('files:readFile', async (_event, filePath: string) => {
-    const workspaceDir = requireWorkspace(getWorkspacePath);
-    const resolved = assertWithinWorkspace(filePath, workspaceDir);
+    const allowedPaths = requireAllowedPaths(getAllowedPaths);
+    const resolved = assertWithinAllowedDirs(filePath, allowedPaths);
 
     const ext = path.extname(resolved).slice(1).toLowerCase();
     if (IMAGE_EXTENSIONS.has(ext)) {
@@ -216,8 +231,8 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
   ipcMain.handle(
     'files:copyToWorkspace',
     async (event, sourcePaths: string[], destinationDir: string) => {
-      const workspaceDir = requireWorkspace(getWorkspacePath);
-      const resolvedDir = assertWithinWorkspace(destinationDir, workspaceDir);
+      const allowedPaths = requireAllowedPaths(getAllowedPaths);
+      const resolvedDir = assertWithinAllowedDirs(destinationDir, allowedPaths);
       await fsPromises.mkdir(resolvedDir, { recursive: true });
 
       const total = sourcePaths.length;
@@ -226,7 +241,7 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
         const basename = path.basename(src);
         event.sender.send('files:copyProgress', { copied, total, currentName: basename });
         const dest = path.join(resolvedDir, basename);
-        assertWithinWorkspace(dest, workspaceDir);
+        assertWithinAllowedDirs(dest, allowedPaths);
         const stat = await fsPromises.stat(src);
         if (stat.isDirectory()) {
           await fsPromises.cp(src, dest, { recursive: true });
@@ -243,31 +258,31 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
   ipcMain.handle(
     'files:moveFile',
     async (_event, sourcePath: string, destinationDir: string) => {
-      const workspaceDir = requireWorkspace(getWorkspacePath);
-      const resolvedSrc = assertWithinWorkspace(sourcePath, workspaceDir);
-      const resolvedDir = assertWithinWorkspace(destinationDir, workspaceDir);
+      const allowedPaths = requireAllowedPaths(getAllowedPaths);
+      const resolvedSrc = assertWithinAllowedDirs(sourcePath, allowedPaths);
+      const resolvedDir = assertWithinAllowedDirs(destinationDir, allowedPaths);
 
       const basename = path.basename(resolvedSrc);
       const dest = path.join(resolvedDir, basename);
-      assertWithinWorkspace(dest, workspaceDir);
+      assertWithinAllowedDirs(dest, allowedPaths);
       await fsPromises.rename(resolvedSrc, dest);
     },
   );
 
   ipcMain.handle('files:deleteFile', async (_event, filePath: string) => {
-    const workspaceDir = requireWorkspace(getWorkspacePath);
-    const resolved = assertWithinWorkspace(filePath, workspaceDir);
+    const allowedPaths = requireAllowedPaths(getAllowedPaths);
+    const resolved = assertWithinAllowedDirs(filePath, allowedPaths);
     await fsPromises.rm(resolved, { recursive: true });
   });
 
   ipcMain.handle(
     'files:renameFile',
     async (_event, filePath: string, newName: string) => {
-      const workspaceDir = requireWorkspace(getWorkspacePath);
-      const resolved = assertWithinWorkspace(filePath, workspaceDir);
+      const allowedPaths = requireAllowedPaths(getAllowedPaths);
+      const resolved = assertWithinAllowedDirs(filePath, allowedPaths);
       const validName = validateFileName(newName);
       const newPath = path.join(path.dirname(resolved), validName);
-      assertWithinWorkspace(newPath, workspaceDir);
+      assertWithinAllowedDirs(newPath, allowedPaths);
       await fsPromises.rename(resolved, newPath);
     },
   );
@@ -275,8 +290,8 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
   ipcMain.handle(
     'files:createFile',
     async (_event, filePath: string) => {
-      const workspaceDir = requireWorkspace(getWorkspacePath);
-      const resolved = assertWithinWorkspace(filePath, workspaceDir);
+      const allowedPaths = requireAllowedPaths(getAllowedPaths);
+      const resolved = assertWithinAllowedDirs(filePath, allowedPaths);
       validateFileName(path.basename(resolved));
       await fsPromises.writeFile(resolved, '', { flag: 'wx' });
     },
@@ -285,8 +300,8 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
   ipcMain.handle(
     'files:createDirectory',
     async (_event, dirPath: string) => {
-      const workspaceDir = requireWorkspace(getWorkspacePath);
-      const resolved = assertWithinWorkspace(dirPath, workspaceDir);
+      const allowedPaths = requireAllowedPaths(getAllowedPaths);
+      const resolved = assertWithinAllowedDirs(dirPath, allowedPaths);
       validateFileName(path.basename(resolved));
       await fsPromises.mkdir(resolved);
     },
@@ -295,8 +310,8 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
   ipcMain.handle(
     'files:writeFile',
     async (_event, filePath: string, content: string) => {
-      const workspaceDir = requireWorkspace(getWorkspacePath);
-      const resolved = assertWithinWorkspace(filePath, workspaceDir);
+      const allowedPaths = requireAllowedPaths(getAllowedPaths);
+      const resolved = assertWithinAllowedDirs(filePath, allowedPaths);
       await fsPromises.mkdir(path.dirname(resolved), { recursive: true });
       await fsPromises.writeFile(resolved, content, 'utf-8');
     },
@@ -324,14 +339,14 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
   );
 
   ipcMain.handle('files:showInFinder', async (_event, filePath: string) => {
-    const workspaceDir = requireWorkspace(getWorkspacePath);
-    const resolved = assertWithinWorkspace(filePath, workspaceDir);
+    const allowedPaths = requireAllowedPaths(getAllowedPaths);
+    const resolved = assertWithinAllowedDirs(filePath, allowedPaths);
     await shell.openPath(resolved);
   });
 
   ipcMain.handle('files:revealInFinder', async (_event, filePath: string) => {
-    const workspaceDir = requireWorkspace(getWorkspacePath);
-    const resolved = assertWithinWorkspace(filePath, workspaceDir);
+    const allowedPaths = requireAllowedPaths(getAllowedPaths);
+    const resolved = assertWithinAllowedDirs(filePath, allowedPaths);
     shell.showItemInFolder(resolved);
   });
 
@@ -361,8 +376,8 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
   });
 
   ipcMain.handle('miniApps:list', async () => {
-    const workspaceDir = requireWorkspace(getWorkspacePath);
-    const appsDir = path.join(workspaceDir, '.applications');
+    const allowedPaths = requireAllowedPaths(getAllowedPaths);
+    const appsDir = path.join(allowedPaths[0], '.applications');
 
     let entries: fs.Dirent[];
     try {
@@ -401,11 +416,11 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
   });
 
   ipcMain.handle('miniApps:touch', async (_event, dirName: string) => {
-    const workspaceDir = requireWorkspace(getWorkspacePath);
+    const allowedPaths = requireAllowedPaths(getAllowedPaths);
     if (!dirName || dirName.includes('/') || dirName.includes('\\') || dirName.startsWith('.')) {
       return { ok: false, error: 'Invalid app name' };
     }
-    const manifestPath = path.join(workspaceDir, '.applications', dirName, 'manifest.json');
+    const manifestPath = path.join(allowedPaths[0], '.applications', dirName, 'manifest.json');
 
     let manifest: Record<string, unknown> = {};
     try {
@@ -429,7 +444,7 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
   });
 
   ipcMain.handle('miniApps:export', async (_event, dirName: string) => {
-    const workspaceDir = requireWorkspace(getWorkspacePath);
+    const allowedPaths = requireAllowedPaths(getAllowedPaths);
     const mainWindow = getMainWindow();
     if (!mainWindow) return { ok: false, error: 'No main window' };
 
@@ -437,7 +452,7 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
       return { ok: false, error: 'Invalid app name' };
     }
 
-    const appDir = path.join(workspaceDir, '.applications', dirName);
+    const appDir = path.join(allowedPaths[0], '.applications', dirName);
     try {
       await fsPromises.stat(appDir);
     } catch {
@@ -474,7 +489,7 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
   });
 
   ipcMain.handle('miniApps:import', async (_event) => {
-    const workspaceDir = requireWorkspace(getWorkspacePath);
+    const allowedPaths = requireAllowedPaths(getAllowedPaths);
     const mainWindow = getMainWindow();
     if (!mainWindow) return { ok: false, error: 'No main window' };
 
@@ -497,7 +512,7 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
 
       const baseName = appDirs[0].name;
       const sourceDir = path.join(tmpDir, baseName);
-      const appsDir = path.join(workspaceDir, '.applications');
+      const appsDir = path.join(allowedPaths[0], '.applications');
       await fsPromises.mkdir(appsDir, { recursive: true });
 
       // Find a non-colliding name
@@ -548,18 +563,18 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   function startWatcher(): void {
-    const workspaceDir = getWorkspacePath();
-    if (!workspaceDir || watchedPath === workspaceDir) return;
+    const paths = getAllowedPaths();
+    const primaryDir = paths[0];
+    if (!primaryDir || watchedPath === primaryDir) return;
 
-    // Clean up previous watcher if workspace changed
     if (watcher) {
       watcher.close();
       watcher = null;
     }
-    watchedPath = workspaceDir;
+    watchedPath = primaryDir;
 
     try {
-      watcher = fs.watch(workspaceDir, { recursive: true }, () => {
+      watcher = fs.watch(primaryDir, { recursive: true }, () => {
         // Debounce: many events fire in rapid succession during a script run
         if (debounceTimer) clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {

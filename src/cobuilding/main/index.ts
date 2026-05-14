@@ -6,7 +6,7 @@ import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 import Anthropic from '@anthropic-ai/sdk';
-import { registerFileHandlers, assertWithinWorkspace } from './fileHandlers';
+import { registerFileHandlers, assertWithinAllowedDirs } from './fileHandlers';
 import { randomUUID } from 'crypto';
 import log from 'electron-log';
 import { createAgentSession } from './agentSession';
@@ -45,9 +45,9 @@ import {
   findMessageByMessageId,
 } from './db/chatRepository';
 import {
-  updateWorkspace,
   getActiveWorkspace,
   listWorkspaces,
+  listWorkspaceDirectories,
   touchWorkspace,
   type Workspace,
 } from './db/workspaceRepository';
@@ -546,14 +546,9 @@ app.whenReady().then(async () => {
 
   protocol.handle('local-file', async (request) => {
     const filePath = decodeURIComponent(request.url.slice('local-file://'.length));
-    const resolved = path.resolve(filePath);
-    const activeWorkspace = workspaceController.activeWorkspace;
-    if (
-      !activeWorkspace ||
-      (!resolved.startsWith(activeWorkspace.directory_path + path.sep) &&
-        resolved !== activeWorkspace.directory_path)
-    ) {
-      log.warn(`[local-file] Forbidden: "${resolved}" outside workspace`);
+    const resolved = workspaceController.isPathAllowed(filePath);
+    if (!resolved) {
+      log.warn(`[local-file] Forbidden: "${filePath}" outside workspace`);
       return new Response('Forbidden', { status: 403 });
     }
     const fileUrl = pathToFileURL(resolved).href;
@@ -586,14 +581,14 @@ app.whenReady().then(async () => {
     log.info('[APP] Active workspace:', activeWorkspace ? activeWorkspace.name : 'none');
 
     if (activeWorkspace) {
-      migrateWorkspaceFiles(activeWorkspace.directory_path);
-      provisionWorkspace(activeWorkspace.directory_path);
-      containerService.writeStartContainerScript(activeWorkspace.directory_path);
+      migrateWorkspaceFiles(workspaceController.workspacePath);
+      provisionWorkspace(workspaceController.workspacePath);
+      containerService.writeStartContainerScript(workspaceController.mountMap);
     }
 
     createMainWindow();
 
-    registerFileHandlers(() => workspaceController.workspacePath, () => mainWindow);
+    registerFileHandlers(() => workspaceController.allAllowedPaths, () => mainWindow);
     initFileMonitor(() => workspaceController.workspacePath);
     initActivityQuery(() => workspaceController.workspacePath);
     initSessionFiles(() => workspaceController.workspacePath);
@@ -1132,9 +1127,9 @@ ipcMain.handle(
         log.warn('[workspaces:create] Could not fetch API key:', err);
       }
     }
-    const activeWorkspace = await workspaceController.create(data.name, data.directoryPath, apiKey);
+    const activeWorkspace = await workspaceController.create(data.directoryPath, apiKey);
     if (activeWorkspace) {
-      containerService.writeStartContainerScript(activeWorkspace.directory_path);
+      containerService.writeStartContainerScript(workspaceController.mountMap);
       if (getReactionsEnabled()) {
         ensureReactionsTask(activeWorkspace.id);
       }
@@ -1158,33 +1153,11 @@ ipcMain.handle(
   },
 );
 
+// Support for modifying the workspace will be added later
 ipcMain.handle(
   'workspaces:update',
-  (_event, data: { name: string; directoryPath: string }) => {
-    const activeWorkspace = workspaceController.activeWorkspace;
-    if (!activeWorkspace) {
-      throw new Error('No active workspace to update.');
-    }
-
-    const name = workspaceController.validateWorkspaceName(data.name);
-    const directoryPath = workspaceController.validateDirectoryPath(data.directoryPath);
-
-    if (directoryPath !== activeWorkspace.directory_path) {
-      // Stop the container so it restarts with the new volume mount.
-      // The kernel gateway is inside the container, so it stops with it.
-      packageInstaller.reset();
-      containerService.stop();
-
-      if (!fs.existsSync(directoryPath)) {
-        fs.mkdirSync(directoryPath, { recursive: true });
-      }
-      provisionWorkspace(directoryPath);
-      containerService.writeStartContainerScript(directoryPath);
-    }
-
-    updateWorkspace(activeWorkspace.id, name, directoryPath, getCredentials().apiKey ?? activeWorkspace.api_key);
-    const updatedWorkspace = workspaceController.loadActiveWorkspace();
-    return updatedWorkspace ?? null;
+  async () => {
+    return workspaceController.activeWorkspace ?? null;
   },
 );
 
@@ -1202,7 +1175,7 @@ ipcMain.handle('workspaces:list', () => {
   return listWorkspaces();
 });
 
-ipcMain.handle('workspaces:switch', (_event, id: string) => {
+ipcMain.handle('workspaces:switch', async (_event, id: string) => {
   const workspaces = listWorkspaces();
   const target = workspaces.find((w) => w.id === id);
   if (!target) throw new Error('Workspace not found.');
@@ -1227,10 +1200,16 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
   scheduler?.stop();
   scheduler?.start();
 
-  provisionWorkspace(target.directory_path);
-  containerService.writeStartContainerScript(target.directory_path);
+  provisionWorkspace(workspaceController.workspacePath);
+  containerService.writeStartContainerScript(workspaceController.mountMap);
 
   return activeWorkspace ?? null;
+});
+
+ipcMain.handle('workspaces:listDirectories', () => {
+  const activeWorkspace = workspaceController.activeWorkspace;
+  if (!activeWorkspace) return [];
+  return listWorkspaceDirectories(activeWorkspace.id);
 });
 
 // ─── Reports IPC ──────────────────────────────────────────────────
@@ -1351,6 +1330,11 @@ ipcMain.handle('scanner:start', async () => {
     await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
     ({ apiKey, baseURL } = getCredentials());
   }
+  const scanDir = workspaceController.userDirectories[0]?.directory_path;
+  if (!scanDir) {
+    log.warn('[scanner:start] No user directories to scan');
+    return;
+  }
   if (scannerRunning) {
     log.warn('[scanner:start] Scan already in progress — ignoring duplicate request');
     return;
@@ -1359,7 +1343,8 @@ ipcMain.handle('scanner:start', async () => {
 
   scanWorkspaceDirectory({
     workspaceId: activeWorkspace.id,
-    directoryPath: activeWorkspace.directory_path,
+    directoryPath: scanDir,
+    memoryDir: path.join(workspaceController.workspacePath, AGENT_MEMORY_SUBDIR),
     apiKey: apiKey ?? '',
     baseURL,
     onMessage: (event) => {
@@ -1984,15 +1969,14 @@ ipcMain.handle('container:start', async () => {
   // build fans out to both `container:progress` (Base Image spinner) and
   // `container:backgroundBuild` (Environment section), with terminal stages
   // renamed for the latter so its existing handler recognizes them.
+  const agentDir = workspaceController.workspacePath;
   await containerService.start(
-    activeWorkspace.directory_path,
+    workspaceController.mountMap,
     undefined,
     makeBackgroundProgress(),
   );
-  await startAgentInfrastructure(activeWorkspace.directory_path);
-  // Start watching and ensure deps for all existing apps in the background.
-  // Apps are marked ready as their deps are verified/installed.
-  backgroundBuilder.startWatching(activeWorkspace.directory_path, (appName) => {
+  await startAgentInfrastructure(agentDir);
+  backgroundBuilder.startWatching(agentDir, (appName) => {
     ensuredApps.add(appName);
   });
 });
@@ -2087,15 +2071,16 @@ ipcMain.handle('container:downloadImage', async () => {
 
 ipcMain.handle('container:ensureSetup', async () => {
   const activeWorkspace = workspaceController.activeWorkspace;
-  await containerService.ensureSetup(makeSetupProgress(), activeWorkspace?.directory_path);
+  const setupAgentDir = workspaceController.workspacePath;
+  await containerService.ensureSetup(makeSetupProgress(), setupAgentDir);
   if (activeWorkspace) {
     await containerService.start(
-      activeWorkspace.directory_path,
+      workspaceController.mountMap,
       undefined,
       makeBackgroundProgress(),
     );
-    await startAgentInfrastructure(activeWorkspace.directory_path);
-    backgroundBuilder.startWatching(activeWorkspace.directory_path, (appName) => {
+    await startAgentInfrastructure(setupAgentDir);
+    backgroundBuilder.startWatching(setupAgentDir, (appName) => {
       ensuredApps.add(appName);
     });
   }
@@ -2106,7 +2091,7 @@ ipcMain.handle('container:ensureSetup', async () => {
 ipcMain.handle('container:getEnvironmentInfo', async () => {
   const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return null;
-  const info = getEnvironmentInfo(activeWorkspace.directory_path);
+  const info = getEnvironmentInfo(workspaceController.workspacePath!);
   const imageHash = await containerService.getImageEnvironmentHash();
 
   return {
@@ -2153,8 +2138,8 @@ ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
   // by BackgroundBuilder at workspace open, or the agent's install wrapper).
   // Concurrent ensureDeps calls for the same packages share state — no
   // duplicate downloads, no races on /opt/venv.
-  const appsDir = path.join(activeWorkspace.directory_path, '.applications');
-  const steps = getInstallSteps(appsDir, dirName);
+  const ensureDepsAppsDir = path.join(workspaceController.workspacePath!, '.applications');
+  const steps = getInstallSteps(ensureDepsAppsDir, dirName);
   if (steps.length === 0) {
     ensuredApps.add(dirName);
     return { installed: [] };
@@ -2171,12 +2156,11 @@ ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
 ipcMain.handle('container:getAppInstallRequests', (_event, dirName: string) => {
   const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return [];
-  const appsDir = path.join(activeWorkspace.directory_path, '.applications');
-  const steps = getInstallSteps(appsDir, dirName);
+  const getAppAppsDir = path.join(workspaceController.workspacePath!, '.applications');
+  const steps = getInstallSteps(getAppAppsDir, dirName);
   return installStepsToRequests(steps, dirName);
 });
 
-// Forward installer events to the renderer.
 packageInstaller.on('package:state', (e: { registry: Registry; package: string; state: PackageState }) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('installer:packageState', e);
@@ -2193,12 +2177,12 @@ ipcMain.handle('container:rebuildEnvironment', async () => {
     log.info('[container:rebuildEnvironment] Skip-image-build mode, skipping');
     return;
   }
-  const activeWorkspace = workspaceController.activeWorkspace;
-  if (!activeWorkspace) throw new Error('No active workspace');
-  const envDir = path.join(activeWorkspace.directory_path, '.applications', '_environment');
+  const rebuildAgentDir = workspaceController.workspacePath;
+  if (!rebuildAgentDir) throw new Error('No active workspace');
+  const envDir = path.join(rebuildAgentDir, '.applications', '_environment');
   fs.rmSync(envDir, { recursive: true, force: true });
   await containerService.rebuildImage(
-    activeWorkspace.directory_path,
+    rebuildAgentDir,
     sendProgressTo('container:backgroundBuild'),
   );
 });
@@ -2220,8 +2204,8 @@ ipcMain.handle('jupyter:startGateway', async () => {
       log.warn('[KernelGateway] startGateway called with no active workspace');
       return { error: 'No active workspace' };
     }
-    log.info(`[KernelGateway] startGateway requested for workspace: ${activeWorkspace.directory_path}`);
-    return await kernelGatewayService.start(activeWorkspace.directory_path);
+    log.info(`[KernelGateway] startGateway requested for workspace: ${activeWorkspace.id}`);
+    return await kernelGatewayService.start(workspaceController.workspacePath ?? undefined);
   } catch (err) {
     log.error('[KernelGateway] startGateway failed:', (err as Error).message);
     return { error: (err as Error).message };
@@ -2382,7 +2366,7 @@ ipcMain.handle('sessions:findForApp', async (_event, dirName: string) => {
     return null;
   }
 
-  const manifestPath = path.join(activeWorkspace.directory_path, '.applications', dirName, 'manifest.json');
+  const manifestPath = path.join(workspaceController.workspacePath!, '.applications', dirName, 'manifest.json');
 
   let manifest: Record<string, unknown> | null = null;
   try {
@@ -2499,7 +2483,7 @@ ipcMain.handle('chat:send', (event, { threadId, text, attachments, model, docume
         threadId,
         activeWorkspace.id,
         calApiKey ?? '',
-        activeWorkspace.directory_path,
+        workspaceController.workspacePath!,
         {
           onEvent: () => { },
           onDone: () => { },
@@ -2683,7 +2667,7 @@ type ValidatedContentBlock =
 // in place. Returns a clean, reconstructed block safe to pass to the SDK.
 async function resolveContentBlock(
   raw: unknown,
-  workspaceDir: string,
+  allowedDirs: string[],
 ): Promise<ValidatedContentBlock> {
   if (!raw || typeof raw !== 'object') throw new Error('Content block must be an object');
   const block = raw as Record<string, unknown>;
@@ -2701,7 +2685,7 @@ async function resolveContentBlock(
 
     if (source.type === 'file') {
       if (typeof source.path !== 'string') throw new Error('Image file source must have a path');
-      const resolved = assertWithinWorkspace(source.path, workspaceDir);
+      const resolved = assertWithinAllowedDirs(source.path, allowedDirs);
       const ext = path.extname(resolved).slice(1).toLowerCase();
       const mediaType = EXT_TO_MEDIA_TYPE[ext];
       if (!mediaType || !ANTHROPIC_ALLOWED_IMAGE_TYPES.has(mediaType)) {
@@ -2739,7 +2723,7 @@ async function resolveContentBlock(
 
     if (source.type === 'file') {
       if (typeof source.path !== 'string') throw new Error('Document file source must have a path');
-      const resolved = assertWithinWorkspace(source.path, workspaceDir);
+      const resolved = assertWithinAllowedDirs(source.path, allowedDirs);
       const ext = path.extname(resolved).slice(1).toLowerCase();
       if (ext !== 'pdf') throw new Error('Only PDF documents are supported');
       const stats = await fsPromises.stat(resolved);
@@ -2771,7 +2755,7 @@ async function resolveContentBlock(
 
 type ValidatedMessage = { role: 'user' | 'assistant'; content: string | ValidatedContentBlock[] };
 
-async function validateAnthropicParams(params: unknown, workspaceDir: string): Promise<{
+async function validateAnthropicParams(params: unknown, allowedDirs: string[]): Promise<{
   messages: ValidatedMessage[];
   model: string;
   max_tokens: number;
@@ -2795,7 +2779,7 @@ async function validateAnthropicParams(params: unknown, workspaceDir: string): P
     } else if (Array.isArray(msg.content)) {
       if (msg.content.length === 0) throw new Error('content array must not be empty');
       if (msg.content.length > ANTHROPIC_MAX_CONTENT_BLOCKS) throw new Error(`content array exceeds ${ANTHROPIC_MAX_CONTENT_BLOCKS} blocks`);
-      const blocks = await Promise.all(msg.content.map((b: unknown) => resolveContentBlock(b, workspaceDir)));
+      const blocks = await Promise.all(msg.content.map((b: unknown) => resolveContentBlock(b, allowedDirs)));
       messages.push({ role: msg.role, content: blocks });
     } else {
       throw new Error('message content must be a string or array of content blocks');
@@ -2826,8 +2810,8 @@ ipcMain.handle('anthropic:complete', async (_event, params: unknown) => {
   const activeWorkspace = workspaceController.activeWorkspace;
   const { apiKey: completeApiKey, baseURL: completeBaseURL } = getCredentials();
   if (!completeApiKey) throw new Error('No API credentials available');
-  if (!activeWorkspace?.directory_path) throw new Error('No active workspace directory');
-  const validated = await validateAnthropicParams(params, activeWorkspace.directory_path);
+  if (!activeWorkspace) throw new Error('No active workspace');
+  const validated = await validateAnthropicParams(params, workspaceController.allAllowedPaths);
   log.info('[anthropic:complete] workspace=%s model=%s max_tokens=%d messages=%d',
     activeWorkspace.id, validated.model, validated.max_tokens, validated.messages.length);
   const client = new Anthropic({ apiKey: completeApiKey, baseURL: completeBaseURL });
@@ -2859,13 +2843,14 @@ ipcMain.on('anthropic:stream', async (event, { streamKey, params }: { streamKey:
     return;
   }
   const activeWorkspace = workspaceController.activeWorkspace;
-  if (!activeWorkspace?.directory_path) {
-    event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: 'No active workspace directory' });
+  if (!activeWorkspace) {
+    event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: 'No active workspace' });
     return;
   }
+  const streamAllowedDirs = workspaceController.allAllowedPaths;
   let validated: Awaited<ReturnType<typeof validateAnthropicParams>>;
   try {
-    validated = await validateAnthropicParams(params, activeWorkspace.directory_path);
+    validated = await validateAnthropicParams(params, streamAllowedDirs);
   } catch (err) {
     event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: err instanceof Error ? err.message : String(err) });
     return;
@@ -3143,7 +3128,7 @@ ipcMain.handle('academiaFile:read', async (_event, relativePath: string) => {
       return { content: '' };
     }
   }
-  const filePath = path.join(activeWorkspace.directory_path, ACADEMIA_DIR, normalized);
+  const filePath = path.join(workspaceController.workspacePath!, ACADEMIA_DIR, normalized);
   try {
     return { content: await fsPromises.readFile(filePath, 'utf-8') };
   } catch {
@@ -3161,7 +3146,7 @@ ipcMain.handle('academiaFile:write', async (_event, relativePath: string, conten
   if (containerService.isOverlayEnabled() && containerService.isRunning()) {
     await containerService.writeContentToContainer(content, `/data/${ACADEMIA_DIR}/${normalized}`);
   } else {
-    const filePath = path.join(activeWorkspace.directory_path, ACADEMIA_DIR, normalized);
+    const filePath = path.join(workspaceController.workspacePath!, ACADEMIA_DIR, normalized);
     await fsPromises.mkdir(path.dirname(filePath), { recursive: true });
     await fsPromises.writeFile(filePath, content, 'utf-8');
   }

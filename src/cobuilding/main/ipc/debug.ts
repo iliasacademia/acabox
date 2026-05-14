@@ -9,8 +9,9 @@ import { getAllPodmanDataPaths } from '../podmanBinaries';
 import { getDatabase } from '../db/database';
 import { getObservationsDatabase } from '../db/observationsDatabase';
 import { getSchedulingDatabase } from '../db/schedulingDatabase';
-import { getActiveWorkspace, createWorkspace, touchWorkspace } from '../db/workspaceRepository';
+import { getActiveWorkspace, createWorkspace, addWorkspaceDirectory, touchWorkspace } from '../db/workspaceRepository';
 import { containerService } from '../containerService';
+import { WORKSPACE_DATA_DIR } from '../../shared/paths';
 import { systemLogger } from '../systemLogger';
 import { commandLogger } from '../commandLogger';
 
@@ -404,7 +405,8 @@ export function registerDebugHandlers() {
 
       // Create workspace DB record
       const newWorkspaceId = randomUUID();
-      createWorkspace(newWorkspaceId, dirName, workspaceDir, '');
+      createWorkspace(newWorkspaceId, '');
+      addWorkspaceDirectory(randomUUID(), newWorkspaceId, workspaceDir, dirName);
 
       const db = getDatabase();
 
@@ -572,12 +574,10 @@ export function registerDebugHandlers() {
     const workspace = getActiveWorkspace();
     if (!workspace) return { ok: false, error: 'No active workspace' };
 
-    // Remove workspace file directories
-    for (const dir of ['.applications', '.academia']) {
-      const p = path.join(workspace.directory_path, dir);
-      if (fs.existsSync(p)) {
-        fs.rmSync(p, { recursive: true, force: true });
-      }
+    // Remove agent-controlled directory
+    const agentDir = path.join(app.getPath('userData'), WORKSPACE_DATA_DIR);
+    if (fs.existsSync(agentDir)) {
+      fs.rmSync(agentDir, { recursive: true, force: true });
     }
 
     // Hard-delete the workspace row — ON DELETE CASCADE removes sessions,

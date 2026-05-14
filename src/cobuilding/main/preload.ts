@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld('workspacesAPI', {
   update: (data: { name: string; directoryPath: string }) =>
     ipcRenderer.invoke('workspaces:update', data),
   deleteAll: () => ipcRenderer.invoke('workspaces:deleteAll'),
+  listDirectories: () => ipcRenderer.invoke('workspaces:listDirectories'),
 });
 
 contextBridge.exposeInMainWorld('filesAPI', {

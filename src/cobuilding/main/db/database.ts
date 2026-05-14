@@ -1,6 +1,9 @@
 import Database from 'better-sqlite3';
+import * as fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'crypto';
 import log from 'electron-log';
+import { WORKSPACE_DATA_DIR, ACADEMIA_DIR, APPLICATIONS_DIR, CLAUDE_DIR, SOUL_MD, FOCUS_MD } from '../../shared/paths';
 
 let db: Database.Database | null = null;
 
@@ -381,9 +384,56 @@ const migrations = [
       CREATE INDEX idx_messages_message_id ON messages(message_id) WHERE message_id IS NOT NULL;
     `,
   },
+  {
+    version: 24,
+    fn: (database: Database.Database, userDataPath: string) => {
+      database.exec(`
+        CREATE TABLE workspace_directories (
+          id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          directory_path TEXT NOT NULL,
+          display_name TEXT NOT NULL,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+        );
+        CREATE INDEX idx_workspace_dirs_workspace ON workspace_directories(workspace_id);
+        CREATE UNIQUE INDEX idx_workspace_dirs_unique_path ON workspace_directories(workspace_id, directory_path);
+      `);
+
+      const row = database.prepare(
+        "SELECT id, directory_path FROM workspaces WHERE directory_path != '' AND deleted_at IS NULL ORDER BY last_accessed_at DESC, created_at ASC LIMIT 1",
+      ).get() as { id: string; directory_path: string } | undefined;
+
+      database.exec("UPDATE workspaces SET directory_path = '', name = '';");
+
+      if (!row) return;
+
+      const basename = row.directory_path.split('/').pop() || row.directory_path;
+      database.prepare(
+        'INSERT INTO workspace_directories (id, workspace_id, directory_path, display_name, sort_order) VALUES (?, ?, ?, ?, 0)',
+      ).run(randomUUID(), row.id, row.directory_path, basename);
+
+      // Copy agent-controlled files from user directory to workspace-data
+      const userDir = row.directory_path;
+      if (!fs.existsSync(userDir)) return;
+
+      const agentDir = path.join(userDataPath, WORKSPACE_DATA_DIR);
+      fs.mkdirSync(agentDir, { recursive: true });
+
+      for (const name of [ACADEMIA_DIR, APPLICATIONS_DIR, CLAUDE_DIR, SOUL_MD, FOCUS_MD]) {
+        const src = path.join(userDir, name);
+        if (!fs.existsSync(src)) continue;
+        try {
+          fs.cpSync(src, path.join(agentDir, name), { recursive: true });
+        } catch (err) {
+          log.warn(`[Migration 24] Failed to copy ${src}:`, err);
+        }
+      }
+    },
+  },
 ];
 
-function runMigrations(database: Database.Database) {
+function runMigrations(database: Database.Database, userDataPath: string) {
   const currentVersion = database.pragma('user_version', {
     simple: true,
   }) as number;
@@ -391,7 +441,11 @@ function runMigrations(database: Database.Database) {
   for (const migration of migrations) {
     if (migration.version > currentVersion) {
       database.transaction(() => {
-        database.exec(migration.sql);
+        if ('fn' in migration && migration.fn) {
+          migration.fn(database, userDataPath);
+        } else if ('sql' in migration && migration.sql) {
+          database.exec(migration.sql);
+        }
         database.pragma(`user_version = ${migration.version}`);
       })();
     }
@@ -407,7 +461,7 @@ export function initDatabase(userDataPath: string): Database.Database {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
 
-  runMigrations(db);
+  runMigrations(db, userDataPath);
 
   log.info('[DB] Cobuilding database initialized at', dbPath);
   return db;
