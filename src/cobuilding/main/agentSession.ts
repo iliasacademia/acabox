@@ -1,7 +1,7 @@
 
 import { type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatStreamMessage, IPCAttachment, Workspace, NotificationNavigationAction } from '../shared/types';
-import { createSession, setSdkSessionId, insertMessage } from './db/chatRepository';
+import { createSession, setSdkSessionId, insertMessage, cleanupOrphanTurnRows } from './db/chatRepository';
 import * as fs from 'fs';
 import path from 'path';
 import log from 'electron-log';
@@ -157,6 +157,14 @@ export function createAgentSession(
   }
 
   createSession(sessionId, workspace.id, source ?? null, documentPath ?? null);
+
+  // Resuming or starting fresh on a session that crashed mid-turn leaves
+  // orphan `assistant` / `tool_result` rows after the last `result` row;
+  // without this sweep the renderer shows a forever-spinning tool-use.
+  const orphansRemoved = cleanupOrphanTurnRows(sessionId);
+  if (orphansRemoved > 0) {
+    log.info(`[AgentSession] Cleaned ${orphansRemoved} orphan turn rows for sessionId=${sessionId}`);
+  }
 
   // Resolve which host app this session is acting on. See resolveSessionHostApp
   // for the resolution order — document path first, focused-window bundle id

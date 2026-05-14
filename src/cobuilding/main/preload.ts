@@ -389,7 +389,13 @@ const activeStreams = new Map<string, () => void>();
 // Buffer events that arrive before a stream iterator is created for a threadId.
 // This prevents lost events when the overlay sends a message and the main process
 // sets up IPC forwarding before the renderer has subscribed.
+//
+// Capped at EVENT_BUFFER_CAP per thread (drop-oldest) so an abandoned threadId
+// — one that gets events but never creates a stream iterator — can't leak
+// memory indefinitely. 2000 is comfortably above any plausible single turn
+// (a long tool-heavy turn is ~hundreds of events) while staying bounded.
 const eventBuffers = new Map<string, { events: any[]; done: boolean; error?: string }>();
+const EVENT_BUFFER_CAP = 2000;
 
 ipcRenderer.on('chat:event', (_event: any, threadId: string, token: any) => {
   if (token?.type === 'turn-complete') {
@@ -399,6 +405,9 @@ ipcRenderer.on('chat:event', (_event: any, threadId: string, token: any) => {
   console.warn(`[Preload:buffer] Buffering event type=${token?.type} for ${threadId} (no active stream)`);
   const buf = eventBuffers.get(threadId) || { events: [], done: false };
   buf.events.push(token);
+  if (buf.events.length > EVENT_BUFFER_CAP) {
+    buf.events.shift();
+  }
   eventBuffers.set(threadId, buf);
 });
 ipcRenderer.on('chat:done', (_event: any, threadId: string) => {

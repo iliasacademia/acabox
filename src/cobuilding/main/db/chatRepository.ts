@@ -137,6 +137,34 @@ export function findMessageByMessageId(
     .get(sessionId, messageId) as Message | undefined;
 }
 
+/**
+ * Delete `assistant` and `tool_result` rows that follow the most recent
+ * `result` row in a session. These are the rows produced mid-turn before a
+ * crash/restart left the turn unfinished — without cleanup the renderer
+ * shows a tool-use spinner forever. User rows are preserved so the user
+ * can still see what they asked even if no reply landed.
+ *
+ * Called at AgentSession startup before any new turn begins. Caller is
+ * expected to log the row count when nonzero.
+ */
+export function cleanupOrphanTurnRows(sessionId: string): number {
+  const lastResult = getDatabase()
+    .prepare("SELECT MAX(id) as maxId FROM messages WHERE session_id = ? AND type = 'result'")
+    .get(sessionId) as { maxId: number | null } | undefined;
+  const cursor = lastResult?.maxId ?? 0;
+
+  const result = getDatabase()
+    .prepare(`
+      DELETE FROM messages
+      WHERE session_id = ?
+        AND id > ?
+        AND type IN ('assistant', 'tool_result')
+    `)
+    .run(sessionId, cursor);
+
+  return result.changes as number;
+}
+
 export function deleteSession(id: string): void {
   getDatabase().prepare('DELETE FROM sessions WHERE id = ?').run(id);
 }
