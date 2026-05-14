@@ -1985,6 +1985,14 @@ ipcMain.handle('container:setImageSource', (_event, source: string) => {
   containerService.setImageSource(source as 'registry' | 'local');
 });
 
+ipcMain.handle('container:getSkipImageBuild', () => {
+  return containerService.getSkipImageBuild();
+});
+
+ipcMain.handle('container:setSkipImageBuild', (_event, skip: boolean) => {
+  containerService.setSkipImageBuild(skip);
+});
+
 ipcMain.handle('settings:getMaxAttachmentSizeMB', () => {
   return getMaxAttachmentSizeMB();
 });
@@ -2139,6 +2147,11 @@ ipcMain.handle('container:rebuildEnvironment', async () => {
 });
 
 ipcMain.handle('app:quit', () => {
+  app.quit();
+});
+
+ipcMain.handle('app:relaunch', () => {
+  if (app.isPackaged) app.relaunch();
   app.quit();
 });
 
