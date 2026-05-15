@@ -54,10 +54,53 @@ export async function runFileTaggingAgent(
     `[DirectoryScanner:FileTagging] Completed in ${seconds}s (${tagged_files.length} tagged files)`,
   );
 
+  const allPdfs = await findAllPdfs(ctx.directoryPath);
+  const taggedPaths = new Set(
+    tagged_files.map((f) => normalizeFilePath(getFilePath(f) ?? "", ctx.directoryPath)),
+  );
+  let pdfCount = 0;
+  for (const pdfRelPath of allPdfs) {
+    if (!taggedPaths.has(pdfRelPath)) {
+      tagged_files.push({
+        file_path: pdfRelPath,
+        file_name: pdfRelPath.split("/").pop() ?? pdfRelPath,
+        file_type: "reference",
+      } as any);
+      pdfCount++;
+    }
+  }
+  if (pdfCount > 0) {
+    log.info(`[DirectoryScanner:FileTagging] Added ${pdfCount} untagged PDFs as references`);
+  }
+
   persistTaggedFiles(tagged_files, ctx.workspaceId, ctx.reportId, ctx.directoryPath);
   await enrichManuscripts(extractManuscriptCandidates(tagged_files), ctx);
   await enrichReferences(extractReferenceCandidates(tagged_files), ctx);
   return { taggedFiles: tagged_files };
+}
+
+async function findAllPdfs(dirPath: string): Promise<string[]> {
+  const results: string[] = [];
+  async function walk(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") || entry.name.startsWith("~$")) continue;
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+      } else if (entry.name.toLowerCase().endsWith(".pdf")) {
+        const relPath = fullPath.slice(dirPath.length + 1);
+        results.push(relPath);
+      }
+    }
+  }
+  await walk(dirPath);
+  return results;
 }
 
 function normalizeFilePath(filePath: string, scanDir: string): string {
