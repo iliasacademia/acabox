@@ -82,6 +82,10 @@ interface SessionsAPI {
 interface ContainerAPI {
   start(): Promise<void>;
   stop(): Promise<void>;
+  /** Stop agent, container, and Podman VM — use before clearing image downloads. */
+  gracefulShutdownPodman(): Promise<void>;
+  /** Clear download setup like scripts/reset-downloads.sh (VM, binaries, cache, podman dirs, settings keys). */
+  clearImageDownloadState(): Promise<void>;
   status(): Promise<{ running: boolean }>;
   exec(command: string[]): Promise<{ stdout: string; stderr: string }>;
   getBinaryMode(): Promise<'system' | 'bundled'>;
@@ -262,6 +266,8 @@ declare global {
   interface ContainerAPI {
     start(): Promise<void>;
     stop(): Promise<void>;
+    gracefulShutdownPodman(): Promise<void>;
+    clearImageDownloadState(): Promise<void>;
     status(): Promise<{ running: boolean }>;
     exec(command: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }>;
     syncOverlay(): Promise<{ durationMs: number }>;

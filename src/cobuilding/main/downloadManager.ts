@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { execFile, execFileSync, spawn } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import log from 'electron-log';
 import {
@@ -550,30 +551,71 @@ function getVfkitEntitlementsPath(): string {
   return path.join(app.getAppPath(), 'src', 'cobuilding', 'assets', 'vfkit-entitlements.plist');
 }
 
-// ─── Clear and Retry ─────────────────────────────────────────────
+// ─── Clear and Retry (mirrors scripts/reset-downloads.sh) ────────
 
-function clearAllState(): void {
-  log.info('[DownloadManager] Clear and retry all requested');
+function rmPathIfExists(target: string, label: string): void {
+  if (!fs.existsSync(target)) return;
+  log.info(`[DownloadManager] ${label}: removing ${target}`);
+  fs.rmSync(target, { recursive: true, force: true });
+}
 
-  const binDir = getBundledPodmanBinDir();
-  if (fs.existsSync(binDir)) {
-    log.info(`[DownloadManager] Deleting ${binDir}`);
-    fs.rmSync(binDir, { recursive: true, force: true });
-  }
-
-  const cacheDir = getImageCacheDir();
-  if (fs.existsSync(cacheDir)) {
-    log.info(`[DownloadManager] Deleting ${cacheDir}`);
-    fs.rmSync(cacheDir, { recursive: true, force: true });
-  }
-
-  // Reset loaded image version
+/** Remove loadedImageVersion and imageTier from cobuilding-settings.json (same keys as reset-downloads.sh). */
+function clearDownloadManagerSettingsKeys(): void {
   const settingsPath = path.join(app.getPath('userData'), 'cobuilding-settings.json');
   try {
     const data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
     delete data.loadedImageVersion;
+    delete data.imageTier;
     fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
-  } catch { /* no settings file */ }
+    log.info('[DownloadManager] Cleared loadedImageVersion and imageTier from settings');
+  } catch {
+    /* no settings file or invalid JSON */
+  }
+}
+
+/**
+ * Same sequence as scripts/reset-downloads.sh: stop + rm machine, remove bundled
+ * podman binaries, image cache, isolated Podman HOME + runtime dirs, app-local
+ * podman XDG data, then clear download-related settings keys.
+ *
+ * Call after the Podman machine is stopped so file locks are released; extra
+ * `machine stop` here is best-effort (no-op if already stopped).
+ */
+export function clearAllDownloadStateOnDisk(): void {
+  log.info('[DownloadManager] clearAllDownloadStateOnDisk (reset-downloads.sh parity)');
+
+  const podmanBin = getBundledPodmanBinIfExists();
+  if (podmanBin) {
+    const env = getBundledPodmanEnv();
+    try {
+      execFileSync(podmanBin, ['machine', 'stop'], { env, timeout: 120_000, stdio: 'ignore' });
+    } catch (err) {
+      log.debug(`[DownloadManager] machine stop (best-effort): ${(err as Error).message}`);
+    }
+    try {
+      execFileSync(podmanBin, ['machine', 'rm', '-f'], { env, timeout: 120_000, stdio: 'ignore' });
+      log.info('[DownloadManager] podman machine rm -f complete');
+    } catch (err) {
+      log.warn(`[DownloadManager] podman machine rm -f: ${(err as Error).message}`);
+    }
+  } else {
+    log.warn('[DownloadManager] No bundled podman binary; skipping machine stop/rm');
+  }
+
+  rmPathIfExists(getBundledPodmanBinDir(), 'bundled podman binaries');
+  rmPathIfExists(path.join(app.getPath('userData'), 'cobuilding-podman-data'), 'podman XDG data under userData');
+  rmPathIfExists(getImageCacheDir(), 'image tar cache');
+
+  const suffix = app.isPackaged ? '' : '-dev';
+  rmPathIfExists(path.join(os.homedir(), `.cobuild-podman${suffix}`), 'Podman HOME');
+  rmPathIfExists(path.join(os.tmpdir(), `cobuild-podman-run${suffix}`), 'Podman runtime dir');
+
+  clearDownloadManagerSettingsKeys();
+}
+
+function clearAllState(): void {
+  log.info('[DownloadManager] Clear and retry all requested');
+  clearAllDownloadStateOnDisk();
 }
 
 // ─── Window Lifecycle ────────────────────────────────────────────
@@ -658,6 +700,10 @@ export function registerDownloadManagerIpc(): void {
     const tier = getImageTier();
     clearAllState();
     await runAllDownloads(tier);
+  });
+
+  ipcMain.handle('dm:clearImageDownloadState', () => {
+    clearAllDownloadStateOnDisk();
   });
 
   ipcMain.handle('dm:continue', () => {

@@ -105,6 +105,8 @@ contextBridge.exposeInMainWorld('settingsAPI', {
 contextBridge.exposeInMainWorld('containerAPI', {
   start: () => ipcRenderer.invoke('container:start'),
   stop: () => ipcRenderer.invoke('container:stop'),
+  gracefulShutdownPodman: () => ipcRenderer.invoke('container:gracefulShutdownPodman'),
+  clearImageDownloadState: () => ipcRenderer.invoke('dm:clearImageDownloadState'),
   status: () => ipcRenderer.invoke('container:status'),
   exec: (command: string[]) => ipcRenderer.invoke('container:exec', command),
   syncOverlay: () => ipcRenderer.invoke('container:syncOverlay'),

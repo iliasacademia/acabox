@@ -1408,6 +1408,16 @@ ipcMain.handle('container:stop', async () => {
   containerService.stop();
 });
 
+/** Stop container stack then `podman machine stop` so image cache can be deleted safely. */
+ipcMain.handle('container:gracefulShutdownPodman', async () => {
+  backgroundBuilder.stopWatching();
+  ensuredApps.clear();
+  packageInstaller.reset();
+  await stopAgentInfrastructure();
+  containerService.stop();
+  containerService.stopPodmanMachineBestEffort();
+});
+
 ipcMain.handle('container:status', () => {
   return { running: containerService.isRunning() };
 });
@@ -1611,7 +1621,9 @@ ipcMain.handle('app:quit', () => {
 });
 
 ipcMain.handle('app:relaunch', () => {
-  if (app.isPackaged) app.relaunch();
+  if (app.isPackaged) {
+    app.relaunch();
+  }
   app.quit();
 });
 

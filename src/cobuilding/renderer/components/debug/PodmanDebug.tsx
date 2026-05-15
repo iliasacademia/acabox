@@ -35,6 +35,12 @@ export const PodmanDebug: React.FC = () => {
   const [skipImageBuild, setSkipImageBuild] = useState(false);
   const [pruning, setPruning] = useState(false);
   const [pruneResult, setPruneResult] = useState<string | null>(null);
+  const [gracefulShutdownBusy, setGracefulShutdownBusy] = useState(false);
+  const [gracefulShutdownDone, setGracefulShutdownDone] = useState(false);
+  const [resetDownloadBusy, setResetDownloadBusy] = useState(false);
+  const [downloadResetDone, setDownloadResetDone] = useState(false);
+
+  const isDev = window.authAPI.isDev;
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -127,6 +133,13 @@ export const PodmanDebug: React.FC = () => {
     });
     return cleanup;
   }, [refreshStatus]);
+
+  useEffect(() => {
+    if (running) {
+      setGracefulShutdownDone(false);
+      setDownloadResetDone(false);
+    }
+  }, [running]);
 
   const handleRebuildEnvironment = async () => {
     setRebuilding(true);
@@ -226,6 +239,40 @@ export const PodmanDebug: React.FC = () => {
     } finally {
       setStopping(false);
     }
+  };
+
+  const handleGracefulShutdownPodman = async () => {
+    setGracefulShutdownBusy(true);
+    setError(null);
+    try {
+      await window.containerAPI.gracefulShutdownPodman();
+      setGracefulShutdownDone(true);
+      setRunning(false);
+      await refreshStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGracefulShutdownBusy(false);
+    }
+  };
+
+  const handleResetImageDownload = async () => {
+    setResetDownloadBusy(true);
+    setError(null);
+    try {
+      await window.containerAPI.clearImageDownloadState();
+      setDownloadResetDone(true);
+      await refreshStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setResetDownloadBusy(false);
+    }
+  };
+
+  const handleRelaunchApp = () => {
+    setError(null);
+    void window.containerAPI.relaunchApp();
   };
 
   const handleDeleteBinaries = async () => {
@@ -460,6 +507,58 @@ export const PodmanDebug: React.FC = () => {
           className={`debugSection__indicator ${running ? 'debugSection__indicator--running' : starting ? 'debugSection__indicator--starting' : 'debugSection__indicator--stopped'}`}
         />
         <span>{running ? 'Running' : starting ? 'Starting...' : stopping ? 'Stopping...' : 'Stopped'}</span>
+      </div>
+
+      <div
+        style={{
+          margin: '12px 0',
+          padding: '12px',
+          background: '#faf6f0',
+          borderRadius: 6,
+          border: '1px solid #e8dcc8',
+        }}
+      >
+        <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, color: '#666', fontWeight: 600, marginBottom: 8 }}>
+          Download reset
+        </div>
+        <p style={{ fontSize: 12, color: '#555', margin: '0 0 10px' }}>
+          Same steps as <code>scripts/reset-downloads.sh</code>: after graceful shutdown, destroy the machine, remove bundled Podman binaries, image cache,
+          isolated Podman HOME and runtime dirs, app-local podman data, and clear <code>loadedImageVersion</code> / <code>imageTier</code> in settings. Then{' '}
+          {isDev ? 'quit the app (restart from your dev terminal).' : 'relaunch the app so setup can run again.'}
+        </p>
+        <div className="debugSection__actions" style={{ flexWrap: 'wrap', gap: 8 }}>
+          <button
+            type="button"
+            className="debugSection__btn debugSection__btn--stop"
+            onClick={handleGracefulShutdownPodman}
+            disabled={gracefulShutdownBusy || !running || gracefulShutdownDone}
+            title="Stop agent and container, then podman machine stop"
+          >
+            {gracefulShutdownBusy ? 'Shutting down…' : 'Graceful shutdown (Podman + VM)'}
+          </button>
+          <button
+            type="button"
+            className="debugSection__btn"
+            onClick={handleResetImageDownload}
+            disabled={!gracefulShutdownDone || resetDownloadBusy || downloadResetDone}
+            title="Same as reset-downloads.sh: machine rm, binaries, caches, podman dirs, settings keys"
+          >
+            {resetDownloadBusy ? 'Clearing…' : 'Reset downloads'}
+          </button>
+          <button
+            type="button"
+            className="debugSection__btn debugSection__btn--start"
+            onClick={handleRelaunchApp}
+            disabled={!downloadResetDone}
+            title={
+              isDev
+                ? 'Quit the app (development — relaunch is only for packaged builds)'
+                : 'Quit and start the app again'
+            }
+          >
+            {isDev ? 'Quit app' : 'Relaunch app'}
+          </button>
+        </div>
       </div>
 
       <div className="debugSection__actions">

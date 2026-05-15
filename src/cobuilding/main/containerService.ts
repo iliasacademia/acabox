@@ -407,6 +407,25 @@ class CobuildingContainerService {
     this.overlayEnabled = false;
   }
 
+  /**
+   * Stop the Podman machine after the container is gone so host-side image
+   * cache files are not held by the VM (used before clearing download artifacts).
+   */
+  stopPodmanMachineBestEffort(): void {
+    const podmanBin = this.getPodmanBinIfExists();
+    if (!podmanBin) {
+      log.debug('[ContainerService] No podman binary for machine stop');
+      return;
+    }
+    const env = this.getExecEnv();
+    try {
+      execFileSync(podmanBin, ['machine', 'stop'], { env, timeout: 120_000, stdio: 'ignore' });
+      log.info('[ContainerService] podman machine stop finished');
+    } catch (err) {
+      log.warn(`[ContainerService] podman machine stop: ${(err as Error).message}`);
+    }
+  }
+
   /** Best-effort SIGTERM on a tracked child process, clearing the handle. */
   private killProc(field: 'kernelGatewayProc' | 'agentServerProc'): void {
     const proc = this[field];
