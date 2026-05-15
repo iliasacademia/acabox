@@ -43,13 +43,8 @@ interface FilesAPI {
 
 interface WorkspacesAPI {
   getActive(): Promise<Workspace | null>;
-  list(): Promise<Workspace[]>;
-  getDefaultDirectory(name: string): Promise<string>;
   create(data: { name: string; directoryPath: string }): Promise<Workspace>;
-  switch(id: string): Promise<Workspace>;
-  update(data: { name: string; directoryPath: string }): Promise<Workspace>;
   selectDirectory(): Promise<string | undefined>;
-  deleteAll(): Promise<void>;
   listDirectories(): Promise<WorkspaceDirectory[]>;
 }
 
@@ -225,13 +220,8 @@ declare global {
 
   interface WorkspacesAPI {
     getActive(): Promise<Workspace | null>;
-    list(): Promise<Workspace[]>;
-    getDefaultDirectory(name: string): Promise<string>;
     create(data: { name: string; directoryPath: string }): Promise<Workspace>;
-    switch(id: string): Promise<Workspace>;
-    update(data: { name: string; directoryPath: string }): Promise<Workspace>;
     selectDirectory(): Promise<string | undefined>;
-    deleteAll(): Promise<void>;
     listDirectories(): Promise<WorkspaceDirectory[]>;
   }
 
@@ -431,6 +421,7 @@ declare global {
     exportWorkspace(): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean; error?: string }>;
     importWorkspace(): Promise<{ ok: boolean; workspaceName?: string; workspaceDir?: string; workspaceId?: string; canceled?: boolean; error?: string }>;
     hardResetWorkspace(): Promise<{ ok: boolean; error?: string }>;
+    restartOnboarding(): Promise<void>;
     pruneImages(): Promise<void>;
     syncOverlay(): Promise<{ durationMs: number }>;
     isOverlayEnabled(): Promise<boolean>;

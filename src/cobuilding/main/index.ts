@@ -46,9 +46,7 @@ import {
 } from './db/chatRepository';
 import {
   getActiveWorkspace,
-  listWorkspaces,
   listWorkspaceDirectories,
-  touchWorkspace,
   type Workspace,
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
@@ -1153,15 +1151,7 @@ ipcMain.handle(
   },
 );
 
-// Support for modifying the workspace will be added later
-ipcMain.handle(
-  'workspaces:update',
-  async () => {
-    return workspaceController.activeWorkspace ?? null;
-  },
-);
-
-ipcMain.handle('workspaces:deleteAll', async () => {
+ipcMain.handle('debug:restartOnboarding', async () => {
   backgroundBuilder.dispose();
   ensuredApps.clear();
   packageInstaller.reset();
@@ -1169,41 +1159,6 @@ ipcMain.handle('workspaces:deleteAll', async () => {
   containerService.stop();
   getTaskScheduler()?.stop();
   workspaceController.deactivateAll();
-});
-
-ipcMain.handle('workspaces:list', () => {
-  return listWorkspaces();
-});
-
-ipcMain.handle('workspaces:switch', async (_event, id: string) => {
-  const workspaces = listWorkspaces();
-  const target = workspaces.find((w) => w.id === id);
-  if (!target) throw new Error('Workspace not found.');
-
-  backgroundBuilder.dispose();
-  packageInstaller.reset();
-  containerService.stop();
-
-  touchWorkspace(id);
-  const activeWorkspace = workspaceController.loadActiveWorkspace();
-
-  if (activeWorkspace) {
-    if (getReactionsEnabled()) {
-      ensureReactionsTask(activeWorkspace.id);
-    }
-    // Update workspace directory for the Word overlay
-    windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
-  }
-
-  // Restart scheduler so it picks up the new workspace's tasks
-  const scheduler = getTaskScheduler();
-  scheduler?.stop();
-  scheduler?.start();
-
-  provisionWorkspace(workspaceController.workspacePath);
-  containerService.writeStartContainerScript(workspaceController.mountMap);
-
-  return activeWorkspace ?? null;
 });
 
 ipcMain.handle('workspaces:listDirectories', () => {

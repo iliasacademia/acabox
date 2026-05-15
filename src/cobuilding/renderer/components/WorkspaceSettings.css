@@ -87,7 +87,7 @@
 }
 
 .wsSettings__dirPath {
-  flex: 1;
+  display: block;
   font-family: 'DM Sans', sans-serif;
   font-size: 13px;
   color: #3d3933;
@@ -98,6 +98,16 @@
   border: 1px solid rgb(232, 226, 214);
   border-radius: 2px;
   padding: 8px 12px;
+}
+
+.wsSettings__dirRow > .wsSettings__dirPath {
+  flex: 1;
+}
+
+.wsSettings__dirList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .wsSettings__textarea {
@@ -130,91 +140,6 @@
   border: none;
   border-top: 1px solid rgb(232, 226, 214);
   margin: 16px 0;
-}
-
-/* Workspace switcher list */
-.wsSettings__wsList {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.wsSettings__wsRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 2px;
-  background: #ffffff;
-  border: 1px solid rgb(232, 226, 214);
-}
-
-.wsSettings__wsRow--active {
-  border-color: #c9bfa8;
-  background: #faf7ee;
-}
-
-.wsSettings__wsInfo {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.wsSettings__wsName {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 13px;
-  font-weight: 500;
-  color: #141413;
-}
-
-.wsSettings__wsDir {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 11px;
-  color: #9c958b;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.wsSettings__wsBadge {
-  font-family: 'JetBrains Mono', 'SF Mono', monospace;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: rgb(139, 132, 115);
-  background: rgb(232, 226, 214);
-  border-radius: 2px;
-  padding: 3px 8px;
-  white-space: nowrap;
-}
-
-.wsSettings__wsBtn {
-  white-space: nowrap;
-  font-size: 12px;
-  padding: 4px 10px;
-}
-
-.wsSettings__newBtn {
-  font-size: 12px;
-  padding: 4px 0;
-  color: #6f685f;
-}
-
-.wsSettings__newForm {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.wsSettings__newFormActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 4px;
 }
 
 /* Integration row text */

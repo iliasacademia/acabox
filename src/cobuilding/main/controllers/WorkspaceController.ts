@@ -17,7 +17,6 @@ import {
 import { provisionWorkspace } from '../skills';
 import { WORKSPACE_DATA_DIR } from '../../shared/paths';
 
-const MAX_WORKSPACE_NAME_LENGTH = 100;
 const SENSITIVE_HOME_DIRS = ['.ssh', '.gnupg', '.aws', '.config', '.password-store'];
 
 export class WorkspaceController {
@@ -82,14 +81,6 @@ export class WorkspaceController {
       ? listWorkspaceDirectories(this._activeWorkspace.id)
       : [];
     return this._activeWorkspace;
-  }
-
-  getDefaultDirectory(name: string): string {
-    const safeName = name.slice(0, MAX_WORKSPACE_NAME_LENGTH)
-      .replace(/[^a-zA-Z0-9_-]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '') || 'my-workspace';
-    return path.join(app.getPath('desktop'), safeName);
   }
 
   async create(directoryPath: string, apiKey: string): Promise<Workspace | null> {

@@ -37,15 +37,9 @@ contextBridge.exposeInMainWorld('authAPI', {
 
 contextBridge.exposeInMainWorld('workspacesAPI', {
   getActive: () => ipcRenderer.invoke('workspaces:getActive'),
-  list: () => ipcRenderer.invoke('workspaces:list'),
-  getDefaultDirectory: (name: string) => ipcRenderer.invoke('workspaces:getDefaultDirectory', name),
   create: (data: { name: string; directoryPath: string }) =>
     ipcRenderer.invoke('workspaces:create', data),
-  switch: (id: string) => ipcRenderer.invoke('workspaces:switch', id),
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
-  update: (data: { name: string; directoryPath: string }) =>
-    ipcRenderer.invoke('workspaces:update', data),
-  deleteAll: () => ipcRenderer.invoke('workspaces:deleteAll'),
   listDirectories: () => ipcRenderer.invoke('workspaces:listDirectories'),
 });
 
@@ -221,6 +215,7 @@ contextBridge.exposeInMainWorld('debugAPI', {
   exportWorkspace: () => ipcRenderer.invoke('debug:exportWorkspace'),
   importWorkspace: () => ipcRenderer.invoke('debug:importWorkspace'),
   hardResetWorkspace: () => ipcRenderer.invoke('debug:hardResetWorkspace'),
+  restartOnboarding: () => ipcRenderer.invoke('debug:restartOnboarding'),
   exportLogs: () => ipcRenderer.invoke('debug:exportLogs'),
   pruneImages: () => ipcRenderer.invoke('debug:pruneImages'),
   syncOverlay: () => ipcRenderer.invoke('debug:syncOverlay'),

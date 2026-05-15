@@ -6,7 +6,6 @@ export function registerWorkspaceHandlers(
   getMainWindow: () => BrowserWindow | null,
 ): void {
   ipcMain.handle('workspaces:getActive', () => workspace.activeWorkspace ?? null);
-  ipcMain.handle('workspaces:getDefaultDirectory', (_event, name: string) => workspace.getDefaultDirectory(name));
   ipcMain.handle('dialog:selectDirectory', async () => {
     const win = getMainWindow();
     if (!win) return undefined;
