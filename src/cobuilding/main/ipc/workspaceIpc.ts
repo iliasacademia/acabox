@@ -10,8 +10,11 @@ export function registerWorkspaceHandlers(
   ipcMain.handle('workspaces:getActive', () => {
     const ws = workspace.activeWorkspace;
     if (!ws) return null;
-    const firstDir = workspace.userDirectoryPaths[0] ?? '';
-    return { ...ws, directory_path: firstDir };
+    return {
+      ...ws,
+      directory_path: workspace.workspacePath,
+      user_directory_paths: workspace.userDirectoryPaths,
+    };
   });
   ipcMain.handle('dialog:selectDirectory', async () => {
     const win = getMainWindow();

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
+import { resolveWorkspacePath } from '../utils/resolveWorkspacePath';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 import {
   ArrowUpRightIcon,
@@ -118,10 +119,12 @@ function renderBriefingCard(parsed: ParsedBriefing): BriefingCardDisplay | null 
 
 export function HomePage({
   workspacePath,
+  userDirectoryPaths,
   onSelectFile: _onSelectFile,
   onSwitchToChat,
 }: {
   workspacePath: string;
+  userDirectoryPaths?: string[];
   onSelectFile: (filePath: string) => void;
   onSwitchToChat: () => void;
 }) {
@@ -171,7 +174,7 @@ export function HomePage({
       );
     } else if (parsed.type === 'writing_agent') {
       if (!(await ensureAccessibilityPermission())) return;
-      const absolutePath = `${workspacePath}/${parsed.data.file_path}`;
+      const absolutePath = resolveWorkspacePath(parsed.data.file_path, workspacePath, userDirectoryPaths ?? []);
       const fileUrl = absolutePath.startsWith('file://')
         ? absolutePath
         : `file://${absolutePath}`;
