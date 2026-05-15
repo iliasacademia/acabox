@@ -54,21 +54,33 @@ export async function runFileTaggingAgent(
     `[DirectoryScanner:FileTagging] Completed in ${seconds}s (${tagged_files.length} tagged files)`,
   );
 
-  persistTaggedFiles(tagged_files, ctx.workspaceId, ctx.reportId);
+  persistTaggedFiles(tagged_files, ctx.workspaceId, ctx.reportId, ctx.directoryPath);
   await enrichManuscripts(extractManuscriptCandidates(tagged_files), ctx);
   await enrichReferences(extractReferenceCandidates(tagged_files), ctx);
   return { taggedFiles: tagged_files };
+}
+
+function normalizeFilePath(filePath: string, scanDir: string): string {
+  const withSlash = "/" + filePath;
+  if (withSlash.startsWith(scanDir + "/")) {
+    return withSlash.slice(scanDir.length + 1);
+  }
+  return filePath;
 }
 
 function persistTaggedFiles(
   taggedFiles: TaggedFileParsed[],
   workspaceId: string,
   reportId: string,
+  scanDir: string,
 ): void {
   try {
     const normalised = taggedFiles
       .map((f) => ({
-        file_path: ((f as any).file_path ?? (f as any).path) as string,
+        file_path: normalizeFilePath(
+          ((f as any).file_path ?? (f as any).path) as string,
+          scanDir,
+        ),
         file_name: ((f as any).file_name ?? (f as any).filename) as string,
         file_type: ((f as any).file_type ?? (f as any).type) as string,
       }))
