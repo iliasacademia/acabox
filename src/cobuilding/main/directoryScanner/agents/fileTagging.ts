@@ -54,10 +54,81 @@ export async function runFileTaggingAgent(
     `[DirectoryScanner:FileTagging] Completed in ${seconds}s (${tagged_files.length} tagged files)`,
   );
 
-  persistTaggedFiles(tagged_files, ctx.workspaceId, ctx.reportId, ctx.directoryPath);
-  await enrichManuscripts(extractManuscriptCandidates(tagged_files), ctx);
-  await enrichReferences(extractReferenceCandidates(tagged_files), ctx);
-  return { taggedFiles: tagged_files };
+  const autoTagged = await autoTagReferencePdfs(tagged_files, ctx.directoryPath);
+  const allFiles = [...tagged_files, ...autoTagged];
+
+  persistTaggedFiles(allFiles, ctx.workspaceId, ctx.reportId, ctx.directoryPath);
+  await enrichManuscripts(extractManuscriptCandidates(allFiles), ctx);
+  await enrichReferences(extractReferenceCandidates(allFiles), ctx);
+  return { taggedFiles: allFiles };
+}
+
+const MIN_TEXT_LENGTH_FOR_REFERENCE = 500;
+
+async function findAllPdfs(dirPath: string): Promise<string[]> {
+  const results: string[] = [];
+  async function walk(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") || entry.name.startsWith("~$")) continue;
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+      } else if (entry.name.toLowerCase().endsWith(".pdf")) {
+        results.push(fullPath.slice(dirPath.length + 1));
+      }
+    }
+  }
+  await walk(dirPath);
+  return results;
+}
+
+async function autoTagReferencePdfs(
+  taggedFiles: TaggedFileParsed[],
+  scanDir: string,
+): Promise<TaggedFileParsed[]> {
+  const taggedPaths = new Set(
+    taggedFiles.map((f) =>
+      normalizeFilePath(getFilePath(f) ?? "", scanDir),
+    ),
+  );
+
+  const allPdfs = await findAllPdfs(scanDir);
+  const untagged = allPdfs.filter((p) => !taggedPaths.has(p));
+  if (untagged.length === 0) return [];
+
+  log.info(
+    `[DirectoryScanner:AutoTag] Inspecting ${untagged.length} untagged PDFs`,
+  );
+
+  const results: TaggedFileParsed[] = [];
+  for (const relPath of untagged) {
+    try {
+      const absolutePath = path.join(scanDir, relPath);
+      const text = await extractText(absolutePath);
+      if (text && text.length >= MIN_TEXT_LENGTH_FOR_REFERENCE) {
+        results.push({
+          file_path: relPath,
+          file_name: relPath.split("/").pop() ?? relPath,
+          file_type: "reference",
+        } as any);
+      }
+    } catch {
+      // skip files that can't be read
+    }
+  }
+
+  if (results.length > 0) {
+    log.info(
+      `[DirectoryScanner:AutoTag] Tagged ${results.length}/${untagged.length} PDFs as references (≥${MIN_TEXT_LENGTH_FOR_REFERENCE} chars of text)`,
+    );
+  }
+  return results;
 }
 
 function normalizeFilePath(filePath: string, scanDir: string): string {
