@@ -367,17 +367,6 @@ class CobuildingContainerService {
       }
     }
 
-    // Send VM poweroff BEFORE stopping the container — stopping the container
-    // first disrupts the VM's init system, causing systemctl poweroff to silently
-    // fail even though SSH returns exit 0.
-    try {
-      execFileSync(podmanBin, ['machine', 'ssh', '--', 'sudo', 'systemctl', 'poweroff'], { env, timeout: 10000, stdio: 'ignore' });
-      log.debug('[ContainerService] VM poweroff sent');
-    } catch (err) {
-      // Exit code 255 is expected (SSH connection closes when VM shuts down)
-      log.debug(`[ContainerService] VM poweroff result: ${(err as Error).message}`);
-    }
-
     try {
       execFileSync(podmanBin, ['stop', '-t', '3', CONTAINER_NAME], { env, timeout: 10000, stdio: 'ignore' });
       log.debug('[ContainerService] Container stopped');
@@ -390,6 +379,13 @@ class CobuildingContainerService {
       log.debug('[ContainerService] Container removed');
     } catch {
       // Already removed
+    }
+
+    try {
+      execFileSync(podmanBin, ['machine', 'stop'], { env, timeout: 120_000, stdio: 'ignore' });
+      log.debug('[ContainerService] VM stopped');
+    } catch (err) {
+      log.warn(`[ContainerService] VM stop: ${(err as Error).message}`);
     }
 
     this.containerStarted = false;
