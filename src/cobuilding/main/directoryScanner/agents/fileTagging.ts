@@ -213,27 +213,96 @@ function sanitizeFilename(name: string): string {
     .slice(0, 200);
 }
 
+async function readRefIndex(refsDir: string): Promise<Record<string, string>> {
+  try {
+    const raw = await fs.promises.readFile(
+      path.join(refsDir, REFERENCES_INDEX),
+      "utf-8",
+    );
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+async function writeRefIndex(
+  refsDir: string,
+  index: Record<string, string>,
+): Promise<void> {
+  await fs.promises.writeFile(
+    path.join(refsDir, REFERENCES_INDEX),
+    JSON.stringify(index, null, 2),
+    "utf-8",
+  );
+}
+
+async function convertSingleReference(
+  filePath: string,
+  absolutePath: string,
+  refsDir: string,
+  client: Anthropic,
+): Promise<string | null> {
+  const fullText = await extractText(absolutePath);
+  if (!fullText) {
+    log.warn(
+      `[ReferenceConversion] Could not extract text from ${filePath}, skipping`,
+    );
+    return null;
+  }
+
+  const excerpt = fullText.slice(0, 2000);
+  const fileName = filePath.split("/").pop() ?? filePath;
+  let title = path.basename(fileName, path.extname(fileName));
+
+  try {
+    const message = await client.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 100,
+      messages: [
+        {
+          role: "user",
+          content: `Extract the title of this academic paper from the excerpt below. Return ONLY the title, nothing else. If you cannot determine the title, return the text "UNKNOWN".
+
+Filename: ${fileName}
+
+Excerpt:
+${excerpt}`,
+        },
+      ],
+    });
+
+    const block = message.content[0] as { type: string; text?: string };
+    const extracted =
+      block && block.type === "text" && block.text ? block.text.trim() : "";
+    if (extracted && extracted !== "UNKNOWN") {
+      title = sanitizeFilename(extracted);
+    }
+  } catch (err) {
+    log.warn(
+      `[ReferenceConversion] Title extraction failed for ${filePath}, using filename`,
+    );
+  }
+
+  const mdFilename = `${title}.md`;
+  const mdPath = path.join(refsDir, mdFilename);
+  const mdContent = `---\nsource: ${filePath}\ntitle: "${title.replace(/"/g, '\\"')}"\n---\n\n${fullText}`;
+  await fs.promises.writeFile(mdPath, mdContent, "utf-8");
+
+  log.info(`[ReferenceConversion] Converted: ${filePath} → ${mdFilename}`);
+  return mdFilename;
+}
+
 async function enrichReferences(
   filePaths: string[],
   ctx: ScanContext,
 ): Promise<void> {
   if (filePaths.length === 0) return;
 
-  // memoryDir = workspacePath/.academia/agent-memory
-  // references go in the workspace root's .academia, not inside the user folder
   const academiaDir = path.dirname(ctx.memoryDir);
   const refsDir = path.join(academiaDir, REFERENCES_DIR);
   await fs.promises.mkdir(refsDir, { recursive: true });
 
-  const indexPath = path.join(refsDir, REFERENCES_INDEX);
-  let index: Record<string, string> = {};
-  try {
-    const existing = await fs.promises.readFile(indexPath, "utf-8");
-    index = JSON.parse(existing);
-  } catch {
-    /* no existing index */
-  }
-
+  const index = await readRefIndex(refsDir);
   const client = new Anthropic({ apiKey: ctx.apiKey, baseURL: ctx.baseURL });
   const total = filePaths.length;
   log.info(
@@ -242,68 +311,62 @@ async function enrichReferences(
 
   let converted = 0;
   for (const filePath of filePaths) {
+    if (index[filePath]) continue;
     try {
       const absolutePath = path.join(ctx.directoryPath, filePath);
-      const fullText = await extractText(absolutePath);
-      if (!fullText) {
-        log.warn(
-          `[ReferenceConversion] Could not extract text from ${filePath}, skipping`,
-        );
-        continue;
-      }
-
-      const excerpt = fullText.slice(0, 2000);
-      const fileName = filePath.split("/").pop() ?? filePath;
-      let title = path.basename(fileName, path.extname(fileName));
-
-      try {
-        const message = await client.messages.create({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 100,
-          messages: [
-            {
-              role: "user",
-              content: `Extract the title of this academic paper from the excerpt below. Return ONLY the title, nothing else. If you cannot determine the title, return the text "UNKNOWN".
-
-Filename: ${fileName}
-
-Excerpt:
-${excerpt}`,
-            },
-          ],
-        });
-
-        const block = message.content[0] as { type: string; text?: string };
-        const extracted =
-          block && block.type === "text" && block.text ? block.text.trim() : "";
-        if (extracted && extracted !== "UNKNOWN") {
-          title = sanitizeFilename(extracted);
-        }
-      } catch (err) {
-        log.warn(
-          `[ReferenceConversion] Title extraction failed for ${filePath}, using filename`,
-        );
-      }
-
-      const mdFilename = `${title}.md`;
-      const mdPath = path.join(refsDir, mdFilename);
-      const mdContent = `---\nsource: ${filePath}\ntitle: "${title.replace(/"/g, '\\"')}"\n---\n\n${fullText}`;
-      await fs.promises.writeFile(mdPath, mdContent, "utf-8");
-
-      index[filePath] = mdFilename;
-      converted++;
-      log.info(
-        `[ReferenceConversion] Converted ${converted}/${total}: ${filePath} → ${mdFilename}`,
+      const mdFilename = await convertSingleReference(
+        filePath,
+        absolutePath,
+        refsDir,
+        client,
       );
+      if (mdFilename) {
+        index[filePath] = mdFilename;
+        converted++;
+      }
     } catch (err) {
       log.error(`[ReferenceConversion] Failed to convert ${filePath}:`, err);
     }
   }
 
-  await fs.promises.writeFile(indexPath, JSON.stringify(index, null, 2), "utf-8");
+  await writeRefIndex(refsDir, index);
   log.info(
     `[ReferenceConversion] Complete — ${converted}/${total} files converted`,
   );
+}
+
+/**
+ * Convert a single reference file to markdown. Called when the user
+ * manually tags a file as "reference" outside of the scan flow.
+ */
+export async function convertReferenceFile(opts: {
+  filePath: string;
+  sourceDir: string;
+  workspacePath: string;
+  apiKey: string;
+  baseURL?: string;
+}): Promise<void> {
+  const refsDir = path.join(opts.workspacePath, REFERENCES_DIR);
+  await fs.promises.mkdir(refsDir, { recursive: true });
+
+  const index = await readRefIndex(refsDir);
+  if (index[opts.filePath]) return;
+
+  const client = new Anthropic({
+    apiKey: opts.apiKey,
+    baseURL: opts.baseURL,
+  });
+  const absolutePath = path.join(opts.sourceDir, opts.filePath);
+  const mdFilename = await convertSingleReference(
+    opts.filePath,
+    absolutePath,
+    refsDir,
+    client,
+  );
+  if (mdFilename) {
+    index[opts.filePath] = mdFilename;
+    await writeRefIndex(refsDir, index);
+  }
 }
 
 async function enrichManuscripts(

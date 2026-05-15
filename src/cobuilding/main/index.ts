@@ -20,6 +20,7 @@ import { processCpuMonitor } from '../../utils/processCpuMonitor';
 import { getAllPodmanDataPaths } from './podmanBinaries';
 import { ensureClaudeBinaryReady } from './sdkBinarySetup';
 import { scanWorkspaceDirectory } from './directoryScanner';
+import { convertReferenceFile } from './directoryScanner/agents/fileTagging';
 import { fetchPapers, type FetchPapersInput } from './papers/papersService';
 import { persistPapersAsBriefings } from './papers/paperBriefings';
 import { getReport, getLatestReport, updateReportData } from './db/reportRepository';
@@ -1317,10 +1318,29 @@ ipcMain.handle('scannedFiles:getAll', async () => {
 
 ipcMain.handle(
   'scannedFiles:updateTag',
-  (_event, filePath: string, fileName: string, fileType: string) => {
+  async (_event, filePath: string, fileName: string, fileType: string) => {
     const activeWorkspace = workspaceController.activeWorkspace;
     if (!activeWorkspace) return;
     updateFileTag(activeWorkspace.id, filePath, fileName, fileType);
+
+    if (fileType === 'reference') {
+      const sourceDir = workspaceController.userDirectories[0]?.directory_path;
+      if (!sourceDir) return;
+      let { apiKey, baseURL } = getCredentials();
+      if (!apiKey) {
+        try {
+          await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
+          ({ apiKey, baseURL } = getCredentials());
+        } catch { return; }
+      }
+      convertReferenceFile({
+        filePath,
+        sourceDir,
+        workspacePath: path.join(workspaceController.workspacePath, ACADEMIA_DIR),
+        apiKey: apiKey ?? '',
+        baseURL,
+      }).catch((err) => log.error('[scannedFiles:updateTag] Reference conversion failed:', err));
+    }
   },
 );
 
