@@ -88,14 +88,17 @@ export function readActiveNoteFromWorkspaceJson(vaultDir: string | null): string
  * exist on disk (e.g. user is on a canvas/PDF/image, or has Obsidian open on a
  * different vault than our workspace).
  */
-export function resolveObsidianDocumentPath(workspaceDir: string | null): string | null {
-  if (!workspaceDir) return null;
-  const relFile = readActiveNoteFromWorkspaceJson(workspaceDir);
-  if (!relFile) return null;
-  const candidate = path.join(workspaceDir, relFile);
-  if (!existsSync(candidate)) return null;
-  if (!candidate.toLowerCase().endsWith('.md')) return null;
-  return candidate;
+export function resolveObsidianDocumentPath(workspaceDirs: string | string[] | null): string | null {
+  const dirs = Array.isArray(workspaceDirs) ? workspaceDirs : workspaceDirs ? [workspaceDirs] : [];
+  for (const dir of dirs) {
+    const relFile = readActiveNoteFromWorkspaceJson(dir);
+    if (!relFile) continue;
+    const candidate = path.join(dir, relFile);
+    if (!existsSync(candidate)) continue;
+    if (!candidate.toLowerCase().endsWith('.md')) continue;
+    return candidate;
+  }
+  return null;
 }
 
 /** Verify that this looks like an Obsidian vault directory. */
@@ -168,17 +171,17 @@ function applyFindReplace(original: string, search: string, replacement: string,
 }
 
 /**
- * Resolve the active workspace directory by lazy-requiring windowMonitorService
- * (avoids a circular import). Returns null if no workspace is active or the
- * service isn't available.
+ * Resolve the active workspace directories by lazy-requiring windowMonitorService
+ * (avoids a circular import). Returns empty array if no workspace is active or
+ * the service isn't available.
  */
-function getActiveWorkspaceDir(): string | null {
+function getActiveWorkspaceDirs(): string[] {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { windowMonitorService } = require('../../../windowMonitorService');
-    return windowMonitorService.getActiveWorkspaceDirectory() ?? null;
+    return windowMonitorService.getActiveWorkspaceDirectories() ?? [];
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -196,8 +199,8 @@ async function obsidianApplyEdit(params: ApplyEditParams): Promise<ApplyEditResu
   // from the renderer's POST body, so this is the trust boundary that prevents
   // an attacker (or a buggy proposal payload) from writing to files outside
   // the active vault.
-  const workspaceDir = getActiveWorkspaceDir();
-  if (!workspaceDir) {
+  const workspaceDirs = getActiveWorkspaceDirs();
+  if (workspaceDirs.length === 0) {
     return { success: false, error: 'No active workspace — Obsidian edits are not allowed without a workspace', replacementsCount: 0 };
   }
 
@@ -208,15 +211,21 @@ async function obsidianApplyEdit(params: ApplyEditParams): Promise<ApplyEditResu
     return { success: false, error: `Cannot resolve path: ${(err as Error).message}`, replacementsCount: 0 };
   }
 
-  let realWorkspace: string;
-  try {
-    realWorkspace = await fs.realpath(workspaceDir);
-  } catch (err) {
-    return { success: false, error: `Cannot resolve workspace: ${(err as Error).message}`, replacementsCount: 0 };
+  let insideWorkspace = false;
+  for (const dir of workspaceDirs) {
+    try {
+      const realDir = await fs.realpath(dir);
+      if (realPath === realDir || realPath.startsWith(realDir + path.sep)) {
+        insideWorkspace = true;
+        break;
+      }
+    } catch {
+      continue;
+    }
   }
 
-  if (realPath !== realWorkspace && !realPath.startsWith(realWorkspace + path.sep)) {
-    logger.warn(`[ObsidianHostApp] Rejected apply-edit outside workspace: ${realPath} (workspace=${realWorkspace})`);
+  if (!insideWorkspace) {
+    logger.warn(`[ObsidianHostApp] Rejected apply-edit outside workspace: ${realPath}`);
     return {
       success: false,
       error: 'document_path is outside the active workspace; refusing to write',
@@ -316,8 +325,8 @@ export function createObsidianHostApp(deps: {
       ];
     },
 
-    resolveDocumentPath(_window, workspaceDir) {
-      return resolveObsidianDocumentPath(workspaceDir);
+    resolveDocumentPath(_window, workspaceDirs) {
+      return resolveObsidianDocumentPath(workspaceDirs);
     },
 
     mcpServerKey: 'obsidian',
@@ -347,11 +356,11 @@ export function createObsidianHostApp(deps: {
 
 /**
  * Default Obsidian HostApp instance. The active-note resolver reads
- * `.obsidian/workspace.json` from the current cobuilding workspace directory.
+ * `.obsidian/workspace.json` from the current cobuilding workspace directories.
  * This avoids circular imports (windowMonitorService → hostApps → ...) by
  * lazily requiring windowMonitorService at call time only to read
- * `getActiveWorkspaceDirectory()`.
+ * `getActiveWorkspaceDirectories()`.
  */
 export const obsidianHostApp: HostApp = createObsidianHostApp({
-  getActiveNotePath: () => resolveObsidianDocumentPath(getActiveWorkspaceDir()),
+  getActiveNotePath: () => resolveObsidianDocumentPath(getActiveWorkspaceDirs()),
 });

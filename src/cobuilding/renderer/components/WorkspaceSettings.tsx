@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import type { Workspace } from '../../shared/types';
-import { SOUL_MD, MEMORY_PATH_ABOUT_YOU, MEMORY_PATH_WORKING_ON } from '../../shared/paths';
+import type { Workspace, WorkspaceDirectory } from '../../shared/types';
+import { SOUL_MD, MEMORY_PATH_ABOUT_YOU, MEMORY_PATH_WORKING_ON, MAX_WORKSPACE_DIRECTORIES } from '../../shared/paths';
 import { kernelRegistry } from './notebook/kernelRegistry';
+import { XIcon, PlusIcon } from 'lucide-react';
 import './WorkspaceSettings.css';
 import './shared-forms.css';
 
@@ -11,18 +12,14 @@ interface WorkspaceSettingsProps {
   onSaved: (ws: Workspace) => void;
   onLogout: () => void;
   onRestartOnboarding: () => void;
+  onDirectoriesChanged?: (dirs: WorkspaceDirectory[]) => void;
   inline?: boolean;
 }
 
-const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClose, onSaved, onLogout, onRestartOnboarding, inline }) => {
-  // --- Workspace card state ---
-  // Editable values plus their last-saved baselines so Cancel can revert.
-  const [name, setName] = useState(workspace.name);
-  const [savedName, setSavedName] = useState(workspace.name);
-  const [directoryPath, setDirectoryPath] = useState(workspace.directory_path);
-  const [savedDirectoryPath, setSavedDirectoryPath] = useState(workspace.directory_path);
-  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
-  const [isSavingWorkspace, setIsSavingWorkspace] = useState(false);
+const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClose, onSaved, onLogout, onRestartOnboarding, onDirectoriesChanged, inline }) => {
+  // --- Workspace directories ---
+  const [userDirectories, setUserDirectories] = useState<WorkspaceDirectory[]>([]);
+  const [dirError, setDirError] = useState<string | null>(null);
 
   // --- Researcher Profile card state ---
   const [aboutContent, setAboutContent] = useState('');
@@ -60,16 +57,6 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isRestartingOnboarding, setIsRestartingOnboarding] = useState(false);
 
-  const [allWorkspaces, setAllWorkspaces] = useState<Workspace[]>([]);
-  const [isSwitching, setIsSwitching] = useState<string | null>(null);
-
-  const [showNewForm, setShowNewForm] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newDirectory, setNewDirectory] = useState('');
-  const [newDirectoryOverridden, setNewDirectoryOverridden] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-
   useEffect(() => {
     window.academiaFileAPI.read(SOUL_MD).then(({ content }) => {
       setSoulContent(content);
@@ -86,7 +73,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
       setSavedWorkingOnContent(workingOn.content);
       setProfileLoaded(true);
     });
-    window.workspacesAPI.list().then(setAllWorkspaces);
+    window.workspacesAPI.listDirectories().then(setUserDirectories).catch(() => {});
     window.electronAPI.invoke('check-accessibility-permission').then((result: any) => {
       if (result) setAccessibilityGranted(result.hasPermission ?? false);
     }).catch(() => setAccessibilityGranted(false));
@@ -133,45 +120,6 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
     }
   };
 
-  useEffect(() => {
-    if (newDirectoryOverridden || !newName.trim()) return;
-    window.workspacesAPI.getDefaultDirectory(newName.trim()).then(setNewDirectory);
-  }, [newName, newDirectoryOverridden]);
-
-  // --- Workspace card save/cancel ---
-  const workspaceDirty = name !== savedName || directoryPath !== savedDirectoryPath;
-  const canSaveWorkspace = workspaceDirty && name.trim().length > 0 && directoryPath.length > 0 && !isSavingWorkspace;
-
-  const handleChangeDirectory = async () => {
-    const selected = await window.workspacesAPI.selectDirectory();
-    if (selected) {
-      setDirectoryPath(selected);
-      setWorkspaceError(null);
-    }
-  };
-
-  const handleSaveWorkspace = async () => {
-    if (!canSaveWorkspace) return;
-    setWorkspaceError(null);
-    setIsSavingWorkspace(true);
-    try {
-      const updated = await window.workspacesAPI.update({ name: name.trim(), directoryPath });
-      setSavedName(updated.name);
-      setSavedDirectoryPath(updated.directory_path);
-      onSaved(updated);
-    } catch (err) {
-      setWorkspaceError(err instanceof Error ? err.message : 'Failed to update workspace.');
-    } finally {
-      setIsSavingWorkspace(false);
-    }
-  };
-
-  const handleCancelWorkspace = () => {
-    setName(savedName);
-    setDirectoryPath(savedDirectoryPath);
-    setWorkspaceError(null);
-  };
-
   // --- System Prompt card save/cancel ---
   const soulDirty = soulContent !== savedSoulContent;
   const canSaveSoul = soulLoaded && soulDirty && !isSavingSoul;
@@ -193,6 +141,38 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   const handleCancelSoul = () => {
     setSoulContent(savedSoulContent);
     setSoulError(null);
+  };
+
+  // --- Workspace directory add/remove ---
+  const handleAddDirectory = async () => {
+    setDirError(null);
+    const selected = await window.workspacesAPI.selectDirectory();
+    if (!selected) return;
+    if (userDirectories.some(d => d.directory_path === selected)) {
+      setDirError('This directory is already in your workspace.');
+      return;
+    }
+    try {
+      const added = await window.workspacesAPI.addDirectory(selected);
+      const updated = [...userDirectories, added];
+      setUserDirectories(updated);
+      onDirectoriesChanged?.(updated);
+    } catch (err) {
+      setDirError(err instanceof Error ? err.message : 'Failed to add directory.');
+    }
+  };
+
+  const handleRemoveDirectory = async (dirId: string) => {
+    if (!window.confirm('Are you sure you want to remove this directory from your workspace?')) return;
+    setDirError(null);
+    try {
+      await window.workspacesAPI.removeDirectory(dirId);
+      const updated = userDirectories.filter(d => d.id !== dirId);
+      setUserDirectories(updated);
+      onDirectoriesChanged?.(updated);
+    } catch (err) {
+      setDirError(err instanceof Error ? err.message : 'Failed to remove directory.');
+    }
   };
 
   // --- Researcher Profile card save/cancel ---
@@ -221,38 +201,6 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
     setAboutContent(savedAboutContent);
     setWorkingOnContent(savedWorkingOnContent);
     setProfileError(null);
-  };
-
-  const handleSwitch = async (id: string) => {
-    setIsSwitching(id);
-    try {
-      await window.workspacesAPI.switch(id);
-      window.location.reload();
-    } catch (err) {
-      setIsSwitching(null);
-    }
-  };
-
-  const handleNewChangeDirectory = async () => {
-    const selected = await window.workspacesAPI.selectDirectory();
-    if (selected) {
-      setNewDirectory(selected);
-      setNewDirectoryOverridden(true);
-      setCreateError(null);
-    }
-  };
-
-  const handleCreate = async () => {
-    if (!newName.trim() || !newDirectory) return;
-    setCreateError(null);
-    setIsCreating(true);
-    try {
-      await window.workspacesAPI.create({ name: newName.trim(), directoryPath: newDirectory });
-      window.location.reload();
-    } catch (err) {
-      setCreateError(err instanceof Error ? err.message : 'Failed to create workspace.');
-      setIsCreating(false);
-    }
   };
 
   const handleToggleIntegration = async (id: IntegrationId, displayName: string, currentlyEnabled: boolean | null) => {
@@ -303,117 +251,40 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
         className={inline ? 'pageShell__inner' : 'wsSettings__page'}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* ───────── Workspace ───────── */}
+        {/* ───────── Workspace Directories ───────── */}
         <section className="wsSettings__section">
-          <p className="wsSettings__sectionLabel">Workspace</p>
+          <p className="wsSettings__sectionLabel">Workspace directories</p>
           <div className="wsSettings__sectionCard">
-            <div className="wsSettings__field">
-              <label className="wsSettings__label">Workspaces</label>
-              <div className="wsSettings__wsList">
-                {allWorkspaces.map((ws) => (
-                  <div key={ws.id} className={`wsSettings__wsRow${ws.id === workspace.id ? ' wsSettings__wsRow--active' : ''}`}>
-                    <div className="wsSettings__wsInfo">
-                      <span className="wsSettings__wsName">{ws.name}</span>
-                      <span className="wsSettings__wsDir">{ws.directory_path}</span>
-                    </div>
-                    {ws.id === workspace.id ? (
-                      <span className="wsSettings__wsBadge">Active</span>
-                    ) : (
-                      <button
-                        type="button"
-                        className="gsStep__btn gsStep__btn--secondary wsSettings__wsBtn"
-                        disabled={isSwitching !== null}
-                        onClick={() => handleSwitch(ws.id)}
-                      >
-                        {isSwitching === ws.id ? 'Switching...' : 'Switch'}
-                      </button>
-                    )}
+            {userDirectories.length > 0 ? (
+              <div className="wsSettings__dirList">
+                {userDirectories.map((dir) => (
+                  <div key={dir.id} className="wsSettings__dirRow">
+                    <span className="wsSettings__dirPath" title={dir.directory_path}>
+                      {dir.directory_path}
+                    </span>
+                    <button
+                      type="button"
+                      className="wsSettings__dirRemoveBtn"
+                      onClick={() => handleRemoveDirectory(dir.id)}
+                      aria-label="Remove directory"
+                    >
+                      <XIcon size={14} />
+                    </button>
                   </div>
                 ))}
               </div>
-
-              {showNewForm ? (
-                <div className="wsSettings__newForm">
-                  <input
-                    type="text"
-                    className="gsStep__input"
-                    value={newName}
-                    onChange={(e) => { setNewName(e.target.value); setNewDirectoryOverridden(false); }}
-                    placeholder="Workspace name"
-                    autoFocus
-                  />
-                  {newDirectory && (
-                    <div className="wsSettings__dirRow" style={{ marginTop: 8 }}>
-                      <span className="wsSettings__dirPath" title={newDirectory}>{newDirectory}</span>
-                      <button type="button" className="gsStep__btn gsStep__btn--ghost" onClick={handleNewChangeDirectory}>Change</button>
-                    </div>
-                  )}
-                  {createError && <p className="gsStep__error">{createError}</p>}
-                  <div className="wsSettings__newFormActions">
-                    <button type="button" className="gsStep__btn gsStep__btn--secondary" onClick={() => { setShowNewForm(false); setNewName(''); setNewDirectory(''); setCreateError(null); }}>
-                      Cancel
-                    </button>
-                    <button type="button" className="gsStep__btn gsStep__btn--primary" disabled={!newName.trim() || !newDirectory || isCreating} onClick={handleCreate}>
-                      {isCreating ? 'Creating...' : 'Create'}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button type="button" className="gsStep__btn gsStep__btn--ghost wsSettings__newBtn" onClick={() => setShowNewForm(true)}>
-                  + New Workspace
-                </button>
-              )}
-            </div>
-
-            <div className="wsSettings__divider" />
-
-            <div className="wsSettings__field">
-              <label className="wsSettings__label">Workspace Name</label>
-              <input
-                type="text"
-                className="gsStep__input"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="My Workspace"
-              />
-            </div>
-
-            <div className="wsSettings__field">
-              <label className="wsSettings__label">Directory</label>
-              <div className="wsSettings__dirRow">
-                <span className="wsSettings__dirPath" title={directoryPath}>
-                  {directoryPath}
-                </span>
-                <button
-                  type="button"
-                  className="gsStep__btn gsStep__btn--secondary"
-                  onClick={handleChangeDirectory}
-                >
-                  Change
-                </button>
-              </div>
-            </div>
-
-            {workspaceError && <p className="gsStep__error">{workspaceError}</p>}
-
-            <div className="wsSettings__cardActions">
-              <button
-                type="button"
-                className="gsStep__btn gsStep__btn--secondary"
-                disabled={!workspaceDirty || isSavingWorkspace}
-                onClick={handleCancelWorkspace}
-              >
-                Cancel
+            ) : (
+              <p className="wsSettings__hint" style={{ margin: 0 }}>
+                No directories added to this workspace yet.
+              </p>
+            )}
+            {dirError && <p className="wsSettings__dirError">{dirError}</p>}
+            {userDirectories.length < MAX_WORKSPACE_DIRECTORIES && (
+              <button type="button" className="wsSettings__dirAddBtn" onClick={handleAddDirectory}>
+                <PlusIcon size={14} />
+                Add folder
               </button>
-              <button
-                type="button"
-                className="gsStep__btn gsStep__btn--primary"
-                disabled={!canSaveWorkspace}
-                onClick={handleSaveWorkspace}
-              >
-                {isSavingWorkspace ? 'Saving...' : 'Save'}
-              </button>
-            </div>
+            )}
           </div>
         </section>
 
@@ -703,7 +574,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
                 disabled={isRestartingOnboarding || isLoggingOut}
                 onClick={async () => {
                   setIsRestartingOnboarding(true);
-                  await window.workspacesAPI.deleteAll();
+                  await window.debugAPI.restartOnboarding();
                   kernelRegistry.clearAll().catch(() => {});
                   onRestartOnboarding();
                 }}

@@ -107,6 +107,7 @@ export interface Workspace {
   id: string;
   name: string;
   directory_path: string;
+  user_directory_paths?: string[];
   api_key: string;
   created_at: string;
   updated_at: string;

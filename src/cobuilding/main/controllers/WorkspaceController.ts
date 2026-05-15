@@ -15,9 +15,8 @@ import {
   type WorkspaceDirectory,
 } from '../db/workspaceRepository';
 import { provisionWorkspace } from '../skills';
-import { WORKSPACE_DATA_DIR } from '../../shared/paths';
+import { WORKSPACE_DATA_DIR, MAX_WORKSPACE_DIRECTORIES } from '../../shared/paths';
 
-const MAX_WORKSPACE_NAME_LENGTH = 100;
 const SENSITIVE_HOME_DIRS = ['.ssh', '.gnupg', '.aws', '.config', '.password-store'];
 
 export class WorkspaceController {
@@ -44,8 +43,12 @@ export class WorkspaceController {
     return this._userDirectories;
   }
 
+  get userDirectoryPaths(): string[] {
+    return this._userDirectories.map(d => d.directory_path);
+  }
+
   get allAllowedPaths(): string[] {
-    return [this.workspacePath, ...this.userDirectories.map(d => d.directory_path)];
+    return [this.workspacePath, ...this.userDirectoryPaths];
   }
 
   get mountMap(): Array<{ hostPath: string; containerPath: string }> {
@@ -84,27 +87,25 @@ export class WorkspaceController {
     return this._activeWorkspace;
   }
 
-  getDefaultDirectory(name: string): string {
-    const safeName = name.slice(0, MAX_WORKSPACE_NAME_LENGTH)
-      .replace(/[^a-zA-Z0-9_-]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '') || 'my-workspace';
-    return path.join(app.getPath('desktop'), safeName);
-  }
+  async create(directoryPaths: string[], apiKey: string): Promise<Workspace | null> {
+    if (directoryPaths.length === 0) {
+      throw new Error('At least one directory is required.');
+    }
+    if (directoryPaths.length > MAX_WORKSPACE_DIRECTORIES) {
+      throw new Error(`A workspace can have at most ${MAX_WORKSPACE_DIRECTORIES} directories.`);
+    }
 
-  async create(directoryPath: string, apiKey: string): Promise<Workspace | null> {
-    const validPath = this.validateDirectoryPath(directoryPath);
+    const validPaths = [...new Set(directoryPaths.map(dp => this.validateDirectoryPath(dp)))];
 
-    await fsPromises.mkdir(validPath, { recursive: true });
+    for (const vp of validPaths) {
+      await fsPromises.mkdir(vp, { recursive: true });
+    }
 
     const workspaceId = randomUUID();
     createWorkspace(workspaceId, apiKey);
-    addWorkspaceDirectory(
-      randomUUID(),
-      workspaceId,
-      validPath,
-      path.basename(validPath),
-    );
+    for (let i = 0; i < validPaths.length; i++) {
+      addWorkspaceDirectory(randomUUID(), workspaceId, validPaths[i], path.basename(validPaths[i]), i);
+    }
     touchWorkspace(workspaceId);
 
     provisionWorkspace(this.getAgentControlledDir());

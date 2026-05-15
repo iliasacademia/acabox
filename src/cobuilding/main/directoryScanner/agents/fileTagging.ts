@@ -1,6 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import * as path from "path";
-import * as fs from "fs";
+import * as fs from "fs/promises";
 import log from "electron-log";
 import Anthropic from "@anthropic-ai/sdk";
 import { upsertScannedFiles } from "../../db/scannedFilesRepository";
@@ -11,8 +11,10 @@ import {
   SYSTEM_PROMPT_PREAMBLE,
   buildCommonQueryOptions,
   consumeAgentStream,
+  formatTreesForPrompt,
   type ScanContext,
   type TaggedFileParsed,
+  type TreeOutput,
 } from "../shared";
 
 interface ManuscriptCandidate {
@@ -31,7 +33,7 @@ export async function runFileTaggingAgent(
   log.info("[DirectoryScanner:FileTagging] Starting file tagging agent");
 
   const agentQuery = query({
-    prompt: buildPrompt(ctx.directoryPath, ctx.treeOutput),
+    prompt: buildPrompt(ctx.directoryPaths, ctx.treeOutputs),
     options: {
       ...buildCommonQueryOptions(ctx),
       model: "claude-haiku-4-5-20251001",
@@ -57,7 +59,7 @@ export async function runFileTaggingAgent(
   const autoTagged = await autoTagReferencePdfs(tagged_files, ctx);
   const allFiles = [...tagged_files, ...autoTagged];
 
-  persistTaggedFiles(allFiles, ctx.workspaceId, ctx.reportId, ctx.directoryPath);
+  persistTaggedFiles(allFiles, ctx.workspaceId, ctx.reportId, ctx.directoryPaths);
   await enrichManuscripts(extractManuscriptCandidates(allFiles), ctx);
   await enrichReferences(extractReferenceCandidates(allFiles), ctx);
   return { taggedFiles: allFiles };
@@ -70,7 +72,7 @@ async function findAllPdfs(dirPath: string): Promise<string[]> {
   async function walk(dir: string): Promise<void> {
     let entries;
     try {
-      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+      entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {
       return;
     }
@@ -92,14 +94,17 @@ async function autoTagReferencePdfs(
   taggedFiles: TaggedFileParsed[],
   ctx: ScanContext,
 ): Promise<TaggedFileParsed[]> {
-  const scanDir = ctx.directoryPath;
+  const scanDirs = ctx.directoryPaths;
   const taggedPaths = new Set(
     taggedFiles.map((f) =>
-      normalizeFilePath(getFilePath(f) ?? "", scanDir),
+      normalizeFilePath(getFilePath(f) ?? "", scanDirs),
     ),
   );
 
-  const allPdfs = await findAllPdfs(scanDir);
+  const allPdfs: string[] = [];
+  for (const dir of scanDirs) {
+    allPdfs.push(...(await findAllPdfs(dir)));
+  }
   const untagged = allPdfs.filter((p) => !taggedPaths.has(p));
   if (untagged.length === 0) return [];
 
@@ -111,7 +116,7 @@ async function autoTagReferencePdfs(
   const results: TaggedFileParsed[] = [];
   for (const relPath of untagged) {
     try {
-      const absolutePath = path.join(scanDir, relPath);
+      const absolutePath = await resolveFilePath(relPath, scanDirs);
       const text = await extractText(absolutePath);
       if (!text || text.length < MIN_TEXT_LENGTH_FOR_REFERENCE) continue;
 
@@ -155,10 +160,13 @@ ${excerpt}`,
   return results;
 }
 
-function normalizeFilePath(filePath: string, scanDir: string): string {
+function normalizeFilePath(filePath: string, scanDirs: string | string[]): string {
+  const dirs = Array.isArray(scanDirs) ? scanDirs : [scanDirs];
   const withSlash = "/" + filePath;
-  if (withSlash.startsWith(scanDir + "/")) {
-    return withSlash.slice(scanDir.length + 1);
+  for (const dir of dirs) {
+    if (withSlash.startsWith(dir + "/")) {
+      return withSlash.slice(dir.length + 1);
+    }
   }
   return filePath;
 }
@@ -167,7 +175,7 @@ function persistTaggedFiles(
   taggedFiles: TaggedFileParsed[],
   workspaceId: string,
   reportId: string,
-  scanDir: string,
+  scanDirs: string[],
 ): void {
   try {
     const seen = new Set<string>();
@@ -175,7 +183,7 @@ function persistTaggedFiles(
       .map((f) => ({
         file_path: normalizeFilePath(
           ((f as any).file_path ?? (f as any).path) as string,
-          scanDir,
+          scanDirs,
         ),
         file_name: ((f as any).file_name ?? (f as any).filename) as string,
         file_type: ((f as any).file_type ?? (f as any).type) as string,
@@ -277,22 +285,62 @@ Cast a wide net for manuscripts, grants, and presentations. For references, be s
 You can largely identify files from the directory tree — use file extensions and directory names. Only use Read/Grep on ambiguous files where you need to check content to determine the type.`;
 }
 
-function buildPrompt(directoryPath: string, treeOutput: string): string {
-  return `Identify and tag all manuscript, grant, presentation, and reference files in this research directory.
+function buildPrompt(directoryPaths: string[], treeOutputs: TreeOutput[]): string {
+  const multi = directoryPaths.length > 1;
+  const dirDescription = multi
+    ? `The directories to analyze are:\n${directoryPaths.map((dp, i) => `${i + 1}. ${dp}`).join("\n")}`
+    : `The directory to analyze is: ${directoryPaths[0]}`;
 
-The directory to analyze is the current working directory: ${directoryPath}
+  const treeSection = multi
+    ? formatTreesForPrompt(treeOutputs)
+    : `\`\`\`\n${treeOutputs[0].tree}\n\`\`\``;
 
-Use the directory tree below to identify files. You can determine most file types from extensions and directory names alone. Only read files when you need to disambiguate.
+  return `Identify and tag all manuscript, grant, presentation, and reference files in ${multi ? "these research directories" : "this research directory"}.
+
+${dirDescription}
+
+Use the directory ${multi ? "trees" : "tree"} below to identify files. You can determine most file types from extensions and directory names alone. Only read files when you need to disambiguate.
 
 Work as quickly as possible.
 
-## Directory tree
+## Directory ${multi ? "trees" : "tree"}
 
 All non-hidden files in the workspace, sorted by modification time (most recent first), with dates:
 
-\`\`\`
-${treeOutput}
-\`\`\``;
+${treeSection}`;
+}
+
+function isWithinAllowedDirs(resolved: string, directoryPaths: string[]): boolean {
+  return directoryPaths.some((dp) => {
+    const root = path.resolve(dp);
+    return resolved === root || resolved.startsWith(root + path.sep);
+  });
+}
+
+async function resolveFilePath(filePath: string, directoryPaths: string[]): Promise<string> {
+  const candidates: string[] = [];
+
+  if (path.isAbsolute(filePath)) {
+    candidates.push(path.resolve(filePath));
+  } else {
+    for (const dp of directoryPaths) {
+      candidates.push(path.resolve(dp, filePath));
+      // tree-node-cli includes the directory basename as the tree root,
+      // so the agent may return paths like "DemoWorkspace/file.docx" —
+      // strip the prefix to avoid doubling when joined with the full path.
+      const basename = path.basename(dp);
+      if (filePath.startsWith(basename + '/')) {
+        candidates.push(path.resolve(dp, filePath.slice(basename.length + 1)));
+      }
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (!isWithinAllowedDirs(candidate, directoryPaths)) continue;
+    try { await fs.access(candidate); return candidate; } catch {}
+  }
+
+  return path.resolve(directoryPaths[0], filePath);
 }
 
 const WRITING_AGENT_KICKOFF_PROMPT =
@@ -337,7 +385,7 @@ function sanitizeFilename(name: string): string {
 
 async function readRefIndex(refsDir: string): Promise<Record<string, string>> {
   try {
-    const raw = await fs.promises.readFile(
+    const raw = await fs.readFile(
       path.join(refsDir, REFERENCES_INDEX),
       "utf-8",
     );
@@ -351,7 +399,7 @@ async function writeRefIndex(
   refsDir: string,
   index: Record<string, string>,
 ): Promise<void> {
-  await fs.promises.writeFile(
+  await fs.writeFile(
     path.join(refsDir, REFERENCES_INDEX),
     JSON.stringify(index, null, 2),
     "utf-8",
@@ -408,7 +456,7 @@ ${excerpt}`,
   const mdFilename = `${title}.md`;
   const mdPath = path.join(refsDir, mdFilename);
   const mdContent = `---\nsource: ${filePath}\ntitle: "${title.replace(/"/g, '\\"')}"\n---\n\n${fullText}`;
-  await fs.promises.writeFile(mdPath, mdContent, "utf-8");
+  await fs.writeFile(mdPath, mdContent, "utf-8");
 
   log.info(`[ReferenceConversion] Converted: ${filePath} → ${mdFilename}`);
   return mdFilename;
@@ -422,7 +470,7 @@ async function enrichReferences(
 
   const academiaDir = path.dirname(ctx.memoryDir);
   const refsDir = path.join(academiaDir, REFERENCES_DIR);
-  await fs.promises.mkdir(refsDir, { recursive: true });
+  await fs.mkdir(refsDir, { recursive: true });
 
   const index = await readRefIndex(refsDir);
   const client = new Anthropic({ apiKey: ctx.apiKey, baseURL: ctx.baseURL });
@@ -435,7 +483,7 @@ async function enrichReferences(
   for (const filePath of filePaths) {
     if (index[filePath]) continue;
     try {
-      const absolutePath = resolveSourcePath(ctx.directoryPath, filePath);
+      const absolutePath = await resolveFilePath(filePath, ctx.directoryPaths);
       const mdFilename = await convertSingleReference(
         filePath,
         absolutePath,
@@ -469,7 +517,7 @@ export async function convertReferenceFile(opts: {
   baseURL?: string;
 }): Promise<void> {
   const refsDir = path.join(opts.workspacePath, REFERENCES_DIR);
-  await fs.promises.mkdir(refsDir, { recursive: true });
+  await fs.mkdir(refsDir, { recursive: true });
 
   const index = await readRefIndex(refsDir);
   if (index[opts.filePath]) return;
@@ -501,7 +549,7 @@ async function enrichManuscripts(
 
   for (const { filePath, scannerDescription } of manuscripts) {
     try {
-      const absolutePath = resolveSourcePath(ctx.directoryPath, filePath);
+      const absolutePath = await resolveFilePath(filePath, ctx.directoryPaths);
       const fullText = await extractText(absolutePath);
       const excerpt = fullText ? fullText.slice(0, 2000) : "";
 

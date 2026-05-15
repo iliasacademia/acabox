@@ -104,13 +104,17 @@ const AVAILABLE_TOOLS_STUB: AvailableStub[] = [
   { name: 'Reactions', description: 'AI reactions to your browser and file activity, delivered periodically', tag: 'SCHEDULED', preBuilt: true, lastOpened: hoursAgoIso(24) },
 ];
 
+import { resolveWorkspacePath } from '../utils/resolveWorkspacePath';
+
 export function ToolsPage({
   workspacePath,
+  userDirectoryPaths,
   onSelectApp,
   onSwitchToChat,
   onOpenReactions,
 }: {
   workspacePath: string;
+  userDirectoryPaths?: string[];
   onSelectApp: (dirName: string, opts?: { preBuilt?: boolean }) => void;
   onSwitchToChat: () => void;
   onOpenReactions: () => void;
@@ -278,7 +282,7 @@ export function ToolsPage({
   const handlePickFile = useCallback(async (stub: AvailableStub, filePath: string) => {
     if (stub.useWordOverlay) {
       if (!(await ensureAccessibilityPermission())) return;
-      const absolutePath = filePath.startsWith('/') ? filePath : `${workspacePath}/${filePath}`;
+      const absolutePath = resolveWorkspacePath(filePath, workspacePath, userDirectoryPaths ?? []);
       const fileUrl = absolutePath.startsWith('file://') ? absolutePath : `file://${absolutePath}`;
       setFilePicker(null);
       try {
@@ -298,7 +302,7 @@ export function ToolsPage({
       composerRuntime.setText(stub.chatPromptTemplate!(filePath));
       composerRuntime.send();
     }, 100);
-  }, [assistantRuntime, composerRuntime, onSwitchToChat, workspacePath]);
+  }, [assistantRuntime, composerRuntime, onSwitchToChat, workspacePath, userDirectoryPaths]);
 
   const handleBrowseFile = useCallback(async (stub: AvailableStub) => {
     setFilePicker(null);

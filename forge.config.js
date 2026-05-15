@@ -318,6 +318,14 @@ module.exports = {
                 js: './src/cobuilding/main/quickChatPreload.ts',
               },
             },
+            {
+              html: './src/cobuilding/renderer/download-manager.html',
+              js: './src/cobuilding/renderer/download-manager.tsx',
+              name: 'download_manager_window',
+              preload: {
+                js: './src/cobuilding/main/downloadManagerPreload.ts',
+              },
+            },
           ],
         },
       },

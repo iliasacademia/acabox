@@ -16,8 +16,7 @@ export const HardResetDebug: React.FC<{ onRestartOnboarding?: () => void }> = ({
         setConfirming(false);
         return;
       }
-      // Stop services and mark workspace inactive, then go to onboarding
-      await window.workspacesAPI.deleteAll();
+      await window.debugAPI.restartOnboarding();
       if (onRestartOnboarding) {
         onRestartOnboarding();
       } else {

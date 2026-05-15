@@ -238,27 +238,105 @@
   margin: 4px 0 0;
 }
 
-/* Selected state — path display */
+/* Selected state — path list */
+.wsSource__pathList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.wsSource__pathItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .wsSource__path {
   font-family: 'SF Mono', 'Menlo', monospace;
   font-size: 12px;
   color: #374151;
-  margin: 2px 0 0;
+  margin: 0;
   line-height: 1.4;
   word-break: break-all;
+  flex: 1;
+  min-width: 0;
 }
 
-.wsSource__change {
+.wsSource__removeBtn {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.wsSource__removeBtn:hover {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.06);
+  border-color: rgba(220, 38, 38, 0.15);
+}
+
+.wsSource__addMoreBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
   font-family: 'DM Sans', sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 400;
   color: #6b7280;
-  margin-top: 4px;
-  display: inline-block;
+  background: none;
+  border: 1.5px dashed rgb(220, 214, 200);
+  border-radius: 2px;
+  padding: 8px 0;
+  margin-top: 10px;
+  cursor: pointer;
+  text-align: center;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 
-.wsSource__change:hover {
+.wsSource__addMoreBtn:hover {
   color: #374151;
+  border-color: #8b7355;
+  background: rgba(245, 240, 232, 0.4);
+}
+
+/* Empty state */
+.wsSource__emptyState {
+  margin-top: 2px;
+}
+
+.wsSource__browseBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: #6b7280;
+  background: none;
+  border: 1px solid rgb(220, 214, 200);
+  border-radius: 2px;
+  padding: 4px 10px;
+  margin-top: 6px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.wsSource__browseBtn:hover {
+  color: #374151;
+  border-color: #8b7355;
+  background: rgba(245, 240, 232, 0.4);
 }
 
 /* Error */

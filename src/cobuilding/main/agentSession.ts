@@ -48,7 +48,7 @@ export function resolveSessionHostApp(documentPath: string | null | undefined): 
 
 // ─── MCP Relay Dispatch ──────────────────────────────────────────
 // Maps MCP tool calls from the in-container agent to host-side MCP server handlers.
-// The host MCP servers are stored on globalThis by startAgentInfrastructure().
+// The host MCP servers are stored on globalThis by AgentInfrastructureController.
 
 type ToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
 

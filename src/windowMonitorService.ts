@@ -100,7 +100,7 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
         if (!_contentBounds) return null;
 
         // In cobuilding mode, selection goes to the composer pill — no review button needed
-        if (service.getActiveWorkspaceDirectory()) return null;
+        if (service.getActiveWorkspaceDirectories().length > 0) return null;
 
         // Hide review button when review input is open
         if (windowId && service['reviewInputOpen'].has(windowId)) return null;
@@ -314,13 +314,14 @@ export class WindowMonitorService {
   private pendingAutoOpenPaths: Set<string> = new Set();
   // File paths that should auto-dock (66/33 split) when the window is first detected
   private pendingDockPaths: Set<string> = new Set();
-  // Cobuilding workspace directory — when set, documents within this directory
-  // are treated as workspace files and the overlay shows workspace sessions.
-  private workspaceDirectory: string | null = null;
-  // Watcher for `.obsidian/workspace.json` — Obsidian doesn't expose
-  // active-document changes through AX, so we observe its layout file directly
-  // and trigger an overlay state push when it changes.
-  private obsidianWorkspaceWatcher: FSWatcher | null = null;
+  // Cobuilding workspace directories — when non-empty, documents within any of
+  // these directories are treated as workspace files and the overlay shows
+  // workspace sessions. Supports multi-directory workspaces.
+  private workspaceDirectories: string[] = [];
+  // Watchers for `.obsidian/workspace.json` in each workspace directory that
+  // is an Obsidian vault. Obsidian doesn't expose active-document changes
+  // through AX, so we observe its layout file directly.
+  private obsidianWorkspaceWatchers: FSWatcher[] = [];
   private obsidianWorkspaceWatchDebounce: ReturnType<typeof setTimeout> | null = null;
   // Cache of the currently active Apple Note's synthetic path. Apple Notes
   // doesn't expose AXDocument and the lookup requires an AppleScript round
@@ -753,7 +754,7 @@ export class WindowMonitorService {
       const buttonWidthOverride = this.buttonV2WidthOverrides.get(windowId);
       if (buttonWidthOverride !== undefined) {
         desiredState['button-v2'].frame.width = buttonWidthOverride;
-      } else if (!this.workspaceDirectory) {
+      } else if (this.workspaceDirectories.length === 0) {
         // Only shrink to ENABLE_FEEDBACK_BUTTON_WIDTH in writing agent mode
         const docPath = this.getDocumentPathForWindow(windowId);
         if (!docPath || !wordIntegrationDataStoreV2.getProjectFileForPath(docPath)) {
@@ -761,7 +762,7 @@ export class WindowMonitorService {
         }
       }
       // Widen for "Review Selection" when text is selected (not in cobuilding mode)
-      if (!this.workspaceDirectory) {
+      if (this.workspaceDirectories.length === 0) {
         const selectedText = this.getSelectedTextForWindow(windowId);
         if (selectedText && selectedText.length > 0) {
           desiredState['button-v2'].frame.width = Math.max(desiredState['button-v2'].frame.width, BUTTON_WITH_REVIEW_WIDTH);
@@ -1080,7 +1081,7 @@ export class WindowMonitorService {
               void this.refreshGoogleDocsPath();
               return this.lastGoogleDocsPath;
             }
-            const resolved = host.resolveDocumentPath(window, this.workspaceDirectory);
+            const resolved = host.resolveDocumentPath(window, this.workspaceDirectories);
             if (resolved?.startsWith('file://')) {
               return decodeURIComponent(resolved.slice(7));
             }
@@ -1463,57 +1464,52 @@ export class WindowMonitorService {
   }
 
   /**
-   * Sets the directory of the *active* workspace. Multiple workspaces may exist,
-   * but only one is active at a time; this should be called whenever the active
-   * workspace is selected or switched.
+   * Sets the user directories of the *active* workspace. A workspace may have
+   * multiple user directories; documents within any of them are treated as
+   * workspace files by the overlay.
    */
-  setActiveWorkspaceDirectory(directory: string | null): void {
-    this.workspaceDirectory = directory;
-    this.refreshObsidianWorkspaceWatcher();
+  setActiveWorkspaceDirectories(directories: string[]): void {
+    this.workspaceDirectories = directories;
+    this.refreshObsidianWorkspaceWatchers();
   }
 
   /**
-   * Start (or restart) the watcher on `.obsidian/workspace.json` for the active
-   * workspace. Obsidian writes this file whenever the user switches notes,
-   * splits panes, or otherwise changes their layout — observing it lets us
-   * react to active-note changes without any AX or polling-based detection.
+   * Start (or restart) watchers on `.obsidian/workspace.json` for every
+   * workspace directory that is an Obsidian vault.
    */
-  private refreshObsidianWorkspaceWatcher(): void {
-    if (this.obsidianWorkspaceWatcher) {
-      this.obsidianWorkspaceWatcher.close();
-      this.obsidianWorkspaceWatcher = null;
-    }
+  private refreshObsidianWorkspaceWatchers(): void {
+    for (const w of this.obsidianWorkspaceWatchers) w.close();
+    this.obsidianWorkspaceWatchers = [];
     if (this.obsidianWorkspaceWatchDebounce) {
       clearTimeout(this.obsidianWorkspaceWatchDebounce);
       this.obsidianWorkspaceWatchDebounce = null;
     }
-    const dir = this.workspaceDirectory;
-    if (!dir) return;
-    const wsPath = path.join(dir, '.obsidian', 'workspace.json');
-    if (!existsSync(wsPath)) return;
-    try {
-      this.obsidianWorkspaceWatcher = watch(wsPath, () => {
-        // Obsidian rewrites workspace.json multiple times per layout change;
-        // debounce so we only push state once per burst.
-        if (this.obsidianWorkspaceWatchDebounce) {
-          clearTimeout(this.obsidianWorkspaceWatchDebounce);
-        }
-        this.obsidianWorkspaceWatchDebounce = setTimeout(() => {
-          this.obsidianWorkspaceWatchDebounce = null;
-          logger.info('[WindowMonitorService] Obsidian workspace.json changed — refreshing overlay state');
-          this.pushWebviewState();
-          wordPollEventBus.emit('change', 'obsidian-active-note-changed');
-        }, 150);
-      });
-      logger.info(`[WindowMonitorService] Watching Obsidian workspace.json at ${wsPath}`);
-    } catch (err) {
-      logger.warn(`[WindowMonitorService] Failed to watch ${wsPath}: ${(err as Error).message}`);
+    for (const dir of this.workspaceDirectories) {
+      const wsPath = path.join(dir, '.obsidian', 'workspace.json');
+      if (!existsSync(wsPath)) continue;
+      try {
+        const watcher = watch(wsPath, () => {
+          if (this.obsidianWorkspaceWatchDebounce) {
+            clearTimeout(this.obsidianWorkspaceWatchDebounce);
+          }
+          this.obsidianWorkspaceWatchDebounce = setTimeout(() => {
+            this.obsidianWorkspaceWatchDebounce = null;
+            logger.info('[WindowMonitorService] Obsidian workspace.json changed — refreshing overlay state');
+            this.pushWebviewState();
+            wordPollEventBus.emit('change', 'obsidian-active-note-changed');
+          }, 150);
+        });
+        this.obsidianWorkspaceWatchers.push(watcher);
+        logger.info(`[WindowMonitorService] Watching Obsidian workspace.json at ${wsPath}`);
+      } catch (err) {
+        logger.warn(`[WindowMonitorService] Failed to watch ${wsPath}: ${(err as Error).message}`);
+      }
     }
   }
 
-  /** Returns the directory of the currently active workspace, or null if none. */
-  getActiveWorkspaceDirectory(): string | null {
-    return this.workspaceDirectory;
+  /** Returns the user directories of the active workspace (empty when no workspace is active). */
+  getActiveWorkspaceDirectories(): string[] {
+    return this.workspaceDirectories;
   }
 
   setSessionsProvider(provider: ((opts: { documentPath?: string; documentPathLike?: string }) => Array<{ id: string; title: string; created_at: string; is_running?: boolean }>) | null): void {
@@ -1656,10 +1652,8 @@ export class WindowMonitorService {
     this.lastGoogleDocsPath = null;
     this.lastGoogleDocsTitle = null;
     this.lastGoogleDocsSelectedText = null;
-    if (this.obsidianWorkspaceWatcher) {
-      this.obsidianWorkspaceWatcher.close();
-      this.obsidianWorkspaceWatcher = null;
-    }
+    for (const w of this.obsidianWorkspaceWatchers) w.close();
+    this.obsidianWorkspaceWatchers = [];
     if (this.obsidianWorkspaceWatchDebounce) {
       clearTimeout(this.obsidianWorkspaceWatchDebounce);
       this.obsidianWorkspaceWatchDebounce = null;
