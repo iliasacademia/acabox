@@ -31,7 +31,7 @@ jest.mock('../../../windowMonitorService', () => ({
   windowMonitorService: {
     getFocusedWindowId: () => null,
     getDocumentPathForWindow: () => null,
-    getActiveWorkspaceDirectory: () => null,
+    getActiveWorkspaceDirectories: () => [],
     suppressSelectionEvents: () => undefined,
   },
 }));
@@ -196,7 +196,7 @@ describe('obsidianHostApp.applyEdit workspace boundary', () => {
       windowMonitorService: {
         getFocusedWindowId: () => null,
         getDocumentPathForWindow: () => null,
-        getActiveWorkspaceDirectory: () => workspaceDir,
+        getActiveWorkspaceDirectories: () => workspaceDir ? [workspaceDir] : [],
         suppressSelectionEvents: () => undefined,
       },
     }));

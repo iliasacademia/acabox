@@ -7,7 +7,15 @@ export function registerWorkspaceHandlers(
   getMainWindow: () => BrowserWindow | null,
   containerService?: typeof containerServiceInstance,
 ): void {
-  ipcMain.handle('workspaces:getActive', () => workspace.activeWorkspace ?? null);
+  ipcMain.handle('workspaces:getActive', () => {
+    const ws = workspace.activeWorkspace;
+    if (!ws) return null;
+    return {
+      ...ws,
+      directory_path: workspace.workspacePath,
+      user_directory_paths: workspace.userDirectoryPaths,
+    };
+  });
   ipcMain.handle('dialog:selectDirectory', async () => {
     const win = getMainWindow();
     if (!win) return undefined;

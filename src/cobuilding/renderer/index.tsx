@@ -22,6 +22,7 @@ import { ToolsPage } from './components/ToolsPage';
 import { PaperMonitorView } from './components/PaperMonitorView';
 import { ReactionsToolView } from './components/ReactionsToolView';
 import { HomePage } from './components/HomePage';
+import { resolveWorkspacePath } from './utils/resolveWorkspacePath';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { useElectronChatAdapter } from './chatAdapter';
 import { sessionListAdapter } from './sessionListAdapter';
@@ -671,7 +672,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
   // Open file tabs from clickable paths in chat messages
   useEffect(() => {
     const handler = (e: CustomEvent<{ filePath: string; lineNumber?: number }>) => {
-      const absolutePath = `${workspace.directory_path}/${e.detail.filePath}`;
+      const absolutePath = resolveWorkspacePath(e.detail.filePath, workspace.directory_path, workspace.user_directory_paths ?? []);
       // Capture the current thread ID so "Back to chat" can restore it
       const threadId = runtime.threads.getState().mainThreadId;
       setFileReturnThreadId(threadId ?? null);
@@ -680,7 +681,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
     };
     window.addEventListener('open-file-tab', handler);
     return () => window.removeEventListener('open-file-tab', handler);
-  }, [workspace.directory_path, handleSelectFile, runtime]);
+  }, [workspace.directory_path, workspace.user_directory_paths, handleSelectFile, runtime]);
 
   const handleSelectApp = useCallback((dirName: string, opts?: { forceReload?: boolean; preBuilt?: boolean }) => {
     console.debug('[handleSelectApp] Opening mini app tab:', dirName, opts);
@@ -823,6 +824,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
               <div className="homeContent">
                 <HomePage
                   workspacePath={workspace.directory_path}
+                  userDirectoryPaths={workspace.user_directory_paths}
                   onSelectFile={handleSelectFile}
                   onSwitchToChat={() => {
                     setSidebarTab('chats');
@@ -974,6 +976,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
               ) : (
                 <ToolsPage
                   workspacePath={workspace.directory_path}
+                  userDirectoryPaths={workspace.user_directory_paths}
                   onSelectApp={handleSelectApp}
                   onSwitchToChat={() => setSidebarTab('chats')}
                   onOpenReactions={() => setToolsViewMode('reactions')}

@@ -8,7 +8,6 @@ import Anthropic from '@anthropic-ai/sdk';
 import log from 'electron-log';
 import type { WorkspaceController } from './WorkspaceController';
 import type { containerService as containerServiceInstance } from '../containerService';
-import type { Workspace } from '../db/workspaceRepository';
 import { getCredentials } from '../cobuildingTokenManager';
 import { getScannedFilesByType, getScannedFiles } from '../db/scannedFilesRepository';
 import { getLatestReport } from '../db/reportRepository';
@@ -49,7 +48,7 @@ export class AgentInfrastructureController {
     this.deps = deps;
   }
 
-  private registerHostMcpServers(workspace: { id: string; directory_path: string }): void {
+  private registerHostMcpServers(workspace: { id: string }, agentDir: string, userDirectoryPaths: string[]): void {
     const ok = (text: string) => ({ content: [{ type: 'text' as const, text }] });
     const fail = (text: string) => ({ content: [{ type: 'text' as const, text }], isError: true });
 
@@ -140,8 +139,8 @@ export class AgentInfrastructureController {
       },
 
       obsidian: createObsidianHandlers({
-        workspaceDir: workspace.directory_path,
-        getActiveNotePath: () => resolveObsidianDocumentPath(workspace.directory_path),
+        workspaceDir: userDirectoryPaths[0] ?? '',
+        getActiveNotePath: () => resolveObsidianDocumentPath(userDirectoryPaths),
       }),
 
       'ms-word': {
@@ -188,13 +187,13 @@ export class AgentInfrastructureController {
 
       'mini-apps': {
         open_mini_application: async (args: any) => {
-          const appDir = path.join(workspace.directory_path, '.applications', args.dir_name);
+          const appDir = path.join(agentDir, '.applications', args.dir_name);
           const exists = await fs.promises.access(appDir).then(() => true, () => false);
           if (!exists) return fail(`Mini-application directory not found: .applications/${args.dir_name}`);
           return ok(`Opened mini-application: ${args.dir_name}`);
         },
         build_and_open_mini_application: async (args: any) => {
-          const appDir = path.join(workspace.directory_path, '.applications', args.dir_name);
+          const appDir = path.join(agentDir, '.applications', args.dir_name);
           const exists = await fs.promises.access(appDir).then(() => true, () => false);
           if (!exists) return fail(`Mini-application directory not found: .applications/${args.dir_name}`);
 
@@ -315,7 +314,7 @@ export class AgentInfrastructureController {
               workingOn = parsed.working_on ?? null;
             } catch { /* ignore */ }
             if (!aboutYou || !workingOn) {
-              const memoryDir = path.join(workspace.directory_path, AGENT_MEMORY_SUBDIR);
+              const memoryDir = path.join(agentDir, AGENT_MEMORY_SUBDIR);
               if (!aboutYou) {
                 try { aboutYou = await fs.promises.readFile(path.join(memoryDir, 'about_you.md'), 'utf-8'); } catch { /* not available */ }
               }
@@ -358,11 +357,11 @@ export class AgentInfrastructureController {
       }
     }
 
-    void migrateMissingManifests(activeWorkspace);
+    void migrateMissingManifests(workspacePath);
 
     await this.deps.containerService.ensureAgentFilesInWorkspace(workspacePath);
 
-    this.registerHostMcpServers(activeWorkspace);
+    this.registerHostMcpServers(activeWorkspace, workspacePath, this.deps.workspaceController.userDirectoryPaths);
 
     const { apiKey: agentApiKey, baseURL: agentBaseURL } = getCredentials();
     const agentConfig = {
@@ -492,8 +491,8 @@ async function migrateHostSessionsToContainer(workspacePath: string): Promise<vo
  * launch a background job per app that asks Claude to generate the metadata
  * from the app's source. Failures are logged and retried on next startup.
  */
-async function migrateMissingManifests(workspace: Workspace): Promise<void> {
-  const appsDir = path.join(workspace.directory_path, '.applications');
+async function migrateMissingManifests(agentDir: string): Promise<void> {
+  const appsDir = path.join(agentDir, '.applications');
 
   let entries: fs.Dirent[];
   try {
@@ -518,15 +517,15 @@ async function migrateMissingManifests(workspace: Workspace): Promise<void> {
 
   for (const dirName of missing) {
     try {
-      await generateManifestForApp(workspace, dirName);
+      await generateManifestForApp(agentDir, dirName);
     } catch (err) {
       log.warn(`[ManifestMigration] Failed for ${dirName}: ${(err as Error).message ?? err}`);
     }
   }
 }
 
-async function generateManifestForApp(workspace: Workspace, dirName: string): Promise<void> {
-  const appDir = path.join(workspace.directory_path, '.applications', dirName);
+async function generateManifestForApp(agentDir: string, dirName: string): Promise<void> {
+  const appDir = path.join(agentDir, '.applications', dirName);
   const manifestPath = path.join(appDir, 'manifest.json');
 
   try {

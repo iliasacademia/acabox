@@ -44,10 +44,10 @@ export function buildWordPollResponseV2(
 
   const isDockedActive = windowMonitorService.isDockedActive(wid);
   // Cobuilding mode is active when a workspace has been selected. The check
-  // below uses the *active* workspace's directory; documents in non-active
+  // below uses the *active* workspace's directories; documents in non-active
   // workspaces are treated the same as documents outside any workspace.
-  const activeWorkspaceDir = windowMonitorService.getActiveWorkspaceDirectory();
-  const isCobuildingMode = !!activeWorkspaceDir;
+  const activeWorkspaceDirs = windowMonitorService.getActiveWorkspaceDirectories();
+  const isCobuildingMode = activeWorkspaceDirs.length > 0;
 
   // If no document path at all (unsaved file)
   if (!documentPath) {
@@ -164,9 +164,10 @@ export function buildWordPollResponseV2(
     };
   }
 
-  // Check if the document is within the active cobuilding workspace directory
-  if (activeWorkspaceDir) {
-    if (documentPath.startsWith(activeWorkspaceDir + '/')) {
+  // Check if the document is within any active cobuilding workspace directory
+  const matchedWorkspaceDir = activeWorkspaceDirs.find(dir => documentPath.startsWith(dir + '/'));
+  if (activeWorkspaceDirs.length > 0) {
+    if (matchedWorkspaceDir) {
       const sessions = windowMonitorService.getWorkspaceSessions(documentPath);
       const selectedTextContent = wid
         ? windowMonitorService.getSelectedTextContent(wid)
