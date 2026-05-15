@@ -41,6 +41,14 @@ export async function ensureImageTarDownloaded(
   const cacheDir = getImageCacheDir();
   fs.mkdirSync(cacheDir, { recursive: true });
 
+  // Allow skipping the manifest fetch for local development:
+  // place a .tar file in the cache dir and it will be used directly.
+  const localTar = findLocalTar(cacheDir, tier);
+  if (localTar) {
+    log.info(`[ImageTarManager] Using local tar: ${localTar}`);
+    return { tarPath: localTar, version: 'local-dev' };
+  }
+
   onProgress?.('image-manifest', 'Checking for image updates...');
   log.debug(`[ImageTarManager] Fetching image manifest from ${IMAGE_MANIFEST_URL}`);
   const manifest = await fetchJson(IMAGE_MANIFEST_URL) as ImageManifest;
@@ -115,6 +123,18 @@ export function writeLoadedImageVersion(tier: 'core' | 'full', version: string):
 }
 
 // ─── Internal Helpers ────────────────────────────────────────────
+
+function findLocalTar(cacheDir: string, tier: 'core' | 'full'): string | null {
+  const prefix = tier === 'core' ? 'cobuilding-base-core' : 'cobuilding-base';
+  try {
+    for (const file of fs.readdirSync(cacheDir)) {
+      if (file.startsWith(prefix) && file.endsWith('.tar') && !file.endsWith('.tar.gz')) {
+        return path.join(cacheDir, file);
+      }
+    }
+  } catch { /* dir doesn't exist */ }
+  return null;
+}
 
 function hashFile(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {

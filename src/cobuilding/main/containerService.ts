@@ -1403,9 +1403,10 @@ class CobuildingContainerService {
     const { tarPath, version } = await ensureImageTarDownloaded(tier, onProgress);
 
     const loadedVersion = readLoadedImageVersion(tier);
-    if (loadedVersion === version) {
+    const imageRef = this.getBaseImageRef();
+    const imagePresent = await this.imageExists(podmanBin, imageRef);
+    if (loadedVersion === version && imagePresent) {
       log.debug(`[ContainerService] Image already loaded (version: ${version})`);
-      try { fs.unlinkSync(tarPath); } catch { /* leftover from interrupted load */ }
       return;
     }
 
@@ -1416,13 +1417,6 @@ class CobuildingContainerService {
 
     writeLoadedImageVersion(tier, version);
     log.info(`[ContainerService] Image loaded successfully (version: ${version})`);
-
-    try {
-      fs.unlinkSync(tarPath);
-      log.debug(`[ContainerService] Deleted tar file: ${tarPath}`);
-    } catch (err) {
-      log.warn(`[ContainerService] Failed to delete tar: ${(err as Error).message}`);
-    }
 
     onProgress?.('load', 'Image loaded', 100);
   }
