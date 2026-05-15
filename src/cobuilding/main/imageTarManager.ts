@@ -125,12 +125,11 @@ export function writeLoadedImageVersion(tier: 'core' | 'full', version: string):
 // ─── Internal Helpers ────────────────────────────────────────────
 
 function findLocalTar(cacheDir: string, tier: 'core' | 'full'): string | null {
-  const prefix = tier === 'core' ? 'cobuilding-base-core' : 'cobuilding-base';
   try {
     for (const file of fs.readdirSync(cacheDir)) {
-      if (file.startsWith(prefix) && file.endsWith('.tar') && !file.endsWith('.tar.gz')) {
-        return path.join(cacheDir, file);
-      }
+      if (!file.endsWith('.tar') || file.endsWith('.tar.gz')) continue;
+      if (tier === 'core' && file.startsWith('cobuilding-base-core')) return path.join(cacheDir, file);
+      if (tier === 'full' && file.startsWith('cobuilding-base-') && !file.startsWith('cobuilding-base-core')) return path.join(cacheDir, file);
     }
   } catch { /* dir doesn't exist */ }
   return null;
