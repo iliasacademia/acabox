@@ -1159,7 +1159,8 @@ ipcMain.handle(
       });
       // Directory scan is triggered separately via scanner:start IPC
     }
-    return activeWorkspace ?? null;
+    if (!activeWorkspace) return null;
+    return { ...activeWorkspace, directory_path: workspaceController.userDirectoryPaths[0] ?? '' };
   },
 );
 
