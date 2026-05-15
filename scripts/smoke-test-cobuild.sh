@@ -27,7 +27,8 @@ LOG_FILE=$(mktemp /tmp/smoke-test-cobuild-XXXXXX)
 # Run with network sandbox + smoke-test flag, 60s timeout
 # macOS doesn't ship GNU `timeout`, so use a portable background-process approach
 # ELECTRON_ENABLE_LOGGING makes Electron emit internal logs to stderr
-ELECTRON_ENABLE_LOGGING=1 sandbox-exec -f scripts/deny-network.sb "$BINARY" --smoke-test \
+ELECTRON_ENABLE_LOGGING=1 sandbox-exec -f scripts/deny-network.sb \
+  "$BINARY" --smoke-test --no-sandbox --disable-gpu \
   >"$LOG_FILE" 2>&1 &
 SMOKE_PID=$!
 
