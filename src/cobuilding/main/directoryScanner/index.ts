@@ -88,7 +88,9 @@ export async function scanWorkspaceDirectory(
     onMessage({ type: "complete", reportId, reportData });
 
     // Background agents — fire-and-forget
-    completeBackgroundWork(taggingPromise, suggestionPromise, ctx);
+    completeBackgroundWork(taggingPromise, suggestionPromise, ctx).catch((err) => {
+      log.error("[DirectoryScanner] Background work failed:", err);
+    });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     log.error(

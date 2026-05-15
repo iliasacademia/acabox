@@ -36,7 +36,7 @@ export async function runFileTaggingAgent(
       ...buildCommonQueryOptions(ctx),
       model: "claude-haiku-4-5-20251001",
       systemPrompt: buildSystemPrompt(),
-      maxTurns: 8,
+      maxTurns: 15,
       maxBudgetUsd: 1,
       outputFormat: {
         type: "json_schema",
