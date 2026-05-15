@@ -368,11 +368,12 @@ function extractReferenceCandidates(
 }
 
 function resolveSourcePath(sourceDir: string, filePath: string): string {
-  const asAbsolute = "/" + filePath;
-  if (asAbsolute.startsWith(sourceDir + "/") || asAbsolute === sourceDir) {
-    return asAbsolute;
+  const resolved = path.resolve(sourceDir, filePath);
+  const boundary = path.resolve(sourceDir) + path.sep;
+  if (!resolved.startsWith(boundary) && resolved !== path.resolve(sourceDir)) {
+    throw new Error(`Path traversal detected: ${filePath} escapes ${sourceDir}`);
   }
-  return path.join(sourceDir, filePath);
+  return resolved;
 }
 
 function sanitizeFilename(name: string): string {
@@ -516,6 +517,8 @@ export async function convertReferenceFile(opts: {
   apiKey: string;
   baseURL?: string;
 }): Promise<void> {
+  const absolutePath = resolveSourcePath(opts.sourceDir, opts.filePath);
+
   const refsDir = path.join(opts.workspacePath, REFERENCES_DIR);
   await fs.mkdir(refsDir, { recursive: true });
 
@@ -526,7 +529,6 @@ export async function convertReferenceFile(opts: {
     apiKey: opts.apiKey,
     baseURL: opts.baseURL,
   });
-  const absolutePath = resolveSourcePath(opts.sourceDir, opts.filePath);
   const mdFilename = await convertSingleReference(
     opts.filePath,
     absolutePath,
