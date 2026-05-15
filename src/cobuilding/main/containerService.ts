@@ -14,7 +14,6 @@ import {
   ensureBinariesDownloaded,
 } from './podmanBinaries';
 import { commandLogger, parseAppDirFromArgs, type CommandSource } from './commandLogger';
-import { generateEnvironment } from './environmentGenerator';
 import { ensureImageTarDownloaded, writeLoadedImageVersion, readLoadedImageVersion } from './imageTarManager';
 
 import * as net from 'net';
@@ -122,32 +121,6 @@ function readImageSource(): ImageSource {
   }
 }
 
-function readSkipImageBuild(): boolean {
-  try {
-    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
-    return data.skipImageBuild === true;
-  } catch {
-    return false;
-  }
-}
-
-function writeSkipImageBuild(skip: boolean): void {
-  const settingsPath = getSettingsPath();
-  let data: Record<string, unknown> = {};
-  try {
-    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-  } catch {
-    // File doesn't exist yet
-  }
-  data.skipImageBuild = skip;
-  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
-}
-
-export function skipImageBuild(): boolean {
-  if (process.env.COBUILDING_SKIP_IMAGE_BUILD === '1') return true;
-  return readSkipImageBuild();
-}
-
 function writeImageSource(source: ImageSource): void {
   const settingsPath = getSettingsPath();
   let data: Record<string, unknown> = {};
@@ -177,7 +150,6 @@ class CobuildingContainerService {
   private agentPort: number | null = null;
   private kernelPort: number | null = null;
   private kernelStartPromise: Promise<void> | null = null;
-  private backgroundBuildPromise: Promise<void> | null = null;
 
   // Host-side handles to the `podman exec` wrappers for the in-container
   // processes. Tracking them lets us kill the wrapper when we retry or stop,
@@ -218,9 +190,7 @@ class CobuildingContainerService {
   async start(
     mountMap: Array<{ hostPath: string; containerPath: string }>,
     onProgress?: ProgressCallback,
-    onBackgroundProgress?: ProgressCallback,
   ): Promise<void> {
-    const agentDir = mountMap[0]?.hostPath ?? null;
     const mountMapChanged = JSON.stringify(mountMap) !== JSON.stringify(this.currentMountMap);
     if (this.isRunning() && !mountMapChanged) {
       return;
@@ -235,7 +205,6 @@ class CobuildingContainerService {
       this.stop();
     }
     this.isStarting = true;
-    log.info(`[ContainerService] COBUILDING_SKIP_IMAGE_BUILD=${skipImageBuild() ? '1' : '0'}`);
 
     try {
       // Ensure podman is available
@@ -252,64 +221,14 @@ class CobuildingContainerService {
       // Remove any stale container from a previous crash
       await this.removeStaleContainer(podmanBin);
 
-      if (skipImageBuild()) {
-        const baseImage = this.getBaseImageRef();
-        log.info(`[ContainerService] Skip-image-build mode, starting from base image (${baseImage})`);
-        await this.runContainer(podmanBin, mountMap, baseImage);
-        void this.pruneImages(podmanBin);
-      } else {
-        // Start the container from whatever image is available — either the full
-        // image (with workspace deps baked in) or just the base image. The agent
-        // becomes available immediately. If the full image isn't up to date, it
-        // builds in the background for next restart.
-        const hasFullImage = await this.imageExists(podmanBin, IMAGE_NAME);
-        // Only check hash if the image exists with correct architecture
-        const imageUpToDate = hasFullImage && await this.isImageUpToDate(podmanBin, agentDir);
-        log.info(`[ContainerService] Image state: upToDate=${imageUpToDate}, hasFullImage=${hasFullImage}`);
-
-        // Guarantee a terminal `ready`/`error` event so renderer indicators clear.
-        // Single-flight: if a build is already running, reuse its promise instead
-        // of racing a second `podman build` against the same image tag.
-        const backgroundBuildAndFinalize = (): Promise<void> => {
-          if (this.backgroundBuildPromise) return this.backgroundBuildPromise;
-          const p = this.ensureImageBuilt(podmanBin, onBackgroundProgress, agentDir)
-            .then(async () => {
-              onBackgroundProgress?.('ready', 'Image build complete');
-              await this.pruneImages(podmanBin);
-            })
-            .catch((err) => {
-              const message = (err as Error).message;
-              log.warn(`[ContainerService] Background image build failed: ${message}`);
-              onBackgroundProgress?.('error', `Image build failed: ${message}`);
-            })
-            .finally(() => {
-              this.backgroundBuildPromise = null;
-            });
-          this.backgroundBuildPromise = p;
-          return p;
-        };
-
-        if (imageUpToDate) {
-          // Full image is current — start directly
-          await this.runContainer(podmanBin, mountMap);
-        } else if (hasFullImage) {
-          // Full image exists but is stale — start from it now, rebuild in background
-          log.info('[ContainerService] Starting from existing image, rebuilding in background');
-          await this.runContainer(podmanBin, mountMap);
-          backgroundBuildAndFinalize();
-        } else {
-          // No full image — start from the base image immediately so the agent
-          // is available. Build the full image (with workspace deps) in the
-          // background for next restart.
-          const baseImage = this.getBaseImageRef();
-          log.info(`[ContainerService] Starting from base image (${baseImage}), building full image in background`);
-          await this.runContainer(podmanBin, mountMap, baseImage);
-          backgroundBuildAndFinalize();
-        }
-      }
+      const baseImage = this.getBaseImageRef();
+      log.info(`[ContainerService] Starting from base image (${baseImage})`);
+      await this.runContainer(podmanBin, mountMap, baseImage);
+      void this.pruneImages(podmanBin);
 
       log.debug('[ContainerService] Container started successfully');
       void this.logDiskUsage('post-start');
+      await this.bootstrapPipSite(podmanBin);
       onProgress?.('ready', 'Container ready');
     } catch (error) {
       log.error('[ContainerService] Error:', (error as Error).message);
@@ -367,17 +286,6 @@ class CobuildingContainerService {
       }
     }
 
-    // Send VM poweroff BEFORE stopping the container — stopping the container
-    // first disrupts the VM's init system, causing systemctl poweroff to silently
-    // fail even though SSH returns exit 0.
-    try {
-      execFileSync(podmanBin, ['machine', 'ssh', '--', 'sudo', 'systemctl', 'poweroff'], { env, timeout: 10000, stdio: 'ignore' });
-      log.debug('[ContainerService] VM poweroff sent');
-    } catch (err) {
-      // Exit code 255 is expected (SSH connection closes when VM shuts down)
-      log.debug(`[ContainerService] VM poweroff result: ${(err as Error).message}`);
-    }
-
     try {
       execFileSync(podmanBin, ['stop', '-t', '3', CONTAINER_NAME], { env, timeout: 10000, stdio: 'ignore' });
       log.debug('[ContainerService] Container stopped');
@@ -390,6 +298,13 @@ class CobuildingContainerService {
       log.debug('[ContainerService] Container removed');
     } catch {
       // Already removed
+    }
+
+    try {
+      execFileSync(podmanBin, ['machine', 'stop'], { env, timeout: 120_000, stdio: 'ignore' });
+      log.debug('[ContainerService] VM stopped');
+    } catch (err) {
+      log.warn(`[ContainerService] VM stop: ${(err as Error).message}`);
     }
 
     this.containerStarted = false;
@@ -405,6 +320,25 @@ class CobuildingContainerService {
     this.agentServerConsecutiveFailures = 0;
     this.agentServerRestartAttempts = 0;
     this.overlayEnabled = false;
+  }
+
+  /**
+   * Stop the Podman machine after the container is gone so host-side image
+   * cache files are not held by the VM (used before clearing download artifacts).
+   */
+  stopPodmanMachineBestEffort(): void {
+    const podmanBin = this.getPodmanBinIfExists();
+    if (!podmanBin) {
+      log.debug('[ContainerService] No podman binary for machine stop');
+      return;
+    }
+    const env = this.getExecEnv();
+    try {
+      execFileSync(podmanBin, ['machine', 'stop'], { env, timeout: 120_000, stdio: 'ignore' });
+      log.info('[ContainerService] podman machine stop finished');
+    } catch (err) {
+      log.warn(`[ContainerService] podman machine stop: ${(err as Error).message}`);
+    }
   }
 
   /** Best-effort SIGTERM on a tracked child process, clearing the handle. */
@@ -544,17 +478,6 @@ class CobuildingContainerService {
     log.debug(`[ContainerService] Image source set to: ${source}`);
   }
 
-  // ─── Skip Image Build ─────────────────────────────────────────
-
-  getSkipImageBuild(): boolean {
-    return skipImageBuild();
-  }
-
-  setSkipImageBuild(skip: boolean): void {
-    writeSkipImageBuild(skip);
-    log.info(`[ContainerService] Skip image build set to: ${skip}`);
-  }
-
   getBundledBinaryStatus(): { downloaded: boolean; binDir: string } {
     const binDir = getBundledPodmanBinDir();
     const binaries = process.platform === 'win32'
@@ -578,61 +501,6 @@ class CobuildingContainerService {
     if (fs.existsSync(binDir)) {
       fs.rmSync(binDir, { recursive: true, force: true });
       log.debug('[ContainerService] Bundled binaries deleted');
-    }
-  }
-
-  /** Return the environment hash label stored on the current image, or null. */
-  async getImageEnvironmentHash(): Promise<string | null> {
-    const podmanBin = this.getPodmanBin();
-    return this.getImageHash(podmanBin);
-  }
-
-  /**
-   * Rebuild the container image from current workspace dependencies.
-   * Intended for background rebuilds — does NOT restart the container.
-   */
-  async rebuildImage(agentDir: string, onProgress?: ProgressCallback): Promise<void> {
-    if (this.isStarting) {
-      log.debug('[ContainerService] Foreground start in progress, skipping background rebuild');
-      return;
-    }
-    const podmanBin = this.getPodmanBin();
-    await this.ensureImageBuilt(podmanBin, onProgress, agentDir);
-  }
-
-  async deleteImage(): Promise<void> {
-    if (this.isRunning()) {
-      throw new Error('Cannot delete image while container is running');
-    }
-    try {
-      const podmanBin = this.getPodmanBin();
-      // Remove the skills layer image
-      await this.execAsync(podmanBin, ['rmi', '-f', IMAGE_NAME], this.getExecEnv());
-      log.debug('[ContainerService] Skills layer image deleted');
-    } catch (error) {
-      log.error('[ContainerService] Failed to delete skills image:', (error as Error).message);
-    }
-    try {
-      const podmanBin = this.getPodmanBin();
-      // Also remove the cached base image so the next setup pulls fresh from registry
-      await this.execAsync(podmanBin, ['rmi', '-f', GHCR_BASE_IMAGE], this.getExecEnv());
-      log.debug('[ContainerService] Base image deleted');
-    } catch (error) {
-      log.debug('[ContainerService] No base image to remove (or already removed)');
-    }
-    try {
-      const podmanBin = this.getPodmanBin();
-      await this.execAsync(podmanBin, ['rmi', '-f', LOCAL_BASE_IMAGE], this.getExecEnv());
-      log.debug('[ContainerService] Local base image deleted');
-    } catch (error) {
-      log.debug('[ContainerService] No local base image to remove (or already removed)');
-    }
-    try {
-      const podmanBin = this.getPodmanBin();
-      await this.execAsync(podmanBin, ['rmi', '-f', CORE_BASE_IMAGE], this.getExecEnv());
-      log.debug('[ContainerService] Core base image deleted');
-    } catch (error) {
-      log.debug('[ContainerService] No core base image to remove (or already removed)');
     }
   }
 
@@ -1160,19 +1028,7 @@ class CobuildingContainerService {
     onProgress?.('setup-done', 'Setup complete');
   }
 
-  async isImageBuilt(): Promise<boolean> {
-    try {
-      const podmanBin = this.getPodmanBin();
-      const { stdout } = await this.execAsync(podmanBin, [
-        'image', 'inspect', '--format', '{{.Id}}', IMAGE_NAME,
-      ], this.getExecEnv());
-      return stdout.trim().length > 0;
-    } catch {
-      return false;
-    }
-  }
-
-  /** Whether the base image is present locally (distinct from the full workspace image). */
+  /** Whether the base image is present locally. */
   async isBaseImageDownloaded(): Promise<boolean> {
     try {
       const { stdout } = await this.execAsync(this.getPodmanBin(), [
@@ -1259,7 +1115,7 @@ class CobuildingContainerService {
     // reads the machine config (which has the correct port) but the CLI
     // connects via the connection config (podman-connections.json) which
     // can have a stale SSH port after restarts or upgrades.
-    const socketReady = await this.waitForSocket(podmanBin, env, running ? 3 : 10, 2000);
+    const socketReady = await this.waitForSocket(podmanBin, env, running ? 8 : 15, 3000);
 
     if (!socketReady) {
       log.warn('[ContainerService] Podman socket unresponsive, restarting machine to refresh connection config...');
@@ -1274,7 +1130,7 @@ class CobuildingContainerService {
       onProgress?.('start-machine', 'Restarting Podman VM...');
       await this.startMachineIdempotent(podmanBin, env);
 
-      const readyAfterRestart = await this.waitForSocket(podmanBin, env, 10, 2000);
+      const readyAfterRestart = await this.waitForSocket(podmanBin, env, 15, 3000);
       if (!readyAfterRestart) {
         throw new Error(
           'Podman VM started but API socket is not responding. ' +
@@ -1381,28 +1237,6 @@ class CobuildingContainerService {
       return process.resourcesPath;
     }
     return path.join(app.getAppPath(), 'src', 'cobuilding');
-  }
-
-  private getDockerfileHash(): string {
-    const contextDir = this.getDockerfileDir();
-    const hash = crypto.createHash('sha256');
-
-    const dockerfilePath = path.join(contextDir, 'Dockerfile');
-    hash.update(fs.readFileSync(dockerfilePath));
-
-    return hash.digest('hex').substring(0, 16);
-  }
-
-  private async getImageHash(podmanBin: string): Promise<string | null> {
-    try {
-      const { stdout } = await this.execAsync(podmanBin, [
-        'image', 'inspect', '--format', '{{index .Config.Labels "dockerfile.hash"}}', IMAGE_NAME,
-      ], this.getExecEnv());
-      const hash = stdout.trim();
-      return hash && hash !== '<no value>' ? hash : null;
-    } catch {
-      return null;
-    }
   }
 
   private async ensureBaseImagePulled(podmanBin: string, onProgress?: ProgressCallback): Promise<void> {
@@ -1613,20 +1447,6 @@ class CobuildingContainerService {
     });
   }
 
-  /** Check if the container image is up to date without building. */
-  private async isImageUpToDate(podmanBin: string, workspacePath?: string): Promise<boolean> {
-    const baseImage = this.getBaseImageRef();
-    let currentHash: string;
-    if (workspacePath) {
-      const result = generateEnvironment(workspacePath, baseImage);
-      currentHash = result.hash;
-    } else {
-      currentHash = this.getDockerfileHash();
-    }
-    const imageHash = await this.getImageHash(podmanBin);
-    return imageHash === currentHash;
-  }
-
   /** Check if a named image exists in the local store with the correct architecture. */
   private async imageExists(podmanBin: string, imageName: string): Promise<boolean> {
     try {
@@ -1657,60 +1477,6 @@ class CobuildingContainerService {
     } else {
       await this.ensureBaseImageLoaded(podmanBin, onProgress);
     }
-  }
-
-  private async ensureImageBuilt(podmanBin: string, onProgress?: ProgressCallback, workspacePath?: string): Promise<void> {
-    if (skipImageBuild()) {
-      log.debug('[ContainerService] Skip-image-build mode, skipping image build');
-      return;
-    }
-
-    const imageSource = readImageSource();
-    const baseImage = this.getBaseImageRef();
-
-    let currentHash: string;
-    let buildContext: string;
-    let dockerfilePath: string;
-
-    if (workspacePath) {
-      // Generate environment from workspace dependency files
-      const result = generateEnvironment(workspacePath, baseImage);
-      currentHash = result.hash;
-      buildContext = result.environmentDir;
-      dockerfilePath = result.dockerfilePath;
-    } else {
-      // Fallback: no workspace available, use static Dockerfile
-      const contextDir = this.getDockerfileDir();
-      dockerfilePath = path.join(contextDir, 'Dockerfile');
-      currentHash = this.getDockerfileHash();
-      buildContext = contextDir;
-    }
-
-    const imageHash = await this.getImageHash(podmanBin);
-
-    if (imageHash === currentHash) {
-      log.debug(`[ContainerService] Image up to date (hash: ${currentHash})`);
-      return;
-    }
-
-    await this.ensureBaseImage(podmanBin, onProgress);
-
-    if (imageHash) {
-      log.debug(`[ContainerService] Environment changed (${imageHash} -> ${currentHash}), rebuilding...`);
-      onProgress?.('build', 'Environment changed, rebuilding image...');
-    } else {
-      log.debug('[ContainerService] Building container image...');
-      onProgress?.('build', 'Building container image...');
-    }
-
-    return this.spawnBuild(podmanBin, [
-      'build',
-      '--label', `dockerfile.hash=${currentHash}`,
-      '--build-arg', `BASE_IMAGE=${baseImage}`,
-      '-t', IMAGE_NAME,
-      '-f', dockerfilePath,
-      buildContext,
-    ], onProgress);
   }
 
   private getDockerfileBaseHash(): string {
@@ -1816,6 +1582,37 @@ class CobuildingContainerService {
 
   // ─── Container Lifecycle ──────────────────────────────────────
 
+  private async bootstrapPipSite(podmanBin: string): Promise<void> {
+    const env = this.getExecEnv();
+    const script =
+      'SITE=$(/opt/venv/bin/python3 -c "import sysconfig;print(sysconfig.get_path(\'purelib\'))") && ' +
+      'echo /opt/pip-site > "$SITE/pip-site.pth"';
+    try {
+      await this.execAsync(podmanBin, ['exec', CONTAINER_NAME, 'sh', '-c', script], env);
+      log.debug('[ContainerService] pip-site .pth file created');
+    } catch (err) {
+      log.warn('[ContainerService] pip-site bootstrap failed:', (err as Error).message);
+    }
+  }
+
+  private invalidatePipSiteIfImageChanged(pipSiteDir: string): void {
+    const settingsPath = getSettingsPath();
+    let data: Record<string, unknown> = {};
+    try { data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch { /* */ }
+    const tier = getImageTier();
+    const currentVersion = (data.loadedImageVersion as Record<string, string> | undefined)?.[tier] ?? null;
+    const cachedFor = (data as any).pipSiteImageVersion ?? null;
+    if (cachedFor && cachedFor !== currentVersion) {
+      log.info(`[ContainerService] Image changed (${cachedFor} → ${currentVersion}), clearing pip-site cache`);
+      fs.rmSync(pipSiteDir, { recursive: true, force: true });
+      fs.mkdirSync(pipSiteDir, { recursive: true });
+    }
+    if (currentVersion) {
+      data.pipSiteImageVersion = currentVersion;
+      fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+    }
+  }
+
   private async removeStaleContainer(podmanBin: string): Promise<void> {
     const env = this.getExecEnv();
 
@@ -1865,22 +1662,27 @@ class CobuildingContainerService {
     const useOverlay = process.env.OVERLAYFS_ENABLED === '1' && process.platform === 'darwin';
     this.overlayEnabled = useOverlay;
 
-    const cacheVolumes: string[] = [];
-    if (skipImageBuild()) {
-      const cacheDir = path.join(app.getPath('userData'), 'pkg-cache');
-      const pipCache = path.join(cacheDir, 'pip');
-      const npmCache = path.join(cacheDir, 'npm');
-      const rLibs = path.join(cacheDir, 'r');
-      fs.mkdirSync(pipCache, { recursive: true });
-      fs.mkdirSync(npmCache, { recursive: true });
-      fs.mkdirSync(rLibs, { recursive: true });
-      cacheVolumes.push(
-        '-v', `${toMountPath(pipCache)}:/root/.cache/pip`,
-        '-v', `${toMountPath(npmCache)}:/root/.npm`,
-        '-v', `${toMountPath(rLibs)}:/opt/r-user-library`,
-        '-e', 'R_LIBS_USER=/opt/r-user-library',
-      );
-    }
+    const cacheDir = path.join(app.getPath('userData'), 'pkg-cache');
+    const pipCache = path.join(cacheDir, 'pip');
+    const pipSite = path.join(cacheDir, 'pip-site');
+    const npmCache = path.join(cacheDir, 'npm');
+    const npmSite = path.join(cacheDir, 'npm-site');
+    const rLibs = path.join(cacheDir, 'r');
+    fs.mkdirSync(pipCache, { recursive: true });
+    fs.mkdirSync(pipSite, { recursive: true });
+    fs.mkdirSync(npmCache, { recursive: true });
+    fs.mkdirSync(npmSite, { recursive: true });
+    fs.mkdirSync(rLibs, { recursive: true });
+    this.invalidatePipSiteIfImageChanged(pipSite);
+    const cacheVolumes = [
+      '-v', `${toMountPath(pipCache)}:/root/.cache/pip`,
+      '-v', `${toMountPath(pipSite)}:/opt/pip-site`,
+      '-v', `${toMountPath(npmCache)}:/root/.npm`,
+      '-v', `${toMountPath(npmSite)}:/opt/npm-site`,
+      '-e', 'NODE_PATH=/opt/npm-site/lib/node_modules',
+      '-v', `${toMountPath(rLibs)}:/opt/r-user-library`,
+      '-e', 'R_LIBS_USER=/opt/r-user-library',
+    ];
 
     // In overlay mode, only the agent-controlled dir (first entry) is overlaid
     // so container writes don't persist to the host. User directories are mounted
@@ -2581,10 +2383,8 @@ class CobuildingContainerService {
     const podmanBin = podmanBinOverride ?? this.getPodmanBin();
     try {
       await this.logDiskUsage('pre-prune');
-      const pruneArgs = skipImageBuild()
-        ? ['image', 'prune', '-a', '-f']
-        : ['image', 'prune', '-f'];
-      log.info(`[ContainerService] Pruning images (all-unused=${skipImageBuild()})...`);
+      const pruneArgs = ['image', 'prune', '-a', '-f'];
+      log.info('[ContainerService] Pruning all unused images...');
       const { stdout } = await execFileAsync(podmanBin, pruneArgs, { env: this.getExecEnv(), timeout: 60_000 });
       const pruned = stdout.trim().split('\n').filter(Boolean);
       log.info(`[ContainerService] Pruned ${pruned.length} image(s)`);

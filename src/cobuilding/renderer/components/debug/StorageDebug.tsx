@@ -56,7 +56,6 @@ const STORAGE_TREE: TreeNode[] = [
     children: [
       { id: 'podman-binaries', label: 'Podman Binaries', description: 'Downloaded podman, gvproxy, vfkit' },
       { id: 'podman-config-data', label: 'Config & VM Images', description: 'Podman config, container layers, VM disk images' },
-      { id: 'container-image', label: 'Container Image', description: 'Built skills layer and base image' },
       { id: 'podman-vm', label: 'VM State & Sockets', description: 'Machine state, SSH keys, Unix sockets' },
     ],
   },

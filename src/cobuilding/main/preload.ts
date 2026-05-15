@@ -105,6 +105,8 @@ contextBridge.exposeInMainWorld('settingsAPI', {
 contextBridge.exposeInMainWorld('containerAPI', {
   start: () => ipcRenderer.invoke('container:start'),
   stop: () => ipcRenderer.invoke('container:stop'),
+  gracefulShutdownPodman: () => ipcRenderer.invoke('container:gracefulShutdownPodman'),
+  clearImageDownloadState: () => ipcRenderer.invoke('dm:clearImageDownloadState'),
   status: () => ipcRenderer.invoke('container:status'),
   exec: (command: string[]) => ipcRenderer.invoke('container:exec', command),
   syncOverlay: () => ipcRenderer.invoke('container:syncOverlay'),
@@ -114,24 +116,19 @@ contextBridge.exposeInMainWorld('containerAPI', {
   setBinaryMode: (mode: string) => ipcRenderer.invoke('container:setBinaryMode', mode),
   getImageSource: () => ipcRenderer.invoke('container:getImageSource'),
   setImageSource: (source: string) => ipcRenderer.invoke('container:setImageSource', source),
-  getSkipImageBuild: () => ipcRenderer.invoke('container:getSkipImageBuild'),
-  setSkipImageBuild: (skip: boolean) => ipcRenderer.invoke('container:setSkipImageBuild', skip),
   quitApp: () => ipcRenderer.invoke('app:quit'),
   relaunchApp: () => ipcRenderer.invoke('app:relaunch'),
   getBundledStatus: () => ipcRenderer.invoke('container:getBundledStatus'),
   downloadBinaries: () => ipcRenderer.invoke('container:downloadBinaries'),
   deleteBinaries: () => ipcRenderer.invoke('container:deleteBinaries'),
-  deleteImage: () => ipcRenderer.invoke('container:deleteImage'),
   downloadImage: () => ipcRenderer.invoke('container:downloadImage'),
   getName: () => ipcRenderer.invoke('container:getName'),
-  isImageBuilt: () => ipcRenderer.invoke('container:isImageBuilt'),
   isBaseImageDownloaded: () => ipcRenderer.invoke('container:isBaseImageDownloaded'),
   ensureSetup: () => ipcRenderer.invoke('container:ensureSetup'),
   getEnvironmentInfo: () => ipcRenderer.invoke('container:getEnvironmentInfo'),
   appDepsReady: (dirName: string) => ipcRenderer.invoke('container:appDepsReady', dirName),
   ensureAppDeps: (dirName: string) => ipcRenderer.invoke('container:ensureAppDeps', dirName),
   getAppInstallRequests: (dirName: string) => ipcRenderer.invoke('container:getAppInstallRequests', dirName),
-  rebuildEnvironment: () => ipcRenderer.invoke('container:rebuildEnvironment'),
   onSetupProgress: (callback: (progress: { stage: string; message: string; percent?: number }) => void) => {
     const handler = (_event: unknown, progress: { stage: string; message: string }) => callback(progress);
     ipcRenderer.on('setup:progress', handler);
@@ -151,11 +148,6 @@ contextBridge.exposeInMainWorld('containerAPI', {
     const handler = (_event: unknown, e: { registry: string; package: string; line: string }) => callback(e);
     ipcRenderer.on('installer:packageLine', handler);
     return () => { ipcRenderer.removeListener('installer:packageLine', handler); };
-  },
-  onBackgroundBuild: (callback: (progress: { stage: string; message: string; percent?: number }) => void) => {
-    const handler = (_event: unknown, progress: { stage: string; message: string; percent?: number }) => callback(progress);
-    ipcRenderer.on('container:backgroundBuild', handler);
-    return () => { ipcRenderer.removeListener('container:backgroundBuild', handler); };
   },
 });
 

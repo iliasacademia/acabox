@@ -316,10 +316,10 @@ class PackageInstaller extends EventEmitter {
         return [
           'sh', '-c',
           'PIP=$(command -v /opt/venv/bin/pip || command -v pip3 || echo pip) && '
-            + 'exec $PIP install --no-input ' + packages.join(' '),
+            + 'exec $PIP install --no-input --target /opt/pip-site ' + packages.join(' '),
         ];
       case 'npm':
-        return ['npm', 'install', '-g', ...packages];
+        return ['npm', 'install', '-g', '--prefix', '/opt/npm-site', ...packages];
       case 'R': {
         const safe = packages.map((p) => p.replace(/[^a-zA-Z0-9._]/g, ''));
         const vec = 'c(' + safe.map((p) => `"${p}"`).join(',') + ')';

@@ -1,57 +1,22 @@
 /**
  * Background Builder
  *
- * Triggers debounced background image rebuilds when the environment changes.
- * Two detection paths:
- *   1. commandLogger — detects successful `.applications/install` commands
- *   2. fs.watch — detects new app folders or dep file changes (e.g., shared
- *      apps copied into the workspace while the app is running)
- *
- * State machine: idle → building → building-pending
- *   - idle: no build in progress. A trigger starts one.
- *   - building: build in progress. A trigger sets state to building-pending.
- *   - building-pending: build in progress AND another is needed. When the
- *     current build finishes, a new one starts automatically.
+ * Watches .applications/ for new app folders or dep file changes and
+ * installs their dependencies live into the running container.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import log from 'electron-log';
-import type { BrowserWindow } from 'electron';
-import { containerService, skipImageBuild } from './containerService';
-import type { CommandLogEntry } from './commandLogger';
+import { containerService } from './containerService';
 import { getInstallSteps } from './environmentGenerator';
 import { packageInstaller, installStepsToRequests } from './packageInstaller';
 
-const DEBOUNCE_MS = 5_000;
-
-export type BuildState = 'idle' | 'building' | 'building-pending';
-
 export class BackgroundBuilder {
-  private state: BuildState = 'idle';
-  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private watcher: fs.FSWatcher | null = null;
-
-  constructor(
-    private getWorkspacePath: () => string | null,
-    private getMainWindow: () => BrowserWindow | null,
-  ) {}
 
   // Track known app directories so we can detect new ones
   private knownApps = new Set<string>();
-
-  /** Current build state for the debug panel. */
-  getState(): BuildState {
-    return this.state;
-  }
-
-  /** Call from commandLogger.onEntry listener. */
-  onCommandEntry(entry: CommandLogEntry): void {
-    if (this.isInstallCommand(entry)) {
-      log.debug(`[BackgroundBuilder] Install detected: ${entry.command.join(' ')}`);
-      this.scheduleRebuild();
-    }
-  }
 
   /**
    * Watch .applications/ for new app folders or dep file changes.
@@ -105,17 +70,15 @@ export class BackgroundBuilder {
               log.warn(`[BackgroundBuilder] Live install for ${topDir} failed: ${(err as Error).message}`);
             });
           }
-          this.scheduleRebuild();
           return;
         }
 
-        // Only trigger rebuild for dep-relevant file changes
+        // Only trigger live install for dep-relevant file changes
         const basename = parts[parts.length - 1];
         const isDepFile = DEP_FILES.has(basename) || (parts.includes('setup') && basename.endsWith('.sh'));
         if (!isDepFile) return;
 
         log.debug(`[BackgroundBuilder] Dep file changed: ${filename}`);
-        this.scheduleRebuild();
 
         // Race protection: when a brand-new app is scaffolded, fs.watch usually
         // fires for the directory FIRST and only fires for the dep files inside
@@ -148,12 +111,8 @@ export class BackgroundBuilder {
     }
   }
 
-  /** Cancel timers and stop watching. */
+  /** Stop watching. */
   dispose(): void {
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-      this.debounceTimer = null;
-    }
     this.stopWatching();
   }
 
@@ -161,91 +120,5 @@ export class BackgroundBuilder {
     const steps = getInstallSteps(appsDir, dirName);
     if (steps.length === 0) return Promise.resolve();
     return packageInstaller.ensureDeps(installStepsToRequests(steps, dirName));
-  }
-
-  // ─── Detection ───────────────────────────────────────────────
-
-  private isInstallCommand(entry: CommandLogEntry): boolean {
-    if (entry.exitCode !== 0) return false;
-    const joined = entry.command.join(' ');
-    return joined.includes('.applications/install');
-  }
-
-  // ─── Debounce ────────────────────────────────────────────────
-
-  private scheduleRebuild(): void {
-    if (skipImageBuild()) return;
-
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-    }
-    this.debounceTimer = setTimeout(() => {
-      this.debounceTimer = null;
-      this.triggerBuild();
-    }, DEBOUNCE_MS);
-  }
-
-  // ─── State Machine ──────────────────────────────────────────
-
-  private triggerBuild(): void {
-    if (this.state === 'idle') {
-      this.state = 'building';
-      this.executeBuild().catch((err) => {
-        log.error('[BackgroundBuilder] Build failed:', (err as Error).message);
-      });
-    } else if (this.state === 'building') {
-      this.state = 'building-pending';
-      log.debug('[BackgroundBuilder] Build in progress, will rebuild after it finishes');
-    }
-    // If already 'building-pending', nothing to do
-  }
-
-  private async executeBuild(): Promise<void> {
-    const workspacePath = this.getWorkspacePath();
-    if (!workspacePath) {
-      log.warn('[BackgroundBuilder] No workspace path, skipping build');
-      this.state = 'idle';
-      return;
-    }
-
-    if (!containerService.isRunning()) {
-      log.debug('[BackgroundBuilder] Container not running, skipping background build');
-      this.state = 'idle';
-      return;
-    }
-
-    try {
-      this.emitProgress('background-build', 'Updating container image...');
-      log.info('[BackgroundBuilder] Starting background image rebuild');
-
-      await containerService.rebuildImage(workspacePath, (stage, message, percent) => {
-        this.emitProgress(stage, message, percent);
-      });
-
-      log.info('[BackgroundBuilder] Background build completed');
-      this.emitProgress('background-build-done', 'Container image updated');
-    } catch (err) {
-      log.error('[BackgroundBuilder] Build error:', (err as Error).message);
-      this.emitProgress('background-build-error', `Build failed: ${(err as Error).message}`);
-    } finally {
-      if (this.state === 'building-pending') {
-        log.debug('[BackgroundBuilder] Pending rebuild detected, starting another build');
-        this.state = 'building';
-        this.executeBuild().catch((err) => {
-          log.error('[BackgroundBuilder] Pending rebuild failed:', (err as Error).message);
-        });
-      } else {
-        this.state = 'idle';
-      }
-    }
-  }
-
-  // ─── IPC ─────────────────────────────────────────────────────
-
-  private emitProgress(stage: string, message: string, percent?: number): void {
-    const win = this.getMainWindow();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('container:backgroundBuild', { stage, message, percent });
-    }
   }
 }

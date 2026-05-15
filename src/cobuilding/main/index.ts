@@ -16,7 +16,7 @@ import type { CalendarMutationEvent } from './calendarAgentSession';
 import { registerSession, unregisterSession, getRegisteredSession, hasSession, destroyAllSessions, addSubscriber, removeSubscriber } from './sessionRegistry';
 import type { IPCAttachment } from '../shared/types';
 import { provisionWorkspace } from './skills';
-import { containerService, skipImageBuild } from './containerService';
+import { containerService } from './containerService';
 import { showDownloadManagerIfNeeded, registerDownloadManagerIpc } from './downloadManager';
 import { processCpuMonitor } from '../../utils/processCpuMonitor';
 import { getAllPodmanDataPaths } from './podmanBinaries';
@@ -192,12 +192,25 @@ log.transports.console.level = app.isPackaged ? false : 'debug';
 import { systemLogger } from './systemLogger';
 systemLogger.init();
 
+let _handlingFatalError = false;
 process.on('uncaughtException', (error) => {
-  log.error('[FATAL] Uncaught exception:', error);
+  if (_handlingFatalError) return;
+  _handlingFatalError = true;
+  try {
+    log.error('[FATAL] Uncaught exception:', error);
+  } finally {
+    _handlingFatalError = false;
+  }
 });
 
 process.on('unhandledRejection', (reason) => {
-  log.error('[FATAL] Unhandled rejection:', reason);
+  if (_handlingFatalError) return;
+  _handlingFatalError = true;
+  try {
+    log.error('[FATAL] Unhandled rejection:', reason);
+  } finally {
+    _handlingFatalError = false;
+  }
 });
 
 app.setName('Academia Coscientist');
@@ -248,19 +261,6 @@ function sendProgressTo(channel: string) {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send(channel, { stage, message, percent });
     }
-  };
-}
-
-function makeBackgroundProgress() {
-  const toProgress = sendProgressTo('container:progress');
-  const toBackgroundBuild = sendProgressTo('container:backgroundBuild');
-  return (stage: string, message: string, percent?: number) => {
-    toProgress(stage, message, percent);
-    const bgStage =
-      stage === 'ready' ? 'background-build-done'
-        : stage === 'error' ? 'background-build-error'
-        : stage;
-    toBackgroundBuild(bgStage, message, percent);
   };
 }
 
@@ -1384,16 +1384,8 @@ ipcMain.handle('container:start', async () => {
   if (!activeWorkspace) {
     throw new Error('No active workspace');
   }
-  // Foreground stays silent — SetupBanner is owned by ensureSetup. Background
-  // build fans out to both `container:progress` (Base Image spinner) and
-  // `container:backgroundBuild` (Environment section), with terminal stages
-  // renamed for the latter so its existing handler recognizes them.
   const agentDir = workspaceController.workspacePath;
-  await containerService.start(
-    workspaceController.mountMap,
-    undefined,
-    makeBackgroundProgress(),
-  );
+  await containerService.start(workspaceController.mountMap);
   await agentInfrastructure.start(agentDir);
   backgroundBuilder.startWatching(agentDir, (appName) => {
     ensuredApps.add(appName);
@@ -1406,6 +1398,16 @@ ipcMain.handle('container:stop', async () => {
   packageInstaller.reset();
   await agentInfrastructure.stop();
   containerService.stop();
+});
+
+/** Stop container stack then `podman machine stop` so image cache can be deleted safely. */
+ipcMain.handle('container:gracefulShutdownPodman', async () => {
+  backgroundBuilder.stopWatching();
+  ensuredApps.clear();
+  packageInstaller.reset();
+  await agentInfrastructure.stop();
+  containerService.stop();
+  containerService.stopPodmanMachineBestEffort();
 });
 
 ipcMain.handle('container:status', () => {
@@ -1440,14 +1442,6 @@ ipcMain.handle('container:setImageSource', (_event, source: string) => {
   containerService.setImageSource(source as 'registry' | 'local');
 });
 
-ipcMain.handle('container:getSkipImageBuild', () => {
-  return containerService.getSkipImageBuild();
-});
-
-ipcMain.handle('container:setSkipImageBuild', (_event, skip: boolean) => {
-  containerService.setSkipImageBuild(skip);
-});
-
 ipcMain.handle('settings:getMaxAttachmentSizeMB', () => {
   return getMaxAttachmentSizeMB();
 });
@@ -1468,20 +1462,12 @@ ipcMain.handle('container:getName', () => {
   return containerService.getContainerName();
 });
 
-ipcMain.handle('container:isImageBuilt', async () => {
-  return containerService.isImageBuilt();
-});
-
 ipcMain.handle('container:isBaseImageDownloaded', async () => {
   return containerService.isBaseImageDownloaded();
 });
 
 ipcMain.handle('container:deleteBinaries', () => {
   containerService.deleteBundledBinaries();
-});
-
-ipcMain.handle('container:deleteImage', async () => {
-  await containerService.deleteImage();
 });
 
 ipcMain.handle('container:downloadImage', async () => {
@@ -1493,11 +1479,7 @@ ipcMain.handle('container:ensureSetup', async () => {
   const setupAgentDir = workspaceController.workspacePath;
   await containerService.ensureSetup(makeSetupProgress(), setupAgentDir);
   if (activeWorkspace) {
-    await containerService.start(
-      workspaceController.mountMap,
-      undefined,
-      makeBackgroundProgress(),
-    );
+    await containerService.start(workspaceController.mountMap);
     await agentInfrastructure.start(setupAgentDir);
     backgroundBuilder.startWatching(setupAgentDir, (appName) => {
       ensuredApps.add(appName);
@@ -1511,14 +1493,8 @@ ipcMain.handle('container:getEnvironmentInfo', async () => {
   const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return null;
   const info = getEnvironmentInfo(workspaceController.workspacePath!);
-  const imageHash = await containerService.getImageEnvironmentHash();
 
   return {
-    imageType: info.hasAnyDeps ? 'user' : 'base',
-    imageHash,
-    environmentHash: info.environmentHash,
-    inSync: info.environmentHash != null && imageHash === info.environmentHash,
-    backgroundBuildState: backgroundBuilder.getState(),
     packageStates: packageInstaller.getPackageStates(),
     packageLines: packageInstaller.getPackageLines(),
     totalPip: info.merged.pipRequirements,
@@ -1542,7 +1518,9 @@ ipcMain.handle('container:getEnvironmentInfo', async () => {
 const ensuredApps = new Set<string>();
 
 ipcMain.handle('container:appDepsReady', (_event, dirName: string) => {
-  return ensuredApps.has(dirName);
+  const ready = ensuredApps.has(dirName);
+  log.debug(`[appDepsReady] ${dirName}: ${ready}`);
+  return ready;
 });
 
 ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
@@ -1550,6 +1528,7 @@ ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
   if (!activeWorkspace) throw new Error('No active workspace');
   if (!containerService.isRunning()) throw new Error('Container is not running');
   if (ensuredApps.has(dirName)) {
+    log.debug(`[ensureAppDeps] ${dirName}: already ensured, skipping`);
     return { installed: [] };
   }
 
@@ -1560,11 +1539,14 @@ ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
   const ensureDepsAppsDir = path.join(workspaceController.workspacePath!, '.applications');
   const steps = getInstallSteps(ensureDepsAppsDir, dirName);
   if (steps.length === 0) {
+    log.debug(`[ensureAppDeps] ${dirName}: no install steps, marking ready`);
     ensuredApps.add(dirName);
     return { installed: [] };
   }
 
+  log.info(`[ensureAppDeps] ${dirName}: waiting for ${steps.length} install steps`);
   await packageInstaller.ensureDeps(installStepsToRequests(steps, dirName));
+  log.info(`[ensureAppDeps] ${dirName}: all deps installed, marking ready`);
   ensuredApps.add(dirName);
   return { installed: steps.map((s) => `${s.registry}: ${s.packages.length} packages`) };
 });
@@ -1591,27 +1573,14 @@ packageInstaller.on('package:line', (e: { registry: Registry; package: string; l
   }
 });
 
-ipcMain.handle('container:rebuildEnvironment', async () => {
-  if (skipImageBuild()) {
-    log.info('[container:rebuildEnvironment] Skip-image-build mode, skipping');
-    return;
-  }
-  const rebuildAgentDir = workspaceController.workspacePath;
-  if (!rebuildAgentDir) throw new Error('No active workspace');
-  const envDir = path.join(rebuildAgentDir, '.applications', '_environment');
-  fs.rmSync(envDir, { recursive: true, force: true });
-  await containerService.rebuildImage(
-    rebuildAgentDir,
-    sendProgressTo('container:backgroundBuild'),
-  );
-});
-
 ipcMain.handle('app:quit', () => {
   app.quit();
 });
 
 ipcMain.handle('app:relaunch', () => {
-  if (app.isPackaged) app.relaunch();
+  if (app.isPackaged) {
+    app.relaunch();
+  }
   app.quit();
 });
 
@@ -1664,10 +1633,7 @@ ipcMain.handle('commandLog:getAll', () => commandLogger.getAll());
 ipcMain.handle('commandLog:getByApp', (_event, appDirName: string) => commandLogger.getByApp(appDirName));
 ipcMain.handle('commandLog:getAppNames', () => commandLogger.getAppNames());
 
-const backgroundBuilder = new BackgroundBuilder(
-  () => workspaceController.workspacePath,
-  () => mainWindow,
-);
+const backgroundBuilder = new BackgroundBuilder();
 
 commandLogger.onEntry((entry) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1677,7 +1643,6 @@ commandLogger.onEntry((entry) => {
   if (entry.exitCode === 0 && entry.command.join(' ').includes('.applications/install') && entry.appDirName) {
     ensuredApps.add(entry.appDirName);
   }
-  backgroundBuilder.onCommandEntry(entry);
 });
 
 // System log IPC handlers

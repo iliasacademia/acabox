@@ -362,7 +362,9 @@ const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dir
         }
       }),
       window.containerAPI.onSetupProgress((progress) => {
-        if (progress.stage === 'setup-done' || progress.stage === 'ready') {
+        // Only react to 'ready' — 'setup-done' fires before container.start(),
+        // so the container isn't running yet.
+        if (progress.stage === 'ready') {
           setContainerReady(true);
         }
       }),
@@ -452,23 +454,25 @@ const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dir
     if (!containerReady) return;
     let cancelled = false;
 
-    window.containerAPI.appDepsReady(dirName).then((ready) => {
-      if (cancelled) return;
-      if (ready) {
-        setDepsReady(true);
-        return;
-      }
-      // Flip from `null` to `false` so the gate renders the install checklist
-      // instead of a blank screen during the install wait.
-      setDepsReady(false);
-      window.containerAPI.ensureAppDeps(dirName)
-        .then(() => { if (!cancelled) setDepsReady(true); })
-        .catch((err) => {
-          console.error(`[MiniAppViewer] Failed to install deps for ${dirName}:`, err);
-          // Leave depsReady=false so the install indicator stays visible.
-          // The user can retry by closing and reopening the app.
-        });
-    });
+    const attemptEnsureDeps = () => {
+      window.containerAPI.appDepsReady(dirName).then((ready) => {
+        if (cancelled) return;
+        if (ready) {
+          setDepsReady(true);
+          return;
+        }
+        // Flip from `null` to `false` so the gate renders the install checklist
+        // instead of a blank screen during the install wait.
+        setDepsReady(false);
+        window.containerAPI.ensureAppDeps(dirName)
+          .then(() => { if (!cancelled) setDepsReady(true); })
+          .catch((err) => {
+            console.error(`[MiniAppViewer] Failed to install deps for ${dirName}:`, err);
+            if (!cancelled) setTimeout(attemptEnsureDeps, 3000);
+          });
+      });
+    };
+    attemptEnsureDeps();
 
     return () => { cancelled = true; };
   }, [containerReady, dirName]);
