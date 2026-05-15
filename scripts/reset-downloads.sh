@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MODE_FLAG="${1:-}"
 
 if [ "$MODE_FLAG" = "--prod" ]; then
-  USER_DATA="$HOME/Library/Application Support/academia-electron"
+  USER_DATA="$HOME/Library/Application Support/academia-electron/production"
   PODMAN_HOME="$HOME/.cobuild-podman"
   RUN_DIR="${TMPDIR}cobuild-podman-run"
 else
