@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import './WorkspaceOnboarding.css';
-import { FolderOpenIcon, CloudIcon, LayoutGridIcon, InfoIcon, ArrowRightIcon, XIcon } from 'lucide-react';
+import { FolderOpenIcon, CloudIcon, LayoutGridIcon, InfoIcon, ArrowRightIcon, XIcon, PlusIcon } from 'lucide-react';
 import { MAX_WORKSPACE_DIRECTORIES } from '../../shared/paths';
 
 interface WorkspaceOnboardingProps {
@@ -113,15 +113,20 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete, o
                   </div>
                   {directoryPaths.length < MAX_WORKSPACE_DIRECTORIES && (
                     <button type="button" className="wsSource__addMoreBtn" onClick={handleSelectFolder}>
-                      + Add another folder
+                      <PlusIcon size={14} />
+                      Add another folder
                     </button>
                   )}
                 </>
               ) : (
-                <button type="button" className="wsSource__selectBtn" onClick={handleSelectFolder}>
-                  <p className="wsSource__desc">Point me at the folders where your research lives.</p>
-                  <p className="wsSource__hint">Most researchers start here</p>
+                <div className="wsSource__emptyState">
+                <p className="wsSource__desc">Select one or more folders where your research lives.</p>
+                <button type="button" className="wsSource__browseBtn" onClick={handleSelectFolder}>
+                  <FolderOpenIcon size={14} />
+                  Browse folders
                 </button>
+                <p className="wsSource__hint">Most researchers start here</p>
+              </div>
               )}
             </div>
           </div>

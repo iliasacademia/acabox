@@ -110,6 +110,59 @@
   gap: 6px;
 }
 
+.wsSettings__dirRemoveBtn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.wsSettings__dirRemoveBtn:hover {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.06);
+  border-color: rgba(220, 38, 38, 0.15);
+}
+
+.wsSettings__dirAddBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: #6b7280;
+  background: none;
+  border: 1px solid rgb(220, 214, 200);
+  border-radius: 2px;
+  padding: 5px 12px;
+  margin-top: 12px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.wsSettings__dirAddBtn:hover {
+  color: #374151;
+  border-color: #8b7355;
+  background: rgba(245, 240, 232, 0.4);
+}
+
+.wsSettings__dirError {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  color: #dc2626;
+  margin: 8px 0 0;
+  line-height: 1.5;
+}
+
 .wsSettings__textarea {
   width: 100%;
   min-height: 140px;

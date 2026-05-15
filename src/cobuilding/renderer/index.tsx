@@ -1081,6 +1081,9 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
                 }}
                 onLogout={onLogout}
                 onRestartOnboarding={onRestartOnboarding}
+                onDirectoriesChanged={(dirs) => {
+                  setUserDirectories(dirs);
+                }}
                 inline
               />
             </div>

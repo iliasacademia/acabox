@@ -223,6 +223,8 @@ declare global {
     create(data: { name: string; directoryPaths: string[] }): Promise<Workspace>;
     selectDirectory(): Promise<string | undefined>;
     listDirectories(): Promise<WorkspaceDirectory[]>;
+    addDirectory(directoryPath: string): Promise<WorkspaceDirectory>;
+    removeDirectory(directoryId: string): Promise<void>;
   }
 
   interface SessionData {

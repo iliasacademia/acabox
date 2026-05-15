@@ -598,7 +598,7 @@ app.whenReady().then(async () => {
     initSessionFiles(() => workspaceController.workspacePath);
     registerCalendarHandlers(() => mainWindow);
     registerDebugHandlers();
-    registerWorkspaceHandlers(workspaceController, () => mainWindow);
+    registerWorkspaceHandlers(workspaceController, () => mainWindow, containerService);
     registerReactionsHandlers(() => workspaceController.activeWorkspace, rebuildTrayMenu);
     setupUpdaterIpcHandlers();
     setupUpdater(rebuildTrayMenu);

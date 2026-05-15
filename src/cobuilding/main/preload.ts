@@ -48,6 +48,8 @@ contextBridge.exposeInMainWorld('workspacesAPI', {
   },
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
   listDirectories: () => ipcRenderer.invoke('workspaces:listDirectories'),
+  addDirectory: (directoryPath: string) => ipcRenderer.invoke('workspaces:addDirectory', directoryPath),
+  removeDirectory: (directoryId: string) => ipcRenderer.invoke('workspaces:removeDirectory', directoryId),
 });
 
 contextBridge.exposeInMainWorld('filesAPI', {

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import type { Workspace, WorkspaceDirectory } from '../../shared/types';
-import { SOUL_MD, MEMORY_PATH_ABOUT_YOU, MEMORY_PATH_WORKING_ON } from '../../shared/paths';
+import { SOUL_MD, MEMORY_PATH_ABOUT_YOU, MEMORY_PATH_WORKING_ON, MAX_WORKSPACE_DIRECTORIES } from '../../shared/paths';
 import { kernelRegistry } from './notebook/kernelRegistry';
+import { XIcon, PlusIcon } from 'lucide-react';
 import './WorkspaceSettings.css';
 import './shared-forms.css';
 
@@ -11,12 +12,14 @@ interface WorkspaceSettingsProps {
   onSaved: (ws: Workspace) => void;
   onLogout: () => void;
   onRestartOnboarding: () => void;
+  onDirectoriesChanged?: (dirs: WorkspaceDirectory[]) => void;
   inline?: boolean;
 }
 
-const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClose, onSaved, onLogout, onRestartOnboarding, inline }) => {
+const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClose, onSaved, onLogout, onRestartOnboarding, onDirectoriesChanged, inline }) => {
   // --- Workspace directories ---
   const [userDirectories, setUserDirectories] = useState<WorkspaceDirectory[]>([]);
+  const [dirError, setDirError] = useState<string | null>(null);
 
   // --- Researcher Profile card state ---
   const [aboutContent, setAboutContent] = useState('');
@@ -140,6 +143,38 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
     setSoulError(null);
   };
 
+  // --- Workspace directory add/remove ---
+  const handleAddDirectory = async () => {
+    setDirError(null);
+    const selected = await window.workspacesAPI.selectDirectory();
+    if (!selected) return;
+    if (userDirectories.some(d => d.directory_path === selected)) {
+      setDirError('This directory is already in your workspace.');
+      return;
+    }
+    try {
+      const added = await window.workspacesAPI.addDirectory(selected);
+      const updated = [...userDirectories, added];
+      setUserDirectories(updated);
+      onDirectoriesChanged?.(updated);
+    } catch (err) {
+      setDirError(err instanceof Error ? err.message : 'Failed to add directory.');
+    }
+  };
+
+  const handleRemoveDirectory = async (dirId: string) => {
+    if (!window.confirm('Are you sure you want to remove this directory from your workspace?')) return;
+    setDirError(null);
+    try {
+      await window.workspacesAPI.removeDirectory(dirId);
+      const updated = userDirectories.filter(d => d.id !== dirId);
+      setUserDirectories(updated);
+      onDirectoriesChanged?.(updated);
+    } catch (err) {
+      setDirError(err instanceof Error ? err.message : 'Failed to remove directory.');
+    }
+  };
+
   // --- Researcher Profile card save/cancel ---
   const profileDirty = aboutContent !== savedAboutContent || workingOnContent !== savedWorkingOnContent;
   const canSaveProfile = profileLoaded && profileDirty && !isSavingProfile;
@@ -223,15 +258,32 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
             {userDirectories.length > 0 ? (
               <div className="wsSettings__dirList">
                 {userDirectories.map((dir) => (
-                  <span key={dir.id} className="wsSettings__dirPath" title={dir.directory_path}>
-                    {dir.directory_path}
-                  </span>
+                  <div key={dir.id} className="wsSettings__dirRow">
+                    <span className="wsSettings__dirPath" title={dir.directory_path}>
+                      {dir.directory_path}
+                    </span>
+                    <button
+                      type="button"
+                      className="wsSettings__dirRemoveBtn"
+                      onClick={() => handleRemoveDirectory(dir.id)}
+                      aria-label="Remove directory"
+                    >
+                      <XIcon size={14} />
+                    </button>
+                  </div>
                 ))}
               </div>
             ) : (
               <p className="wsSettings__hint" style={{ margin: 0 }}>
                 No directories added to this workspace yet.
               </p>
+            )}
+            {dirError && <p className="wsSettings__dirError">{dirError}</p>}
+            {userDirectories.length < MAX_WORKSPACE_DIRECTORIES && (
+              <button type="button" className="wsSettings__dirAddBtn" onClick={handleAddDirectory}>
+                <PlusIcon size={14} />
+                Add folder
+              </button>
             )}
           </div>
         </section>
