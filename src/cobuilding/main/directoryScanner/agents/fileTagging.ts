@@ -170,6 +170,7 @@ function persistTaggedFiles(
   scanDir: string,
 ): void {
   try {
+    const seen = new Set<string>();
     const normalised = taggedFiles
       .map((f) => ({
         file_path: normalizeFilePath(
@@ -179,7 +180,13 @@ function persistTaggedFiles(
         file_name: ((f as any).file_name ?? (f as any).filename) as string,
         file_type: ((f as any).file_type ?? (f as any).type) as string,
       }))
-      .filter((f) => !f.file_name?.startsWith("~$"));
+      .filter((f) => {
+        if (!f.file_path || !f.file_name) return false;
+        if (f.file_name.startsWith("~$")) return false;
+        if (seen.has(f.file_path)) return false;
+        seen.add(f.file_path);
+        return true;
+      });
     upsertScannedFiles(workspaceId, reportId, normalised);
   } catch (err) {
     log.error("[DirectoryScanner] Failed to persist tagged files:", err);
