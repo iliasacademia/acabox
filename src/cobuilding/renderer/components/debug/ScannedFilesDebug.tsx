@@ -14,7 +14,7 @@ const TAG_ORDER: FileTagType[] = ['manuscript', 'grant', 'presentation', 'refere
 interface TagCount {
   type: FileTagType;
   count: number;
-  files: { file_path: string; file_name: string }[];
+  files: { file_path: string; file_name: string; markdown_path?: string }[];
 }
 
 export const ScannedFilesDebug: React.FC = () => {
@@ -24,11 +24,11 @@ export const ScannedFilesDebug: React.FC = () => {
 
   useEffect(() => {
     window.scannedFilesAPI.getAll().then((files) => {
-      const grouped = new Map<FileTagType, { file_path: string; file_name: string }[]>();
+      const grouped = new Map<FileTagType, { file_path: string; file_name: string; markdown_path?: string }[]>();
       for (const tag of TAG_ORDER) grouped.set(tag, []);
       for (const f of files) {
         const list = grouped.get(f.file_type as FileTagType);
-        if (list) list.push({ file_path: f.file_path, file_name: f.file_name });
+        if (list) list.push({ file_path: f.file_path, file_name: f.file_name, markdown_path: f.markdown_path });
       }
       setTagCounts(
         TAG_ORDER.map((type) => ({
@@ -79,6 +79,11 @@ export const ScannedFilesDebug: React.FC = () => {
                     style={{ paddingLeft: 32 }}
                   >
                     <span className="storageTree__desc debugSection__mono">{f.file_path}</span>
+                    {type === 'reference' && (
+                      <span style={{ marginLeft: 8, fontSize: 11, color: f.markdown_path ? '#4caf50' : '#999' }}>
+                        {f.markdown_path ? '● converted' : '○ pending'}
+                      </span>
+                    )}
                   </div>
                 ))}
               </React.Fragment>

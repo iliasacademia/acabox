@@ -2,6 +2,19 @@ import * as fs from 'fs';
 import * as path from 'path';
 import log from 'electron-log';
 
+// pdfjs-dist (used by pdf-parse) expects DOMMatrix which doesn't exist
+// in the Electron main process. Provide a minimal polyfill.
+if (typeof (globalThis as any).DOMMatrix === 'undefined') {
+  (globalThis as any).DOMMatrix = class DOMMatrix {
+    a = 1; b = 0; c = 0; d = 1; e = 0; f = 0;
+    constructor(init?: number[]) {
+      if (init && init.length >= 6) {
+        [this.a, this.b, this.c, this.d, this.e, this.f] = init;
+      }
+    }
+  };
+}
+
 const PLAIN_TEXT_EXTENSIONS = new Set([
   '.txt', '.md', '.markdown', '.py', '.js', '.ts', '.tsx', '.jsx',
   '.json', '.csv', '.html', '.xml', '.yaml', '.yml', '.toml',

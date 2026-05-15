@@ -6,6 +6,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { upsertScannedFiles } from "../../db/scannedFilesRepository";
 import { createBriefing } from "../../db/briefingsRepository";
 import { extractText } from "../../fileMonitor/textExtractor";
+import { REFERENCES_DIR, REFERENCES_INDEX } from "../../../shared/paths";
 import {
   SYSTEM_PROMPT_PREAMBLE,
   buildCommonQueryOptions,
@@ -37,7 +38,7 @@ export async function runFileTaggingAgent(
       ...buildCommonQueryOptions(ctx),
       model: "claude-haiku-4-5-20251001",
       systemPrompt: buildSystemPrompt(),
-      maxTurns: 8,
+      maxTurns: 15,
       maxBudgetUsd: 1,
       outputFormat: {
         type: "json_schema",
@@ -55,24 +56,145 @@ export async function runFileTaggingAgent(
     `[DirectoryScanner:FileTagging] Completed in ${seconds}s (${tagged_files.length} tagged files)`,
   );
 
-  persistTaggedFiles(tagged_files, ctx.workspaceId, ctx.reportId);
-  await enrichManuscripts(extractManuscriptCandidates(tagged_files), ctx);
-  return { taggedFiles: tagged_files };
+  const autoTagged = await autoTagReferencePdfs(tagged_files, ctx);
+  const allFiles = [...tagged_files, ...autoTagged];
+
+  persistTaggedFiles(allFiles, ctx.workspaceId, ctx.reportId, ctx.directoryPaths);
+  await enrichManuscripts(extractManuscriptCandidates(allFiles), ctx);
+  await enrichReferences(extractReferenceCandidates(allFiles), ctx);
+  return { taggedFiles: allFiles };
+}
+
+const MIN_TEXT_LENGTH_FOR_REFERENCE = 500;
+
+async function findAllPdfs(dirPath: string): Promise<string[]> {
+  const results: string[] = [];
+  async function walk(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") || entry.name.startsWith("~$")) continue;
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+      } else if (entry.name.toLowerCase().endsWith(".pdf")) {
+        results.push(fullPath.slice(dirPath.length + 1));
+      }
+    }
+  }
+  await walk(dirPath);
+  return results;
+}
+
+async function autoTagReferencePdfs(
+  taggedFiles: TaggedFileParsed[],
+  ctx: ScanContext,
+): Promise<TaggedFileParsed[]> {
+  const scanDirs = ctx.directoryPaths;
+  const taggedPaths = new Set(
+    taggedFiles.map((f) =>
+      normalizeFilePath(getFilePath(f) ?? "", scanDirs),
+    ),
+  );
+
+  const allPdfs: string[] = [];
+  for (const dir of scanDirs) {
+    allPdfs.push(...(await findAllPdfs(dir)));
+  }
+  const untagged = allPdfs.filter((p) => !taggedPaths.has(p));
+  if (untagged.length === 0) return [];
+
+  log.info(
+    `[DirectoryScanner:AutoTag] Inspecting ${untagged.length} untagged PDFs`,
+  );
+
+  const client = new Anthropic({ apiKey: ctx.apiKey, baseURL: ctx.baseURL });
+  const results: TaggedFileParsed[] = [];
+  for (const relPath of untagged) {
+    try {
+      const absolutePath = await resolveFilePath(relPath, scanDirs);
+      const text = await extractText(absolutePath);
+      if (!text || text.length < MIN_TEXT_LENGTH_FOR_REFERENCE) continue;
+
+      const excerpt = text.slice(0, 1500);
+      const message = await client.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 10,
+        messages: [
+          {
+            role: "user",
+            content: `Is this a published academic research paper, journal article, or preprint? Answer only YES or NO.
+
+Not research papers: grant applications, cover letters, letters of support, biosketches, budgets, presentations, reports, memos, forms, CVs, charts, or any administrative document.
+
+Filename: ${relPath.split("/").pop()}
+
+Text excerpt:
+${excerpt}`,
+          },
+        ],
+      });
+
+      const block = message.content[0] as { type: string; text?: string };
+      const answer = block?.type === "text" ? block.text?.trim().toUpperCase() : "";
+      if (answer?.startsWith("YES")) {
+        results.push({
+          file_path: relPath,
+          file_name: relPath.split("/").pop() ?? relPath,
+          file_type: "reference",
+        } as any);
+        log.info(`[DirectoryScanner:AutoTag] ${relPath} → reference`);
+      }
+    } catch {
+      // skip files that can't be read or classified
+    }
+  }
+
+  log.info(
+    `[DirectoryScanner:AutoTag] Tagged ${results.length}/${untagged.length} untagged PDFs as references`,
+  );
+  return results;
+}
+
+function normalizeFilePath(filePath: string, scanDirs: string | string[]): string {
+  const dirs = Array.isArray(scanDirs) ? scanDirs : [scanDirs];
+  const withSlash = "/" + filePath;
+  for (const dir of dirs) {
+    if (withSlash.startsWith(dir + "/")) {
+      return withSlash.slice(dir.length + 1);
+    }
+  }
+  return filePath;
 }
 
 function persistTaggedFiles(
   taggedFiles: TaggedFileParsed[],
   workspaceId: string,
   reportId: string,
+  scanDirs: string[],
 ): void {
   try {
+    const seen = new Set<string>();
     const normalised = taggedFiles
       .map((f) => ({
-        file_path: ((f as any).file_path ?? (f as any).path) as string,
+        file_path: normalizeFilePath(
+          ((f as any).file_path ?? (f as any).path) as string,
+          scanDirs,
+        ),
         file_name: ((f as any).file_name ?? (f as any).filename) as string,
         file_type: ((f as any).file_type ?? (f as any).type) as string,
       }))
-      .filter((f) => !f.file_name?.startsWith("~$"));
+      .filter((f) => {
+        if (!f.file_path || !f.file_name) return false;
+        if (f.file_name.startsWith("~$")) return false;
+        if (seen.has(f.file_path)) return false;
+        seen.add(f.file_path);
+        return true;
+      });
     upsertScannedFiles(workspaceId, reportId, normalised);
   } catch (err) {
     log.error("[DirectoryScanner] Failed to persist tagged files:", err);
@@ -223,6 +345,201 @@ async function resolveFilePath(filePath: string, directoryPaths: string[]): Prom
 
 const WRITING_AGENT_KICKOFF_PROMPT =
   "Review this manuscript. Read the document, assess its current state, and provide a structured peer review.";
+
+function extractReferenceCandidates(
+  taggedFiles: TaggedFileParsed[],
+): string[] {
+  return taggedFiles
+    .filter((f) => {
+      const fileType = (
+        typeof f.file_type === "string"
+          ? f.file_type
+          : typeof (f as any).type === "string"
+            ? (f as any).type
+            : ""
+      ).toLowerCase();
+      if (fileType !== "reference") return false;
+      const p = getFilePath(f);
+      if (!p) return false;
+      const name = p.split("/").pop() ?? "";
+      return !name.startsWith("~$");
+    })
+    .map((f) => getFilePath(f)!);
+}
+
+function resolveSourcePath(sourceDir: string, filePath: string): string {
+  const resolved = path.resolve(sourceDir, filePath);
+  const boundary = path.resolve(sourceDir) + path.sep;
+  if (!resolved.startsWith(boundary) && resolved !== path.resolve(sourceDir)) {
+    throw new Error(`Path traversal detected: ${filePath} escapes ${sourceDir}`);
+  }
+  return resolved;
+}
+
+function sanitizeFilename(name: string): string {
+  return name
+    .replace(/[\/\\:*?"<>|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+}
+
+async function readRefIndex(refsDir: string): Promise<Record<string, string>> {
+  try {
+    const raw = await fs.readFile(
+      path.join(refsDir, REFERENCES_INDEX),
+      "utf-8",
+    );
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+async function writeRefIndex(
+  refsDir: string,
+  index: Record<string, string>,
+): Promise<void> {
+  await fs.writeFile(
+    path.join(refsDir, REFERENCES_INDEX),
+    JSON.stringify(index, null, 2),
+    "utf-8",
+  );
+}
+
+async function convertSingleReference(
+  filePath: string,
+  absolutePath: string,
+  refsDir: string,
+  client: Anthropic,
+): Promise<string | null> {
+  const fullText = await extractText(absolutePath);
+  if (!fullText) {
+    log.warn(
+      `[ReferenceConversion] Could not extract text from ${filePath}, skipping`,
+    );
+    return null;
+  }
+
+  const excerpt = fullText.slice(0, 2000);
+  const fileName = filePath.split("/").pop() ?? filePath;
+  let title = path.basename(fileName, path.extname(fileName));
+
+  try {
+    const message = await client.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 100,
+      messages: [
+        {
+          role: "user",
+          content: `Extract the title of this academic paper from the excerpt below. Return ONLY the title, nothing else. If you cannot determine the title, return the text "UNKNOWN".
+
+Filename: ${fileName}
+
+Excerpt:
+${excerpt}`,
+        },
+      ],
+    });
+
+    const block = message.content[0] as { type: string; text?: string };
+    const extracted =
+      block && block.type === "text" && block.text ? block.text.trim() : "";
+    if (extracted && extracted !== "UNKNOWN") {
+      title = sanitizeFilename(extracted);
+    }
+  } catch (err) {
+    log.warn(
+      `[ReferenceConversion] Title extraction failed for ${filePath}, using filename`,
+    );
+  }
+
+  const mdFilename = `${title}.md`;
+  const mdPath = path.join(refsDir, mdFilename);
+  const mdContent = `---\nsource: ${filePath}\ntitle: "${title.replace(/"/g, '\\"')}"\n---\n\n${fullText}`;
+  await fs.writeFile(mdPath, mdContent, "utf-8");
+
+  log.info(`[ReferenceConversion] Converted: ${filePath} → ${mdFilename}`);
+  return mdFilename;
+}
+
+async function enrichReferences(
+  filePaths: string[],
+  ctx: ScanContext,
+): Promise<void> {
+  if (filePaths.length === 0) return;
+
+  const academiaDir = path.dirname(ctx.memoryDir);
+  const refsDir = path.join(academiaDir, REFERENCES_DIR);
+  await fs.mkdir(refsDir, { recursive: true });
+
+  const index = await readRefIndex(refsDir);
+  const client = new Anthropic({ apiKey: ctx.apiKey, baseURL: ctx.baseURL });
+  const total = filePaths.length;
+  log.info(
+    `[ReferenceConversion] Converting ${total} reference files to markdown`,
+  );
+
+  let converted = 0;
+  for (const filePath of filePaths) {
+    if (index[filePath]) continue;
+    try {
+      const absolutePath = await resolveFilePath(filePath, ctx.directoryPaths);
+      const mdFilename = await convertSingleReference(
+        filePath,
+        absolutePath,
+        refsDir,
+        client,
+      );
+      if (mdFilename) {
+        index[filePath] = mdFilename;
+        converted++;
+      }
+    } catch (err) {
+      log.error(`[ReferenceConversion] Failed to convert ${filePath}:`, err);
+    }
+  }
+
+  await writeRefIndex(refsDir, index);
+  log.info(
+    `[ReferenceConversion] Complete — ${converted}/${total} files converted`,
+  );
+}
+
+/**
+ * Convert a single reference file to markdown. Called when the user
+ * manually tags a file as "reference" outside of the scan flow.
+ */
+export async function convertReferenceFile(opts: {
+  filePath: string;
+  sourceDir: string;
+  workspacePath: string;
+  apiKey: string;
+  baseURL?: string;
+}): Promise<void> {
+  const absolutePath = resolveSourcePath(opts.sourceDir, opts.filePath);
+
+  const refsDir = path.join(opts.workspacePath, REFERENCES_DIR);
+  await fs.mkdir(refsDir, { recursive: true });
+
+  const index = await readRefIndex(refsDir);
+  if (index[opts.filePath]) return;
+
+  const client = new Anthropic({
+    apiKey: opts.apiKey,
+    baseURL: opts.baseURL,
+  });
+  const mdFilename = await convertSingleReference(
+    opts.filePath,
+    absolutePath,
+    refsDir,
+    client,
+  );
+  if (mdFilename) {
+    index[opts.filePath] = mdFilename;
+    await writeRefIndex(refsDir, index);
+  }
+}
 
 async function enrichManuscripts(
   manuscripts: ManuscriptCandidate[],

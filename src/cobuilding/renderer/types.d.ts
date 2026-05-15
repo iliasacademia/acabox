@@ -730,6 +730,7 @@ declare global {
     file_name: string;
     file_type: 'manuscript' | 'grant' | 'presentation' | 'reference';
     created_at: string;
+    markdown_path?: string;
   }
 
   interface ScannedFilesAPI {

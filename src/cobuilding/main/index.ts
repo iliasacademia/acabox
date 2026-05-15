@@ -22,6 +22,7 @@ import { processCpuMonitor } from '../../utils/processCpuMonitor';
 import { getAllPodmanDataPaths } from './podmanBinaries';
 import { ensureClaudeBinaryReady } from './sdkBinarySetup';
 import { scanWorkspaceDirectory } from './directoryScanner';
+import { convertReferenceFile } from './directoryScanner/agents/fileTagging';
 import { fetchPapers, type FetchPapersInput } from './papers/papersService';
 import { persistPapersAsBriefings } from './papers/paperBriefings';
 import { getReport, getLatestReport, updateReportData } from './db/reportRepository';
@@ -95,7 +96,7 @@ import { windowMonitorService } from '../../windowMonitorService';
 import { wordAccessibility } from '../../native/wordAccessibility';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
 import { validateExternalUrl } from '../../utils/urlValidation';
-import { ACADEMIA_DIR, AGENT_MEMORY_SUBDIR } from '../shared/paths';
+import { ACADEMIA_DIR, AGENT_MEMORY_SUBDIR, REFERENCES_SUBDIR, REFERENCES_INDEX } from '../shared/paths';
 const isSmokeTest = process.argv.includes('--smoke-test');
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
@@ -1267,18 +1268,51 @@ ipcMain.handle('scannedFiles:getByType', (_event, fileType: string) => {
   return getScannedFilesByType(activeWorkspace.id, fileType);
 });
 
-ipcMain.handle('scannedFiles:getAll', () => {
+ipcMain.handle('scannedFiles:getAll', async () => {
   const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return [];
-  return getScannedFiles(activeWorkspace.id);
+  const files = getScannedFiles(activeWorkspace.id);
+
+  let refIndex: Record<string, string> = {};
+  try {
+    const indexPath = path.join(workspaceController.workspacePath, REFERENCES_SUBDIR, REFERENCES_INDEX);
+    const raw = await fsPromises.readFile(indexPath, 'utf-8');
+    refIndex = JSON.parse(raw);
+  } catch { /* no index yet */ }
+
+  return files.map((f) => ({
+    ...f,
+    ...(f.file_type === 'reference' && refIndex[f.file_path]
+      ? { markdown_path: `${REFERENCES_SUBDIR}/${refIndex[f.file_path]}` }
+      : {}),
+  }));
 });
 
 ipcMain.handle(
   'scannedFiles:updateTag',
-  (_event, filePath: string, fileName: string, fileType: string) => {
+  async (_event, filePath: string, fileName: string, fileType: string) => {
     const activeWorkspace = workspaceController.activeWorkspace;
     if (!activeWorkspace) return;
     updateFileTag(activeWorkspace.id, filePath, fileName, fileType);
+
+    if (fileType === 'reference') {
+      const sourceDir = workspaceController.userDirectories[0]?.directory_path;
+      if (!sourceDir) return;
+      let { apiKey, baseURL } = getCredentials();
+      if (!apiKey) {
+        try {
+          await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
+          ({ apiKey, baseURL } = getCredentials());
+        } catch { return; }
+      }
+      convertReferenceFile({
+        filePath,
+        sourceDir,
+        workspacePath: path.join(workspaceController.workspacePath, ACADEMIA_DIR),
+        apiKey: apiKey ?? '',
+        baseURL,
+      }).catch((err) => log.error('[scannedFiles:updateTag] Reference conversion failed:', err));
+    }
   },
 );
 
@@ -1343,8 +1377,6 @@ ipcMain.handle('scanner:start', async () => {
   });
 });
 
-// (Agent Server & MCP Management extracted to AgentInfrastructureController)
-// ────────────────────────────────────────────────────────────────────────────
 
 // Container IPC handlers
 ipcMain.handle('container:start', async () => {
