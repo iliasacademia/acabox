@@ -205,6 +205,14 @@ function extractReferenceCandidates(
     .map((f) => getFilePath(f)!);
 }
 
+function resolveSourcePath(sourceDir: string, filePath: string): string {
+  const asAbsolute = "/" + filePath;
+  if (asAbsolute.startsWith(sourceDir + "/") || asAbsolute === sourceDir) {
+    return asAbsolute;
+  }
+  return path.join(sourceDir, filePath);
+}
+
 function sanitizeFilename(name: string): string {
   return name
     .replace(/[\/\\:*?"<>|]/g, " ")
@@ -313,7 +321,7 @@ async function enrichReferences(
   for (const filePath of filePaths) {
     if (index[filePath]) continue;
     try {
-      const absolutePath = path.join(ctx.directoryPath, filePath);
+      const absolutePath = resolveSourcePath(ctx.directoryPath, filePath);
       const mdFilename = await convertSingleReference(
         filePath,
         absolutePath,
@@ -356,7 +364,7 @@ export async function convertReferenceFile(opts: {
     apiKey: opts.apiKey,
     baseURL: opts.baseURL,
   });
-  const absolutePath = path.join(opts.sourceDir, opts.filePath);
+  const absolutePath = resolveSourcePath(opts.sourceDir, opts.filePath);
   const mdFilename = await convertSingleReference(
     opts.filePath,
     absolutePath,
@@ -379,7 +387,7 @@ async function enrichManuscripts(
 
   for (const { filePath, scannerDescription } of manuscripts) {
     try {
-      const absolutePath = path.join(ctx.directoryPath, filePath);
+      const absolutePath = resolveSourcePath(ctx.directoryPath, filePath);
       const fullText = await extractText(absolutePath);
       const excerpt = fullText ? fullText.slice(0, 2000) : "";
 
