@@ -1115,7 +1115,7 @@ app.on('activate', () => {
 
 ipcMain.handle(
   'workspaces:create',
-  async (_event, data: { name: string; directoryPath: string }) => {
+  async (_event, data: { name: string; directoryPaths: string[] }) => {
     let apiKey = getCredentials().apiKey ?? '';
     if (!apiKey) {
       try {
@@ -1125,7 +1125,7 @@ ipcMain.handle(
         log.warn('[workspaces:create] Could not fetch API key:', err);
       }
     }
-    const activeWorkspace = await workspaceController.create(data.directoryPath, apiKey);
+    const activeWorkspace = await workspaceController.create(data.directoryPaths, apiKey);
     if (activeWorkspace) {
       containerService.writeStartContainerScript(workspaceController.mountMap);
       if (getReactionsEnabled()) {
@@ -1285,8 +1285,8 @@ ipcMain.handle('scanner:start', async () => {
     await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
     ({ apiKey, baseURL } = getCredentials());
   }
-  const scanDir = workspaceController.userDirectories[0]?.directory_path;
-  if (!scanDir) {
+  const scanDirs = workspaceController.userDirectoryPaths;
+  if (scanDirs.length === 0) {
     log.warn('[scanner:start] No user directories to scan');
     return;
   }
@@ -1298,7 +1298,8 @@ ipcMain.handle('scanner:start', async () => {
 
   scanWorkspaceDirectory({
     workspaceId: activeWorkspace.id,
-    directoryPath: scanDir,
+    cwd: workspaceController.workspacePath,
+    directoryPaths: scanDirs,
     memoryDir: path.join(workspaceController.workspacePath, AGENT_MEMORY_SUBDIR),
     apiKey: apiKey ?? '',
     baseURL,

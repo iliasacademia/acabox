@@ -5,8 +5,10 @@ import {
   SYSTEM_PROMPT_PREAMBLE,
   buildCommonQueryOptions,
   consumeAgentStream,
+  formatTreesForPrompt,
   type ScanContext,
   type SuggestionParsed,
+  type TreeOutput,
 } from "../shared";
 
 export async function runTaskSuggestionAgent(
@@ -16,7 +18,7 @@ export async function runTaskSuggestionAgent(
   log.info("[DirectoryScanner:TaskSuggestion] Starting task suggestion agent");
 
   const agentQuery = query({
-    prompt: buildPrompt(ctx.directoryPath, ctx.treeOutput),
+    prompt: buildPrompt(ctx.directoryPaths, ctx.treeOutputs),
     options: {
       ...buildCommonQueryOptions(ctx),
       model: "claude-sonnet-4-6",
@@ -169,12 +171,21 @@ Produce a JSON report with one field:
 - \`{ name: "Review my draft on Y", type: "one_time_task", why_im_suggesting_this: "Your manuscript drafts/paper-Y.docx was recently modified and appears to be a near-complete draft.", description: "Read drafts/paper-Y.docx end-to-end and provide a structured review: assess the argument flow, flag gaps in the literature review, check whether the methods section is reproducible, and suggest specific improvements for clarity and concision." }\``;
 }
 
-function buildPrompt(directoryPath: string, treeOutput: string): string {
-  return `Analyze the research directory and suggest things you could do for this researcher that would significantly expedite their research. These can be one-time tasks or interactive mini-apps.
+function buildPrompt(directoryPaths: string[], treeOutputs: TreeOutput[]): string {
+  const multi = directoryPaths.length > 1;
+  const dirDescription = multi
+    ? `The directories to analyze are:\n${directoryPaths.map((dp, i) => `${i + 1}. ${dp}`).join("\n")}`
+    : `The directory to analyze is: ${directoryPaths[0]}`;
 
-The directory to analyze is the current working directory: ${directoryPath}
+  const treeSection = multi
+    ? formatTreesForPrompt(treeOutputs)
+    : `\`\`\`\n${treeOutputs[0].tree}\n\`\`\``;
 
-Use the directory tree below to guide your analysis. Skip broad Glob surveys and go directly to reading the most important files. Focus on understanding:
+  return `Analyze the research ${multi ? "directories" : "directory"} and suggest things you could do for this researcher that would significantly expedite their research. These can be one-time tasks or interactive mini-apps.
+
+${dirDescription}
+
+Use the directory ${multi ? "trees" : "tree"} below to guide your analysis. Skip broad Glob surveys and go directly to reading the most important files. Focus on understanding:
 - What projects the researcher has and what each contains
 - What tools, languages, and frameworks they use
 - What research techniques and methods they employ
@@ -183,11 +194,9 @@ Use the directory tree below to guide your analysis. Skip broad Glob surveys and
 
 Work as quickly as possible.
 
-## Directory tree
+## Directory ${multi ? "trees" : "tree"}
 
 All non-hidden files in the workspace, sorted by modification time (most recent first), with dates:
 
-\`\`\`
-${treeOutput}
-\`\`\``;
+${treeSection}`;
 }

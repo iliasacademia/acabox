@@ -27,7 +27,7 @@ export async function scanWorkspaceDirectory(
 ): Promise<void> {
   const {
     workspaceId,
-    directoryPath,
+    directoryPaths,
     memoryDir,
     apiKey,
     baseURL,
@@ -37,7 +37,7 @@ export async function scanWorkspaceDirectory(
   const reportId = randomUUID();
 
   log.info(
-    `[DirectoryScanner] Starting scan for workspace ${workspaceId} at ${directoryPath}`,
+    `[DirectoryScanner] Starting scan for workspace ${workspaceId} at [${directoryPaths.join(', ')}]`,
   );
 
   const claudeBinaryPath = resolveClaudeBinary();
@@ -50,13 +50,19 @@ export async function scanWorkspaceDirectory(
   createReport(reportId, workspaceId, "directory_scan");
   updateReportStatus(reportId, "running");
 
+  const treeOutputs = directoryPaths.map((dp) => ({
+    directoryPath: dp,
+    tree: generateDirectoryTree(dp),
+  }));
+
   const ctx: ScanContext = {
     claudeBinaryPath,
-    directoryPath,
+    cwd: params.cwd,
+    directoryPaths,
     apiKey,
     baseURL,
     abortController: new AbortController(),
-    treeOutput: generateDirectoryTree(directoryPath),
+    treeOutputs,
     workspaceId,
     reportId,
     memoryDir,

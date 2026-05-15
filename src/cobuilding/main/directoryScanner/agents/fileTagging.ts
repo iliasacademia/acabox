@@ -1,5 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import * as path from "path";
+import * as fs from "fs/promises";
 import log from "electron-log";
 import Anthropic from "@anthropic-ai/sdk";
 import { upsertScannedFiles } from "../../db/scannedFilesRepository";
@@ -9,8 +10,10 @@ import {
   SYSTEM_PROMPT_PREAMBLE,
   buildCommonQueryOptions,
   consumeAgentStream,
+  formatTreesForPrompt,
   type ScanContext,
   type TaggedFileParsed,
+  type TreeOutput,
 } from "../shared";
 
 interface ManuscriptCandidate {
@@ -29,7 +32,7 @@ export async function runFileTaggingAgent(
   log.info("[DirectoryScanner:FileTagging] Starting file tagging agent");
 
   const agentQuery = query({
-    prompt: buildPrompt(ctx.directoryPath, ctx.treeOutput),
+    prompt: buildPrompt(ctx.directoryPaths, ctx.treeOutputs),
     options: {
       ...buildCommonQueryOptions(ctx),
       model: "claude-haiku-4-5-20251001",
@@ -160,22 +163,62 @@ Cast a wide net for manuscripts, grants, and presentations. For references, be s
 You can largely identify files from the directory tree — use file extensions and directory names. Only use Read/Grep on ambiguous files where you need to check content to determine the type.`;
 }
 
-function buildPrompt(directoryPath: string, treeOutput: string): string {
-  return `Identify and tag all manuscript, grant, presentation, and reference files in this research directory.
+function buildPrompt(directoryPaths: string[], treeOutputs: TreeOutput[]): string {
+  const multi = directoryPaths.length > 1;
+  const dirDescription = multi
+    ? `The directories to analyze are:\n${directoryPaths.map((dp, i) => `${i + 1}. ${dp}`).join("\n")}`
+    : `The directory to analyze is: ${directoryPaths[0]}`;
 
-The directory to analyze is the current working directory: ${directoryPath}
+  const treeSection = multi
+    ? formatTreesForPrompt(treeOutputs)
+    : `\`\`\`\n${treeOutputs[0].tree}\n\`\`\``;
 
-Use the directory tree below to identify files. You can determine most file types from extensions and directory names alone. Only read files when you need to disambiguate.
+  return `Identify and tag all manuscript, grant, presentation, and reference files in ${multi ? "these research directories" : "this research directory"}.
+
+${dirDescription}
+
+Use the directory ${multi ? "trees" : "tree"} below to identify files. You can determine most file types from extensions and directory names alone. Only read files when you need to disambiguate.
 
 Work as quickly as possible.
 
-## Directory tree
+## Directory ${multi ? "trees" : "tree"}
 
 All non-hidden files in the workspace, sorted by modification time (most recent first), with dates:
 
-\`\`\`
-${treeOutput}
-\`\`\``;
+${treeSection}`;
+}
+
+function isWithinAllowedDirs(resolved: string, directoryPaths: string[]): boolean {
+  return directoryPaths.some((dp) => {
+    const root = path.resolve(dp);
+    return resolved === root || resolved.startsWith(root + path.sep);
+  });
+}
+
+async function resolveFilePath(filePath: string, directoryPaths: string[]): Promise<string> {
+  const candidates: string[] = [];
+
+  if (path.isAbsolute(filePath)) {
+    candidates.push(path.resolve(filePath));
+  } else {
+    for (const dp of directoryPaths) {
+      candidates.push(path.resolve(dp, filePath));
+      // tree-node-cli includes the directory basename as the tree root,
+      // so the agent may return paths like "DemoWorkspace/file.docx" —
+      // strip the prefix to avoid doubling when joined with the full path.
+      const basename = path.basename(dp);
+      if (filePath.startsWith(basename + '/')) {
+        candidates.push(path.resolve(dp, filePath.slice(basename.length + 1)));
+      }
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (!isWithinAllowedDirs(candidate, directoryPaths)) continue;
+    try { await fs.access(candidate); return candidate; } catch {}
+  }
+
+  return path.resolve(directoryPaths[0], filePath);
 }
 
 const WRITING_AGENT_KICKOFF_PROMPT =
@@ -191,7 +234,7 @@ async function enrichManuscripts(
 
   for (const { filePath, scannerDescription } of manuscripts) {
     try {
-      const absolutePath = path.join(ctx.directoryPath, filePath);
+      const absolutePath = await resolveFilePath(filePath, ctx.directoryPaths);
       const fullText = await extractText(absolutePath);
       const excerpt = fullText ? fullText.slice(0, 2000) : "";
 

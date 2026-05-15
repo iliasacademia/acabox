@@ -43,7 +43,7 @@ interface FilesAPI {
 
 interface WorkspacesAPI {
   getActive(): Promise<Workspace | null>;
-  create(data: { name: string; directoryPath: string }): Promise<Workspace>;
+  create(data: { name: string; directoryPaths: string[] }): Promise<Workspace>;
   selectDirectory(): Promise<string | undefined>;
   listDirectories(): Promise<WorkspaceDirectory[]>;
 }
@@ -220,7 +220,7 @@ declare global {
 
   interface WorkspacesAPI {
     getActive(): Promise<Workspace | null>;
-    create(data: { name: string; directoryPath: string }): Promise<Workspace>;
+    create(data: { name: string; directoryPaths: string[] }): Promise<Workspace>;
     selectDirectory(): Promise<string | undefined>;
     listDirectories(): Promise<WorkspaceDirectory[]>;
   }

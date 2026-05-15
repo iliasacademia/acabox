@@ -8,6 +8,9 @@
 
 export const WORKSPACE_DATA_DIR = 'workspace-data';
 
+// Arbitrary upper bound on user directories per workspace.
+export const MAX_WORKSPACE_DIRECTORIES = 10;
+
 export const ACADEMIA_DIR = '.academia';
 export const APPLICATIONS_DIR = '.applications';
 export const CLAUDE_DIR = '.claude';

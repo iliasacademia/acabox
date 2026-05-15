@@ -37,8 +37,15 @@ contextBridge.exposeInMainWorld('authAPI', {
 
 contextBridge.exposeInMainWorld('workspacesAPI', {
   getActive: () => ipcRenderer.invoke('workspaces:getActive'),
-  create: (data: { name: string; directoryPath: string }) =>
-    ipcRenderer.invoke('workspaces:create', data),
+  create: (data: { name: string; directoryPaths: string[] }) => {
+    if (!data || typeof data.name !== 'string' || !Array.isArray(data.directoryPaths)) {
+      throw new Error('Invalid workspace creation data');
+    }
+    if (data.directoryPaths.some(p => typeof p !== 'string' || !p.trim())) {
+      throw new Error('Invalid directory paths provided');
+    }
+    return ipcRenderer.invoke('workspaces:create', data);
+  },
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
   listDirectories: () => ipcRenderer.invoke('workspaces:listDirectories'),
 });
