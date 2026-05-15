@@ -50,12 +50,28 @@ const CORE_BASE_IMAGE = 'cobuilding-base-core:local';
 const IMAGE_NAME = 'cobuilding-container';
 const CONTAINER_NAME = 'cobuilding-container';
 
-function useLocalImage(): boolean {
-  return process.env.COBUILDING_LOCAL_IMAGE === '1';
+export function useLocalImage(): boolean {
+  return process.env.COBUILDING_REGISTRY_IMAGE !== '1';
 }
 
-function getImageTier(): 'core' | 'full' {
-  return process.env.COBUILDING_IMAGE_TIER === 'core' ? 'core' : 'full';
+export function getImageTier(): 'core' | 'full' {
+  if (process.env.COBUILDING_IMAGE_TIER === 'full') return 'full';
+  if (process.env.COBUILDING_IMAGE_TIER === 'core') return 'core';
+  try {
+    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
+    if (data.imageTier === 'full') return 'full';
+  } catch { /* file doesn't exist yet */ }
+  return 'core';
+}
+
+export function writeImageTier(tier: 'core' | 'full'): void {
+  const settingsPath = getSettingsPath();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch { /* file doesn't exist yet */ }
+  data.imageTier = tier;
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
 type BinaryMode = 'system' | 'bundled';
@@ -1173,7 +1189,7 @@ class CobuildingContainerService {
   }
 
   private getBaseImageRef(): string {
-    if (readImageSource() !== 'registry') return LOCAL_BASE_IMAGE;
+    if (readImageSource() === 'local') return LOCAL_BASE_IMAGE;
     if (useLocalImage()) {
       return getImageTier() === 'core' ? CORE_BASE_IMAGE : GHCR_BASE_IMAGE;
     }
@@ -1614,15 +1630,15 @@ class CobuildingContainerService {
     }
   }
 
-  /** Ensure the base image is available (pull from registry, load from tar, or build locally). */
+  /** Ensure the base image is available (load from tar, pull from registry, or build locally). */
   private async ensureBaseImage(podmanBin: string, onProgress?: ProgressCallback): Promise<void> {
     const imageSource = readImageSource();
     if (imageSource === 'local') {
       await this.buildBaseImageLocally(podmanBin, onProgress);
-    } else if (useLocalImage()) {
-      await this.ensureBaseImageLoaded(podmanBin, onProgress);
-    } else {
+    } else if (!useLocalImage()) {
       await this.ensureBaseImagePulled(podmanBin, onProgress);
+    } else {
+      await this.ensureBaseImageLoaded(podmanBin, onProgress);
     }
   }
 
