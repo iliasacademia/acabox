@@ -1259,7 +1259,7 @@ class CobuildingContainerService {
     // reads the machine config (which has the correct port) but the CLI
     // connects via the connection config (podman-connections.json) which
     // can have a stale SSH port after restarts or upgrades.
-    const socketReady = await this.waitForSocket(podmanBin, env, running ? 3 : 10, 2000);
+    const socketReady = await this.waitForSocket(podmanBin, env, running ? 8 : 15, 3000);
 
     if (!socketReady) {
       log.warn('[ContainerService] Podman socket unresponsive, restarting machine to refresh connection config...');
@@ -1274,7 +1274,7 @@ class CobuildingContainerService {
       onProgress?.('start-machine', 'Restarting Podman VM...');
       await this.startMachineIdempotent(podmanBin, env);
 
-      const readyAfterRestart = await this.waitForSocket(podmanBin, env, 10, 2000);
+      const readyAfterRestart = await this.waitForSocket(podmanBin, env, 15, 3000);
       if (!readyAfterRestart) {
         throw new Error(
           'Podman VM started but API socket is not responding. ' +
