@@ -587,8 +587,12 @@ app.whenReady().then(async () => {
       containerService.writeStartContainerScript(workspaceController.mountMap);
     }
 
-    registerDownloadManagerIpc();
-    await showDownloadManagerIfNeeded(createMainWindow);
+    if (!isSmokeTest) {
+      registerDownloadManagerIpc();
+      await showDownloadManagerIfNeeded(createMainWindow);
+    } else {
+      createMainWindow();
+    }
 
     registerFileHandlers(() => workspaceController.allAllowedPaths, () => mainWindow);
     initFileMonitor(() => workspaceController.workspacePath);
