@@ -54,7 +54,7 @@ export async function runFileTaggingAgent(
     `[DirectoryScanner:FileTagging] Completed in ${seconds}s (${tagged_files.length} tagged files)`,
   );
 
-  const autoTagged = await autoTagReferencePdfs(tagged_files, ctx.directoryPath);
+  const autoTagged = await autoTagReferencePdfs(tagged_files, ctx);
   const allFiles = [...tagged_files, ...autoTagged];
 
   persistTaggedFiles(allFiles, ctx.workspaceId, ctx.reportId, ctx.directoryPath);
@@ -90,8 +90,9 @@ async function findAllPdfs(dirPath: string): Promise<string[]> {
 
 async function autoTagReferencePdfs(
   taggedFiles: TaggedFileParsed[],
-  scanDir: string,
+  ctx: ScanContext,
 ): Promise<TaggedFileParsed[]> {
+  const scanDir = ctx.directoryPath;
   const taggedPaths = new Set(
     taggedFiles.map((f) =>
       normalizeFilePath(getFilePath(f) ?? "", scanDir),
@@ -106,28 +107,51 @@ async function autoTagReferencePdfs(
     `[DirectoryScanner:AutoTag] Inspecting ${untagged.length} untagged PDFs`,
   );
 
+  const client = new Anthropic({ apiKey: ctx.apiKey, baseURL: ctx.baseURL });
   const results: TaggedFileParsed[] = [];
   for (const relPath of untagged) {
     try {
       const absolutePath = path.join(scanDir, relPath);
       const text = await extractText(absolutePath);
-      if (text && text.length >= MIN_TEXT_LENGTH_FOR_REFERENCE) {
+      if (!text || text.length < MIN_TEXT_LENGTH_FOR_REFERENCE) continue;
+
+      const excerpt = text.slice(0, 1500);
+      const message = await client.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 10,
+        messages: [
+          {
+            role: "user",
+            content: `Is this a published academic research paper, journal article, or preprint? Answer only YES or NO.
+
+Not research papers: grant applications, cover letters, letters of support, biosketches, budgets, presentations, reports, memos, forms, CVs, charts, or any administrative document.
+
+Filename: ${relPath.split("/").pop()}
+
+Text excerpt:
+${excerpt}`,
+          },
+        ],
+      });
+
+      const block = message.content[0] as { type: string; text?: string };
+      const answer = block?.type === "text" ? block.text?.trim().toUpperCase() : "";
+      if (answer?.startsWith("YES")) {
         results.push({
           file_path: relPath,
           file_name: relPath.split("/").pop() ?? relPath,
           file_type: "reference",
         } as any);
+        log.info(`[DirectoryScanner:AutoTag] ${relPath} → reference`);
       }
     } catch {
-      // skip files that can't be read
+      // skip files that can't be read or classified
     }
   }
 
-  if (results.length > 0) {
-    log.info(
-      `[DirectoryScanner:AutoTag] Tagged ${results.length}/${untagged.length} PDFs as references (≥${MIN_TEXT_LENGTH_FOR_REFERENCE} chars of text)`,
-    );
-  }
+  log.info(
+    `[DirectoryScanner:AutoTag] Tagged ${results.length}/${untagged.length} untagged PDFs as references`,
+  );
   return results;
 }
 
