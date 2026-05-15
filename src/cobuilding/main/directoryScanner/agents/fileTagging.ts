@@ -387,7 +387,7 @@ async function enrichManuscripts(
 
   for (const { filePath, scannerDescription } of manuscripts) {
     try {
-      const absolutePath = resolveSourcePath(ctx.directoryPath, filePath);
+      const absolutePath = path.join(ctx.directoryPath, filePath);
       const fullText = await extractText(absolutePath);
       const excerpt = fullText ? fullText.slice(0, 2000) : "";
 
