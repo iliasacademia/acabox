@@ -1302,7 +1302,7 @@ ipcMain.handle('scannedFiles:getAll', async () => {
 
   let refIndex: Record<string, string> = {};
   try {
-    const indexPath = path.join(activeWorkspace.directory_path, REFERENCES_SUBDIR, REFERENCES_INDEX);
+    const indexPath = path.join(workspaceController.workspacePath, REFERENCES_SUBDIR, REFERENCES_INDEX);
     const raw = await fsPromises.readFile(indexPath, 'utf-8');
     refIndex = JSON.parse(raw);
   } catch { /* no index yet */ }
@@ -1663,7 +1663,7 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
 
           let refIndex: Record<string, string> = {};
           try {
-            const indexPath = path.join(workspace.directory_path, REFERENCES_SUBDIR, REFERENCES_INDEX);
+            const indexPath = path.join(workspaceController.workspacePath, REFERENCES_SUBDIR, REFERENCES_INDEX);
             const raw = await fsPromises.readFile(indexPath, 'utf-8');
             refIndex = JSON.parse(raw);
           } catch { /* no index yet */ }

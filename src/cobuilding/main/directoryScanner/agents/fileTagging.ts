@@ -6,7 +6,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { upsertScannedFiles } from "../../db/scannedFilesRepository";
 import { createBriefing } from "../../db/briefingsRepository";
 import { extractText } from "../../fileMonitor/textExtractor";
-import { REFERENCES_SUBDIR, REFERENCES_INDEX } from "../../../shared/paths";
+import { REFERENCES_DIR, REFERENCES_INDEX } from "../../../shared/paths";
 import {
   SYSTEM_PROMPT_PREAMBLE,
   buildCommonQueryOptions,
@@ -219,7 +219,10 @@ async function enrichReferences(
 ): Promise<void> {
   if (filePaths.length === 0) return;
 
-  const refsDir = path.join(ctx.directoryPath, REFERENCES_SUBDIR);
+  // memoryDir = workspacePath/.academia/agent-memory
+  // references go in the workspace root's .academia, not inside the user folder
+  const academiaDir = path.dirname(ctx.memoryDir);
+  const refsDir = path.join(academiaDir, REFERENCES_DIR);
   await fs.promises.mkdir(refsDir, { recursive: true });
 
   const indexPath = path.join(refsDir, REFERENCES_INDEX);
