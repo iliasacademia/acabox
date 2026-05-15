@@ -16,6 +16,7 @@ import { registerSession, unregisterSession, getRegisteredSession, hasSession, d
 import type { IPCAttachment } from '../shared/types';
 import { provisionWorkspace } from './skills';
 import { containerService, skipImageBuild } from './containerService';
+import { showDownloadManagerIfNeeded, registerDownloadManagerIpc } from './downloadManager';
 import { processCpuMonitor } from '../../utils/processCpuMonitor';
 import { getAllPodmanDataPaths } from './podmanBinaries';
 import { ensureClaudeBinaryReady } from './sdkBinarySetup';
@@ -584,7 +585,12 @@ app.whenReady().then(async () => {
       containerService.writeStartContainerScript(workspaceController.mountMap);
     }
 
-    createMainWindow();
+    if (!isSmokeTest) {
+      registerDownloadManagerIpc();
+      await showDownloadManagerIfNeeded(createMainWindow);
+    } else {
+      createMainWindow();
+    }
 
     registerFileHandlers(() => workspaceController.allAllowedPaths, () => mainWindow);
     initFileMonitor(() => workspaceController.workspacePath);
