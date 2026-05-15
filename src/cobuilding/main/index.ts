@@ -1068,10 +1068,10 @@ app.whenReady().then(async () => {
                 `window.__COBUILDING_SERVER_URL__ = ${JSON.stringify(baseUrl)}; window.__COBUILDING_AUTH_TOKEN__ = ${JSON.stringify(authToken)};`
               );
             }
-            // Set workspace directory so the overlay knows which docs are in the workspace
+            // Set workspace directories so the overlay knows which docs are in the workspace
             const activeWorkspace = workspaceController.activeWorkspace;
             if (activeWorkspace) {
-              windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
+              windowMonitorService.setActiveWorkspaceDirectories(workspaceController.userDirectoryPaths);
               windowMonitorService.setSessionsProvider(({ documentPath, documentPathLike }) => {
                 if (!activeWorkspace) return [];
                 const rows = documentPathLike !== undefined
@@ -1146,10 +1146,10 @@ ipcMain.handle(
       const scheduler = getTaskScheduler();
       scheduler?.stop();
       scheduler?.start();
-      // Tell the Word overlay about the freshly-created workspace so it
-      // recognizes docs inside it (otherwise the overlay falls through to
-      // the legacy "Not linked to a project" view on first onboarding).
-      windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
+      // Tell the overlay about the workspace directories so it recognizes
+      // docs inside them (otherwise it falls through to the legacy
+      // "Not linked to a project" view on first onboarding).
+      windowMonitorService.setActiveWorkspaceDirectories(workspaceController.userDirectoryPaths);
       windowMonitorService.setSessionsProvider(({ documentPath, documentPathLike }) => {
         if (!activeWorkspace) return [];
         const rows = documentPathLike !== undefined
@@ -1337,6 +1337,9 @@ ipcMain.handle('scanner:start', async () => {
     scannerRunning = false;
   });
 });
+
+// (Agent Server & MCP Management extracted to AgentInfrastructureController)
+// ────────────────────────────────────────────────────────────────────────────
 
 // Container IPC handlers
 ipcMain.handle('container:start', async () => {
@@ -2730,7 +2733,7 @@ ipcMain.handle(IPC_CHANNELS.OVERLAY_ENSURE_READY, async () => {
     windowMonitorService.start(cobuildingHttpBaseUrl, cobuildingHttpAuthToken, false);
     const activeWorkspace = workspaceController.activeWorkspace;
     if (activeWorkspace) {
-      windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
+      windowMonitorService.setActiveWorkspaceDirectories(workspaceController.userDirectoryPaths);
       windowMonitorService.setSessionsProvider(({ documentPath, documentPathLike }) => {
         if (!activeWorkspace) return [];
         const rows = documentPathLike !== undefined

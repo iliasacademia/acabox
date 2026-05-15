@@ -121,7 +121,8 @@ export async function registerFileDialogRoutes(fastify: FastifyInstance): Promis
 
     // Get workspace path from the app's window monitor service
     const { windowMonitorService } = require('../../windowMonitorService');
-    const workspacePath = windowMonitorService.getActiveWorkspaceDirectory();
+    const workspaceDirs = windowMonitorService.getActiveWorkspaceDirectories();
+    const workspacePath = workspaceDirs[0];
     if (!workspacePath) {
       return reply.code(400).send({ error: 'No active workspace' });
     }

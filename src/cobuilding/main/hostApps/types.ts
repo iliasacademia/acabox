@@ -51,7 +51,7 @@ export interface HostApp {
    * Obsidian: parses window title against the workspace dir.
    * Return null when no active document can be resolved.
    */
-  resolveDocumentPath(window: WindowState, workspaceDir: string | null): string | null;
+  resolveDocumentPath(window: WindowState, workspaceDirs: string[]): string | null;
 
   /** Identifier used as the key when registering the MCP server with the SDK. */
   mcpServerKey: string;
