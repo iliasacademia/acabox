@@ -1666,16 +1666,20 @@ class CobuildingContainerService {
     const pipCache = path.join(cacheDir, 'pip');
     const pipSite = path.join(cacheDir, 'pip-site');
     const npmCache = path.join(cacheDir, 'npm');
+    const npmSite = path.join(cacheDir, 'npm-site');
     const rLibs = path.join(cacheDir, 'r');
     fs.mkdirSync(pipCache, { recursive: true });
     fs.mkdirSync(pipSite, { recursive: true });
     fs.mkdirSync(npmCache, { recursive: true });
+    fs.mkdirSync(npmSite, { recursive: true });
     fs.mkdirSync(rLibs, { recursive: true });
     this.invalidatePipSiteIfImageChanged(pipSite);
     const cacheVolumes = [
       '-v', `${toMountPath(pipCache)}:/root/.cache/pip`,
       '-v', `${toMountPath(pipSite)}:/opt/pip-site`,
       '-v', `${toMountPath(npmCache)}:/root/.npm`,
+      '-v', `${toMountPath(npmSite)}:/opt/npm-site`,
+      '-e', 'NODE_PATH=/opt/npm-site/lib/node_modules',
       '-v', `${toMountPath(rLibs)}:/opt/r-user-library`,
       '-e', 'R_LIBS_USER=/opt/r-user-library',
     ];

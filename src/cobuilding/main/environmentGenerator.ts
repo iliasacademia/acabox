@@ -85,7 +85,7 @@ export function getInstallSteps(appsDir: string, dirName: string): InstallStep[]
     steps.push({
       registry: 'npm',
       packages: npmPkgs,
-      command: ['npm', 'install', '-g', ...npmPkgs],
+      command: ['npm', 'install', '-g', '--prefix', '/opt/npm-site', ...npmPkgs],
     });
   }
 
