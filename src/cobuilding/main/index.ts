@@ -97,7 +97,7 @@ import { windowMonitorService } from '../../windowMonitorService';
 import { wordAccessibility } from '../../native/wordAccessibility';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
 import { validateExternalUrl } from '../../utils/urlValidation';
-import { ACADEMIA_DIR, AGENT_MEMORY_SUBDIR } from '../shared/paths';
+import { ACADEMIA_DIR, AGENT_MEMORY_SUBDIR, REFERENCES_SUBDIR, REFERENCES_INDEX } from '../shared/paths';
 const isSmokeTest = process.argv.includes('--smoke-test');
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
@@ -1295,10 +1295,24 @@ ipcMain.handle('scannedFiles:getByType', (_event, fileType: string) => {
   return getScannedFilesByType(activeWorkspace.id, fileType);
 });
 
-ipcMain.handle('scannedFiles:getAll', () => {
+ipcMain.handle('scannedFiles:getAll', async () => {
   const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return [];
-  return getScannedFiles(activeWorkspace.id);
+  const files = getScannedFiles(activeWorkspace.id);
+
+  let refIndex: Record<string, string> = {};
+  try {
+    const indexPath = path.join(activeWorkspace.directory_path, REFERENCES_SUBDIR, REFERENCES_INDEX);
+    const raw = await fsPromises.readFile(indexPath, 'utf-8');
+    refIndex = JSON.parse(raw);
+  } catch { /* no index yet */ }
+
+  return files.map((f) => ({
+    ...f,
+    ...(f.file_type === 'reference' && refIndex[f.file_path]
+      ? { markdown_path: `${REFERENCES_SUBDIR}/${refIndex[f.file_path]}` }
+      : {}),
+  }));
 });
 
 ipcMain.handle(
@@ -1646,9 +1660,21 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
           const files = args.file_type
             ? getScannedFilesByType(workspace.id, args.file_type)
             : getScannedFiles(workspace.id);
-          const cleaned = files.map(({ file_path, file_name, file_type }: { file_path: string; file_name: string; file_type: string }) => ({
-            file_path, file_name, file_type,
-          }));
+
+          let refIndex: Record<string, string> = {};
+          try {
+            const indexPath = path.join(workspace.directory_path, REFERENCES_SUBDIR, REFERENCES_INDEX);
+            const raw = await fsPromises.readFile(indexPath, 'utf-8');
+            refIndex = JSON.parse(raw);
+          } catch { /* no index yet */ }
+
+          const cleaned = files.map(({ file_path, file_name, file_type }: { file_path: string; file_name: string; file_type: string }) => {
+            const entry: Record<string, string> = { file_path, file_name, file_type };
+            if (file_type === 'reference' && refIndex[file_path]) {
+              entry.markdown_path = `${REFERENCES_SUBDIR}/${refIndex[file_path]}`;
+            }
+            return entry;
+          });
           return ok(JSON.stringify({ files: cleaned, count: cleaned.length }));
         } catch (err: any) {
           return fail(`Failed to get scanned files: ${err.message}`);
