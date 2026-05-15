@@ -92,29 +92,23 @@ interface ContainerAPI {
   setBinaryMode(mode: 'system' | 'bundled'): Promise<void>;
   getImageSource(): Promise<'registry' | 'local'>;
   setImageSource(source: 'registry' | 'local'): Promise<void>;
-  getSkipImageBuild(): Promise<boolean>;
-  setSkipImageBuild(skip: boolean): Promise<void>;
   quitApp(): Promise<void>;
   relaunchApp(): Promise<void>;
   getBundledStatus(): Promise<{ downloaded: boolean; binDir: string }>;
   downloadBinaries(): Promise<void>;
   deleteBinaries(): Promise<void>;
-  deleteImage(): Promise<void>;
   downloadImage(): Promise<void>;
   getName(): Promise<string>;
-  isImageBuilt(): Promise<boolean>;
   isBaseImageDownloaded(): Promise<boolean>;
   ensureSetup(): Promise<void>;
   getEnvironmentInfo(): Promise<EnvironmentInfoPayload | null>;
   appDepsReady(dirName: string): Promise<boolean>;
   ensureAppDeps(dirName: string): Promise<{ installed: string[] }>;
   getAppInstallRequests(dirName: string): Promise<Array<{ registry: PackageRegistry; packages: string[] }>>;
-  rebuildEnvironment(): Promise<void>;
   onSetupProgress(callback: (progress: { stage: string; message: string }) => void): () => void;
   onProgress(callback: (progress: { stage: string; message: string }) => void): () => void;
   onPackageState(callback: (e: { registry: PackageRegistry; package: string; state: PackageState }) => void): () => void;
   onPackageLine(callback: (e: { registry: PackageRegistry; package: string; line: string }) => void): () => void;
-  onBackgroundBuild(callback: (progress: { stage: string; message: string; percent?: number }) => void): () => void;
 }
 
 interface AuthAPI {
@@ -154,11 +148,6 @@ declare global {
   type PackageState = 'queued' | 'installing' | 'installed' | 'failed';
 
   interface EnvironmentInfoPayload {
-    imageType: 'base' | 'user';
-    imageHash: string | null;
-    environmentHash: string | null;
-    inSync: boolean;
-    backgroundBuildState: 'idle' | 'building' | 'building-pending';
     packageStates: Record<PackageRegistry, Record<string, PackageState>>;
     packageLines: Record<PackageRegistry, Record<string, string>>;
     totalPip: string[];
@@ -276,8 +265,6 @@ declare global {
     setBinaryMode(mode: 'system' | 'bundled'): Promise<void>;
     getImageSource(): Promise<'registry' | 'local'>;
     setImageSource(source: 'registry' | 'local'): Promise<void>;
-    getSkipImageBuild(): Promise<boolean>;
-    setSkipImageBuild(skip: boolean): Promise<void>;
     quitApp(): Promise<void>;
     relaunchApp(): Promise<void>;
     getMemoryLimit(): Promise<'2g' | '4g' | '6g' | '8g'>;
@@ -285,22 +272,18 @@ declare global {
     getBundledStatus(): Promise<{ downloaded: boolean; binDir: string }>;
     downloadBinaries(): Promise<void>;
     deleteBinaries(): Promise<void>;
-    deleteImage(): Promise<void>;
     downloadImage(): Promise<void>;
     getName(): Promise<string>;
-    isImageBuilt(): Promise<boolean>;
     isBaseImageDownloaded(): Promise<boolean>;
     ensureSetup(): Promise<void>;
     getEnvironmentInfo(): Promise<EnvironmentInfoPayload | null>;
     appDepsReady(dirName: string): Promise<boolean>;
     ensureAppDeps(dirName: string): Promise<{ installed: string[] }>;
     getAppInstallRequests(dirName: string): Promise<Array<{ registry: PackageRegistry; packages: string[] }>>;
-    rebuildEnvironment(): Promise<void>;
     onSetupProgress(callback: (progress: { stage: string; message: string; percent?: number }) => void): () => void;
     onProgress(callback: (progress: { stage: string; message: string; percent?: number }) => void): () => void;
     onPackageState(callback: (e: { registry: PackageRegistry; package: string; state: PackageState }) => void): () => void;
     onPackageLine(callback: (e: { registry: PackageRegistry; package: string; line: string }) => void): () => void;
-    onBackgroundBuild(callback: (progress: { stage: string; message: string; percent?: number }) => void): () => void;
   }
 
   interface CommandLogEntry {

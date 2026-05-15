@@ -176,14 +176,6 @@ export function registerDebugHandlers() {
       r.ok ? ok('Podman config & data') : fail('Podman config & data', r.error!);
     }
 
-    // ── Container Image ──
-    if (set.has('container-image')) {
-      try {
-        await containerService.deleteImage();
-        ok('Container image');
-      } catch (e) { fail('Container image', (e as Error).message); }
-    }
-
     // ── Podman VM State ──
     if (set.has('podman-vm')) {
       try { containerService.stop(); } catch { /* ok */ }
