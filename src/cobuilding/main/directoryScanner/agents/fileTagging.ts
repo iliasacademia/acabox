@@ -54,25 +54,6 @@ export async function runFileTaggingAgent(
     `[DirectoryScanner:FileTagging] Completed in ${seconds}s (${tagged_files.length} tagged files)`,
   );
 
-  const allPdfs = await findAllPdfs(ctx.directoryPath);
-  const taggedPaths = new Set(
-    tagged_files.map((f) => normalizeFilePath(getFilePath(f) ?? "", ctx.directoryPath)),
-  );
-  let pdfCount = 0;
-  for (const pdfRelPath of allPdfs) {
-    if (!taggedPaths.has(pdfRelPath)) {
-      tagged_files.push({
-        file_path: pdfRelPath,
-        file_name: pdfRelPath.split("/").pop() ?? pdfRelPath,
-        file_type: "reference",
-      } as any);
-      pdfCount++;
-    }
-  }
-  if (pdfCount > 0) {
-    log.info(`[DirectoryScanner:FileTagging] Added ${pdfCount} untagged PDFs as references`);
-  }
-
   persistTaggedFiles(tagged_files, ctx.workspaceId, ctx.reportId, ctx.directoryPath);
   await enrichManuscripts(extractManuscriptCandidates(tagged_files), ctx);
   await enrichReferences(extractReferenceCandidates(tagged_files), ctx);
@@ -359,6 +340,14 @@ async function enrichReferences(
   filePaths: string[],
   ctx: ScanContext,
 ): Promise<void> {
+  const allPdfs = await findAllPdfs(ctx.directoryPath);
+  const taggedSet = new Set(filePaths);
+  for (const pdfRelPath of allPdfs) {
+    if (!taggedSet.has(pdfRelPath)) {
+      filePaths.push(pdfRelPath);
+    }
+  }
+
   if (filePaths.length === 0) return;
 
   const academiaDir = path.dirname(ctx.memoryDir);
@@ -369,7 +358,7 @@ async function enrichReferences(
   const client = new Anthropic({ apiKey: ctx.apiKey, baseURL: ctx.baseURL });
   const total = filePaths.length;
   log.info(
-    `[ReferenceConversion] Converting ${total} reference files to markdown`,
+    `[ReferenceConversion] Converting ${total} reference files (${allPdfs.length} PDFs found) to markdown`,
   );
 
   let converted = 0;
