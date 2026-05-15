@@ -192,12 +192,25 @@ log.transports.console.level = app.isPackaged ? false : 'debug';
 import { systemLogger } from './systemLogger';
 systemLogger.init();
 
+let _handlingFatalError = false;
 process.on('uncaughtException', (error) => {
-  log.error('[FATAL] Uncaught exception:', error);
+  if (_handlingFatalError) return;
+  _handlingFatalError = true;
+  try {
+    log.error('[FATAL] Uncaught exception:', error);
+  } finally {
+    _handlingFatalError = false;
+  }
 });
 
 process.on('unhandledRejection', (reason) => {
-  log.error('[FATAL] Unhandled rejection:', reason);
+  if (_handlingFatalError) return;
+  _handlingFatalError = true;
+  try {
+    log.error('[FATAL] Unhandled rejection:', reason);
+  } finally {
+    _handlingFatalError = false;
+  }
 });
 
 app.setName('Academia Coscientist');
@@ -1505,7 +1518,9 @@ ipcMain.handle('container:getEnvironmentInfo', async () => {
 const ensuredApps = new Set<string>();
 
 ipcMain.handle('container:appDepsReady', (_event, dirName: string) => {
-  return ensuredApps.has(dirName);
+  const ready = ensuredApps.has(dirName);
+  log.debug(`[appDepsReady] ${dirName}: ${ready}`);
+  return ready;
 });
 
 ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
@@ -1513,6 +1528,7 @@ ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
   if (!activeWorkspace) throw new Error('No active workspace');
   if (!containerService.isRunning()) throw new Error('Container is not running');
   if (ensuredApps.has(dirName)) {
+    log.debug(`[ensureAppDeps] ${dirName}: already ensured, skipping`);
     return { installed: [] };
   }
 
@@ -1523,11 +1539,14 @@ ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
   const ensureDepsAppsDir = path.join(workspaceController.workspacePath!, '.applications');
   const steps = getInstallSteps(ensureDepsAppsDir, dirName);
   if (steps.length === 0) {
+    log.debug(`[ensureAppDeps] ${dirName}: no install steps, marking ready`);
     ensuredApps.add(dirName);
     return { installed: [] };
   }
 
+  log.info(`[ensureAppDeps] ${dirName}: waiting for ${steps.length} install steps`);
   await packageInstaller.ensureDeps(installStepsToRequests(steps, dirName));
+  log.info(`[ensureAppDeps] ${dirName}: all deps installed, marking ready`);
   ensuredApps.add(dirName);
   return { installed: steps.map((s) => `${s.registry}: ${s.packages.length} packages`) };
 });
