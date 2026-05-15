@@ -60,30 +60,6 @@ export async function runFileTaggingAgent(
   return { taggedFiles: tagged_files };
 }
 
-async function findAllPdfs(dirPath: string): Promise<string[]> {
-  const results: string[] = [];
-  async function walk(dir: string): Promise<void> {
-    let entries;
-    try {
-      entries = await fs.promises.readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      if (entry.name.startsWith(".") || entry.name.startsWith("~$")) continue;
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await walk(fullPath);
-      } else if (entry.name.toLowerCase().endsWith(".pdf")) {
-        const relPath = fullPath.slice(dirPath.length + 1);
-        results.push(relPath);
-      }
-    }
-  }
-  await walk(dirPath);
-  return results;
-}
-
 function normalizeFilePath(filePath: string, scanDir: string): string {
   const withSlash = "/" + filePath;
   if (withSlash.startsWith(scanDir + "/")) {
@@ -340,14 +316,6 @@ async function enrichReferences(
   filePaths: string[],
   ctx: ScanContext,
 ): Promise<void> {
-  const allPdfs = await findAllPdfs(ctx.directoryPath);
-  const taggedSet = new Set(filePaths);
-  for (const pdfRelPath of allPdfs) {
-    if (!taggedSet.has(pdfRelPath)) {
-      filePaths.push(pdfRelPath);
-    }
-  }
-
   if (filePaths.length === 0) return;
 
   const academiaDir = path.dirname(ctx.memoryDir);
@@ -358,7 +326,7 @@ async function enrichReferences(
   const client = new Anthropic({ apiKey: ctx.apiKey, baseURL: ctx.baseURL });
   const total = filePaths.length;
   log.info(
-    `[ReferenceConversion] Converting ${total} reference files (${allPdfs.length} PDFs found) to markdown`,
+    `[ReferenceConversion] Converting ${total} reference files to markdown`,
   );
 
   let converted = 0;
