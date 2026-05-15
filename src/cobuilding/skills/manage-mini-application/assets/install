@@ -265,8 +265,8 @@ ensure_container
 case "$MANAGER" in
   pip)
     echo "install: pip install ${PACKAGES[*]} (in $CONTAINER)"
-    run_in_container /opt/venv/bin/pip install --no-input "${PACKAGES[@]}"
-    sync_to_jupyter /opt/venv/bin/pip install --no-input "${PACKAGES[@]}"
+    run_in_container /opt/venv/bin/pip install --no-input --target /opt/pip-site "${PACKAGES[@]}"
+    sync_to_jupyter /opt/venv/bin/pip install --no-input --target /opt/pip-site "${PACKAGES[@]}"
     record_pip "${PACKAGES[@]}"
     echo "install: recorded in $APP_DIR/requirements.txt"
     ;;

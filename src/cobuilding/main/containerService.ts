@@ -228,6 +228,7 @@ class CobuildingContainerService {
 
       log.debug('[ContainerService] Container started successfully');
       void this.logDiskUsage('post-start');
+      await this.bootstrapPipSite(podmanBin);
       onProgress?.('ready', 'Container ready');
     } catch (error) {
       log.error('[ContainerService] Error:', (error as Error).message);
@@ -1581,6 +1582,37 @@ class CobuildingContainerService {
 
   // ─── Container Lifecycle ──────────────────────────────────────
 
+  private async bootstrapPipSite(podmanBin: string): Promise<void> {
+    const env = this.getExecEnv();
+    const script =
+      'SITE=$(/opt/venv/bin/python3 -c "import sysconfig;print(sysconfig.get_path(\'purelib\'))") && ' +
+      'echo /opt/pip-site > "$SITE/pip-site.pth"';
+    try {
+      await this.execAsync(podmanBin, ['exec', CONTAINER_NAME, 'sh', '-c', script], env);
+      log.debug('[ContainerService] pip-site .pth file created');
+    } catch (err) {
+      log.warn('[ContainerService] pip-site bootstrap failed:', (err as Error).message);
+    }
+  }
+
+  private invalidatePipSiteIfImageChanged(pipSiteDir: string): void {
+    const settingsPath = getSettingsPath();
+    let data: Record<string, unknown> = {};
+    try { data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch { /* */ }
+    const tier = getImageTier();
+    const currentVersion = (data.loadedImageVersion as Record<string, string> | undefined)?.[tier] ?? null;
+    const cachedFor = (data as any).pipSiteImageVersion ?? null;
+    if (cachedFor && cachedFor !== currentVersion) {
+      log.info(`[ContainerService] Image changed (${cachedFor} → ${currentVersion}), clearing pip-site cache`);
+      fs.rmSync(pipSiteDir, { recursive: true, force: true });
+      fs.mkdirSync(pipSiteDir, { recursive: true });
+    }
+    if (currentVersion) {
+      data.pipSiteImageVersion = currentVersion;
+      fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+    }
+  }
+
   private async removeStaleContainer(podmanBin: string): Promise<void> {
     const env = this.getExecEnv();
 
@@ -1632,13 +1664,17 @@ class CobuildingContainerService {
 
     const cacheDir = path.join(app.getPath('userData'), 'pkg-cache');
     const pipCache = path.join(cacheDir, 'pip');
+    const pipSite = path.join(cacheDir, 'pip-site');
     const npmCache = path.join(cacheDir, 'npm');
     const rLibs = path.join(cacheDir, 'r');
     fs.mkdirSync(pipCache, { recursive: true });
+    fs.mkdirSync(pipSite, { recursive: true });
     fs.mkdirSync(npmCache, { recursive: true });
     fs.mkdirSync(rLibs, { recursive: true });
+    this.invalidatePipSiteIfImageChanged(pipSite);
     const cacheVolumes = [
       '-v', `${toMountPath(pipCache)}:/root/.cache/pip`,
+      '-v', `${toMountPath(pipSite)}:/opt/pip-site`,
       '-v', `${toMountPath(npmCache)}:/root/.npm`,
       '-v', `${toMountPath(rLibs)}:/opt/r-user-library`,
       '-e', 'R_LIBS_USER=/opt/r-user-library',

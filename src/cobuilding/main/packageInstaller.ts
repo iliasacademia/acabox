@@ -316,7 +316,7 @@ class PackageInstaller extends EventEmitter {
         return [
           'sh', '-c',
           'PIP=$(command -v /opt/venv/bin/pip || command -v pip3 || echo pip) && '
-            + 'exec $PIP install --no-input ' + packages.join(' '),
+            + 'exec $PIP install --no-input --target /opt/pip-site ' + packages.join(' '),
         ];
       case 'npm':
         return ['npm', 'install', '-g', ...packages];

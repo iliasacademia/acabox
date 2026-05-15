@@ -76,7 +76,7 @@ export function getInstallSteps(appsDir: string, dirName: string): InstallStep[]
     steps.push({
       registry: 'pip',
       packages: deps.pipPackages,
-      command: ['sh', '-c', 'PIP=$(command -v /opt/venv/bin/pip || command -v pip3 || echo pip) && exec $PIP install --no-input ' + deps.pipPackages.join(' ')],
+      command: ['sh', '-c', 'PIP=$(command -v /opt/venv/bin/pip || command -v pip3 || echo pip) && exec $PIP install --no-input --target /opt/pip-site ' + deps.pipPackages.join(' ')],
     });
   }
 
