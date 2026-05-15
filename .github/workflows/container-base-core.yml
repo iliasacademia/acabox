@@ -1,26 +1,42 @@
-name: Build & Upload Core Image Tar
+name: Build & Upload Image Tars
 
 on:
   push:
     branches: [cobuild, melvyn/image-download, melvyn/image-download-2]
     paths:
       - 'src/cobuilding/Dockerfile.base-core'
+      - 'src/cobuilding/Dockerfile.base'
       - '.github/workflows/container-base-core.yml'
   workflow_dispatch:
+    inputs:
+      tier:
+        description: 'Which image tier to build'
+        required: false
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - core
+          - full
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
-  group: container-base-core-${{ github.ref }}
+  group: container-image-tars-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  IMAGE_NAME: cobuilding-base-core
+  REGISTRY: ghcr.io
+  FULL_IMAGE: academia-edu/cobuilding-base
+  CORE_IMAGE: cobuilding-base-core
 
 jobs:
-  build-and-upload:
-    name: Build ${{ matrix.arch }}
+  # ─── Core: build from Dockerfile ───────────────────────────────
+  build-core:
+    name: Core ${{ matrix.arch }}
+    if: ${{ inputs.tier == '' || inputs.tier == 'both' || inputs.tier == 'core' }}
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -53,37 +69,32 @@ jobs:
           file: src/cobuilding/Dockerfile.base-core
           push: false
           load: true
-          tags: ${{ env.IMAGE_NAME }}:local
+          tags: ${{ env.CORE_IMAGE }}:local
           platforms: ${{ matrix.platform }}
           cache-from: type=gha,scope=core-${{ matrix.arch }}
           cache-to: type=gha,scope=core-${{ matrix.arch }},mode=max
 
-      - name: Save and compress image tar
+      - name: Save and compress
+        id: compress
         run: |
-          FILENAME="${IMAGE_NAME}-${{ matrix.arch }}.tar"
+          FILENAME="${CORE_IMAGE}-${{ matrix.arch }}.tar"
 
           echo "Saving image to tar..."
-          docker save ${IMAGE_NAME}:local -o "${FILENAME}"
-          TAR_SIZE=$(du -h "${FILENAME}" | cut -f1)
-          echo "Tar size: ${TAR_SIZE}"
+          docker save ${CORE_IMAGE}:local -o "${FILENAME}"
+          echo "Tar size: $(du -h "${FILENAME}" | cut -f1)"
 
           echo "Compressing with gzip..."
           gzip -1 -k "${FILENAME}"
-          GZ_SIZE=$(du -h "${FILENAME}.gz" | cut -f1)
-          echo "Compressed size: ${GZ_SIZE}"
+          echo "Compressed size: $(du -h "${FILENAME}.gz" | cut -f1)"
 
           CHECKSUM=$(sha256sum "${FILENAME}.gz" | cut -d' ' -f1)
-          echo "Checksum: ${CHECKSUM}"
-
           SIZE_BYTES=$(stat --format=%s "${FILENAME}.gz")
-          echo "Size bytes: ${SIZE_BYTES}"
 
           echo "checksum=${CHECKSUM}" >> $GITHUB_OUTPUT
           echo "size=${SIZE_BYTES}" >> $GITHUB_OUTPUT
           echo "filename=${FILENAME}.gz" >> $GITHUB_OUTPUT
 
           rm "${FILENAME}"
-        id: compress
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -96,10 +107,8 @@ jobs:
         run: |
           BUCKET="${{ vars.S3_BUCKET_NAME }}"
           FILENAME="${{ steps.compress.outputs.filename }}"
-
-          echo "Uploading ${FILENAME} to s3://${BUCKET}/cobuilding-images/core/"
           aws s3 cp "${FILENAME}" "s3://${BUCKET}/cobuilding-images/core/${FILENAME}"
-          echo "Upload complete"
+          echo "Uploaded ${FILENAME}"
 
       - name: Save metadata
         run: |
@@ -109,21 +118,22 @@ jobs:
       - name: Upload metadata artifact
         uses: actions/upload-artifact@v4
         with:
-          name: metadata-${{ matrix.arch }}
+          name: core-metadata-${{ matrix.arch }}
           path: |
             checksum-${{ matrix.arch }}.txt
             size-${{ matrix.arch }}.txt
 
-  update-manifest:
-    name: Update manifest
-    needs: build-and-upload
+  update-manifest-core:
+    name: Update manifest (core)
+    needs: build-core
+    if: ${{ needs.build-core.result == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download metadata artifacts
+      - name: Download core metadata
         uses: actions/download-artifact@v4
         with:
-          pattern: metadata-*
+          pattern: core-metadata-*
           merge-multiple: true
 
       - name: Configure AWS credentials
@@ -138,22 +148,15 @@ jobs:
           BUCKET="${{ vars.S3_BUCKET_NAME }}"
           VERSION=$(echo "${{ github.sha }}" | cut -c1-7)
 
-          ARM64_CHECKSUM=$(cat checksum-arm64.txt)
-          ARM64_SIZE=$(cat size-arm64.txt)
-          AMD64_CHECKSUM=$(cat checksum-amd64.txt)
-          AMD64_SIZE=$(cat size-amd64.txt)
-
-          # Download existing manifest or create empty one
           aws s3 cp "s3://${BUCKET}/cobuilding-images/manifest.json" manifest.json 2>/dev/null || echo '{}' > manifest.json
 
-          # Merge core entry using jq
           jq --arg version "$VERSION" \
-             --arg arm64_url "core/${IMAGE_NAME}-arm64.tar.gz" \
-             --arg arm64_size "$ARM64_SIZE" \
-             --arg arm64_checksum "sha256:${ARM64_CHECKSUM}" \
-             --arg amd64_url "core/${IMAGE_NAME}-amd64.tar.gz" \
-             --arg amd64_size "$AMD64_SIZE" \
-             --arg amd64_checksum "sha256:${AMD64_CHECKSUM}" \
+             --arg arm64_url "core/${CORE_IMAGE}-arm64.tar.gz" \
+             --arg arm64_size "$(cat size-arm64.txt)" \
+             --arg arm64_checksum "sha256:$(cat checksum-arm64.txt)" \
+             --arg amd64_url "core/${CORE_IMAGE}-amd64.tar.gz" \
+             --arg amd64_size "$(cat size-amd64.txt)" \
+             --arg amd64_checksum "sha256:$(cat checksum-amd64.txt)" \
              '.core = {
                version: $version,
                arm64: { url: $arm64_url, size: ($arm64_size | tonumber), checksum: $arm64_checksum },
@@ -161,7 +164,7 @@ jobs:
              }' manifest.json > manifest-updated.json
 
           mv manifest-updated.json manifest.json
-          echo "Updated manifest.json:"
+          echo "Updated manifest (core):"
           cat manifest.json
 
           aws s3 cp manifest.json "s3://${BUCKET}/cobuilding-images/manifest.json"
@@ -173,4 +176,144 @@ jobs:
           aws cloudfront create-invalidation \
             --distribution-id "${DISTRIBUTION_ID}" \
             --invalidation-batch "{\"Paths\":{\"Quantity\":2,\"Items\":[\"/cobuilding-images/core/*\",\"/cobuilding-images/manifest.json\"]},\"CallerReference\":\"core-$(date +%s)\"}"
-          echo "CloudFront cache invalidation initiated"
+
+  # ─── Full: pull from GHCR ──────────────────────────────────────
+  save-full:
+    name: Full ${{ matrix.arch }}
+    if: ${{ inputs.tier == '' || inputs.tier == 'both' || inputs.tier == 'full' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [arm64, amd64]
+        include:
+          - arch: arm64
+            platform: linux/arm64
+          - arch: amd64
+            platform: linux/amd64
+
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo docker image prune --all --force
+          df -h
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_PUSH_TOKEN }}
+
+      - name: Pull arch-specific image
+        run: |
+          docker pull --platform ${{ matrix.platform }} ${{ env.REGISTRY }}/${{ env.FULL_IMAGE }}:latest
+
+      - name: Save and compress
+        id: compress
+        run: |
+          FILENAME="cobuilding-base-${{ matrix.arch }}.tar"
+
+          echo "Saving image to tar..."
+          docker save ${{ env.REGISTRY }}/${{ env.FULL_IMAGE }}:latest -o "${FILENAME}"
+          echo "Tar size: $(du -h "${FILENAME}" | cut -f1)"
+
+          echo "Compressing with gzip..."
+          gzip -1 -k "${FILENAME}"
+          echo "Compressed size: $(du -h "${FILENAME}.gz" | cut -f1)"
+
+          CHECKSUM=$(sha256sum "${FILENAME}.gz" | cut -d' ' -f1)
+          SIZE_BYTES=$(stat --format=%s "${FILENAME}.gz")
+
+          echo "checksum=${CHECKSUM}" >> $GITHUB_OUTPUT
+          echo "size=${SIZE_BYTES}" >> $GITHUB_OUTPUT
+          echo "filename=${FILENAME}.gz" >> $GITHUB_OUTPUT
+
+          rm "${FILENAME}"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Upload to S3
+        run: |
+          BUCKET="${{ vars.S3_BUCKET_NAME }}"
+          FILENAME="${{ steps.compress.outputs.filename }}"
+          aws s3 cp "${FILENAME}" "s3://${BUCKET}/cobuilding-images/full/${FILENAME}"
+          echo "Uploaded ${FILENAME}"
+
+      - name: Save metadata
+        run: |
+          echo '${{ steps.compress.outputs.checksum }}' > checksum-${{ matrix.arch }}.txt
+          echo '${{ steps.compress.outputs.size }}' > size-${{ matrix.arch }}.txt
+
+      - name: Upload metadata artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-metadata-${{ matrix.arch }}
+          path: |
+            checksum-${{ matrix.arch }}.txt
+            size-${{ matrix.arch }}.txt
+
+  update-manifest-full:
+    name: Update manifest (full)
+    needs: save-full
+    if: ${{ needs.save-full.result == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download full metadata
+        uses: actions/download-artifact@v4
+        with:
+          pattern: full-metadata-*
+          merge-multiple: true
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Update manifest.json
+        run: |
+          BUCKET="${{ vars.S3_BUCKET_NAME }}"
+          VERSION=$(echo "${{ github.sha }}" | cut -c1-7)
+
+          aws s3 cp "s3://${BUCKET}/cobuilding-images/manifest.json" manifest.json 2>/dev/null || echo '{}' > manifest.json
+
+          jq --arg version "$VERSION" \
+             --arg arm64_url "full/cobuilding-base-arm64.tar.gz" \
+             --arg arm64_size "$(cat size-arm64.txt)" \
+             --arg arm64_checksum "sha256:$(cat checksum-arm64.txt)" \
+             --arg amd64_url "full/cobuilding-base-amd64.tar.gz" \
+             --arg amd64_size "$(cat size-amd64.txt)" \
+             --arg amd64_checksum "sha256:$(cat checksum-amd64.txt)" \
+             '.full = {
+               version: $version,
+               arm64: { url: $arm64_url, size: ($arm64_size | tonumber), checksum: $arm64_checksum },
+               amd64: { url: $amd64_url, size: ($amd64_size | tonumber), checksum: $amd64_checksum }
+             }' manifest.json > manifest-updated.json
+
+          mv manifest-updated.json manifest.json
+          echo "Updated manifest (full):"
+          cat manifest.json
+
+          aws s3 cp manifest.json "s3://${BUCKET}/cobuilding-images/manifest.json"
+
+      - name: Invalidate CloudFront cache
+        continue-on-error: true
+        run: |
+          DISTRIBUTION_ID="${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}"
+          aws cloudfront create-invalidation \
+            --distribution-id "${DISTRIBUTION_ID}" \
+            --invalidation-batch "{\"Paths\":{\"Quantity\":2,\"Items\":[\"/cobuilding-images/full/*\",\"/cobuilding-images/manifest.json\"]},\"CallerReference\":\"full-$(date +%s)\"}"
