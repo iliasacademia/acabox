@@ -1,5 +1,6 @@
 import { CronExpressionParser } from 'cron-parser';
 import log from 'electron-log';
+import { captureError } from '../../shared/telemetry';
 import { getTask, getEnabledTasks, updateLastRun } from '../db/scheduledTaskRepository';
 import { getActiveWorkspace } from '../db/workspaceRepository';
 import { runScheduledTask } from './runner';
@@ -60,6 +61,10 @@ export function createTaskScheduler(
         log.info(`[ScheduledTasks] Task "${currentTask.name}" completed`);
       } catch (err) {
         log.error(`[ScheduledTasks] Task "${currentTask.name}" failed:`, err);
+        captureError(err, {
+          subsystem: 'scheduled_task',
+          extra: { task_id: currentTask.id, task_name: currentTask.name },
+        });
       }
 
       // Compute and store next run time

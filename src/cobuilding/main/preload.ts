@@ -222,6 +222,8 @@ contextBridge.exposeInMainWorld('debugAPI', {
   syncOverlay: () => ipcRenderer.invoke('debug:syncOverlay'),
   isOverlayEnabled: () => ipcRenderer.invoke('debug:isOverlayEnabled'),
   log: (msg: string) => ipcRenderer.invoke('debug:log', msg),
+  telemetryTest: (kind: string, subsystem?: string) =>
+    ipcRenderer.invoke('debug:telemetry-test', kind, subsystem),
 });
 
 contextBridge.exposeInMainWorld('calendarAPI', {

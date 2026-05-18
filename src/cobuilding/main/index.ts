@@ -98,6 +98,8 @@ import { wordAccessibility } from '../../native/wordAccessibility';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
 import { validateExternalUrl } from '../../utils/urlValidation';
 import { ACADEMIA_DIR, AGENT_MEMORY_SUBDIR, REFERENCES_SUBDIR, REFERENCES_INDEX } from '../shared/paths';
+import { initSentryMain } from './sentry';
+import { captureError } from '../shared/telemetry';
 const isSmokeTest = process.argv.includes('--smoke-test');
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
@@ -198,6 +200,7 @@ process.on('uncaughtException', (error) => {
   if (_handlingFatalError) return;
   _handlingFatalError = true;
   try {
+    captureError(error, { subsystem: 'main_uncaught' });
     log.error('[FATAL] Uncaught exception:', error);
   } finally {
     _handlingFatalError = false;
@@ -208,6 +211,7 @@ process.on('unhandledRejection', (reason) => {
   if (_handlingFatalError) return;
   _handlingFatalError = true;
   try {
+    captureError(reason, { subsystem: 'main_unhandled_rejection' });
     log.error('[FATAL] Unhandled rejection:', reason);
   } finally {
     _handlingFatalError = false;
@@ -216,6 +220,42 @@ process.on('unhandledRejection', (reason) => {
 
 app.setName('Academia Coscientist');
 app.setPath('userData', path.join(app.getPath('appData'), 'academia-electron', app.isPackaged ? 'production' : 'development'));
+
+// Initialize Sentry after userData path is set so native minidumps land in the right directory.
+// No-op if SENTRY_DSN is empty (e.g. local dev without DSN configured).
+initSentryMain();
+
+// Electron-level process-gone events. These cover renderer / utility / GPU processes —
+// not Podman or the kernel gateway, which are tracked separately at their spawn sites.
+app.on('child-process-gone', (_event, details) => {
+  if (details.reason === 'clean-exit' || details.reason === 'killed') return;
+  const err = new Error(
+    `child-process-gone: type=${details.type} reason=${details.reason} exitCode=${details.exitCode}`
+  );
+  captureError(err, {
+    subsystem: 'child_process',
+    extra: {
+      process_type: details.type,
+      reason: details.reason,
+      exit_code: details.exitCode,
+      service_name: details.serviceName,
+      name: details.name,
+    },
+  });
+  log.warn('[APP] child-process-gone:', details);
+});
+
+app.on('render-process-gone', (_event, _webContents, details) => {
+  if (details.reason === 'clean-exit') return;
+  const err = new Error(
+    `render-process-gone: reason=${details.reason} exitCode=${details.exitCode}`
+  );
+  captureError(err, {
+    subsystem: 'render_process',
+    extra: { reason: details.reason, exit_code: details.exitCode },
+  });
+  log.warn('[APP] render-process-gone:', details);
+});
 
 // Register deep link protocol — must happen before app is ready
 app.setAsDefaultProtocolClient('cobuilding-agent');
@@ -1105,6 +1145,7 @@ app.whenReady().then(async () => {
 
         } catch (error) {
           log.error('[HTTP Server] Failed to start:', error);
+          captureError(error, { subsystem: 'office_addin', extra: { phase: 'http_server_start' } });
         }
       })();
     }

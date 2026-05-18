@@ -12,6 +12,7 @@ import {
 import { runResearchProfileAgent } from "./agents/researchProfile";
 import { runQuickTaskSuggestionAgent, runInDepthTaskSuggestionAgent } from "./agents/taskSuggestion";
 import { runFileTaggingAgent } from "./agents/fileTagging";
+import { captureError } from "../../shared/telemetry";
 
 export type { ScannerEvent, ScanParams };
 
@@ -96,6 +97,10 @@ export async function scanWorkspaceDirectory(
       `[DirectoryScanner] Scan error for workspace ${workspaceId}:`,
       err,
     );
+    captureError(err, {
+      subsystem: 'workspace_scan',
+      extra: { workspace_id: workspaceId, report_id: reportId },
+    });
     updateReportStatus(reportId, "failed", undefined, errorMessage);
     onMessage({ type: "error", error: errorMessage });
   }

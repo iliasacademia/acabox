@@ -14,6 +14,7 @@ import { containerService } from '../containerService';
 import { WORKSPACE_DATA_DIR } from '../../shared/paths';
 import { systemLogger } from '../systemLogger';
 import { commandLogger } from '../commandLogger';
+import { captureError } from '../../shared/telemetry';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const crossZip = require('cross-zip');
@@ -54,6 +55,35 @@ export function registerDebugHandlers() {
 
   ipcMain.handle('debug:syncOverlay', async () => {
     return containerService.syncOverlay();
+  });
+
+  // Telemetry test hooks — fire main-process errors of various shapes so we can
+  // verify they reach Sentry from a button in the Debug → Telemetry panel.
+  // The thrown / rejected errors deliberately escape the IPC handler's try/catch
+  // by running on a fresh tick.
+  ipcMain.handle('debug:telemetry-test', async (_event: unknown, kind: string, subsystem?: string) => {
+    log.info(`[Telemetry test] main-side trigger: kind=${kind} subsystem=${subsystem ?? ''}`);
+    switch (kind) {
+      case 'uncaught':
+        setImmediate(() => {
+          throw new Error('telemetry test: main process uncaught exception');
+        });
+        return { ok: true };
+      case 'rejection':
+        setImmediate(() => {
+          // Intentionally unhandled — the global unhandledRejection handler captures it.
+          void Promise.reject(new Error('telemetry test: main process unhandled rejection'));
+        });
+        return { ok: true };
+      case 'capture':
+        captureError(new Error('telemetry test: main process explicit captureError'), {
+          subsystem: subsystem || 'container',
+          extra: { source: 'debug-panel' },
+        });
+        return { ok: true };
+      default:
+        return { ok: false, error: `unknown kind: ${kind}` };
+    }
   });
 
   ipcMain.handle('debug:isOverlayEnabled', () => {

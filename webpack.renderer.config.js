@@ -22,6 +22,10 @@ rules.push({
 
 
 module.exports = {
+  // Full source maps in production so Sentry can symbolicate stack traces.
+  // Webpack's default in dev (NODE_ENV !== 'production') is `eval`, which is
+  // fast and good enough for DevTools — keep that path untouched.
+  ...(process.env.NODE_ENV === 'production' ? { devtool: 'source-map' } : {}),
   module: {
     rules,
   },

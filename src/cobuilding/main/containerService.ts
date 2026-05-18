@@ -15,6 +15,7 @@ import {
 } from './podmanBinaries';
 import { commandLogger, parseAppDirFromArgs, type CommandSource } from './commandLogger';
 import { ensureImageTarDownloaded, writeLoadedImageVersion, readLoadedImageVersion } from './imageTarManager';
+import { captureError } from '../shared/telemetry';
 
 import * as net from 'net';
 import * as http from 'http';
@@ -1022,6 +1023,7 @@ class CobuildingContainerService {
       await this.ensureBaseImage(podmanBin, onProgress);
     } catch (error) {
       log.error('[ContainerService] ensureSetup error:', (error as Error).message);
+      captureError(error, { subsystem: 'container' });
       throw error;
     }
 
@@ -2237,6 +2239,7 @@ class CobuildingContainerService {
           log.info('[ContainerService] Container restarted successfully');
         } catch (err) {
           log.error('[ContainerService] Auto-restart failed:', (err as Error).message);
+          captureError(err, { subsystem: 'container', extra: { phase: 'auto_restart' } });
         } finally {
           this.isStarting = false;
         }

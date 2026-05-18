@@ -5,6 +5,7 @@ import { createSession, setSdkSessionId, insertMessage, cleanupOrphanTurnRows, g
 import * as fs from 'fs';
 import path from 'path';
 import log from 'electron-log';
+import { captureError } from '../shared/telemetry';
 import { containerService } from './containerService';
 import { commandLogger, parseAppDirFromArgs } from './commandLogger';
 import http from 'http';
@@ -322,6 +323,14 @@ export function createAgentSession(
             if (attempt >= RETRY_BACKOFFS_MS.length) {
               const msg = err instanceof Error ? err.message : String(err);
               log.error(`[AgentSession] SSE failed to reconnect after ${RETRY_BACKOFFS_MS.length} attempts (lastEventId=${sseCursor.lastEventId}):`, msg);
+              captureError(err, {
+                subsystem: 'agent',
+                extra: {
+                  phase: 'sse_reconnect_exhausted',
+                  last_event_id: sseCursor.lastEventId,
+                  attempts: RETRY_BACKOFFS_MS.length,
+                },
+              });
               throw err;
             }
             const backoff = RETRY_BACKOFFS_MS[attempt];
@@ -527,6 +536,14 @@ async function postMcpResultWithRetry(url: string, body: string, callId: string)
       const msg = err instanceof Error ? err.message : String(err);
       if (attempt >= BACKOFFS_MS.length) {
         log.error(`[AgentSession] mcp-result POST failed after ${BACKOFFS_MS.length} retries (callId=${callId}): ${msg}`);
+        captureError(err, {
+          subsystem: 'agent',
+          extra: {
+            phase: 'mcp_result_post_exhausted',
+            call_id: callId,
+            attempts: BACKOFFS_MS.length,
+          },
+        });
         return;
       }
       const backoff = BACKOFFS_MS[attempt];

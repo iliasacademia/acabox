@@ -1,5 +1,6 @@
 import { APIclient } from '../../apiClient';
 import log from 'electron-log';
+import { captureError } from '../shared/telemetry';
 
 export interface AnthropicConfig {
   apiKey: string;
@@ -80,6 +81,7 @@ function scheduleRefresh() {
       log.info('[TokenManager] Token refreshed successfully');
     } catch (err) {
       log.warn('[TokenManager] Token refresh failed, retrying in 5 minutes:', err);
+      captureError(err, { subsystem: 'auth_oauth_google', extra: { phase: 'gateway_token_refresh' } });
       refreshTimer = setTimeout(() => scheduleRefresh(), RETRY_DELAY_MS);
     }
   }, delay);
