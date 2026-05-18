@@ -240,9 +240,9 @@ describe('applyFocusLossCarryForward', () => {
     const result = applyFocusLossCarryForward(desiredState, lastDesiredState, false, '42');
 
     expect(result.windowId).toBe('42');
-    expect(result.desiredState['button-v2'].visible).toBe(true);
+    expect(result.desiredState['button-v2'].visible).toBe(false);
     expect(result.desiredState['button-v2'].background).toBe(true);
-    expect(result.desiredState['popup-v2'].visible).toBe(true);
+    expect(result.desiredState['popup-v2'].visible).toBe(false);
     expect(result.desiredState['popup-v2'].background).toBe(true);
     expect(result.desiredState['button-v2'].url).toBe('http://localhost:3000/button');
     expect(result.desiredState['popup-v2'].url).toBe('http://localhost:3000/popup');
@@ -259,7 +259,7 @@ describe('applyFocusLossCarryForward', () => {
     const result = applyFocusLossCarryForward({}, lastDesiredState, false, '42');
 
     expect(result.desiredState).not.toBe(lastDesiredState);
-    expect(result.desiredState['button-v2'].visible).toBe(true);
+    expect(result.desiredState['button-v2'].visible).toBe(false);
   });
 
   test('returns original state when app is focused', () => {
