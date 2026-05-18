@@ -35,25 +35,12 @@ import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { AGENT_MEMORY_SUBDIR } from '../shared/paths';
 import { SUGGESTED_TASKS_TOOL_DEFS } from '../shared/suggestedTasksTools';
+import { mergeSessionConfig, filterMcpServers, type AgentConfig, type SessionOverrides } from './sessionConfig';
 
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-interface AgentConfig {
-  port: number;
-  claudeBinaryPath: string;
-  mcpServers: Record<string, { type: 'http'; url: string }>;
-  anthropicApiKey: string;
-  anthropicBaseURL?: string;
-  model: string;
-  systemPrompt: unknown;
-  allowedTools: string[];
-  settingSources: string[];
-  soulMd?: string;
-  docxGuidance?: string;
-}
 
 interface SessionState {
   sessionId: string;
@@ -674,7 +661,7 @@ function buildContentBlocks(payload: UserMessagePayload): string | unknown[] {
   return blocks;
 }
 
-function createSession(sessionId: string, config: AgentConfig, resumeSessionId?: string): SessionState {
+function createSession(sessionId: string, config: AgentConfig, resumeSessionId?: string, overrides?: SessionOverrides): SessionState {
   const messageQueue = createMessageQueue<UserMessagePayload>();
 
   const state: SessionState = {
@@ -695,24 +682,26 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
 
   const mcpRelayServers = createMcpRelayServers(state);
 
+  const sessionConfig = mergeSessionConfig(config, overrides);
+
   async function startQuery(resume?: string): Promise<void> {
     state.running = true;
-    console.log(`[AgentServer] Starting query() with model=${config.model}${resume ? `, resuming ${resume}` : ''}`);
+    console.log(`[AgentServer] Starting query() with model=${sessionConfig.model}${resume ? `, resuming ${resume}` : ''}`);
 
     // Create a fresh generator each time — if we're retrying after a failed
     // resume, the previous generator was consumed by the failed query.
     const queryInstance = query({
       prompt: userMessageGenerator(messageQueue),
       options: {
-        pathToClaudeCodeExecutable: config.claudeBinaryPath,
+        pathToClaudeCodeExecutable: sessionConfig.claudeBinaryPath,
         stderr: (data: string) => {
           for (const line of data.split('\n').filter(Boolean)) {
             console.log(`[AgentServer:stderr] ${line}`);
           }
         },
-        model: config.model,
+        model: sessionConfig.model,
         thinking: { type: 'adaptive' },
-        systemPrompt: buildSystemPrompt(config) as any,
+        systemPrompt: buildSystemPrompt(sessionConfig) as any,
         ...(resume && { resume }),
         includePartialMessages: true,
         cwd: '/data',
@@ -720,19 +709,19 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
           // Inherit the container's full environment (PATH, NODE_PATH, VIRTUAL_ENV, etc.)
           // so the subprocess can find system binaries (ls, grep, python3, etc.)
           ...process.env,
-          ANTHROPIC_API_KEY: config.anthropicApiKey,
-          ...(config.anthropicBaseURL ? { ANTHROPIC_BASE_URL: config.anthropicBaseURL } : {}),
+          ANTHROPIC_API_KEY: sessionConfig.anthropicApiKey,
+          ...(sessionConfig.anthropicBaseURL ? { ANTHROPIC_BASE_URL: sessionConfig.anthropicBaseURL } : {}),
           MINI_APP_WORKSPACE_DIR: '/data',
           COBUILDING_INSIDE_CONTAINER: '1',
           CLAUDE_CONFIG_DIR: '/data/.academia/claude-config',
         },
-        settingSources: config.settingSources as any[],
+        settingSources: sessionConfig.settingSources as any[],
         settings: {
           autoMemoryEnabled: true,
           autoMemoryDirectory: `/data/${AGENT_MEMORY_SUBDIR}`,
         },
-        mcpServers: mcpRelayServers as any,
-        allowedTools: config.allowedTools,
+        mcpServers: filterMcpServers(mcpRelayServers, sessionConfig.allowedTools) as any,
+        allowedTools: sessionConfig.allowedTools,
         hooks: {
           PreToolUse: [{ hooks: [docxProtectionHook] }],
         },
@@ -920,7 +909,12 @@ function startServer(config: AgentConfig): void {
         const body = JSON.parse(await readBody(req));
         const sessionId = body.sessionId ?? randomUUID();
         const resumeSessionId = body.resumeSessionId;
-        createSession(sessionId, config, resumeSessionId);
+        const sessionOverrides: SessionOverrides = {
+          additionalAllowedTools: body.additionalAllowedTools,
+          soulMd: body.soulMd,
+          hostGuidance: body.hostGuidance,
+        };
+        createSession(sessionId, config, resumeSessionId, sessionOverrides);
         sendJSON(res, 201, { sessionId });
         return;
       }
