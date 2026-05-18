@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import './WorkspaceOnboarding.css';
-import { FolderOpenIcon, CloudIcon, LayoutGridIcon, InfoIcon, ArrowRightIcon } from 'lucide-react';
+import { FolderOpenIcon, CloudIcon, LayoutGridIcon, InfoIcon, ArrowRightIcon, XIcon, PlusIcon } from 'lucide-react';
+import { MAX_WORKSPACE_DIRECTORIES } from '../../shared/paths';
 
 interface WorkspaceOnboardingProps {
   onComplete: () => void;
@@ -9,14 +10,14 @@ interface WorkspaceOnboardingProps {
 }
 
 const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete, onSkip, onBack }) => {
-  const [directoryPath, setDirectoryPath] = useState<string | null>(null);
+  const [directoryPaths, setDirectoryPaths] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
 
   useEffect(() => {
-    window.workspacesAPI.getActive().then((ws) => {
-      if (ws) {
-        setDirectoryPath(ws.directory_path);
+    window.workspacesAPI.listDirectories().then((dirs) => {
+      if (dirs.length > 0) {
+        setDirectoryPaths(dirs.map(d => d.directory_path));
       }
     });
   }, []);
@@ -24,18 +25,31 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete, o
   const handleSelectFolder = async () => {
     const selected = await window.workspacesAPI.selectDirectory();
     if (selected) {
-      setDirectoryPath(selected);
+      if (directoryPaths.includes(selected)) {
+        setError('This directory is already added.');
+        return;
+      }
+      if (directoryPaths.length >= MAX_WORKSPACE_DIRECTORIES) {
+        setError(`Maximum of ${MAX_WORKSPACE_DIRECTORIES} directories reached.`);
+        return;
+      }
+      setDirectoryPaths(prev => [...prev, selected]);
       setError(null);
     }
   };
 
+  const handleRemoveDirectory = (index: number) => {
+    setDirectoryPaths(prev => prev.filter((_, i) => i !== index));
+    setError(null);
+  };
+
   const createWorkspace = async (callback: () => void) => {
-    if (!directoryPath || isCreating) return;
+    if (directoryPaths.length === 0 || isCreating) return;
     setError(null);
     setIsCreating(true);
     try {
-      const name = directoryPath.split('/').filter(Boolean).pop() || 'My Workspace';
-      await window.workspacesAPI.create({ name, directoryPath });
+      const name = directoryPaths[0].split('/').filter(Boolean).pop() || 'My Workspace';
+      await window.workspacesAPI.create({ name, directoryPaths });
       callback();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create workspace.';
@@ -73,30 +87,49 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete, o
 
         <div className="wsSetup__sources">
           {/* Folders on your computer — functional */}
-          <button
-            type="button"
-            className={`wsSource${directoryPath ? ' wsSource--selected' : ''}`}
-            onClick={handleSelectFolder}
-          >
+          <div className={`wsSource${directoryPaths.length > 0 ? ' wsSource--selected' : ''}`}>
             <span className="wsSource__icon"><FolderOpenIcon size={18} /></span>
             <div className="wsSource__body">
               <div className="wsSource__titleRow">
                 <h3 className="wsSource__title">Folders on your computer</h3>
                 <span className="wsSource__badge">RECOMMENDED</span>
               </div>
-              {directoryPath ? (
+              {directoryPaths.length > 0 ? (
                 <>
-                  <p className="wsSource__path">{directoryPath}</p>
-                  <span className="wsSource__change">Change</span>
+                  <div className="wsSource__pathList">
+                    {directoryPaths.map((dp, i) => (
+                      <div key={dp} className="wsSource__pathItem">
+                        <span className="wsSource__path">{dp}</span>
+                        <button
+                          type="button"
+                          className="wsSource__removeBtn"
+                          onClick={() => handleRemoveDirectory(i)}
+                          aria-label="Remove directory"
+                        >
+                          <XIcon size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  {directoryPaths.length < MAX_WORKSPACE_DIRECTORIES && (
+                    <button type="button" className="wsSource__addMoreBtn" onClick={handleSelectFolder}>
+                      <PlusIcon size={14} />
+                      Add another folder
+                    </button>
+                  )}
                 </>
               ) : (
-                <>
-                  <p className="wsSource__desc">Point me at the folders where your research lives.</p>
-                  <p className="wsSource__hint">Most researchers start here</p>
-                </>
+                <div className="wsSource__emptyState">
+                <p className="wsSource__desc">Select one or more folders where your research lives.</p>
+                <button type="button" className="wsSource__browseBtn" onClick={handleSelectFolder}>
+                  <FolderOpenIcon size={14} />
+                  Browse folders
+                </button>
+                <p className="wsSource__hint">Most researchers start here</p>
+              </div>
               )}
             </div>
-          </button>
+          </div>
 
           {/* Cloud document services — placeholder */}
           <div className="wsSource wsSource--disabled">
@@ -124,13 +157,13 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete, o
         <button
           type="button"
           className="wsSetup__continueBtn"
-          disabled={!directoryPath || isCreating}
+          disabled={directoryPaths.length === 0 || isCreating}
           onClick={handleContinue}
         >
           {isCreating ? 'Setting up...' : <>Continue <ArrowRightIcon className="wsSetup__arrow" /></>}
         </button>
 
-          {directoryPath && (
+          {directoryPaths.length > 0 && (
             <button
               type="button"
               className="wsSetup__skipBtn"

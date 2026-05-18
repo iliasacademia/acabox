@@ -1,10 +1,11 @@
 
 import { type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatStreamMessage, IPCAttachment, Workspace, NotificationNavigationAction } from '../shared/types';
-import { createSession, setSdkSessionId, insertMessage } from './db/chatRepository';
+import { createSession, setSdkSessionId, insertMessage, cleanupOrphanTurnRows, getSession } from './db/chatRepository';
 import * as fs from 'fs';
 import path from 'path';
 import log from 'electron-log';
+import { captureError } from '../shared/telemetry';
 import { containerService } from './containerService';
 import { commandLogger, parseAppDirFromArgs } from './commandLogger';
 import http from 'http';
@@ -27,28 +28,29 @@ import { windowMonitorService } from '../../windowMonitorService';
  *      hardcoded wordHostApp module (so non-Word builds with no registered
  *      hosts at all still get *something* — should never happen in practice).
  */
-export function resolveSessionHostApp(documentPath: string | null | undefined): HostApp {
+export function resolveSessionHostApp(documentPath: string | null | undefined): { hostApp: HostApp; matched: boolean } {
   const registered = getRegisteredHostApps();
   const fromDoc = findHostAppForDocument(documentPath ?? null);
-  if (fromDoc) return fromDoc;
+  if (fromDoc) return { hostApp: fromDoc, matched: true };
   try {
     const focusedId = windowMonitorService.getFocusedWindowId();
     if (focusedId) {
       const hostId = windowMonitorService.getHostAppIdForWindow(focusedId);
       if (hostId) {
         const fromWindow = registered.find((h) => h.id === hostId);
-        if (fromWindow) return fromWindow;
+        if (fromWindow) return { hostApp: fromWindow, matched: true };
       }
     }
   } catch {
     // windowMonitorService unavailable (scheduled tasks, tests) — fall through.
   }
-  return registered.find((h) => h.id === wordHostApp.id) ?? registered[0] ?? wordHostApp;
+  const fallback = registered.find((h) => h.id === wordHostApp.id) ?? registered[0] ?? wordHostApp;
+  return { hostApp: fallback, matched: false };
 }
 
 // ─── MCP Relay Dispatch ──────────────────────────────────────────
 // Maps MCP tool calls from the in-container agent to host-side MCP server handlers.
-// The host MCP servers are stored on globalThis by startAgentInfrastructure().
+// The host MCP servers are stored on globalThis by AgentInfrastructureController.
 
 type ToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
 
@@ -85,10 +87,19 @@ export interface ChatCallbacks {
 }
 
 export interface AgentSession {
-  sendMessage(userMessage: string, attachments?: IPCAttachment[]): void;
+  // `messageId` is a renderer-generated UUID that correlates a turn end-to-end.
+  // Optional so internal callers (scheduled tasks, calendar) that don't model
+  // turns this way can omit it.
+  sendMessage(userMessage: string, attachments?: IPCAttachment[], messageId?: string): void;
   destroy(): void;
   addListener(callbacks: Partial<ChatCallbacks>): () => void;
+  /** True while the session loop is alive — does NOT track per-turn busy state. */
   readonly isRunning: boolean;
+  /** True iff the agent is currently processing a user turn (between user
+   *  message dispatch and the result event). The registry consults this when
+   *  the last subscriber detaches: if false, destroy now; if true, defer
+   *  until the turn-complete event lands. */
+  readonly isTurnInProgress: boolean;
 }
 
 export function createAgentSession(
@@ -106,7 +117,22 @@ export function createAgentSession(
   let running = true;
   let agentSessionId: string | null = null;
   let sseRequest: http.ClientRequest | null = null;
-  const pendingMessages: Array<{ text: string; attachments?: IPCAttachment[] }> = [];
+  const pendingMessages: Array<{ text: string; attachments?: IPCAttachment[]; messageId?: string }> = [];
+  // Shared with connectSSE (module-scope) by reference.
+  //   currentMessageId — set by sendMessage so the SSE reader can stamp it
+  //     on turn-complete for renderer correlation. May be null (overlay,
+  //     scheduled tasks don't supply one).
+  //   turnInProgress — set by sendMessage, cleared on 'result'. Distinct
+  //     from the session-lifetime `running` flag; read by the registry to
+  //     decide destroy-now vs defer-until-turn-end.
+  const turnState: { currentMessageId: string | null; turnInProgress: boolean } = {
+    currentMessageId: null,
+    turnInProgress: false,
+  };
+  // Cursor into the agent-server's per-session event sequence. Updated as we
+  // parse `id:` lines from the SSE stream. On reconnect we send this as the
+  // `Last-Event-Id` header so the server resumes from the next event.
+  const sseCursor: { lastEventId: number | null } = { lastEventId: null };
   const sessionState = { stopped: false }; // object so connectSSE sees mutations by reference
 
   // Register the initial callbacks as the first listener
@@ -146,10 +172,18 @@ export function createAgentSession(
 
   createSession(sessionId, workspace.id, source ?? null, documentPath ?? null);
 
+  // Resuming or starting fresh on a session that crashed mid-turn leaves
+  // orphan `assistant` / `tool_result` rows after the last `result` row;
+  // without this sweep the renderer shows a forever-spinning tool-use.
+  const orphansRemoved = cleanupOrphanTurnRows(sessionId);
+  if (orphansRemoved > 0) {
+    log.info(`[AgentSession] Cleaned ${orphansRemoved} orphan turn rows for sessionId=${sessionId}`);
+  }
+
   // Resolve which host app this session is acting on. See resolveSessionHostApp
   // for the resolution order — document path first, focused-window bundle id
   // as a backstop, then Word fallback.
-  const sessionHostApp: HostApp = resolveSessionHostApp(documentPath);
+  const { hostApp: sessionHostApp, matched: hostAppMatched } = resolveSessionHostApp(documentPath);
 
   const state: MessageProcessingState = { currentToolCallId: null, currentBlockIsThinking: false, pendingBashCalls: new Map() };
 
@@ -215,63 +249,139 @@ export function createAgentSession(
     if (content) soulMdContent = content;
   } catch { /* doesn't exist */ }
 
-  // Build system prompt using the host app's guidance (replaces hardcoded docx guidance)
-  const hostGuidance = [IDENTITY_PREAMBLE, sessionHostApp.systemPromptAppend]
-    .filter(Boolean)
-    .join('\n\n');
+  // Build system prompt: identity preamble always, host-app guidance only when matched.
+  const hostGuidance = hostAppMatched
+    ? [IDENTITY_PREAMBLE, sessionHostApp.systemPromptAppend].filter(Boolean).join('\n\n')
+    : IDENTITY_PREAMBLE;
 
-  (async () => {
-    try {
-      // Wait for the agent server to be ready (emits status updates automatically)
-      agentBaseUrl = await waitForAgent();
+  // Non-null while the create-session + SSE-listen loop is running. Drops
+  // back to null when the loop ends (idle eviction, /stop). The next
+  // sendMessage observes the null and re-runs the loop with resume.
+  let loopPromise: Promise<void> | null = null;
 
-      // Create session on the agent server.
-      // Sessions are persisted via a custom sessionStore that writes JSONL files
-      // to /data/.academia/sessions/ on the workspace mount. This enables full
-      // resume — the agent retains context across app restarts.
-      const createBody = JSON.stringify({
-        sessionId,
-        resumeSessionId: sdkSessionId,
-        model: model || undefined,
-        soulMd: soulMdContent,
-        hostGuidance,
-      });
+  function startLoop(): Promise<void> {
+    if (loopPromise) return loopPromise;
+    if (sessionState.stopped) return Promise.resolve();
+    loopPromise = (async () => {
+      try {
+        agentBaseUrl = await waitForAgent();
 
-      const createRes = await httpPost(`${agentBaseUrl}/sessions`, createBody);
-      const createData = JSON.parse(createRes);
-      agentSessionId = createData.sessionId;
-      log.debug(`[AgentSession] Session created: ${agentSessionId}`);
+        // Always re-read sdk_session_id from the DB at start. After the
+        // first turn the agent advances its conversation id and we persist
+        // it via setSdkSessionId; on a post-eviction restart we want to
+        // resume from the latest, not the one captured when this
+        // AgentSession object was constructed.
+        const dbSession = getSession(sessionId);
+        const resumeId = dbSession?.sdk_session_id ?? sdkSessionId;
 
-      // Flush any messages that arrived before the session was ready
-      for (const pending of pendingMessages) {
-        httpPost(
-          `${agentBaseUrl}/sessions/${agentSessionId}/messages`,
-          JSON.stringify({ text: pending.text, attachments: pending.attachments }),
-        ).catch((err) => log.error('[AgentSession] Failed to send pending message:', err));
+        // Sessions are persisted via a custom sessionStore that writes
+        // JSONL files to /data/.academia/sessions/ on the workspace mount,
+        // so resume restores the full conversation across restarts.
+        const createBody = JSON.stringify({
+          sessionId,
+          resumeSessionId: resumeId,
+          model: model || undefined,
+          soulMd: soulMdContent,
+          hostGuidance,
+          ...(hostAppMatched ? { additionalAllowedTools: sessionHostApp.allowedTools } : {}),
+        });
+
+        const createRes = await httpPost(`${agentBaseUrl}/sessions`, createBody);
+        const createData = JSON.parse(createRes);
+        agentSessionId = createData.sessionId;
+        log.debug(`[AgentSession] Session created: ${agentSessionId}${resumeId ? ` (resumed from ${resumeId})` : ''}`);
+
+        // Reset the SSE cursor on (re)start. The agent-server's eventSeq
+        // restarts from 0 for a fresh session, so a stale Last-Event-Id
+        // from a prior loop would either skip every replayed event or be
+        // silently ignored.
+        sseCursor.lastEventId = null;
+
+        // Flush any messages that arrived before the session was ready
+        // (or were re-queued by a 404 from a now-evicted server session).
+        const toFlush = pendingMessages.splice(0);
+        for (const pending of toFlush) {
+          httpPost(
+            `${agentBaseUrl}/sessions/${agentSessionId}/messages`,
+            JSON.stringify({ text: pending.text, attachments: pending.attachments, messageId: pending.messageId }),
+          ).catch((err) => log.error('[AgentSession] Failed to send pending message:', err));
+        }
+
+        // Connect to SSE event stream. connectSSE resolves on a clean terminal
+        // event ('done' or 'error') and rejects on transport failures
+        // (TCP reset, ECONNREFUSED, etc.). Wrap it so transport rejections
+        // trigger a bounded reconnect with `Last-Event-Id`, while clean
+        // terminations exit immediately.
+        const eventUrl = `${agentBaseUrl}/sessions/${agentSessionId}/events`;
+        const RETRY_BACKOFFS_MS = [250, 500, 1000, 2000, 5000];
+        for (let attempt = 0; ; attempt++) {
+          try {
+            await connectSSE(eventUrl, state, sessionId, emitEvent, emitDone, emitError, sessionState, (req) => {
+              sseRequest = req;
+            }, agentBaseUrl, agentSessionId!, turnState, sseCursor);
+            break; // clean terminal event — done with this turn
+          } catch (err) {
+            if (sessionState.stopped) break;
+            if (attempt >= RETRY_BACKOFFS_MS.length) {
+              const msg = err instanceof Error ? err.message : String(err);
+              log.error(`[AgentSession] SSE failed to reconnect after ${RETRY_BACKOFFS_MS.length} attempts (lastEventId=${sseCursor.lastEventId}):`, msg);
+              captureError(err, {
+                subsystem: 'agent',
+                extra: {
+                  phase: 'sse_reconnect_exhausted',
+                  last_event_id: sseCursor.lastEventId,
+                  attempts: RETRY_BACKOFFS_MS.length,
+                },
+              });
+              throw err;
+            }
+            const backoff = RETRY_BACKOFFS_MS[attempt];
+            const errMsg = err instanceof Error ? err.message : String(err);
+            log.warn(`[AgentSession] SSE disconnected (${errMsg}); reconnecting in ${backoff}ms (attempt ${attempt + 1}/${RETRY_BACKOFFS_MS.length}, lastEventId=${sseCursor.lastEventId})`);
+            await new Promise((r) => setTimeout(r, backoff));
+          }
+        }
+      } catch (err: unknown) {
+        if (sessionState.stopped) {
+          emitDone();
+        } else {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          emitError(errorMessage);
+        }
+      } finally {
+        // Loop is no longer active. Clear agentSessionId so a stale id
+        // doesn't get reused for a POST against the evicted session.
+        agentSessionId = null;
+        loopPromise = null;
+        if (running) {
+          // The SSE stream didn't deliver a turn-complete result. If this
+          // was a clean idle eviction the host has nothing to wait on, so
+          // settle the listener side. (Renderer is free to send another
+          // message; sendMessage will restart the loop.)
+          emitDone();
+        }
+        // If messages landed during shutdown, kick another loop so they
+        // don't sit pending forever. startLoop short-circuits if stopped.
+        if (pendingMessages.length > 0) startLoop();
       }
-      pendingMessages.length = 0;
+    })();
+    return loopPromise;
+  }
 
-      // Connect to SSE event stream
-      const eventUrl = `${agentBaseUrl}/sessions/${agentSessionId}/events`;
-      await connectSSE(eventUrl, state, sessionId, emitEvent, emitDone, emitError, sessionState, (req) => {
-        sseRequest = req;
-      }, agentBaseUrl, agentSessionId!);
-    } catch (err: unknown) {
-      if (sessionState.stopped) {
-        emitDone();
-      } else {
-        const errorMessage = err instanceof Error ? err.message : String(err);
-        emitError(errorMessage);
-      }
-    } finally {
-      if (running) {
-        emitDone();
-      }
-    }
-  })();
+  startLoop();
 
   return {
-    sendMessage(userMessage: string, attachments?: IPCAttachment[]) {
+    sendMessage(userMessage: string, attachments?: IPCAttachment[], messageId?: string) {
+      // Stamp the turn so the SSE reader's synthetic turn-complete event can
+      // include the same messageId. Cleared when the turn completes.
+      // Only update when a messageId is actually provided — callers without
+      // one (overlay HTTP/WS, scheduled tasks) must not clobber an existing
+      // turn's correlation. The result handler is responsible for clearing
+      // back to null when its turn finishes.
+      if (messageId) {
+        turnState.currentMessageId = messageId;
+      }
+
       const storedAttachments = attachments?.map((att) => {
         if (att.type === 'file_reference') {
           return { type: att.type, filePath: att.filePath, name: att.name };
@@ -283,13 +393,17 @@ export function createAgentSession(
           title: att.type === 'document' ? att.title : undefined,
         };
       });
-      insertMessage(sessionId, 'user', JSON.stringify({ text: userMessage, attachments: storedAttachments }));
+      insertMessage(sessionId, 'user', JSON.stringify({ text: userMessage, attachments: storedAttachments }), messageId);
+      // Mark a turn as in flight. Cleared by the SSE reader on the next
+      // 'result' message. The registry uses this to decide whether a
+      // navigation-away triggers destroy-now or defer-until-turn-end.
+      turnState.turnInProgress = true;
       // Broadcast the user message to every surface subscribed to this
       // session. Without this, a message typed in the overlay would land
       // in SQLite but the desktop chat (subscribing via IPC fanout) would
       // never see the user turn — only the assistant's streamed reply.
-      log.info(`[AgentSession] emitting user-message sessionId=${sessionId} textLen=${userMessage.length}`);
-      emitEvent({ type: 'user-message', text: userMessage });
+      log.info(`[AgentSession] emitting user-message sessionId=${sessionId} messageId=${messageId ?? '(none)'} textLen=${userMessage.length}`);
+      emitEvent({ type: 'user-message', text: userMessage, messageId });
 
       const processedText = messagePreprocessor ? messagePreprocessor(userMessage) : userMessage;
 
@@ -301,15 +415,31 @@ export function createAgentSession(
         return att;
       });
 
-      if (agentSessionId) {
-        httpPost(
-          `${agentBaseUrl}/sessions/${agentSessionId}/messages`,
-          JSON.stringify({ text: processedText, attachments: translatedAttachments }),
-        ).catch((err) => log.error('[AgentSession] Failed to send message:', err));
+      const restart = (reason: string) => {
+        log.info(`[AgentSession] ${reason} — re-queueing message and restarting session loop`);
+        pendingMessages.push({ text: processedText, attachments: translatedAttachments, messageId });
+        startLoop();
+      };
+
+      if (agentSessionId && loopPromise) {
+        const targetSessionId = agentSessionId;
+        httpPostWithStatus(
+          `${agentBaseUrl}/sessions/${targetSessionId}/messages`,
+          JSON.stringify({ text: processedText, attachments: translatedAttachments, messageId }),
+        ).then(({ status, body }) => {
+          // 404 means the server evicted us between our check and the POST
+          // landing. Re-queue and restart; resume from sdk_session_id
+          // preserves context.
+          if (status === 404) {
+            restart(`message POST to ${targetSessionId} returned 404`);
+          } else if (status >= 400) {
+            log.error(`[AgentSession] Message POST failed: HTTP ${status} ${body}`);
+          }
+        }).catch((err) => log.error('[AgentSession] Failed to send message:', err));
       } else {
-        // Session not ready yet — queue the message for delivery after creation
-        log.debug('[AgentSession] Session not ready, queuing message');
-        pendingMessages.push({ text: processedText, attachments: translatedAttachments });
+        log.debug('[AgentSession] Session not ready, queuing message and ensuring loop is running');
+        pendingMessages.push({ text: processedText, attachments: translatedAttachments, messageId });
+        startLoop();
       }
     },
 
@@ -332,6 +462,10 @@ export function createAgentSession(
 
     get isRunning() {
       return running;
+    },
+
+    get isTurnInProgress() {
+      return turnState.turnInProgress;
     },
   };
 }
@@ -358,7 +492,7 @@ function httpGet(url: string): Promise<string> {
   });
 }
 
-function httpPost(url: string, body: string): Promise<string> {
+function httpPostWithStatus(url: string, body: string): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const req = http.request({
@@ -370,12 +504,55 @@ function httpPost(url: string, body: string): Promise<string> {
     }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (c: Buffer) => chunks.push(c));
-      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf-8') }));
     });
     req.on('error', reject);
     req.write(body);
     req.end();
   });
+}
+
+function httpPost(url: string, body: string): Promise<string> {
+  return httpPostWithStatus(url, body).then((r) => r.body);
+}
+
+/**
+ * Fire-and-forget retry wrapper for the mcp-result POST. `callId` is the
+ * idempotency key — the agent-server's pendingMcpCalls map resolves at most
+ * once for a given callId, so a duplicate POST after a transient failure is
+ * safely absorbed.
+ *
+ * No await at the call site: the SSE parser must not block on this. Final
+ * failure is logged; the agent's 120s pendingMcpCall timeout is the backstop.
+ */
+async function postMcpResultWithRetry(url: string, body: string, callId: string): Promise<void> {
+  const BACKOFFS_MS = [250, 500, 1000];
+  for (let attempt = 0; attempt <= BACKOFFS_MS.length; attempt++) {
+    try {
+      await httpPost(url, body);
+      if (attempt > 0) {
+        log.info(`[AgentSession] mcp-result POST succeeded after ${attempt} retries (callId=${callId})`);
+      }
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (attempt >= BACKOFFS_MS.length) {
+        log.error(`[AgentSession] mcp-result POST failed after ${BACKOFFS_MS.length} retries (callId=${callId}): ${msg}`);
+        captureError(err, {
+          subsystem: 'agent',
+          extra: {
+            phase: 'mcp_result_post_exhausted',
+            call_id: callId,
+            attempts: BACKOFFS_MS.length,
+          },
+        });
+        return;
+      }
+      const backoff = BACKOFFS_MS[attempt];
+      log.warn(`[AgentSession] mcp-result POST failed (callId=${callId}, ${msg}); retrying in ${backoff}ms`);
+      await new Promise((r) => setTimeout(r, backoff));
+    }
+  }
 }
 
 async function connectSSE(
@@ -389,15 +566,23 @@ async function connectSSE(
   onRequest: (req: http.ClientRequest) => void,
   agentBaseUrl: string,
   agentSessionId: string,
+  turnState: { currentMessageId: string | null; turnInProgress: boolean },
+  sseCursor: { lastEventId: number | null },
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const parsed = new URL(url);
+    const headers: Record<string, string> = { Accept: 'text/event-stream' };
+    // On reconnect, ask the agent-server to resume from the last id we saw.
+    // First connection has no cursor and gets the full buffer (existing behavior).
+    if (sseCursor.lastEventId !== null) {
+      headers['Last-Event-Id'] = String(sseCursor.lastEventId);
+    }
     const req = http.request({
       hostname: parsed.hostname,
       port: parsed.port,
       path: parsed.pathname,
       method: 'GET',
-      headers: { Accept: 'text/event-stream' },
+      headers,
     }, (res) => {
       let buffer = '';
 
@@ -412,46 +597,65 @@ async function connectSSE(
           const lines = part.split('\n');
           let eventType = '';
           let data = '';
+          let eventId: number | null = null;
 
           for (const line of lines) {
             if (line.startsWith('event: ')) {
               eventType = line.slice(7);
             } else if (line.startsWith('data: ')) {
               data = line.slice(6);
+            } else if (line.startsWith('id: ')) {
+              const parsedId = Number.parseInt(line.slice(4), 10);
+              if (Number.isFinite(parsedId)) eventId = parsedId;
             }
           }
+
+          // Advance the cursor as soon as we've seen the id line, even if
+          // the event handler below errors. That way a partial-event failure
+          // still resumes from the right place on reconnect.
+          if (eventId !== null) sseCursor.lastEventId = eventId;
 
           if (!eventType || !data) continue;
 
           if (eventType === 'message') {
             try {
               const message = JSON.parse(data) as SDKMessage;
-              log.debug(`[AgentSession:SSE] message type=${message.type}`);
+              if (message.type !== 'stream_event') {
+                log.debug(`[AgentSession:SSE] message type=${message.type}`);
+              }
               processQueryMessage(message, state, emitEvent);
 
               if (message.type === 'system') {
                 setSdkSessionId(sessionId, (message as any).session_id);
               }
               if (message.type === 'assistant' && (message as any).message?.content) {
-                insertMessage(sessionId, 'assistant', JSON.stringify((message as any).message.content));
+                insertMessage(sessionId, 'assistant', JSON.stringify((message as any).message.content), turnState.currentMessageId ?? undefined);
               }
               if (message.type === 'user' && (message as any).message?.content) {
                 const content = (message as any).message.content;
                 if (Array.isArray(content)) {
                   const hasToolResults = content.some((b: any) => typeof b !== 'string' && b.type === 'tool_result');
                   if (hasToolResults) {
-                    insertMessage(sessionId, 'tool_result', JSON.stringify(content));
+                    insertMessage(sessionId, 'tool_result', JSON.stringify(content), turnState.currentMessageId ?? undefined);
                   }
                 }
               }
               if (message.type === 'result') {
-                log.info(`[AgentSession:SSE] RESULT received, emitting turn-complete`);
+                const completedMessageId = turnState.currentMessageId;
+                log.info(`[AgentSession:SSE] RESULT received, emitting turn-complete messageId=${completedMessageId ?? '(none)'}`);
                 insertMessage(sessionId, 'result', JSON.stringify({
                   subtype: (message as any).subtype,
                   result: (message as any).subtype === 'success' ? (message as any).result : undefined,
                   is_error: (message as any).is_error,
-                }));
-                emitEvent({ type: 'turn-complete' } as ChatStreamMessage);
+                }), completedMessageId ?? undefined);
+                // Clear turnInProgress BEFORE emitting turn-complete so any
+                // listener that reacts to the event (e.g. registry's
+                // deferred-destroy hook) sees the up-to-date state.
+                turnState.turnInProgress = false;
+                emitEvent({ type: 'turn-complete', messageId: completedMessageId ?? undefined } as ChatStreamMessage);
+                // Turn over — clear so a subsequent send's messageId isn't
+                // inherited if the SSE stream emits stray events.
+                turnState.currentMessageId = null;
               }
             } catch (err) {
               log.error('[AgentSession] Failed to parse SSE message:', err);
@@ -463,17 +667,12 @@ async function connectSSE(
               const { callId, serverName, toolName, args } = mcpCall;
               log.debug(`[AgentSession] MCP relay: ${serverName}/${toolName} (callId=${callId})`);
 
+              const resultUrl = `${agentBaseUrl}/sessions/${agentSessionId}/mcp-result`;
               handleMcpRelay(serverName, toolName, args).then((result) => {
-                httpPost(
-                  `${agentBaseUrl}/sessions/${agentSessionId}/mcp-result`,
-                  JSON.stringify({ callId, result }),
-                ).catch((err) => log.error('[AgentSession] Failed to POST mcp-result:', err));
+                postMcpResultWithRetry(resultUrl, JSON.stringify({ callId, result }), callId);
               }).catch((err) => {
                 const errorMsg = err instanceof Error ? err.message : String(err);
-                httpPost(
-                  `${agentBaseUrl}/sessions/${agentSessionId}/mcp-result`,
-                  JSON.stringify({ callId, error: errorMsg }),
-                ).catch((err2) => log.error('[AgentSession] Failed to POST mcp-result error:', err2));
+                postMcpResultWithRetry(resultUrl, JSON.stringify({ callId, error: errorMsg }), callId);
               });
             } catch (err) {
               log.error('[AgentSession] Failed to parse mcp-call event:', err);

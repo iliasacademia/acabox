@@ -7,11 +7,11 @@ export interface ScannedFile {
   report_id: string | null;
   file_path: string;
   file_name: string;
-  file_type: 'manuscript' | 'grant' | 'presentation';
+  file_type: 'manuscript' | 'grant' | 'presentation' | 'reference';
   created_at: string;
 }
 
-const VALID_TYPES = new Set(['manuscript', 'grant', 'presentation']);
+const VALID_TYPES = new Set(['manuscript', 'grant', 'presentation', 'reference']);
 
 export function upsertScannedFiles(
   workspaceId: string,
@@ -51,4 +51,33 @@ export function getScannedFiles(workspaceId: string): ScannedFile[] {
       'SELECT * FROM scanned_files WHERE workspace_id = ? ORDER BY file_type ASC, file_name ASC',
     )
     .all(workspaceId) as ScannedFile[];
+}
+
+export function updateFileTag(
+  workspaceId: string,
+  filePath: string,
+  fileName: string,
+  fileType: string,
+): void {
+  if (!VALID_TYPES.has(fileType)) return;
+  const db = getDatabase();
+  const existing = db
+    .prepare('SELECT id FROM scanned_files WHERE workspace_id = ? AND file_path = ?')
+    .get(workspaceId, filePath) as { id: string } | undefined;
+  if (existing) {
+    db.prepare('UPDATE scanned_files SET file_type = ? WHERE id = ?').run(fileType, existing.id);
+  } else {
+    db.prepare(
+      `INSERT INTO scanned_files (id, workspace_id, report_id, file_path, file_name, file_type)
+       VALUES (?, ?, NULL, ?, ?, ?)`,
+    ).run(randomUUID(), workspaceId, filePath, fileName, fileType);
+  }
+}
+
+export function removeFileTag(workspaceId: string, filePath: string): void {
+  const db = getDatabase();
+  db.prepare('DELETE FROM scanned_files WHERE workspace_id = ? AND file_path = ?').run(
+    workspaceId,
+    filePath,
+  );
 }

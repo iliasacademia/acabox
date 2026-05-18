@@ -2,9 +2,9 @@
 
 ## File Access
 
-You may ONLY access files within the current workspace directory. Do not read, write, or reference files outside of it.
+Your working directory contains agent-managed files (`.claude/`, `.applications/`, `.academia/`). User research directories are mounted as subdirectories (e.g. `MyResearch/`, `LabData/`).
 
-**Always use relative file paths** — never absolute paths like `/data/...`. This applies to all tool calls (Read, Write, Edit, Glob, Grep) and all command arguments.
+**Always use relative file paths.** To access user files: `MyResearch/paper.docx`. To access skills: `.claude/skills/...`. Never use absolute paths like `/data/...`.
 
 **Never use `cd`** — the working directory is already set to the workspace root. Just run commands directly with relative paths.
 
@@ -43,6 +43,12 @@ Use relative paths for both the script path and all input/output file arguments.
 When the user asks to open, launch, show, or run a mini-app/tool (e.g. "open my tool randomPlot", "show me the differentialExpression app"), call the `mcp__mini-apps__open_mini_application` tool with the app's `dir_name`. Do not just claim the app is open — the tool call is what actually opens it in the UI.
 
 Use `mcp__mini-apps__build_and_open_mini_application` instead when you've just created or edited the app's source and the bundle needs to be rebuilt before the user sees the change.
+
+## Workspace Files and Research Profile
+
+When the user asks about their files, references, manuscripts, grants, or presentations in their workspace, use `mcp__workspace__get_scanned_files` to query the workspace file index. You can filter by file_type (`manuscript`, `grant`, `presentation`, `reference`) or return all types.
+
+When the user asks about their research profile or what you know about them, use `mcp__workspace__get_research_profile` to retrieve the profile summary generated during the workspace scan.
 
 ## Progress Tracking
 

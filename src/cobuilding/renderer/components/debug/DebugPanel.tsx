@@ -11,9 +11,11 @@ import { AuthDebug } from './AuthDebug';
 import { OfficeAddinDebug } from './OfficeAddinDebug';
 import { ExportDebug } from './ExportDebug';
 import { HardResetDebug } from './HardResetDebug';
+import { ScannedFilesDebug } from './ScannedFilesDebug';
+import { TelemetryDebug } from './TelemetryDebug';
 import './DebugPanel.css';
 
-export type DebugSection = 'podman' | 'apps' | 'observations' | 'kernels' | 'browser-extension' | 'file-monitor' | 'storage' | 'terminal' | 'auth' | 'office-addin' | 'export' | 'hard-reset';
+export type DebugSection = 'podman' | 'apps' | 'observations' | 'kernels' | 'browser-extension' | 'file-monitor' | 'storage' | 'terminal' | 'auth' | 'office-addin' | 'export' | 'hard-reset' | 'scanned-files' | 'telemetry';
 
 const DEBUG_SECTIONS: { id: DebugSection; label: string }[] = [
   { id: 'apps', label: 'Logs' },
@@ -26,6 +28,8 @@ const DEBUG_SECTIONS: { id: DebugSection; label: string }[] = [
   { id: 'storage', label: 'Storage' },
   { id: 'auth', label: 'API Key' },
   { id: 'office-addin', label: 'Office Add-in' },
+  { id: 'scanned-files', label: 'Scanned Files' },
+  { id: 'telemetry', label: 'Telemetry' },
   { id: 'export', label: 'Export' },
   { id: 'hard-reset', label: 'Hard Reset' },
 ];
@@ -63,6 +67,8 @@ export const DebugContent: React.FC<{ activeSection: DebugSection; onRestartOnbo
       {activeSection === 'storage' && <StorageDebug />}
       {activeSection === 'auth' && <AuthDebug />}
       {activeSection === 'office-addin' && <OfficeAddinDebug />}
+      {activeSection === 'scanned-files' && <ScannedFilesDebug />}
+      {activeSection === 'telemetry' && <TelemetryDebug />}
       {activeSection === 'export' && <ExportDebug />}
       {activeSection === 'hard-reset' && <HardResetDebug onRestartOnboarding={onRestartOnboarding} />}
     </div>

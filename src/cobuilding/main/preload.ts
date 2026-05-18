@@ -37,15 +37,19 @@ contextBridge.exposeInMainWorld('authAPI', {
 
 contextBridge.exposeInMainWorld('workspacesAPI', {
   getActive: () => ipcRenderer.invoke('workspaces:getActive'),
-  list: () => ipcRenderer.invoke('workspaces:list'),
-  getDefaultDirectory: (name: string) => ipcRenderer.invoke('workspaces:getDefaultDirectory', name),
-  create: (data: { name: string; directoryPath: string }) =>
-    ipcRenderer.invoke('workspaces:create', data),
-  switch: (id: string) => ipcRenderer.invoke('workspaces:switch', id),
+  create: (data: { name: string; directoryPaths: string[] }) => {
+    if (!data || typeof data.name !== 'string' || !Array.isArray(data.directoryPaths)) {
+      throw new Error('Invalid workspace creation data');
+    }
+    if (data.directoryPaths.some(p => typeof p !== 'string' || !p.trim())) {
+      throw new Error('Invalid directory paths provided');
+    }
+    return ipcRenderer.invoke('workspaces:create', data);
+  },
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
-  update: (data: { name: string; directoryPath: string }) =>
-    ipcRenderer.invoke('workspaces:update', data),
-  deleteAll: () => ipcRenderer.invoke('workspaces:deleteAll'),
+  listDirectories: () => ipcRenderer.invoke('workspaces:listDirectories'),
+  addDirectory: (directoryPath: string) => ipcRenderer.invoke('workspaces:addDirectory', directoryPath),
+  removeDirectory: (directoryId: string) => ipcRenderer.invoke('workspaces:removeDirectory', directoryId),
 });
 
 contextBridge.exposeInMainWorld('filesAPI', {
@@ -101,6 +105,8 @@ contextBridge.exposeInMainWorld('settingsAPI', {
 contextBridge.exposeInMainWorld('containerAPI', {
   start: () => ipcRenderer.invoke('container:start'),
   stop: () => ipcRenderer.invoke('container:stop'),
+  gracefulShutdownPodman: () => ipcRenderer.invoke('container:gracefulShutdownPodman'),
+  clearImageDownloadState: () => ipcRenderer.invoke('dm:clearImageDownloadState'),
   status: () => ipcRenderer.invoke('container:status'),
   exec: (command: string[]) => ipcRenderer.invoke('container:exec', command),
   syncOverlay: () => ipcRenderer.invoke('container:syncOverlay'),
@@ -110,20 +116,19 @@ contextBridge.exposeInMainWorld('containerAPI', {
   setBinaryMode: (mode: string) => ipcRenderer.invoke('container:setBinaryMode', mode),
   getImageSource: () => ipcRenderer.invoke('container:getImageSource'),
   setImageSource: (source: string) => ipcRenderer.invoke('container:setImageSource', source),
+  quitApp: () => ipcRenderer.invoke('app:quit'),
+  relaunchApp: () => ipcRenderer.invoke('app:relaunch'),
   getBundledStatus: () => ipcRenderer.invoke('container:getBundledStatus'),
   downloadBinaries: () => ipcRenderer.invoke('container:downloadBinaries'),
   deleteBinaries: () => ipcRenderer.invoke('container:deleteBinaries'),
-  deleteImage: () => ipcRenderer.invoke('container:deleteImage'),
   downloadImage: () => ipcRenderer.invoke('container:downloadImage'),
   getName: () => ipcRenderer.invoke('container:getName'),
-  isImageBuilt: () => ipcRenderer.invoke('container:isImageBuilt'),
   isBaseImageDownloaded: () => ipcRenderer.invoke('container:isBaseImageDownloaded'),
   ensureSetup: () => ipcRenderer.invoke('container:ensureSetup'),
   getEnvironmentInfo: () => ipcRenderer.invoke('container:getEnvironmentInfo'),
   appDepsReady: (dirName: string) => ipcRenderer.invoke('container:appDepsReady', dirName),
   ensureAppDeps: (dirName: string) => ipcRenderer.invoke('container:ensureAppDeps', dirName),
   getAppInstallRequests: (dirName: string) => ipcRenderer.invoke('container:getAppInstallRequests', dirName),
-  rebuildEnvironment: () => ipcRenderer.invoke('container:rebuildEnvironment'),
   onSetupProgress: (callback: (progress: { stage: string; message: string; percent?: number }) => void) => {
     const handler = (_event: unknown, progress: { stage: string; message: string }) => callback(progress);
     ipcRenderer.on('setup:progress', handler);
@@ -143,11 +148,6 @@ contextBridge.exposeInMainWorld('containerAPI', {
     const handler = (_event: unknown, e: { registry: string; package: string; line: string }) => callback(e);
     ipcRenderer.on('installer:packageLine', handler);
     return () => { ipcRenderer.removeListener('installer:packageLine', handler); };
-  },
-  onBackgroundBuild: (callback: (progress: { stage: string; message: string; percent?: number }) => void) => {
-    const handler = (_event: unknown, progress: { stage: string; message: string; percent?: number }) => callback(progress);
-    ipcRenderer.on('container:backgroundBuild', handler);
-    return () => { ipcRenderer.removeListener('container:backgroundBuild', handler); };
   },
 });
 
@@ -216,9 +216,14 @@ contextBridge.exposeInMainWorld('debugAPI', {
   exportWorkspace: () => ipcRenderer.invoke('debug:exportWorkspace'),
   importWorkspace: () => ipcRenderer.invoke('debug:importWorkspace'),
   hardResetWorkspace: () => ipcRenderer.invoke('debug:hardResetWorkspace'),
+  restartOnboarding: () => ipcRenderer.invoke('debug:restartOnboarding'),
+  exportLogs: () => ipcRenderer.invoke('debug:exportLogs'),
+  pruneImages: () => ipcRenderer.invoke('debug:pruneImages'),
   syncOverlay: () => ipcRenderer.invoke('debug:syncOverlay'),
   isOverlayEnabled: () => ipcRenderer.invoke('debug:isOverlayEnabled'),
   log: (msg: string) => ipcRenderer.invoke('debug:log', msg),
+  telemetryTest: (kind: string, subsystem?: string) =>
+    ipcRenderer.invoke('debug:telemetry-test', kind, subsystem),
 });
 
 contextBridge.exposeInMainWorld('calendarAPI', {
@@ -325,9 +330,18 @@ contextBridge.exposeInMainWorld('briefingsAPI', {
   },
 });
 
+contextBridge.exposeInMainWorld('notificationsAPI', {
+  list: (limit?: number) => ipcRenderer.invoke('notifications:list', limit),
+  unreadCount: () => ipcRenderer.invoke('notifications:unreadCount'),
+  markAllAsRead: () => ipcRenderer.invoke('notifications:markAllAsRead'),
+});
+
 contextBridge.exposeInMainWorld('scannedFilesAPI', {
   getByType: (fileType: string) => ipcRenderer.invoke('scannedFiles:getByType', fileType),
   getAll: () => ipcRenderer.invoke('scannedFiles:getAll'),
+  updateTag: (filePath: string, fileName: string, fileType: string) =>
+    ipcRenderer.invoke('scannedFiles:updateTag', filePath, fileName, fileType),
+  removeTag: (filePath: string) => ipcRenderer.invoke('scannedFiles:removeTag', filePath),
 });
 
 contextBridge.exposeInMainWorld('scannerAPI', {
@@ -384,16 +398,32 @@ const activeStreams = new Map<string, () => void>();
 // Buffer events that arrive before a stream iterator is created for a threadId.
 // This prevents lost events when the overlay sends a message and the main process
 // sets up IPC forwarding before the renderer has subscribed.
+//
+// Capped at EVENT_BUFFER_CAP per thread (drop-oldest) so an abandoned threadId
+// — one that gets events but never creates a stream iterator — can't leak
+// memory indefinitely. 2000 is comfortably above any plausible single turn
+// (a long tool-heavy turn is ~hundreds of events) while staying bounded.
 const eventBuffers = new Map<string, { events: any[]; done: boolean; error?: string }>();
+const EVENT_BUFFER_CAP = 2000;
 
 ipcRenderer.on('chat:event', (_event: any, threadId: string, token: any) => {
   if (token?.type === 'turn-complete') {
     console.log(`[Preload:buffer] turn-complete arrived, activeStream=${activeStreams.has(threadId)}`);
+    // Renderer-side fanout so non-stream consumers (e.g. a post-turn
+    // SQLite-resync component) can react regardless of who owned the
+    // primary stream. Fires for every turn-complete, including ones
+    // chatAdapter consumed itself — listeners are expected to gate on
+    // `thread.isRunning` to skip the local-driver case where the
+    // in-memory state is already current.
+    window.dispatchEvent(new CustomEvent('chat:turn-end', { detail: { threadId } }));
   }
   if (activeStreams.has(threadId)) return; // Active stream handles these
   console.warn(`[Preload:buffer] Buffering event type=${token?.type} for ${threadId} (no active stream)`);
   const buf = eventBuffers.get(threadId) || { events: [], done: false };
   buf.events.push(token);
+  if (buf.events.length > EVENT_BUFFER_CAP) {
+    buf.events.shift();
+  }
   eventBuffers.set(threadId, buf);
 });
 ipcRenderer.on('chat:done', (_event: any, threadId: string) => {
@@ -543,15 +573,33 @@ contextBridge.exposeInMainWorld('chatAPI', {
     ipcRenderer.on('quick-chat:inject', handler);
     return () => { ipcRenderer.removeListener('quick-chat:inject', handler); };
   },
-  sendMessage: (threadId: string, text: string, attachments?: any[], model?: string, documentPath?: string) => {
-    ipcRenderer.send('chat:send', { threadId, text, attachments, model, documentPath });
-    return createStreamIterator(threadId).stream;
+  sendMessage: (threadId: string, text: string, attachments?: any[], model?: string, documentPath?: string, messageId?: string) => {
+    // Fire-and-forget invoke for the ack/dedup round-trip. We can't await it
+    // here because contextBridge doesn't proxy nested methods through a
+    // resolved Promise — the renderer would receive a structured-cloned
+    // stream whose `next()` is missing and the iterator would hang.
+    // Errors are routed to the chat:error IPC channel so the stream iterator
+    // (which already listens for that) surfaces them the same way it
+    // surfaces in-stream errors.
+    ipcRenderer.invoke('chat:send', { threadId, text, attachments, model, documentPath, messageId })
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        ipcRenderer.emit('chat:error', null, threadId, message);
+      });
+    // `release` is bound to THIS iterator's markDone, not the current slot
+    // occupant. If a takeover force-subscribes mid-turn (replacing this
+    // iterator with a new one), markDone's cleanup ownership check makes
+    // this release a harmless no-op on the new iterator instead of killing
+    // it. A global `activeStreams.get(threadId)?.()` would clobber the
+    // takeover and the takeover's resumeRun would terminate immediately.
+    const { stream, markDone } = createStreamIterator(threadId);
+    return { stream, release: markDone };
   },
-  subscribe: (threadId: string) => {
+  subscribe: (threadId: string, options?: { force?: boolean }) => {
     // Always ensure main-process forwarding is set up
     ipcRenderer.send('chat:subscribe', threadId);
 
-    if (activeStreams.has(threadId)) {
+    if (!options?.force && activeStreams.has(threadId)) {
       // sendMessage already owns a primary stream for this thread.
       // Return an immediately-done stream so the subscription defers to chatAdapter
       // instead of creating a competing consumer.
@@ -563,12 +611,26 @@ contextBridge.exposeInMainWorld('chatAPI', {
       };
     }
 
+    if (options?.force && activeStreams.has(threadId)) {
+      console.debug(`[StreamIterator] subscribe: force-taking over existing primary stream for ${threadId}`);
+    }
+    // createStreamIterator already calls markDone on any existing entry in
+    // activeStreams, so force is implemented by simply not short-circuiting.
     const { stream, markDone } = createStreamIterator(threadId);
     return { stream, unsubscribe: () => { markDone(); } };
+  },
+  // Tells main this surface has navigated away. Does NOT cancel an
+  // in-flight turn (use stopResponding for that) — only drops the
+  // visibility refcount so the registry can decide to evict.
+  unsubscribe: (threadId: string) => {
+    ipcRenderer.send('chat:unsubscribe', threadId);
   },
   stopResponding: (threadId: string) => {
     activeStreams.get(threadId)?.();
     ipcRenderer.send('chat:stop', threadId);
+  },
+  isTurnInProgress: (threadId: string): Promise<boolean> => {
+    return ipcRenderer.invoke('chat:isTurnInProgress', threadId);
   },
 });
 

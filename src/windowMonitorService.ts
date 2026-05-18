@@ -5,6 +5,7 @@ import { readFileSync, existsSync, watch, FSWatcher } from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
 import { defaultLogger as logger } from './utils/logger';
+import { processCpuMonitor } from './utils/processCpuMonitor';
 import { SystemState, WindowMonitorEvent, WindowBounds, TextSelectionInfo, DocumentTextInfo } from './windowMonitor/types';
 import { wordPollEventBus } from './server/events/wordPollEventBus';
 import { createInitialState } from './windowMonitor/initialState';
@@ -15,6 +16,7 @@ import { FEATURES } from './shared/types';
 import {
   computeWebviewStateV4,
   getFocusedWindowInfo,
+  applyFocusLossCarryForward,
   DesiredWebviewState,
   WebviewTypeConfig,
 } from './windowMonitor/computeWebviewState';
@@ -98,7 +100,7 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
         if (!_contentBounds) return null;
 
         // In cobuilding mode, selection goes to the composer pill — no review button needed
-        if (service.getActiveWorkspaceDirectory()) return null;
+        if (service.getActiveWorkspaceDirectories().length > 0) return null;
 
         // Hide review button when review input is open
         if (windowId && service['reviewInputOpen'].has(windowId)) return null;
@@ -312,13 +314,14 @@ export class WindowMonitorService {
   private pendingAutoOpenPaths: Set<string> = new Set();
   // File paths that should auto-dock (66/33 split) when the window is first detected
   private pendingDockPaths: Set<string> = new Set();
-  // Cobuilding workspace directory — when set, documents within this directory
-  // are treated as workspace files and the overlay shows workspace sessions.
-  private workspaceDirectory: string | null = null;
-  // Watcher for `.obsidian/workspace.json` — Obsidian doesn't expose
-  // active-document changes through AX, so we observe its layout file directly
-  // and trigger an overlay state push when it changes.
-  private obsidianWorkspaceWatcher: FSWatcher | null = null;
+  // Cobuilding workspace directories — when non-empty, documents within any of
+  // these directories are treated as workspace files and the overlay shows
+  // workspace sessions. Supports multi-directory workspaces.
+  private workspaceDirectories: string[] = [];
+  // Watchers for `.obsidian/workspace.json` in each workspace directory that
+  // is an Obsidian vault. Obsidian doesn't expose active-document changes
+  // through AX, so we observe its layout file directly.
+  private obsidianWorkspaceWatchers: FSWatcher[] = [];
   private obsidianWorkspaceWatchDebounce: ReturnType<typeof setTimeout> | null = null;
   // Cache of the currently active Apple Note's synthetic path. Apple Notes
   // doesn't expose AXDocument and the lookup requires an AppleScript round
@@ -362,6 +365,7 @@ export class WindowMonitorService {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     this.processStartTimes.set('webview-manager', Date.now());
+    if (this.webviewManagerProcess.pid) processCpuMonitor.register('windowMonitor:webviewManager', this.webviewManagerProcess.pid);
 
     // Spawn one window-monitor per registered host app (or a single all-apps
     // monitor when in review-button-v3 mode). When only Word is registered,
@@ -414,6 +418,7 @@ export class WindowMonitorService {
           const bin = getWebviewManagerBinPath();
           this.webviewManagerProcess = spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] });
           this.processStartTimes.set('webview-manager', Date.now());
+          if (this.webviewManagerProcess.pid) processCpuMonitor.register('windowMonitor:webviewManager', this.webviewManagerProcess.pid);
           this.setupWebviewManagerHandlers();
           // Re-send last known state so overlay is restored
           this.pushWebviewState();
@@ -460,6 +465,7 @@ export class WindowMonitorService {
           const bin = getWebviewManagerBinPath();
           this.webviewManagerProcess = spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] });
           this.processStartTimes.set('webview-manager', Date.now());
+          if (this.webviewManagerProcess.pid) processCpuMonitor.register('windowMonitor:webviewManager', this.webviewManagerProcess.pid);
           this.setupWebviewManagerHandlers();
           this.pushWebviewState();
           logger.info('[WindowMonitorService] webview-manager respawned successfully');
@@ -477,6 +483,7 @@ export class WindowMonitorService {
     });
     this.windowMonitorProcesses.set(processKey, proc);
     this.windowMonitorProcessKeys.set(proc, processKey);
+    if (proc.pid) processCpuMonitor.register(`windowMonitor:${processKey}`, proc.pid);
     this.processStartTimes.set(`wm:${processKey}`, Date.now());
 
     // Handle window-monitor stdout: line-delimited JSON events
@@ -713,22 +720,14 @@ export class WindowMonitorService {
       windowId = [...this.dockedRightWindows][0];
     }
 
-    // In cobuilding mode, keep the open chat panel visible when Word loses focus
-    // by reusing its last desired state. Drops to normal window level
-    // (background: true) so it sits behind the active app's windows.
-    // The launcher button (button-v2) is intentionally NOT carried over —
-    // it's only meaningful when Word is the focused app.
-    if (this.workspaceDirectory && !windowId && this.lastV4FocusedWindowId) {
-      const hasOverlay = Object.keys(desiredState).length > 0;
-      const lastPopup = this.lastDesiredState['popup-v2'];
-      if (!hasOverlay && lastPopup?.visible) {
-        windowId = this.lastV4FocusedWindowId;
-        desiredState['popup-v2'] = { ...lastPopup, background: true };
-      }
-    }
+    const hostAppFocused = this.state.focusedAppIdentifier !== null;
+    const carryForward = applyFocusLossCarryForward(desiredState, this.lastDesiredState, hostAppFocused, this.lastV4FocusedWindowId);
+    Object.assign(desiredState, carryForward.desiredState);
+    if (carryForward.windowId) windowId = carryForward.windowId;
 
-    // Apply per-window overrides using global keys
-    if (desiredState['popup-v2'] && windowId) {
+    // Apply per-window overrides only when the host app is focused —
+    // skip when carrying forward hidden state during focus loss.
+    if (desiredState['popup-v2'] && windowId && hostAppFocused) {
       const isToggledOpen = this.popupToggledOpen.has(windowId);
       desiredState['popup-v2'].visible = isToggledOpen;
       if (isToggledOpen) {
@@ -746,16 +745,16 @@ export class WindowMonitorService {
       }
     }
 
-    if (desiredState['review-panel-v3'] && windowId) {
+    if (desiredState['review-panel-v3'] && windowId && hostAppFocused) {
       const isPanelOpen = this.reviewPanelV3Open.has(windowId);
       desiredState['review-panel-v3'].visible = isPanelOpen;
     }
 
-    if (desiredState['button-v2'] && windowId) {
+    if (desiredState['button-v2'] && windowId && hostAppFocused) {
       const buttonWidthOverride = this.buttonV2WidthOverrides.get(windowId);
       if (buttonWidthOverride !== undefined) {
         desiredState['button-v2'].frame.width = buttonWidthOverride;
-      } else if (!this.workspaceDirectory) {
+      } else if (this.workspaceDirectories.length === 0) {
         // Only shrink to ENABLE_FEEDBACK_BUTTON_WIDTH in writing agent mode
         const docPath = this.getDocumentPathForWindow(windowId);
         if (!docPath || !wordIntegrationDataStoreV2.getProjectFileForPath(docPath)) {
@@ -763,7 +762,7 @@ export class WindowMonitorService {
         }
       }
       // Widen for "Review Selection" when text is selected (not in cobuilding mode)
-      if (!this.workspaceDirectory) {
+      if (this.workspaceDirectories.length === 0) {
         const selectedText = this.getSelectedTextForWindow(windowId);
         if (selectedText && selectedText.length > 0) {
           desiredState['button-v2'].frame.width = Math.max(desiredState['button-v2'].frame.width, BUTTON_WITH_REVIEW_WIDTH);
@@ -772,7 +771,7 @@ export class WindowMonitorService {
     }
 
     // Apply drag offset for the focused window
-    if (windowId && this.buttonDragOffsets.has(windowId) && desiredState['button-v2']) {
+    if (windowId && hostAppFocused && this.buttonDragOffsets.has(windowId) && desiredState['button-v2']) {
       const offset = this.buttonDragOffsets.get(windowId)!;
       const buttonKey = 'button-v2';
       const popupKey = 'popup-v2';
@@ -818,7 +817,7 @@ export class WindowMonitorService {
     // override so the panel falls back to the regular floating overlay behavior.
     // Look up bounds by windowId directly — clicking the overlay causes Word to lose focus,
     // so focused?.window.bounds may be null.
-    if (windowId && this.dockedRightWindows.has(windowId) && desiredState['popup-v2']) {
+    if (windowId && hostAppFocused && this.dockedRightWindows.has(windowId) && desiredState['popup-v2']) {
       let dockedWindowBounds: WindowBounds | null = focused?.window.bounds ?? null;
       if (!dockedWindowBounds) {
         for (const app of this.state.apps) {
@@ -1086,7 +1085,7 @@ export class WindowMonitorService {
               void this.refreshGoogleDocsPath();
               return this.lastGoogleDocsPath;
             }
-            const resolved = host.resolveDocumentPath(window, this.workspaceDirectory);
+            const resolved = host.resolveDocumentPath(window, this.workspaceDirectories);
             if (resolved?.startsWith('file://')) {
               return decodeURIComponent(resolved.slice(7));
             }
@@ -1469,57 +1468,52 @@ export class WindowMonitorService {
   }
 
   /**
-   * Sets the directory of the *active* workspace. Multiple workspaces may exist,
-   * but only one is active at a time; this should be called whenever the active
-   * workspace is selected or switched.
+   * Sets the user directories of the *active* workspace. A workspace may have
+   * multiple user directories; documents within any of them are treated as
+   * workspace files by the overlay.
    */
-  setActiveWorkspaceDirectory(directory: string | null): void {
-    this.workspaceDirectory = directory;
-    this.refreshObsidianWorkspaceWatcher();
+  setActiveWorkspaceDirectories(directories: string[]): void {
+    this.workspaceDirectories = directories;
+    this.refreshObsidianWorkspaceWatchers();
   }
 
   /**
-   * Start (or restart) the watcher on `.obsidian/workspace.json` for the active
-   * workspace. Obsidian writes this file whenever the user switches notes,
-   * splits panes, or otherwise changes their layout — observing it lets us
-   * react to active-note changes without any AX or polling-based detection.
+   * Start (or restart) watchers on `.obsidian/workspace.json` for every
+   * workspace directory that is an Obsidian vault.
    */
-  private refreshObsidianWorkspaceWatcher(): void {
-    if (this.obsidianWorkspaceWatcher) {
-      this.obsidianWorkspaceWatcher.close();
-      this.obsidianWorkspaceWatcher = null;
-    }
+  private refreshObsidianWorkspaceWatchers(): void {
+    for (const w of this.obsidianWorkspaceWatchers) w.close();
+    this.obsidianWorkspaceWatchers = [];
     if (this.obsidianWorkspaceWatchDebounce) {
       clearTimeout(this.obsidianWorkspaceWatchDebounce);
       this.obsidianWorkspaceWatchDebounce = null;
     }
-    const dir = this.workspaceDirectory;
-    if (!dir) return;
-    const wsPath = path.join(dir, '.obsidian', 'workspace.json');
-    if (!existsSync(wsPath)) return;
-    try {
-      this.obsidianWorkspaceWatcher = watch(wsPath, () => {
-        // Obsidian rewrites workspace.json multiple times per layout change;
-        // debounce so we only push state once per burst.
-        if (this.obsidianWorkspaceWatchDebounce) {
-          clearTimeout(this.obsidianWorkspaceWatchDebounce);
-        }
-        this.obsidianWorkspaceWatchDebounce = setTimeout(() => {
-          this.obsidianWorkspaceWatchDebounce = null;
-          logger.info('[WindowMonitorService] Obsidian workspace.json changed — refreshing overlay state');
-          this.pushWebviewState();
-          wordPollEventBus.emit('change', 'obsidian-active-note-changed');
-        }, 150);
-      });
-      logger.info(`[WindowMonitorService] Watching Obsidian workspace.json at ${wsPath}`);
-    } catch (err) {
-      logger.warn(`[WindowMonitorService] Failed to watch ${wsPath}: ${(err as Error).message}`);
+    for (const dir of this.workspaceDirectories) {
+      const wsPath = path.join(dir, '.obsidian', 'workspace.json');
+      if (!existsSync(wsPath)) continue;
+      try {
+        const watcher = watch(wsPath, () => {
+          if (this.obsidianWorkspaceWatchDebounce) {
+            clearTimeout(this.obsidianWorkspaceWatchDebounce);
+          }
+          this.obsidianWorkspaceWatchDebounce = setTimeout(() => {
+            this.obsidianWorkspaceWatchDebounce = null;
+            logger.info('[WindowMonitorService] Obsidian workspace.json changed — refreshing overlay state');
+            this.pushWebviewState();
+            wordPollEventBus.emit('change', 'obsidian-active-note-changed');
+          }, 150);
+        });
+        this.obsidianWorkspaceWatchers.push(watcher);
+        logger.info(`[WindowMonitorService] Watching Obsidian workspace.json at ${wsPath}`);
+      } catch (err) {
+        logger.warn(`[WindowMonitorService] Failed to watch ${wsPath}: ${(err as Error).message}`);
+      }
     }
   }
 
-  /** Returns the directory of the currently active workspace, or null if none. */
-  getActiveWorkspaceDirectory(): string | null {
-    return this.workspaceDirectory;
+  /** Returns the user directories of the active workspace (empty when no workspace is active). */
+  getActiveWorkspaceDirectories(): string[] {
+    return this.workspaceDirectories;
   }
 
   setSessionsProvider(provider: ((opts: { documentPath?: string; documentPathLike?: string }) => Array<{ id: string; title: string; created_at: string; is_running?: boolean }>) | null): void {
@@ -1625,12 +1619,14 @@ export class WindowMonitorService {
 
     for (const [key, proc] of this.windowMonitorProcesses) {
       logger.info(`[WindowMonitorService] Stopping window-monitor (${key})`);
+      processCpuMonitor.unregister(`windowMonitor:${key}`);
       proc.kill();
     }
     this.windowMonitorProcesses.clear();
     this.windowMonitorProcessKeys.clear();
     if (this.webviewManagerProcess) {
       logger.info('[WindowMonitorService] Stopping webview-manager');
+      processCpuMonitor.unregister('windowMonitor:webviewManager');
       this.webviewManagerProcess.kill();
       this.webviewManagerProcess = null;
     }
@@ -1660,10 +1656,8 @@ export class WindowMonitorService {
     this.lastGoogleDocsPath = null;
     this.lastGoogleDocsTitle = null;
     this.lastGoogleDocsSelectedText = null;
-    if (this.obsidianWorkspaceWatcher) {
-      this.obsidianWorkspaceWatcher.close();
-      this.obsidianWorkspaceWatcher = null;
-    }
+    for (const w of this.obsidianWorkspaceWatchers) w.close();
+    this.obsidianWorkspaceWatchers = [];
     if (this.obsidianWorkspaceWatchDebounce) {
       clearTimeout(this.obsidianWorkspaceWatchDebounce);
       this.obsidianWorkspaceWatchDebounce = null;

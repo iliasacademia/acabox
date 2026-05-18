@@ -1,22 +1,28 @@
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, net, protocol, shell, systemPreferences } from 'electron';
+import { WorkspaceController } from './controllers/WorkspaceController';
+import { AgentInfrastructureController } from './controllers/AgentInfrastructureController';
+import { registerWorkspaceHandlers } from './ipc/workspaceIpc';
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 import Anthropic from '@anthropic-ai/sdk';
-import { registerFileHandlers, assertWithinWorkspace } from './fileHandlers';
+import { registerFileHandlers, assertWithinAllowedDirs } from './fileHandlers';
 import { randomUUID } from 'crypto';
 import log from 'electron-log';
 import { createAgentSession } from './agentSession';
 import { createCalendarAgentSession } from './calendarAgentSession';
 import type { CalendarMutationEvent } from './calendarAgentSession';
-import { registerSession, unregisterSession, getRegisteredSession, hasSession, destroyAllSessions } from './sessionRegistry';
+import { registerSession, unregisterSession, getRegisteredSession, hasSession, destroyAllSessions, addSubscriber, removeSubscriber } from './sessionRegistry';
 import type { IPCAttachment } from '../shared/types';
 import { provisionWorkspace } from './skills';
 import { containerService } from './containerService';
+import { showDownloadManagerIfNeeded, registerDownloadManagerIpc } from './downloadManager';
+import { processCpuMonitor } from '../../utils/processCpuMonitor';
 import { getAllPodmanDataPaths } from './podmanBinaries';
 import { ensureClaudeBinaryReady } from './sdkBinarySetup';
 import { scanWorkspaceDirectory } from './directoryScanner';
+import { convertReferenceFile } from './directoryScanner/agents/fileTagging';
 import { fetchPapers, type FetchPapersInput } from './papers/papersService';
 import { persistPapersAsBriefings } from './papers/paperBriefings';
 import { getReport, getLatestReport, updateReportData } from './db/reportRepository';
@@ -24,8 +30,10 @@ import {
   listBriefings,
   setBriefingStatus,
   type BriefingStatus,
+  type ListBriefingsFilter,
 } from './db/briefingsRepository';
-import { getScannedFilesByType, getScannedFiles } from './db/scannedFilesRepository';
+import { NotificationsController } from './controllers/NotificationsController';
+import { getScannedFilesByType, getScannedFiles, updateFileTag, removeFileTag } from './db/scannedFilesRepository';
 import { kernelGatewayService } from './kernelGatewayService';
 import { initDatabase, getDatabase, closeDatabase } from './db/database';
 import { initObservationsDatabase, getObservationsDatabase, closeObservationsDatabase } from './db/observationsDatabase';
@@ -39,17 +47,10 @@ import {
   deleteSession,
   getMessages,
   findSessionForApp,
+  findMessageByMessageId,
 } from './db/chatRepository';
 import {
-  createWorkspace,
-  updateWorkspace,
-  getActiveWorkspace,
-  listWorkspaces,
-  touchWorkspace,
-  deactivateAllWorkspaces,
-  findInactiveWorkspaceByDirectory,
-  reactivateWorkspace,
-  type Workspace,
+  listWorkspaceDirectories,
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
 import { createTray, createDockIcon, rebuildTrayMenu, setShowWindowCallback } from './tray';
@@ -80,8 +81,7 @@ import { packageInstaller, installStepsToRequests, type Registry, type PackageSt
 import { checkLogin, getCurrentUser, logout, setBaseUrl, BASE_URL, hasSessionCookie } from '../../apiClient';
 import { getDeviceId } from '../../utils/deviceId';
 import { createCobuildingAuthSession, verifyCobuildingAuthCode } from './cobuildingAuthService';
-import { fetchGatewayCredentials, getAnthropicConfig, setRefreshCallback, destroyTokenManager, type AnthropicConfig } from './cobuildingTokenManager';
-import { updateApiKey } from './db/workspaceRepository';
+import { fetchGatewayCredentials, destroyTokenManager, getCredentials, setCredentials } from './cobuildingTokenManager';
 import { createQuickChatWindow, showQuickChat, updateMainWindowRef } from './quickChat';
 import { registerCalendarHandlers } from './ipc/calendar';
 import { registerDebugHandlers } from './ipc/debug';
@@ -98,7 +98,9 @@ import { windowMonitorService } from '../../windowMonitorService';
 import { wordAccessibility } from '../../native/wordAccessibility';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
 import { validateExternalUrl } from '../../utils/urlValidation';
-import { ACADEMIA_DIR } from '../shared/paths';
+import { ACADEMIA_DIR, AGENT_MEMORY_SUBDIR, REFERENCES_SUBDIR, REFERENCES_INDEX } from '../shared/paths';
+import { initSentryMain } from './sentry';
+import { captureError } from '../shared/telemetry';
 const isSmokeTest = process.argv.includes('--smoke-test');
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
@@ -194,48 +196,67 @@ log.transports.console.level = app.isPackaged ? false : 'debug';
 import { systemLogger } from './systemLogger';
 systemLogger.init();
 
+let _handlingFatalError = false;
 process.on('uncaughtException', (error) => {
-  log.error('[FATAL] Uncaught exception:', error);
+  if (_handlingFatalError) return;
+  _handlingFatalError = true;
+  try {
+    captureError(error, { subsystem: 'main_uncaught' });
+    log.error('[FATAL] Uncaught exception:', error);
+  } finally {
+    _handlingFatalError = false;
+  }
 });
 
 process.on('unhandledRejection', (reason) => {
-  log.error('[FATAL] Unhandled rejection:', reason);
+  if (_handlingFatalError) return;
+  _handlingFatalError = true;
+  try {
+    captureError(reason, { subsystem: 'main_unhandled_rejection' });
+    log.error('[FATAL] Unhandled rejection:', reason);
+  } finally {
+    _handlingFatalError = false;
+  }
 });
-
-const MAX_WORKSPACE_NAME_LENGTH = 100;
-
-function validateWorkspaceName(name: string): string {
-  const trimmed = name.trim();
-  if (trimmed.length === 0) {
-    throw new Error('Workspace name cannot be empty.');
-  }
-  if (trimmed.length > MAX_WORKSPACE_NAME_LENGTH) {
-    throw new Error(`Workspace name cannot exceed ${MAX_WORKSPACE_NAME_LENGTH} characters.`);
-  }
-  return trimmed;
-}
-
-const SENSITIVE_HOME_DIRS = ['.ssh', '.gnupg', '.aws', '.config', '.password-store'];
-
-function validateDirectoryPath(directoryPath: string): string {
-  const resolved = path.resolve(directoryPath);
-  const homeDir = app.getPath('home');
-
-  if (!resolved.startsWith(homeDir + path.sep) && resolved !== homeDir) {
-    throw new Error('Workspace directory must be within your home directory.');
-  }
-
-  const relative = path.relative(homeDir, resolved);
-  const firstSegment = relative.split(path.sep)[0];
-  if (SENSITIVE_HOME_DIRS.includes(firstSegment)) {
-    throw new Error('Cannot create a workspace in a sensitive directory.');
-  }
-
-  return resolved;
-}
 
 app.setName('Academia Coscientist');
 app.setPath('userData', path.join(app.getPath('appData'), 'academia-electron', app.isPackaged ? 'production' : 'development'));
+
+// Initialize Sentry after userData path is set so native minidumps land in the right directory.
+// No-op if SENTRY_DSN is empty (e.g. local dev without DSN configured).
+initSentryMain();
+
+// Electron-level process-gone events. These cover renderer / utility / GPU processes —
+// not Podman or the kernel gateway, which are tracked separately at their spawn sites.
+app.on('child-process-gone', (_event, details) => {
+  if (details.reason === 'clean-exit' || details.reason === 'killed') return;
+  const err = new Error(
+    `child-process-gone: type=${details.type} reason=${details.reason} exitCode=${details.exitCode}`
+  );
+  captureError(err, {
+    subsystem: 'child_process',
+    extra: {
+      process_type: details.type,
+      reason: details.reason,
+      exit_code: details.exitCode,
+      service_name: details.serviceName,
+      name: details.name,
+    },
+  });
+  log.warn('[APP] child-process-gone:', details);
+});
+
+app.on('render-process-gone', (_event, _webContents, details) => {
+  if (details.reason === 'clean-exit') return;
+  const err = new Error(
+    `render-process-gone: reason=${details.reason} exitCode=${details.exitCode}`
+  );
+  captureError(err, {
+    subsystem: 'render_process',
+    extra: { reason: details.reason, exit_code: details.exitCode },
+  });
+  log.warn('[APP] render-process-gone:', details);
+});
 
 // Register deep link protocol — must happen before app is ready
 app.setAsDefaultProtocolClient('cobuilding-agent');
@@ -285,19 +306,6 @@ function sendProgressTo(channel: string) {
   };
 }
 
-function makeBackgroundProgress() {
-  const toProgress = sendProgressTo('container:progress');
-  const toBackgroundBuild = sendProgressTo('container:backgroundBuild');
-  return (stage: string, message: string, percent?: number) => {
-    toProgress(stage, message, percent);
-    const bgStage =
-      stage === 'ready' ? 'background-build-done'
-        : stage === 'error' ? 'background-build-error'
-        : stage;
-    toBackgroundBuild(bgStage, message, percent);
-  };
-}
-
 // Setup events (pull, install-podman, setup-done) drive both the SetupBanner
 // and PodmanDebug's Base Image spinner.
 function makeSetupProgress() {
@@ -324,10 +332,8 @@ function handleNotificationNavigation(action: NotificationNavigationAction | nul
     }
   }
 }
-let activeWorkspace: Workspace | null = null;
+const workspaceController = new WorkspaceController();
 
-let cachedApiKey: string | null = null;
-let cachedBaseURL: string | undefined = undefined;
 let activeApiBaseUrl: string = (() => {
   if (app.isPackaged) return BASE_URL;
   try {
@@ -343,22 +349,24 @@ let activeApiBaseUrl: string = (() => {
 
 async function refreshCredentialsForSession(): Promise<{ apiKey: string; baseURL?: string }> {
   const result = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
-  cachedApiKey = result.apiKey;
-  cachedBaseURL = result.baseURL;
-  if (activeWorkspace) {
-    updateApiKey(activeWorkspace.id, result.apiKey);
-    activeWorkspace = { ...activeWorkspace, api_key: result.apiKey };
-  }
   return { apiKey: result.apiKey, baseURL: result.baseURL };
 }
 
-setRefreshCallback((config: AnthropicConfig) => {
-  cachedApiKey = config.apiKey;
-  cachedBaseURL = config.baseURL;
-  if (activeWorkspace) {
-    updateApiKey(activeWorkspace.id, config.apiKey);
-    activeWorkspace = { ...activeWorkspace, api_key: config.apiKey };
-  }
+const notificationsController = new NotificationsController({
+  workspaceController,
+  onDesktopNotificationClick: () => handleNotificationNavigation({ type: 'sidebar', tab: 'home' }),
+});
+
+const agentInfrastructure = new AgentInfrastructureController({
+  workspaceController,
+  containerService,
+  refreshCredentials: refreshCredentialsForSession,
+  onNotificationClick: handleNotificationNavigation,
+  onBriefingsChanged: () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('briefings:changed');
+    }
+  },
 });
 
 // Shared edit state store — keyed by toolCallId, synced between overlay and desktop
@@ -390,6 +398,7 @@ const forwardingListeners = new Map<string, () => void>();
 // desktop-initiated and overlay-initiated turns.
 const sseSessionSubscribers = new Map<string, Set<NodeJS.WritableStream>>();
 const sseFanoutListeners = new Map<string, () => void>();
+let sseSubscriberSeq = 0;
 
 function broadcastSseToSubscribers(sessionId: string, event: string, data: unknown): void {
   const subs = sseSessionSubscribers.get(sessionId);
@@ -412,7 +421,7 @@ function ensureSseFanout(sessionId: string): void {
   const unsubscribe = session.addListener({
     onEvent: (msg) => {
       if (msg.type !== 'heartbeat') {
-        log.info(`[SseFanout] event sessionId=${sessionId} type=${msg.type}`);
+        log.debug(`[SseFanout] event sessionId=${sessionId} type=${msg.type}`);
       }
       broadcastSseToSubscribers(sessionId, 'event', msg);
       // Also nudge the desktop renderer when a user-message lands from
@@ -446,11 +455,18 @@ function ensureSseFanout(sessionId: string): void {
 
 function ensureForwarding(threadId: string, sender: Electron.WebContents): void {
   const key = `${threadId}:${sender.id}`;
+  // Always register the renderer's interest in this thread, even before a
+  // session exists. The registry tracks pre-session subscribers so a session
+  // created later inherits the right count, and visibility-based cleanup
+  // doesn't fire on a session that has subscribers waiting in the wings.
+  const subscriberKey = `ipc:${sender.id}`;
+  addSubscriber(threadId, subscriberKey);
+
   if (forwardingListeners.has(key)) return;
 
   const session = getRegisteredSession(threadId);
   if (!session) {
-    log.debug(`[Forwarding] No session found for ${threadId}, skipping`);
+    log.debug(`[Forwarding] No session found for ${threadId}, skipping listener attach (subscriber recorded)`);
     return;
   }
 
@@ -501,10 +517,32 @@ function ensureForwarding(threadId: string, sender: Electron.WebContents): void 
     unsubscribe();
     forwardingListeners.delete(key);
     sender.removeListener('destroyed', cleanup);
+    removeSubscriber(threadId, subscriberKey);
   };
 
   forwardingListeners.set(key, cleanup);
   sender.on('destroyed', cleanup);
+}
+
+/**
+ * Explicit cleanup path the renderer fires when it navigates away from a
+ * thread (component unmount, thread change, idle timeout in
+ * useSessionSubscription). Removing the forwarding listener drops the
+ * subscriber count for the (threadId, sender) pair; once the last surface
+ * detaches, the registry's visibility policy decides whether to destroy the
+ * agent session now or after the current turn finishes.
+ */
+function removeForwarding(threadId: string, senderId: number): void {
+  const key = `${threadId}:${senderId}`;
+  const cleanup = forwardingListeners.get(key);
+  if (cleanup) {
+    cleanup();
+    return;
+  }
+  // No forwarding listener was ever installed (e.g. renderer subscribed
+  // before the session existed). Still record the detach so the registry's
+  // pre-session subscriber count drops.
+  removeSubscriber(threadId, `ipc:${senderId}`);
 }
 
 function createMainWindow(): void {
@@ -556,6 +594,8 @@ function createMainWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  processCpuMonitor.start();
+
   if (process.platform === 'darwin') {
     systemPreferences.setUserDefault('NSNavPanelExpandedStateForSaveMode2', 'boolean', true as any);
   }
@@ -564,13 +604,9 @@ app.whenReady().then(async () => {
 
   protocol.handle('local-file', async (request) => {
     const filePath = decodeURIComponent(request.url.slice('local-file://'.length));
-    const resolved = path.resolve(filePath);
-    if (
-      !activeWorkspace ||
-      (!resolved.startsWith(activeWorkspace.directory_path + path.sep) &&
-        resolved !== activeWorkspace.directory_path)
-    ) {
-      log.warn(`[local-file] Forbidden: "${resolved}" outside workspace`);
+    const resolved = workspaceController.isPathAllowed(filePath);
+    if (!resolved) {
+      log.warn(`[local-file] Forbidden: "${filePath}" outside workspace`);
       return new Response('Forbidden', { status: 403 });
     }
     const fileUrl = pathToFileURL(resolved).href;
@@ -599,24 +635,30 @@ app.whenReady().then(async () => {
     log.info('[APP] Database initialized.');
 
     log.info('[APP] Loading active workspace...');
-    activeWorkspace = getActiveWorkspace() ?? null;
+    const activeWorkspace = workspaceController.loadActiveWorkspace();
     log.info('[APP] Active workspace:', activeWorkspace ? activeWorkspace.name : 'none');
 
     if (activeWorkspace) {
-      migrateWorkspaceFiles(activeWorkspace.directory_path);
-      provisionWorkspace(activeWorkspace.directory_path);
-      containerService.writeStartContainerScript(activeWorkspace.directory_path);
+      migrateWorkspaceFiles(workspaceController.workspacePath);
+      provisionWorkspace(workspaceController.workspacePath);
+      containerService.writeStartContainerScript(workspaceController.mountMap);
     }
 
-    createMainWindow();
+    if (!isSmokeTest) {
+      registerDownloadManagerIpc();
+      await showDownloadManagerIfNeeded(createMainWindow);
+    } else {
+      createMainWindow();
+    }
 
-    registerFileHandlers(() => activeWorkspace?.directory_path ?? null, () => mainWindow);
-    initFileMonitor(() => activeWorkspace?.directory_path ?? null);
-    initActivityQuery(() => activeWorkspace?.directory_path ?? null);
-    initSessionFiles(() => activeWorkspace?.directory_path ?? null);
+    registerFileHandlers(() => workspaceController.allAllowedPaths, () => mainWindow);
+    initFileMonitor(() => workspaceController.workspacePath);
+    initActivityQuery(() => workspaceController.workspacePath);
+    initSessionFiles(() => workspaceController.workspacePath);
     registerCalendarHandlers(() => mainWindow);
     registerDebugHandlers();
-    registerReactionsHandlers(() => activeWorkspace, rebuildTrayMenu);
+    registerWorkspaceHandlers(workspaceController, () => mainWindow, containerService);
+    registerReactionsHandlers(() => workspaceController.activeWorkspace, rebuildTrayMenu);
     setupUpdaterIpcHandlers();
     setupUpdater(rebuildTrayMenu);
     createTray();
@@ -730,6 +772,12 @@ app.whenReady().then(async () => {
                 }
                 subs.add(reply.raw);
 
+                // Each open SSE stream is one visibility-tracked subscriber.
+                // Unique per connection so concurrent overlay windows on the
+                // same session each hold the count up independently.
+                const subscriberKey = `sse:${++sseSubscriberSeq}`;
+                addSubscriber(sessionId, subscriberKey);
+
                 // If the session already exists (the common case — the user
                 // is opening an active conversation), attach the fanout
                 // listener now. Otherwise it'll be attached the first time
@@ -745,6 +793,7 @@ app.whenReady().then(async () => {
                     set.delete(reply.raw);
                     if (set.size === 0) sseSessionSubscribers.delete(sessionId);
                   }
+                  removeSubscriber(sessionId, subscriberKey);
                 });
               },
             );
@@ -816,6 +865,7 @@ app.whenReady().then(async () => {
                   reply.code(400).send({ error: 'text is required' });
                   return;
                 }
+                const activeWorkspace = workspaceController.activeWorkspace;
                 if (!activeWorkspace) {
                   reply.code(400).send({ error: 'No active workspace' });
                   return;
@@ -895,7 +945,7 @@ app.whenReady().then(async () => {
                       pendingContext.delete(sessionId);
                       if (!ctx) return userText;
                       const { resolveSessionHostApp } = require('./agentSession');
-                      const host = resolveSessionHostApp(ctx.documentPath);
+                      const { hostApp: host } = resolveSessionHostApp(ctx.documentPath);
                       const prefix = host.messagePrefix({
                         documentPath: ctx.documentPath,
                         selectedText: ctx.selectedText,
@@ -908,8 +958,8 @@ app.whenReady().then(async () => {
                 }
 
                 if (isNewSession) notifySessionsChanged();
-                if (isNewSession && activeWorkspace.api_key) {
-                  generateSessionTitle(sessionId, text, activeWorkspace.api_key, cachedBaseURL);
+                if (isNewSession) {
+                  generateSessionTitle(sessionId, text);
                 }
 
                 const session = getRegisteredSession(sessionId)!;
@@ -950,6 +1000,7 @@ app.whenReady().then(async () => {
             const { setOverlayChatSendHandler, setOverlayBridgeHandler } = require('./overlayHandlers');
           setOverlayChatSendHandler((params: { sessionId: string; text: string; documentPath?: string; selectedText?: string; onEvent: (msg: any) => void; onDone: () => void; onError: (err: string) => void; onCleanup?: () => void }) => {
             const { sessionId, text, documentPath: ctxDocPath, selectedText: ctxSelectedText, onEvent, onDone, onError } = params;
+            const activeWorkspace = workspaceController.activeWorkspace;
             if (!activeWorkspace) {
               onError('No active workspace');
               return;
@@ -988,7 +1039,7 @@ app.whenReady().then(async () => {
                   pendingContext.delete(sessionId);
                   if (!ctx) return userText;
                   const { resolveSessionHostApp } = require('./agentSession');
-                  const host = resolveSessionHostApp(ctx.documentPath);
+                  const { hostApp: host } = resolveSessionHostApp(ctx.documentPath);
                   const prefix = host.messagePrefix({ documentPath: ctx.documentPath, selectedText: ctx.selectedText });
                   return prefix ? `${prefix}\n${userText}` : userText;
                 },
@@ -997,8 +1048,8 @@ app.whenReady().then(async () => {
               registerSession(sessionId, session);
             }
             if (isNewSession) notifySessionsChanged();
-            if (isNewSession && activeWorkspace!.api_key) {
-              generateSessionTitle(sessionId, text, activeWorkspace!.api_key, cachedBaseURL);
+            if (isNewSession) {
+              generateSessionTitle(sessionId, text);
             }
 
             const session = getRegisteredSession(sessionId)!;
@@ -1070,9 +1121,10 @@ app.whenReady().then(async () => {
                 `window.__COBUILDING_SERVER_URL__ = ${JSON.stringify(baseUrl)}; window.__COBUILDING_AUTH_TOKEN__ = ${JSON.stringify(authToken)};`
               );
             }
-            // Set workspace directory so the overlay knows which docs are in the workspace
+            // Set workspace directories so the overlay knows which docs are in the workspace
+            const activeWorkspace = workspaceController.activeWorkspace;
             if (activeWorkspace) {
-              windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
+              windowMonitorService.setActiveWorkspaceDirectories(workspaceController.userDirectoryPaths);
               windowMonitorService.setSessionsProvider(({ documentPath, documentPathLike }) => {
                 if (!activeWorkspace) return [];
                 const rows = documentPathLike !== undefined
@@ -1090,14 +1142,18 @@ app.whenReady().then(async () => {
             // Auto-start the window monitor so overlays appear immediately
             // for host apps like Google Docs that don't have an explicit
             // "open" action from the desktop UI.
-            if (!windowMonitorService.isRunning() && process.platform === 'darwin' && wordAccessibility.checkPermission()) {
-              windowMonitorService.start(baseUrl, authToken, false);
-              log.info('[HTTP Server] Window monitor auto-started');
+            if (process.platform === 'darwin' && !windowMonitorService.isRunning()) {
+              const hasPermission = wordAccessibility.checkPermission();
+              if (hasPermission) {
+                windowMonitorService.start(baseUrl, authToken, false);
+                log.info('[overlay:autoStart] Window monitor started automatically');
+              }
             }
           }
 
         } catch (error) {
           log.error('[HTTP Server] Failed to start:', error);
+          captureError(error, { subsystem: 'office_addin', extra: { phase: 'http_server_start' } });
         }
       })();
     }
@@ -1125,62 +1181,31 @@ app.on('activate', () => {
   }
 });
 
-// Workspace IPC handlers
-ipcMain.handle('workspaces:getActive', () => {
-  return activeWorkspace ?? null;
-});
-
-ipcMain.handle('workspaces:getDefaultDirectory', (_event, name: string) => {
-  const safeName = name.slice(0, MAX_WORKSPACE_NAME_LENGTH)
-    .replace(/[^a-zA-Z0-9_-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '') || 'my-workspace';
-  return path.join(app.getPath('desktop'), safeName);
-});
-
 ipcMain.handle(
   'workspaces:create',
-  async (_event, data: { name: string; directoryPath: string }) => {
-    const name = validateWorkspaceName(data.name);
-    const directoryPath = validateDirectoryPath(data.directoryPath);
-
-    let apiKey = cachedApiKey ?? '';
+  async (_event, data: { name: string; directoryPaths: string[] }) => {
+    let apiKey = getCredentials().apiKey ?? '';
     if (!apiKey) {
       try {
-        const result = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
-        cachedApiKey = result.apiKey;
-        cachedBaseURL = result.baseURL;
-        apiKey = result.apiKey;
+        await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
+        apiKey = getCredentials().apiKey ?? '';
       } catch (err) {
         log.warn('[workspaces:create] Could not fetch API key:', err);
       }
     }
-
-    fs.mkdirSync(directoryPath, { recursive: true });
-    provisionWorkspace(directoryPath);
-    containerService.writeStartContainerScript(directoryPath);
-
-    const existing = findInactiveWorkspaceByDirectory(directoryPath);
-    if (existing) {
-      reactivateWorkspace(existing.id, apiKey);
-      touchWorkspace(existing.id);
-    } else {
-      const id = randomUUID();
-      createWorkspace(id, name, directoryPath, apiKey);
-      touchWorkspace(id);
-    }
-    activeWorkspace = getActiveWorkspace() ?? null;
+    const activeWorkspace = await workspaceController.create(data.directoryPaths, apiKey);
     if (activeWorkspace) {
+      containerService.writeStartContainerScript(workspaceController.mountMap);
       if (getReactionsEnabled()) {
         ensureReactionsTask(activeWorkspace.id);
       }
       const scheduler = getTaskScheduler();
       scheduler?.stop();
       scheduler?.start();
-      // Tell the Word overlay about the freshly-created workspace so it
-      // recognizes docs inside it (otherwise the overlay falls through to
-      // the legacy "Not linked to a project" view on first onboarding).
-      windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
+      // Tell the overlay about the workspace directories so it recognizes
+      // docs inside them (otherwise it falls through to the legacy
+      // "Not linked to a project" view on first onboarding).
+      windowMonitorService.setActiveWorkspaceDirectories(workspaceController.userDirectoryPaths);
       windowMonitorService.setSessionsProvider(({ documentPath, documentPathLike }) => {
         if (!activeWorkspace) return [];
         const rows = documentPathLike !== undefined
@@ -1190,97 +1215,35 @@ ipcMain.handle(
       });
       // Directory scan is triggered separately via scanner:start IPC
     }
-    return activeWorkspace ?? null;
+    if (!activeWorkspace) return null;
+    return {
+      ...activeWorkspace,
+      directory_path: workspaceController.workspacePath,
+      user_directory_paths: workspaceController.userDirectoryPaths,
+    };
   },
 );
 
-ipcMain.handle('dialog:selectDirectory', async () => {
-  if (!mainWindow) return undefined;
-  const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openDirectory', 'createDirectory'],
-  });
-  if (result.canceled || result.filePaths.length === 0) return undefined;
-  return result.filePaths[0];
-});
-
-ipcMain.handle(
-  'workspaces:update',
-  (_event, data: { name: string; directoryPath: string }) => {
-    if (!activeWorkspace) {
-      throw new Error('No active workspace to update.');
-    }
-
-    const name = validateWorkspaceName(data.name);
-    const directoryPath = validateDirectoryPath(data.directoryPath);
-
-    if (directoryPath !== activeWorkspace.directory_path) {
-      // Stop the container so it restarts with the new volume mount.
-      // The kernel gateway is inside the container, so it stops with it.
-      packageInstaller.reset();
-      containerService.stop();
-
-      if (!fs.existsSync(directoryPath)) {
-        fs.mkdirSync(directoryPath, { recursive: true });
-      }
-      provisionWorkspace(directoryPath);
-      containerService.writeStartContainerScript(directoryPath);
-    }
-
-    updateWorkspace(activeWorkspace.id, name, directoryPath, cachedApiKey ?? activeWorkspace.api_key);
-    activeWorkspace = getActiveWorkspace() ?? null;
-    return activeWorkspace ?? null;
-  },
-);
-
-ipcMain.handle('workspaces:deleteAll', async () => {
+ipcMain.handle('debug:restartOnboarding', async () => {
   backgroundBuilder.dispose();
   ensuredApps.clear();
   packageInstaller.reset();
-  await stopAgentInfrastructure();
+  await agentInfrastructure.stop();
   containerService.stop();
   getTaskScheduler()?.stop();
-  deactivateAllWorkspaces();
-  activeWorkspace = null;
+  workspaceController.deactivateAll();
 });
 
-ipcMain.handle('workspaces:list', () => {
-  return listWorkspaces();
-});
-
-ipcMain.handle('workspaces:switch', (_event, id: string) => {
-  const workspaces = listWorkspaces();
-  const target = workspaces.find((w) => w.id === id);
-  if (!target) throw new Error('Workspace not found.');
-
-  backgroundBuilder.dispose();
-  packageInstaller.reset();
-  containerService.stop();
-
-  touchWorkspace(id);
-  activeWorkspace = getActiveWorkspace() ?? null;
-
-  if (activeWorkspace) {
-    if (getReactionsEnabled()) {
-      ensureReactionsTask(activeWorkspace.id);
-    }
-    // Update workspace directory for the Word overlay
-    windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
-  }
-
-  // Restart scheduler so it picks up the new workspace's tasks
-  const scheduler = getTaskScheduler();
-  scheduler?.stop();
-  scheduler?.start();
-
-  provisionWorkspace(target.directory_path);
-  containerService.writeStartContainerScript(target.directory_path);
-
-  return activeWorkspace ?? null;
+ipcMain.handle('workspaces:listDirectories', () => {
+  const activeWorkspace = workspaceController.activeWorkspace;
+  if (!activeWorkspace) return [];
+  return listWorkspaceDirectories(activeWorkspace.id);
 });
 
 // ─── Reports IPC ──────────────────────────────────────────────────
 
 ipcMain.handle('reports:getLatest', (_event, reportType: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return null;
   return getLatestReport(activeWorkspace.id, reportType);
 });
@@ -1308,6 +1271,7 @@ ipcMain.handle('papers:fetch', async (_event, input: FetchPapersInput) => {
         log.warn(`[Papers] ${e.source}/"${e.topic}": ${e.message}`);
       }
     }
+    const activeWorkspace = workspaceController.activeWorkspace;
     if (activeWorkspace && result.papers.length > 0) {
       try {
         persistPapersAsBriefings(activeWorkspace.id, result.papers);
@@ -1334,7 +1298,8 @@ ipcMain.handle('papers:fetch', async (_event, input: FetchPapersInput) => {
 
 ipcMain.handle(
   'briefings:list',
-  (_event, filter?: { status?: BriefingStatus[]; limit?: number }) => {
+  (_event, filter?: ListBriefingsFilter) => {
+    const activeWorkspace = workspaceController.activeWorkspace;
     if (!activeWorkspace) return [];
     return listBriefings(activeWorkspace.id, filter ?? {});
   },
@@ -1350,16 +1315,80 @@ ipcMain.handle(
   },
 );
 
+// ─── Notifications IPC ─────────────────────────────────────────
+
+ipcMain.handle('notifications:list', (_event, limit?: number) => {
+  return notificationsController.list(limit);
+});
+
+ipcMain.handle('notifications:unreadCount', () => {
+  return notificationsController.getUnreadCount();
+});
+
+ipcMain.handle('notifications:markAllAsRead', () => {
+  notificationsController.markAllAsRead();
+});
+
 // ─── Scanned Files IPC ──────────────────────────────────────────
 
 ipcMain.handle('scannedFiles:getByType', (_event, fileType: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return [];
   return getScannedFilesByType(activeWorkspace.id, fileType);
 });
 
-ipcMain.handle('scannedFiles:getAll', () => {
+ipcMain.handle('scannedFiles:getAll', async () => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return [];
-  return getScannedFiles(activeWorkspace.id);
+  const files = getScannedFiles(activeWorkspace.id);
+
+  let refIndex: Record<string, string> = {};
+  try {
+    const indexPath = path.join(workspaceController.workspacePath, REFERENCES_SUBDIR, REFERENCES_INDEX);
+    const raw = await fsPromises.readFile(indexPath, 'utf-8');
+    refIndex = JSON.parse(raw);
+  } catch { /* no index yet */ }
+
+  return files.map((f) => ({
+    ...f,
+    ...(f.file_type === 'reference' && refIndex[f.file_path]
+      ? { markdown_path: `${REFERENCES_SUBDIR}/${refIndex[f.file_path]}` }
+      : {}),
+  }));
+});
+
+ipcMain.handle(
+  'scannedFiles:updateTag',
+  async (_event, filePath: string, fileName: string, fileType: string) => {
+    const activeWorkspace = workspaceController.activeWorkspace;
+    if (!activeWorkspace) return;
+    updateFileTag(activeWorkspace.id, filePath, fileName, fileType);
+
+    if (fileType === 'reference') {
+      const sourceDir = workspaceController.userDirectories[0]?.directory_path;
+      if (!sourceDir) return;
+      let { apiKey, baseURL } = getCredentials();
+      if (!apiKey) {
+        try {
+          await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
+          ({ apiKey, baseURL } = getCredentials());
+        } catch { return; }
+      }
+      convertReferenceFile({
+        filePath,
+        sourceDir,
+        workspacePath: path.join(workspaceController.workspacePath, ACADEMIA_DIR),
+        apiKey: apiKey ?? '',
+        baseURL,
+      }).catch((err) => log.error('[scannedFiles:updateTag] Reference conversion failed:', err));
+    }
+  },
+);
+
+ipcMain.handle('scannedFiles:removeTag', (_event, filePath: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
+  if (!activeWorkspace) return;
+  removeFileTag(activeWorkspace.id, filePath);
 });
 
 // ─── Directory Scanner IPC ──────────────────────────────────────
@@ -1367,17 +1396,19 @@ ipcMain.handle('scannedFiles:getAll', () => {
 let scannerRunning = false;
 
 ipcMain.handle('scanner:start', async () => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) {
     throw new Error('No active workspace');
   }
-  let apiKey = activeWorkspace.api_key;
+  let { apiKey, baseURL } = getCredentials();
   if (!apiKey) {
-    const result = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
-    cachedApiKey = result.apiKey;
-    cachedBaseURL = result.baseURL;
-    apiKey = result.apiKey;
-    updateApiKey(activeWorkspace.id, apiKey);
-    activeWorkspace = { ...activeWorkspace, api_key: apiKey };
+    await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
+    ({ apiKey, baseURL } = getCredentials());
+  }
+  const scanDirs = workspaceController.userDirectoryPaths;
+  if (scanDirs.length === 0) {
+    log.warn('[scanner:start] No user directories to scan');
+    return;
   }
   if (scannerRunning) {
     log.warn('[scanner:start] Scan already in progress — ignoring duplicate request');
@@ -1387,9 +1418,11 @@ ipcMain.handle('scanner:start', async () => {
 
   scanWorkspaceDirectory({
     workspaceId: activeWorkspace.id,
-    directoryPath: activeWorkspace.directory_path,
-    apiKey,
-    baseURL: cachedBaseURL,
+    cwd: workspaceController.workspacePath,
+    directoryPaths: scanDirs,
+    memoryDir: path.join(workspaceController.workspacePath, AGENT_MEMORY_SUBDIR),
+    apiKey: apiKey ?? '',
+    baseURL,
     onMessage: (event) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('scanner:event', event);
@@ -1399,6 +1432,9 @@ ipcMain.handle('scanner:start', async () => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('briefings:changed');
       }
+    },
+    onNotifyUser: (title: string, body: string) => {
+      notificationsController.notifyUser(title, body);
     },
   }).catch((err) => {
     log.error('[scanner:start] Scan failed:', err);
@@ -1413,561 +1449,17 @@ ipcMain.handle('scanner:start', async () => {
   });
 });
 
-// ─── Agent Server & MCP Management ──────────────────────────────
-
-const activeNotificationsSet = new Set<any>();
-
-function registerHostMcpServers(workspace: { id: string; directory_path: string }, onNotificationClick?: (action: any) => void) {
-  // Handler maps for MCP tool calls relayed from the in-container agent.
-  // Each handler matches the tool's original implementation on the host side.
-  const { queryActivity } = require('./activityQuery');
-  const { getWordFilePath, getWordText, getWordSelection, saveWordDocument, openWordDocument } = require('../../server/wordActions');
-  const { googleDocsGetActiveDoc, googleDocsGetText, googleDocsFindAndReplace } = require('./mcpServers/googleDocsMcpServer');
-  const {
-    appleNotesGetActiveNote,
-    appleNotesGetText,
-    appleNotesListNotes,
-    appleNotesSearchNotes,
-    appleNotesSaveNote,
-    appleNotesOpenNote,
-    appleNotesFindAndReplace,
-  } = require('./mcpServers/appleNotesMcpServer');
-  const { createObsidianHandlers } = require('./mcpServers/obsidianMcpServer');
-  const { resolveObsidianDocumentPath } = require('./hostApps/obsidianHostApp');
-  const { checkLogin } = require('../../apiClient');
-  const { findReferencesForFile, findReferencesForText, createCitationReportFromText, getCitationReport, addClaimToReport, searchCitationsForClaim, formatCitations, listCitationReports } = require('./citeright/citeRightClient');
-  const { saveUserContext: grantsSaveUserContext, createProject: grantsCreateProject, getProject: grantsGetProject, listProjects: grantsListProjects, setFavoriteOpportunity, setHiddenOpportunity, setHiddenReason: grantsSetHiddenReason, visitOpportunity, updateProject: grantsUpdateProject } = require('./grants/grantsClient');
-  const { summarizeReport } = require('./citeright/reportSummary');
-  const { createSession: createDbSession, insertMessage: insertDbMessage, updateSessionTitle } = require('./db/chatRepository');
-  const { randomUUID } = require('crypto');
-
-  // Build handler maps — each handler matches the signature used by the host MCP servers
-  const ok = (text: string) => ({ content: [{ type: 'text' as const, text }] });
-  const fail = (text: string) => ({ content: [{ type: 'text' as const, text }], isError: true });
-
-  const handlers: Record<string, Record<string, (args: any) => Promise<any>>> = {
-    activity: {
-      query_activity: async (args: any) => {
-        const result = queryActivity(args);
-        if ('error' in result) return fail(result.error);
-        const browserCount = result.browser_sessions
-          ? result.browser_sessions.reduce((sum: number, group: any) => sum + (group.sessions as unknown[]).length, 0) : 0;
-        const fileCount = result.file_sessions?.length || 0;
-        const header = `Activity from ${result.query.since} to ${result.query.until}\nBrowser sessions: ${browserCount} | File sessions: ${fileCount}\n`;
-        return ok(header + '\n' + JSON.stringify(result, null, 2));
-      },
-    },
-
-    notification: {
-      show_notification: async (args: any) => {
-        try {
-          const { Notification: ElectronNotification } = require('electron');
-          const notification = new ElectronNotification({ title: args.title, body: args.body });
-          activeNotificationsSet.add(notification);
-
-          const release = () => {
-            activeNotificationsSet.delete(notification);
-          };
-
-          if (onNotificationClick) {
-            notification.on('click', () => {
-              release();
-              if (args.navigation) {
-                const nav = args.navigation;
-                if (nav.type === 'thread' && nav.threadId) {
-                  onNotificationClick({ type: 'thread', threadId: nav.threadId, sidebarTab: nav.sidebarTab });
-                } else if (nav.type === 'sidebar' && nav.sidebarTab) {
-                  onNotificationClick({ type: 'sidebar', tab: nav.sidebarTab });
-                } else {
-                  onNotificationClick(null);
-                }
-              } else {
-                onNotificationClick(null);
-              }
-            });
-            notification.on('close', () => release());
-          } else {
-            release();
-          }
-
-          notification.show();
-          return ok('Notification shown successfully.');
-        } catch (err: any) {
-          return fail(`Failed to show notification: ${err.message}`);
-        }
-      },
-    },
-
-    reaction: {
-      create_reaction_thread: async (args: any) => {
-        try {
-          const sessionId = randomUUID();
-          createDbSession(sessionId, workspace.id, 'reactions');
-          insertDbMessage(sessionId, 'assistant', JSON.stringify([{ type: 'text', text: args.message }]));
-          updateSessionTitle(sessionId, args.title);
-          return ok(`Reaction thread created: ${args.title} (id: ${sessionId})`);
-        } catch (err: any) {
-          return fail(`Failed to create reaction thread: ${err.message}`);
-        }
-      },
-    },
-
-    'google-docs': {
-      get_active_doc: googleDocsGetActiveDoc,
-      get_text: googleDocsGetText,
-      find_and_replace: googleDocsFindAndReplace,
-    },
-
-    'apple-notes': {
-      get_active_note: appleNotesGetActiveNote,
-      get_text: appleNotesGetText,
-      list_notes: appleNotesListNotes,
-      search_notes: appleNotesSearchNotes,
-      save_note: appleNotesSaveNote,
-      open_note: appleNotesOpenNote,
-      find_and_replace: appleNotesFindAndReplace,
-    },
-
-    obsidian: createObsidianHandlers({
-      workspaceDir: workspace.directory_path,
-      getActiveNotePath: () => resolveObsidianDocumentPath(workspace.directory_path),
-    }),
-
-    'ms-word': {
-      get_file_path: async () => { try { return ok(JSON.stringify(await getWordFilePath())); } catch (e: any) { return fail(String(e)); } },
-      get_text: async (args: any) => { try { return ok(JSON.stringify(await getWordText(args.offset, args.limit))); } catch (e: any) { return fail(String(e)); } },
-      get_selection: async () => { try { return ok(JSON.stringify(await getWordSelection())); } catch (e: any) { return fail(String(e)); } },
-      save_document: async () => { try { return ok(JSON.stringify(await saveWordDocument())); } catch (e: any) { return fail(String(e)); } },
-      open_document: async (args: any) => { try { return ok(JSON.stringify(await openWordDocument(args.path))); } catch (e: any) { return fail(String(e)); } },
-      find_and_replace: async (args: any) => ok(JSON.stringify({ proposed: true, ...args })),
-    },
-
-    citeright: {
-      find_references: async (args: any) => {
-        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
-        const pollOptions = { timeoutMs: (args.timeout_seconds ?? 600) * 1000, pollIntervalMs: (args.poll_interval_seconds ?? 3) * 1000 };
-        const response = args.file_path ? await findReferencesForFile(args.file_path, pollOptions) : await findReferencesForText(args.document_text, pollOptions);
-        return ok(JSON.stringify(summarizeReport(response)));
-      },
-      create_citation_report: async (args: any) => {
-        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
-        return ok(JSON.stringify(summarizeReport(await createCitationReportFromText(args.document_text))));
-      },
-      get_citation_report: async (args: any) => {
-        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
-        return ok(JSON.stringify(summarizeReport(await getCitationReport(args.report_id))));
-      },
-      add_claim_to_report: async (args: any) => {
-        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
-        return ok(JSON.stringify(summarizeReport(await addClaimToReport(args.report_id, args.text))));
-      },
-      search_citations_for_claim: async (args: any) => {
-        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
-        return ok(JSON.stringify(summarizeReport(await searchCitationsForClaim(args.report_id, args.claim_id))));
-      },
-      format_citations: async (args: any) => {
-        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
-        return ok(JSON.stringify(await formatCitations(args.works)));
-      },
-      list_citation_reports: async (args: any) => {
-        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
-        return ok(JSON.stringify(await listCitationReports(args.page, args.per_page)));
-      },
-    },
-
-    'mini-apps': {
-      open_mini_application: async (args: any) => {
-        const appDir = path.join(workspace.directory_path, '.applications', args.dir_name);
-        const exists = await fs.promises.access(appDir).then(() => true, () => false);
-        if (!exists) return fail(`Mini-application directory not found: .applications/${args.dir_name}`);
-        return ok(`Opened mini-application: ${args.dir_name}`);
-      },
-      // Builds the bundle with esbuild and reports success/failure to the
-      // agent. The renderer-side handler waits for a successful complete
-      // status before reloading the app's iframe — on failure (esbuild
-      // non-zero, container down, etc.) the user's UI does not change and
-      // the agent receives the build error to fix. Pure
-      // `open_mini_application` is still available for opening already-built
-      // apps without re-bundling.
-      build_and_open_mini_application: async (args: any) => {
-        const appDir = path.join(workspace.directory_path, '.applications', args.dir_name);
-        const exists = await fs.promises.access(appDir).then(() => true, () => false);
-        if (!exists) return fail(`Mini-application directory not found: .applications/${args.dir_name}`);
-
-        const entry = `.applications/${args.dir_name}/src/index.tsx`;
-        const outfile = `.applications/${args.dir_name}/dist/bundle.js`;
-        const build = await containerService.exec([
-          'esbuild',
-          entry,
-          '--bundle',
-          `--outfile=${outfile}`,
-          '--jsx=automatic',
-          '--loader:.tsx=tsx',
-          '--loader:.ts=ts',
-          '--format=iife',
-          '--alias:@reusable=/data/.applications/_reusable',
-        ]);
-        if (build.exitCode !== 0) {
-          const detail = (build.stderr || build.stdout || '').trim() || 'Unknown build error';
-          return fail(`Build failed for ${args.dir_name}:\n${detail}`);
-        }
-
-        return ok(`Built and opened mini-application: ${args.dir_name}`);
-      },
-    },
-
-    zotero: {
-      status: async () => {
-        try {
-          const { getZoteroLocalStatus } = require('../../zoteroLocalClient');
-          const status = await getZoteroLocalStatus();
-          return ok(JSON.stringify({ status }));
-        } catch (e: any) { return fail(`Zotero status check failed: ${e.message}`); }
-      },
-      search_library: async (args: any) => {
-        try {
-          const { searchZoteroLibrary } = require('../../zoteroLocalClient');
-          return ok(JSON.stringify(await searchZoteroLibrary(args.query, args.limit)));
-        } catch (e: any) { return fail(`Zotero search failed: ${e.message}`); }
-      },
-      get_item: async (args: any) => {
-        try {
-          const { getZoteroItem } = require('../../zoteroLocalClient');
-          return ok(JSON.stringify(await getZoteroItem(args.key)));
-        } catch (e: any) { return fail(`Zotero get_item failed: ${e.message}`); }
-      },
-      add_doi: async (args: any) => {
-        try {
-          const { addDoiToZotero } = require('../../zoteroLocalClient');
-          return ok(JSON.stringify(await addDoiToZotero(args.doi)));
-        } catch (e: any) { return fail(`Zotero add_doi failed: ${e.message}`); }
-      },
-    },
-
-    grants: {
-      save_user_context: async (args: any) => {
-        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
-        return ok(JSON.stringify(await grantsSaveUserContext(args.data)));
-      },
-      create_project: async (args: any) => {
-        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
-        return ok(JSON.stringify(await grantsCreateProject(args.research_summary, args.name)));
-      },
-      get_project: async (args: any) => {
-        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
-        return ok(JSON.stringify(await grantsGetProject(args.project_id)));
-      },
-      list_projects: async () => {
-        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
-        return ok(JSON.stringify(await grantsListProjects()));
-      },
-      favorite_opportunity: async (args: any) => {
-        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
-        return ok(JSON.stringify(await setFavoriteOpportunity(args.project_id, args.grant_opportunity_id, args.favorite)));
-      },
-      hide_opportunity: async (args: any) => {
-        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
-        return ok(JSON.stringify(await setHiddenOpportunity(args.project_id, args.grant_opportunity_id, args.hidden)));
-      },
-      set_hidden_reason: async (args: any) => {
-        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
-        return ok(JSON.stringify(await grantsSetHiddenReason(args.project_id, args.grant_opportunity_id, args.hidden_reason)));
-      },
-      visit_opportunity: async (args: any) => {
-        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
-        return ok(JSON.stringify(await visitOpportunity(args.project_id, args.grant_opportunity_id)));
-      },
-      update_project: async (args: any) => {
-        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
-        return ok(JSON.stringify(await grantsUpdateProject(args.project_id, { name: args.name, research_summary: args.research_summary })));
-      },
-    },
-  };
-
-  (globalThis as any).__hostMcpServers = handlers;
-  log.info(`[MCP] Registered host MCP handlers: ${Object.keys(handlers).join(', ')}`);
-}
-
-/**
- * TODO: Remove this migration once most users have updated past this version.
- * Added: 2026-05-04. Safe to remove after ~2026-08-01.
- *
- * One-time migration: copy SDK session JSONL files from the bundled podman's
- * HOME directory to the container's CLAUDE_CONFIG_DIR on the workspace mount.
- * The old architecture stored sessions at ~/.cobuild-podman[-dev]/.claude/projects/
- * because the SDK inherited HOME from the bundled podman environment.
- */
-function migrateHostSessionsToContainer(workspacePath: string): void {
-  const markerPath = path.join(workspacePath, '.academia', 'claude-config', '.sessions-migrated');
-  if (fs.existsSync(markerPath)) return;
-
-  const os = require('os');
-  // The bundled podman sets HOME to ~/.cobuild-podman (prod) or ~/.cobuild-podman-dev (dev).
-  // The SDK stored sessions there under .claude/projects/{sanitized-workspace-path}/.
-  const suffix = app.isPackaged ? '' : '-dev';
-  const podmanHome = path.join(os.homedir(), `.cobuild-podman${suffix}`);
-  const hostProjectsDir = path.join(podmanHome, '.claude', 'projects');
-  const containerProjectsDir = path.join(workspacePath, '.academia', 'claude-config', 'projects', '-data');
-
-  if (!fs.existsSync(hostProjectsDir)) {
-    fs.mkdirSync(path.dirname(markerPath), { recursive: true });
-    fs.writeFileSync(markerPath, new Date().toISOString());
-    return;
-  }
-
-  let copied = 0;
-  try {
-    fs.mkdirSync(containerProjectsDir, { recursive: true });
-
-    // Scan all project directories — the workspace path may have changed over
-    // time, so copy sessions from all projects (not just the current one).
-    for (const projectDir of fs.readdirSync(hostProjectsDir)) {
-      const projectPath = path.join(hostProjectsDir, projectDir);
-      if (!fs.statSync(projectPath).isDirectory()) continue;
-
-      for (const file of fs.readdirSync(projectPath)) {
-        if (!file.endsWith('.jsonl')) continue;
-        const src = path.join(projectPath, file);
-        const dest = path.join(containerProjectsDir, file);
-        if (fs.existsSync(dest)) continue;
-
-        fs.copyFileSync(src, dest);
-        copied++;
-
-        // Copy subagent directories
-        const sessionId = file.replace('.jsonl', '');
-        const subagentDir = path.join(projectPath, sessionId, 'subagents');
-        if (fs.existsSync(subagentDir)) {
-          const destSubDir = path.join(containerProjectsDir, sessionId, 'subagents');
-          fs.mkdirSync(destSubDir, { recursive: true });
-          for (const sub of fs.readdirSync(subagentDir)) {
-            fs.copyFileSync(path.join(subagentDir, sub), path.join(destSubDir, sub));
-          }
-        }
-      }
-    }
-  } catch (err) {
-    log.warn(`[SessionMigration] Error: ${(err as Error).message}`);
-  }
-
-  fs.mkdirSync(path.dirname(markerPath), { recursive: true });
-  fs.writeFileSync(markerPath, new Date().toISOString());
-  if (copied > 0) {
-    log.info(`[SessionMigration] Migrated ${copied} session files from ${podmanHome} to container config`);
-  }
-}
-
-/**
- * TODO: Remove this migration once most workspaces have been migrated past
- * this version. Added: 2026-05-05. Safe to remove after ~2026-08-05.
- *
- * Every mini-app must have a manifest.json describing its name, description,
- * icon (Lucide name), and lastOpened timestamp — the Tools page reads this to
- * render each app and order by recency. Apps created before this change don't
- * have one. On startup we scan .applications/* for missing manifests and
- * launch a background job per app that asks Claude to generate the metadata
- * from the app's source. Failures are logged and retried on next startup.
- */
-async function migrateMissingManifests(workspace: Workspace): Promise<void> {
-  const appsDir = path.join(workspace.directory_path, '.applications');
-
-  let entries: fs.Dirent[];
-  try {
-    entries = await fsPromises.readdir(appsDir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-
-  const missing: string[] = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith('_')) continue;
-    const manifestPath = path.join(appsDir, entry.name, 'manifest.json');
-    try {
-      await fsPromises.access(manifestPath);
-    } catch {
-      missing.push(entry.name);
-    }
-  }
-
-  if (missing.length === 0) return;
-  log.info(`[ManifestMigration] Generating manifests for ${missing.length} apps: ${missing.join(', ')}`);
-
-  // Run sequentially to keep API load light. Each app is independent; one
-  // failure doesn't affect the others.
-  for (const dirName of missing) {
-    try {
-      await generateManifestForApp(workspace, dirName);
-    } catch (err) {
-      log.warn(`[ManifestMigration] Failed for ${dirName}: ${(err as Error).message ?? err}`);
-    }
-  }
-}
-
-async function generateManifestForApp(workspace: Workspace, dirName: string): Promise<void> {
-  const appDir = path.join(workspace.directory_path, '.applications', dirName);
-  const manifestPath = path.join(appDir, 'manifest.json');
-
-  // Another startup run may have raced to write the file in the meantime.
-  try {
-    await fsPromises.access(manifestPath);
-    return;
-  } catch { /* keep going */ }
-
-  if (!workspace.api_key) {
-    log.warn(`[ManifestMigration] No API key — skipping ${dirName}`);
-    return;
-  }
-
-  let appSource = '';
-  try {
-    appSource = await fsPromises.readFile(path.join(appDir, 'src', 'App.tsx'), 'utf-8');
-  } catch { /* fall back to dir name */ }
-  if (appSource.length > 8000) appSource = appSource.slice(0, 8000);
-
-  const client = new Anthropic({ apiKey: workspace.api_key, baseURL: cachedBaseURL });
-  const message = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 400,
-    messages: [{
-      role: 'user',
-      content: `You are generating manifest.json metadata for a mini-app. Return only JSON with these fields:
-- name: short user-visible title (≤ 40 chars)
-- description: one-sentence summary of what the app does (≤ 80 chars)
-- icon: a Lucide icon name in PascalCase (e.g. FlaskConical, LineChart, Microscope, Dna, Beaker, Image, Table, BarChart3) that visually fits
-
-Directory name: ${dirName}
-
-App source (truncated):
-${appSource || '(no App.tsx found — infer from the directory name)'}
-
-Output JSON only. No prose, no code fences.`,
-    }],
-  });
-
-  const block = message.content[0] as { type: string; text?: string };
-  const text = (block && block.type === 'text' && block.text) ? block.text : '';
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error('No JSON in model response');
-
-  const parsed = JSON.parse(jsonMatch[0]) as { name?: unknown; description?: unknown; icon?: unknown };
-  const fallbackName = dirName.replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase());
-  const manifest = {
-    name: typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name : fallbackName,
-    description: typeof parsed.description === 'string' ? parsed.description : '',
-    icon: typeof parsed.icon === 'string' && parsed.icon.trim() ? parsed.icon : 'LayoutGrid',
-    lastOpened: null,
-  };
-
-  await fsPromises.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
-  log.info(`[ManifestMigration] Wrote manifest for ${dirName}: ${manifest.name} / ${manifest.icon}`);
-}
-
-async function startAgentInfrastructure(workspacePath: string): Promise<void> {
-  if (!activeWorkspace) return;
-
-  try {
-    await refreshCredentialsForSession();
-  } catch (err) {
-    log.warn('[startAgentInfrastructure] Credential refresh failed, using stored key:', err);
-  }
-
-  // 0. One-time migration of session files from bundled podman HOME
-  migrateHostSessionsToContainer(workspacePath);
-
-  // When overlay is active, host-side writes went to /data-host (lowerdir) which
-  // isn't reliably visible through the overlay. Sync them into /data.
-  if (containerService.isOverlayEnabled() && containerService.isRunning()) {
-    try {
-      await containerService.exec([
-        'rsync', '-a',
-        '/data-host/.academia/', '/data/.academia/',
-      ]);
-    } catch (err) {
-      log.warn(`[startAgentInfrastructure] Failed to sync host files into overlay: ${(err as Error).message}`);
-    }
-  }
-
-  // 0b. Backfill manifest.json for any apps that pre-date the manifest format.
-  // Fire-and-forget so AI calls don't gate the rest of startup.
-  void migrateMissingManifests(activeWorkspace);
-
-  // 1. Copy agent server bundle and claude binary to workspace
-  await containerService.ensureAgentFilesInWorkspace(workspacePath);
-
-  // 2. Register host MCP server handlers for the SSE relay
-  registerHostMcpServers(activeWorkspace, handleNotificationNavigation);
-
-  // 3. Write agent config and start the agent server inside the container
-  const agentConfig = {
-    port: 8080,
-    claudeBinaryPath: '/data/.academia/claude',
-    mcpServers: {},  // MCP tools are relayed via SSE, not direct HTTP
-    anthropicApiKey: activeWorkspace.api_key,
-    ...(cachedBaseURL ? { anthropicBaseURL: cachedBaseURL } : {}),
-    model: 'claude-opus-4-7',
-    systemPrompt: { type: 'preset', preset: 'claude_code' },
-    allowedTools: [
-      'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'Agent',
-      'NotebookEdit', 'WebSearch', 'Skill', 'TodoWrite',
-      'EnterPlanMode', 'ExitPlanMode',
-      'mcp__activity__query_activity',
-      'mcp__mini-apps__open_mini_application',
-      'mcp__mini-apps__build_and_open_mini_application',
-      'mcp__notification__show_notification',
-      'mcp__reaction__create_reaction_thread',
-      'mcp__ms-word__get_file_path', 'mcp__ms-word__get_text',
-      'mcp__ms-word__get_selection', 'mcp__ms-word__save_document',
-      'mcp__ms-word__open_document', 'mcp__ms-word__find_and_replace',
-      'mcp__citeright__find_references', 'mcp__citeright__create_citation_report',
-      'mcp__citeright__get_citation_report', 'mcp__citeright__add_claim_to_report',
-      'mcp__citeright__search_citations_for_claim', 'mcp__citeright__format_citations',
-      'mcp__citeright__list_citation_reports',
-      'mcp__zotero__status', 'mcp__zotero__search_library',
-      'mcp__zotero__get_item', 'mcp__zotero__add_doi',
-      'mcp__google-docs__get_active_doc', 'mcp__google-docs__get_text',
-      'mcp__google-docs__find_and_replace',
-      'mcp__apple-notes__get_active_note', 'mcp__apple-notes__get_text',
-      'mcp__apple-notes__list_notes', 'mcp__apple-notes__search_notes',
-      'mcp__apple-notes__save_note', 'mcp__apple-notes__open_note',
-      'mcp__apple-notes__find_and_replace',
-      'mcp__obsidian__get_active_note', 'mcp__obsidian__get_text',
-      'mcp__obsidian__list_notes', 'mcp__obsidian__open_note',
-      'mcp__obsidian__find_and_replace',
-      'mcp__grants__save_user_context', 'mcp__grants__create_project',
-      'mcp__grants__get_project', 'mcp__grants__list_projects',
-      'mcp__grants__favorite_opportunity', 'mcp__grants__hide_opportunity',
-      'mcp__grants__set_hidden_reason', 'mcp__grants__visit_opportunity',
-      'mcp__grants__update_project',
-    ],
-    settingSources: ['project'],
-  };
-
-  await containerService.startAgentServer(JSON.stringify(agentConfig, null, 2), workspacePath);
-}
-
-async function stopAgentInfrastructure(): Promise<void> {
-  await containerService.stopAgentServer();
-  (globalThis as any).__hostMcpServers = null;
-}
 
 // Container IPC handlers
 ipcMain.handle('container:start', async () => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) {
     throw new Error('No active workspace');
   }
-  // Foreground stays silent — SetupBanner is owned by ensureSetup. Background
-  // build fans out to both `container:progress` (Base Image spinner) and
-  // `container:backgroundBuild` (Environment section), with terminal stages
-  // renamed for the latter so its existing handler recognizes them.
-  await containerService.start(
-    activeWorkspace.directory_path,
-    undefined,
-    makeBackgroundProgress(),
-  );
-  await startAgentInfrastructure(activeWorkspace.directory_path);
-  // Start watching and ensure deps for all existing apps in the background.
-  // Apps are marked ready as their deps are verified/installed.
-  backgroundBuilder.startWatching(activeWorkspace.directory_path, (appName) => {
+  const agentDir = workspaceController.workspacePath;
+  await containerService.start(workspaceController.mountMap);
+  await agentInfrastructure.start(agentDir);
+  backgroundBuilder.startWatching(agentDir, (appName) => {
     ensuredApps.add(appName);
   });
 });
@@ -1976,8 +1468,18 @@ ipcMain.handle('container:stop', async () => {
   backgroundBuilder.stopWatching();
   ensuredApps.clear();
   packageInstaller.reset();
-  await stopAgentInfrastructure();
+  await agentInfrastructure.stop();
   containerService.stop();
+});
+
+/** Stop container stack then `podman machine stop` so image cache can be deleted safely. */
+ipcMain.handle('container:gracefulShutdownPodman', async () => {
+  backgroundBuilder.stopWatching();
+  ensuredApps.clear();
+  packageInstaller.reset();
+  await agentInfrastructure.stop();
+  containerService.stop();
+  containerService.stopPodmanMachineBestEffort();
 });
 
 ipcMain.handle('container:status', () => {
@@ -2032,10 +1534,6 @@ ipcMain.handle('container:getName', () => {
   return containerService.getContainerName();
 });
 
-ipcMain.handle('container:isImageBuilt', async () => {
-  return containerService.isImageBuilt();
-});
-
 ipcMain.handle('container:isBaseImageDownloaded', async () => {
   return containerService.isBaseImageDownloaded();
 });
@@ -2044,24 +1542,18 @@ ipcMain.handle('container:deleteBinaries', () => {
   containerService.deleteBundledBinaries();
 });
 
-ipcMain.handle('container:deleteImage', async () => {
-  await containerService.deleteImage();
-});
-
 ipcMain.handle('container:downloadImage', async () => {
   await containerService.updateBaseImage(sendProgressTo('container:progress'));
 });
 
 ipcMain.handle('container:ensureSetup', async () => {
-  await containerService.ensureSetup(makeSetupProgress(), activeWorkspace?.directory_path);
+  const activeWorkspace = workspaceController.activeWorkspace;
+  const setupAgentDir = workspaceController.workspacePath;
+  await containerService.ensureSetup(makeSetupProgress(), setupAgentDir);
   if (activeWorkspace) {
-    await containerService.start(
-      activeWorkspace.directory_path,
-      undefined,
-      makeBackgroundProgress(),
-    );
-    await startAgentInfrastructure(activeWorkspace.directory_path);
-    backgroundBuilder.startWatching(activeWorkspace.directory_path, (appName) => {
+    await containerService.start(workspaceController.mountMap);
+    await agentInfrastructure.start(setupAgentDir);
+    backgroundBuilder.startWatching(setupAgentDir, (appName) => {
       ensuredApps.add(appName);
     });
   }
@@ -2070,16 +1562,11 @@ ipcMain.handle('container:ensureSetup', async () => {
 // ─── Environment IPC ──────────────────────────────────────────────
 
 ipcMain.handle('container:getEnvironmentInfo', async () => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return null;
-  const info = getEnvironmentInfo(activeWorkspace.directory_path);
-  const imageHash = await containerService.getImageEnvironmentHash();
+  const info = getEnvironmentInfo(workspaceController.workspacePath!);
 
   return {
-    imageType: info.hasAnyDeps ? 'user' : 'base',
-    imageHash,
-    environmentHash: info.environmentHash,
-    inSync: info.environmentHash != null && imageHash === info.environmentHash,
-    backgroundBuildState: backgroundBuilder.getState(),
     packageStates: packageInstaller.getPackageStates(),
     packageLines: packageInstaller.getPackageLines(),
     totalPip: info.merged.pipRequirements,
@@ -2103,13 +1590,17 @@ ipcMain.handle('container:getEnvironmentInfo', async () => {
 const ensuredApps = new Set<string>();
 
 ipcMain.handle('container:appDepsReady', (_event, dirName: string) => {
-  return ensuredApps.has(dirName);
+  const ready = ensuredApps.has(dirName);
+  log.debug(`[appDepsReady] ${dirName}: ${ready}`);
+  return ready;
 });
 
 ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) throw new Error('No active workspace');
   if (!containerService.isRunning()) throw new Error('Container is not running');
   if (ensuredApps.has(dirName)) {
+    log.debug(`[ensureAppDeps] ${dirName}: already ensured, skipping`);
     return { installed: [] };
   }
 
@@ -2117,14 +1608,17 @@ ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
   // by BackgroundBuilder at workspace open, or the agent's install wrapper).
   // Concurrent ensureDeps calls for the same packages share state — no
   // duplicate downloads, no races on /opt/venv.
-  const appsDir = path.join(activeWorkspace.directory_path, '.applications');
-  const steps = getInstallSteps(appsDir, dirName);
+  const ensureDepsAppsDir = path.join(workspaceController.workspacePath!, '.applications');
+  const steps = getInstallSteps(ensureDepsAppsDir, dirName);
   if (steps.length === 0) {
+    log.debug(`[ensureAppDeps] ${dirName}: no install steps, marking ready`);
     ensuredApps.add(dirName);
     return { installed: [] };
   }
 
+  log.info(`[ensureAppDeps] ${dirName}: waiting for ${steps.length} install steps`);
   await packageInstaller.ensureDeps(installStepsToRequests(steps, dirName));
+  log.info(`[ensureAppDeps] ${dirName}: all deps installed, marking ready`);
   ensuredApps.add(dirName);
   return { installed: steps.map((s) => `${s.registry}: ${s.packages.length} packages`) };
 });
@@ -2133,13 +1627,13 @@ ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
 // "Installing software..." view. Each package's state and streamed lines
 // arrive on installer:packageState and installer:packageLine.
 ipcMain.handle('container:getAppInstallRequests', (_event, dirName: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return [];
-  const appsDir = path.join(activeWorkspace.directory_path, '.applications');
-  const steps = getInstallSteps(appsDir, dirName);
+  const getAppAppsDir = path.join(workspaceController.workspacePath!, '.applications');
+  const steps = getInstallSteps(getAppAppsDir, dirName);
   return installStepsToRequests(steps, dirName);
 });
 
-// Forward installer events to the renderer.
 packageInstaller.on('package:state', (e: { registry: Registry; package: string; state: PackageState }) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('installer:packageState', e);
@@ -2151,29 +1645,27 @@ packageInstaller.on('package:line', (e: { registry: Registry; package: string; l
   }
 });
 
-ipcMain.handle('container:rebuildEnvironment', async () => {
-  if (!activeWorkspace) throw new Error('No active workspace');
-  const envDir = path.join(activeWorkspace.directory_path, '.applications', '_environment');
-  fs.rmSync(envDir, { recursive: true, force: true });
-  await containerService.rebuildImage(
-    activeWorkspace.directory_path,
-    sendProgressTo('container:backgroundBuild'),
-  );
+ipcMain.handle('app:quit', () => {
+  app.quit();
 });
 
-ipcMain.handle('app:quit', () => {
+ipcMain.handle('app:relaunch', () => {
+  if (app.isPackaged) {
+    app.relaunch();
+  }
   app.quit();
 });
 
 // Jupyter kernel gateway IPC handlers
 ipcMain.handle('jupyter:startGateway', async () => {
   try {
+    const activeWorkspace = workspaceController.activeWorkspace;
     if (!activeWorkspace) {
       log.warn('[KernelGateway] startGateway called with no active workspace');
       return { error: 'No active workspace' };
     }
-    log.info(`[KernelGateway] startGateway requested for workspace: ${activeWorkspace.directory_path}`);
-    return await kernelGatewayService.start(activeWorkspace.directory_path);
+    log.info(`[KernelGateway] startGateway requested for workspace: ${activeWorkspace.id}`);
+    return await kernelGatewayService.start(workspaceController.workspacePath ?? undefined);
   } catch (err) {
     log.error('[KernelGateway] startGateway failed:', (err as Error).message);
     return { error: (err as Error).message };
@@ -2213,10 +1705,7 @@ ipcMain.handle('commandLog:getAll', () => commandLogger.getAll());
 ipcMain.handle('commandLog:getByApp', (_event, appDirName: string) => commandLogger.getByApp(appDirName));
 ipcMain.handle('commandLog:getAppNames', () => commandLogger.getAppNames());
 
-const backgroundBuilder = new BackgroundBuilder(
-  () => activeWorkspace?.directory_path ?? null,
-  () => mainWindow,
-);
+const backgroundBuilder = new BackgroundBuilder();
 
 commandLogger.onEntry((entry) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -2226,7 +1715,6 @@ commandLogger.onEntry((entry) => {
   if (entry.exitCode === 0 && entry.command.join(' ').includes('.applications/install') && entry.appDirName) {
     ensuredApps.add(entry.appDirName);
   }
-  backgroundBuilder.onCommandEntry(entry);
 });
 
 // System log IPC handlers
@@ -2302,11 +1790,13 @@ ipcMain.handle('sessions:runningIds', () => {
   return ids;
 });
 ipcMain.handle('sessions:countForDocument', (_event, documentPath: string): number => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return 0;
   return listSessions(activeWorkspace.id, undefined, documentPath).length;
 });
 ipcMain.handle('sessions:get', (_event, id: string) => getSession(id));
 ipcMain.handle('sessions:setDocumentPath', (_event, id: string, documentPath: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return;
   setSessionDocumentPath(id, activeWorkspace.id, documentPath);
   notifySessionsChanged();
@@ -2317,9 +1807,7 @@ ipcMain.handle('sessions:rename', (_event, id: string, title: string) => {
 });
 ipcMain.handle('sessions:delete', (_event, id: string) => {
   deleteSession(id);
-  const session = getRegisteredSession(id);
-  if (session) {
-    session.destroy();
+  if (getRegisteredSession(id)) {
     unregisterSession(id);
   }
   notifySessionsChanged();
@@ -2328,12 +1816,13 @@ ipcMain.handle('messages:list', (_event, sessionId: string) => getMessages(sessi
 
 // Find or create a session associated with a mini app
 ipcMain.handle('sessions:findForApp', async (_event, dirName: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return null;
   if (!dirName || dirName.includes('/') || dirName.includes('\\') || dirName.startsWith('.')) {
     return null;
   }
 
-  const manifestPath = path.join(activeWorkspace.directory_path, '.applications', dirName, 'manifest.json');
+  const manifestPath = path.join(workspaceController.workspacePath!, '.applications', dirName, 'manifest.json');
 
   let manifest: Record<string, unknown> | null = null;
   try {
@@ -2374,8 +1863,11 @@ ipcMain.handle('sessions:findForApp', async (_event, dirName: string) => {
   return sessionId;
 });
 
-async function generateSessionTitle(sessionId: string, firstMessage: string, apiKey: string, baseURL?: string): Promise<void> {
+async function generateSessionTitle(sessionId: string, firstMessage: string): Promise<void> {
   try {
+    const { apiKey, baseURL } = getCredentials();
+    log.info(`[TitleGen] sessionId=${sessionId} hasApiKey=${!!apiKey} baseURL=${baseURL ?? '(default)'}`);
+    if (!apiKey) return;
     const client = new Anthropic({ apiKey, baseURL });
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
@@ -2388,6 +1880,7 @@ async function generateSessionTitle(sessionId: string, firstMessage: string, api
       ],
     });
     const title = (response.content[0].type === 'text' ? response.content[0].text : '').trim();
+    log.info(`[TitleGen] sessionId=${sessionId} title="${title}"`);
     if (title) {
       updateSessionTitle(sessionId, title);
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sessions:titleUpdated', sessionId, title);
@@ -2395,15 +1888,33 @@ async function generateSessionTitle(sessionId: string, firstMessage: string, api
       const { wordPollEventBus } = require('../../server/events/wordPollEventBus');
       wordPollEventBus.emit('change', 'session-title-updated');
     }
-  } catch (err) {
-    log.warn('[TitleGen] Failed to generate session title:', err);
+  } catch (err: any) {
+    const { apiKey, baseURL } = getCredentials();
+    log.warn(`[TitleGen] Failed sessionId=${sessionId} apiKey=${apiKey} baseURL=${baseURL ?? '(default)'}`);
+    log.warn(`[TitleGen] error:`, err);
+    if (err?.cause) log.warn(`[TitleGen] cause:`, err.cause);
   }
 }
 
-ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPath }: { threadId: string; text: string; attachments?: IPCAttachment[]; model?: string; documentPath?: string }) => {
+ipcMain.handle('chat:send', (event, { threadId, text, attachments, model, documentPath, messageId }: { threadId: string; text: string; attachments?: IPCAttachment[]; model?: string; documentPath?: string; messageId?: string }) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) {
-    event.sender.send('chat:error', threadId, 'No active workspace');
-    return;
+    throw new Error('No active workspace');
+  }
+
+  log.info(`[chat:send] messageId=${messageId ?? '(none)'} threadId=${threadId} textLen=${text.length}`);
+
+  // Dedup: if this messageId has already been persisted for this session, the
+  // renderer is re-firing a send that already landed (typical cause: reload
+  // with a queued draft). Re-attach forwarding for the new webContents but
+  // don't re-run the turn.
+  if (messageId) {
+    const existingMessage = findMessageByMessageId(threadId, messageId);
+    if (existingMessage) {
+      log.info(`[chat:send] dedup hit messageId=${messageId} sessionId=${threadId} — re-attaching forwarding only`);
+      ensureForwarding(threadId, event.sender);
+      return { messageId, deduped: true };
+    }
   }
 
   const existingRunning = getRegisteredSession(threadId);
@@ -2411,8 +1922,8 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPa
     // Session is already running (e.g. scheduled task or previous user chat).
     // Ensure IPC forwarding is set up (idempotent — won't duplicate).
     ensureForwarding(threadId, event.sender);
-    existingRunning.sendMessage(text, attachments);
-    return;
+    existingRunning.sendMessage(text, attachments, messageId);
+    return { messageId };
   }
 
   const isCalendarSession = threadId === 'calendar-assistant';
@@ -2423,11 +1934,12 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPa
     isFirstMessage = !existingDbSession;
 
     if (isCalendarSession) {
+      const { apiKey: calApiKey, baseURL: calBaseURL } = getCredentials();
       const session = createCalendarAgentSession(
         threadId,
         activeWorkspace.id,
-        activeWorkspace.api_key,
-        activeWorkspace.directory_path,
+        calApiKey ?? '',
+        workspaceController.workspacePath!,
         {
           onEvent: () => { },
           onDone: () => { },
@@ -2438,12 +1950,13 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPa
             mainWindow.webContents.send('calendar:mutation', mutation);
           }
         },
-        cachedBaseURL,
+        calBaseURL,
         refreshCredentialsForSession,
       );
-      registerSession(threadId, session);
+      // Headless agent embedded in the desktop chat — opt out of
+      // subscriber-based eviction; lifecycle bound to the renderer.
+      registerSession(threadId, session, 'background');
       event.sender.on('destroyed', () => {
-        session.destroy();
         unregisterSession(threadId);
       });
     } else {
@@ -2454,7 +1967,7 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPa
           onDone: () => { },
           onError: () => { unregisterSession(threadId); },
         },
-        activeWorkspace,
+        activeWorkspace!,
         existingDbSession?.sdk_session_id ?? undefined,
         undefined,
         handleNotificationNavigation,
@@ -2463,12 +1976,9 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPa
         documentPath,
       );
 
+      // Default 'ui': subscriber tracking via ensureForwarding handles
+      // destroy when every surface detaches.
       registerSession(threadId, session);
-
-      event.sender.on('destroyed', () => {
-        session.destroy();
-        unregisterSession(threadId);
-      });
     }
   }
 
@@ -2476,27 +1986,37 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPa
   // Also fan events out to overlays watching this session — they live on
   // the WKWebView side of an HTTP boundary so the IPC path can't reach them.
   ensureSseFanout(threadId);
-  getRegisteredSession(threadId)!.sendMessage(text, attachments);
+  getRegisteredSession(threadId)!.sendMessage(text, attachments, messageId);
 
-  if (isFirstMessage && !isCalendarSession && activeWorkspace.api_key) {
-    generateSessionTitle(threadId, text, activeWorkspace.api_key, cachedBaseURL);
+  if (isFirstMessage && !isCalendarSession) {
+    generateSessionTitle(threadId, text);
   }
+
+  return { messageId };
 });
 
 ipcMain.on('chat:subscribe', (event, threadId: string) => {
   ensureForwarding(threadId, event.sender);
 });
 
+// Authoritative server-side "is the agent mid-turn on this thread" signal.
+// Survives renderer detach/reattach, unlike assistant-ui's `thread.isRunning`
+// which is tied to the local run generator's lifetime.
+ipcMain.handle('chat:isTurnInProgress', (_event, threadId: string): boolean => {
+  return getRegisteredSession(threadId)?.isTurnInProgress ?? false;
+});
 
+// Renderer signals it's no longer viewing this thread. Whether the
+// session itself is torn down is the registry's decision.
+ipcMain.on('chat:unsubscribe', (event, threadId: string) => {
+  removeForwarding(threadId, event.sender.id);
+});
+
+// Explicit user-initiated stop (Stop button). Tears the session down
+// regardless of other subscribers — "stop" means stop.
 ipcMain.on('chat:stop', (event, threadId: string) => {
-  // Clean up the forwarding listener synchronously before destroying the session,
-  // so that a subsequent chat:send can set up fresh forwarding for a new session.
-  const key = `${threadId}:${event.sender.id}`;
-  forwardingListeners.get(key)?.();
-
-  const session = getRegisteredSession(threadId);
-  if (session) {
-    session.destroy();
+  removeForwarding(threadId, event.sender.id);
+  if (getRegisteredSession(threadId)) {
     unregisterSession(threadId);
   }
 });
@@ -2603,7 +2123,7 @@ type ValidatedContentBlock =
 // in place. Returns a clean, reconstructed block safe to pass to the SDK.
 async function resolveContentBlock(
   raw: unknown,
-  workspaceDir: string,
+  allowedDirs: string[],
 ): Promise<ValidatedContentBlock> {
   if (!raw || typeof raw !== 'object') throw new Error('Content block must be an object');
   const block = raw as Record<string, unknown>;
@@ -2621,7 +2141,7 @@ async function resolveContentBlock(
 
     if (source.type === 'file') {
       if (typeof source.path !== 'string') throw new Error('Image file source must have a path');
-      const resolved = assertWithinWorkspace(source.path, workspaceDir);
+      const resolved = assertWithinAllowedDirs(source.path, allowedDirs);
       const ext = path.extname(resolved).slice(1).toLowerCase();
       const mediaType = EXT_TO_MEDIA_TYPE[ext];
       if (!mediaType || !ANTHROPIC_ALLOWED_IMAGE_TYPES.has(mediaType)) {
@@ -2659,7 +2179,7 @@ async function resolveContentBlock(
 
     if (source.type === 'file') {
       if (typeof source.path !== 'string') throw new Error('Document file source must have a path');
-      const resolved = assertWithinWorkspace(source.path, workspaceDir);
+      const resolved = assertWithinAllowedDirs(source.path, allowedDirs);
       const ext = path.extname(resolved).slice(1).toLowerCase();
       if (ext !== 'pdf') throw new Error('Only PDF documents are supported');
       const stats = await fsPromises.stat(resolved);
@@ -2691,7 +2211,7 @@ async function resolveContentBlock(
 
 type ValidatedMessage = { role: 'user' | 'assistant'; content: string | ValidatedContentBlock[] };
 
-async function validateAnthropicParams(params: unknown, workspaceDir: string): Promise<{
+async function validateAnthropicParams(params: unknown, allowedDirs: string[]): Promise<{
   messages: ValidatedMessage[];
   model: string;
   max_tokens: number;
@@ -2715,7 +2235,7 @@ async function validateAnthropicParams(params: unknown, workspaceDir: string): P
     } else if (Array.isArray(msg.content)) {
       if (msg.content.length === 0) throw new Error('content array must not be empty');
       if (msg.content.length > ANTHROPIC_MAX_CONTENT_BLOCKS) throw new Error(`content array exceeds ${ANTHROPIC_MAX_CONTENT_BLOCKS} blocks`);
-      const blocks = await Promise.all(msg.content.map((b: unknown) => resolveContentBlock(b, workspaceDir)));
+      const blocks = await Promise.all(msg.content.map((b: unknown) => resolveContentBlock(b, allowedDirs)));
       messages.push({ role: msg.role, content: blocks });
     } else {
       throw new Error('message content must be a string or array of content blocks');
@@ -2743,14 +2263,14 @@ async function validateAnthropicParams(params: unknown, workspaceDir: string): P
 // Non-streaming completion. Uses ipcMain.handle so the result is automatically
 // returned as a promise reply — no manual event sending required.
 ipcMain.handle('anthropic:complete', async (_event, params: unknown) => {
-  if (!activeWorkspace?.api_key) throw new Error('No active workspace API key');
-  if (!activeWorkspace.directory_path) throw new Error('No active workspace directory');
-  const validated = await validateAnthropicParams(params, activeWorkspace.directory_path);
-  // Log call metadata for audit purposes. Message content is intentionally
-  // omitted to avoid writing user data to the log file.
+  const activeWorkspace = workspaceController.activeWorkspace;
+  const { apiKey: completeApiKey, baseURL: completeBaseURL } = getCredentials();
+  if (!completeApiKey) throw new Error('No API credentials available');
+  if (!activeWorkspace) throw new Error('No active workspace');
+  const validated = await validateAnthropicParams(params, workspaceController.allAllowedPaths);
   log.info('[anthropic:complete] workspace=%s model=%s max_tokens=%d messages=%d',
     activeWorkspace.id, validated.model, validated.max_tokens, validated.messages.length);
-  const client = new Anthropic({ apiKey: activeWorkspace.api_key, baseURL: cachedBaseURL });
+  const client = new Anthropic({ apiKey: completeApiKey, baseURL: completeBaseURL });
   return client.messages.create({
     model: validated.model,
     max_tokens: validated.max_tokens,
@@ -2773,24 +2293,27 @@ ipcMain.on('anthropic:stream', async (event, { streamKey, params }: { streamKey:
     log.warn('[anthropic:stream] Invalid streamKey');
     return;
   }
-  if (!activeWorkspace?.api_key) {
-    event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: 'No active workspace API key' });
+  const { apiKey: streamApiKey, baseURL: streamBaseURL } = getCredentials();
+  if (!streamApiKey) {
+    event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: 'No API credentials available' });
     return;
   }
-  if (!activeWorkspace.directory_path) {
-    event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: 'No active workspace directory' });
+  const activeWorkspace = workspaceController.activeWorkspace;
+  if (!activeWorkspace) {
+    event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: 'No active workspace' });
     return;
   }
+  const streamAllowedDirs = workspaceController.allAllowedPaths;
   let validated: Awaited<ReturnType<typeof validateAnthropicParams>>;
   try {
-    validated = await validateAnthropicParams(params, activeWorkspace.directory_path);
+    validated = await validateAnthropicParams(params, streamAllowedDirs);
   } catch (err) {
     event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: err instanceof Error ? err.message : String(err) });
     return;
   }
   log.info('[anthropic:stream] workspace=%s model=%s max_tokens=%d messages=%d',
     activeWorkspace.id, validated.model, validated.max_tokens, validated.messages.length);
-  const client = new Anthropic({ apiKey: activeWorkspace.api_key, baseURL: cachedBaseURL });
+  const client = new Anthropic({ apiKey: streamApiKey, baseURL: streamBaseURL });
   const stream = client.messages.stream({
     model: validated.model,
     max_tokens: validated.max_tokens,
@@ -2837,19 +2360,12 @@ ipcMain.handle('auth:checkLogin', async () => {
   try {
     const loggedIn = await checkLogin();
     if (loggedIn && getApiProvider() !== 'custom') {
-      fetchGatewayCredentials(getApiProvider() === 'cloudflare').then(({ apiKey, baseURL }) => {
-        cachedApiKey = apiKey;
-        cachedBaseURL = baseURL;
-        if (activeWorkspace) {
-          updateApiKey(activeWorkspace.id, apiKey);
-          activeWorkspace = { ...activeWorkspace, api_key: apiKey };
-        }
-      }).catch((err) => log.warn('[Auth] fetchGatewayCredentials error:', err));
+      await fetchGatewayCredentials(getApiProvider() === 'cloudflare')
+        .catch((err) => log.warn('[Auth] fetchGatewayCredentials error:', err));
     } else if (loggedIn && getApiProvider() === 'custom') {
       const customKey = getCustomAnthropicKey();
       if (customKey) {
-        cachedApiKey = customKey;
-        cachedBaseURL = getCustomAnthropicBaseURL();
+        setCredentials(customKey, getCustomAnthropicBaseURL());
       }
     }
     const appInfo = {
@@ -2891,14 +2407,8 @@ ipcMain.handle('auth:verifyQRCode', async (_event, deviceId: string, code: strin
       return { success: false, error: result.error };
     }
     if (result.authorized) {
-      fetchGatewayCredentials(getApiProvider() === 'cloudflare').then(({ apiKey, baseURL }) => {
-        cachedApiKey = apiKey;
-        cachedBaseURL = baseURL;
-        if (activeWorkspace) {
-          updateApiKey(activeWorkspace.id, apiKey);
-          activeWorkspace = { ...activeWorkspace, api_key: apiKey };
-        }
-      }).catch((err) => log.warn('[Auth] fetchGatewayCredentials after verify error:', err));
+      await fetchGatewayCredentials(getApiProvider() === 'cloudflare')
+        .catch((err) => log.warn('[Auth] fetchGatewayCredentials after verify error:', err));
     }
     return { success: true, authorized: result.authorized, userId: result.user_id };
   } catch (error: any) {
@@ -2908,7 +2418,8 @@ ipcMain.handle('auth:verifyQRCode', async (_event, deviceId: string, code: strin
 });
 
 ipcMain.handle('auth:getApiKey', () => {
-  return { apiKey: cachedApiKey, baseURL: cachedBaseURL, provider: getApiProvider() };
+  const { apiKey, baseURL } = getCredentials();
+  return { apiKey, baseURL, provider: getApiProvider() };
 });
 
 ipcMain.handle('auth:getApiProvider', () => {
@@ -2926,25 +2437,14 @@ ipcMain.handle('auth:setApiProvider', async (_event, provider: string, customKey
     if (!customKey) return { success: false, error: 'API key is required for custom mode' };
     const baseURL = customBaseURL?.trim() || undefined;
     setCustomAnthropicKey(customKey, baseURL);
-    cachedApiKey = customKey;
-    cachedBaseURL = baseURL;
     destroyTokenManager();
-    if (activeWorkspace) {
-      updateApiKey(activeWorkspace.id, customKey);
-      activeWorkspace = { ...activeWorkspace, api_key: customKey };
-    }
+    setCredentials(customKey, baseURL);
     log.info('[Auth] Using custom Anthropic API key');
     return { success: true };
   }
 
   try {
-    const result = await fetchGatewayCredentials(provider === 'cloudflare');
-    cachedApiKey = result.apiKey;
-    cachedBaseURL = result.baseURL;
-    if (activeWorkspace) {
-      updateApiKey(activeWorkspace.id, result.apiKey);
-      activeWorkspace = { ...activeWorkspace, api_key: result.apiKey };
-    }
+    await fetchGatewayCredentials(provider === 'cloudflare');
     return { success: true };
   } catch (error: any) {
     log.error('[Auth] Failed to fetch credentials after provider switch:', error);
@@ -2955,12 +2455,6 @@ ipcMain.handle('auth:setApiProvider', async (_event, provider: string, customKey
 ipcMain.handle('auth:refetchApiKey', async () => {
   try {
     const result = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
-    cachedApiKey = result.apiKey;
-    cachedBaseURL = result.baseURL;
-    if (activeWorkspace) {
-      updateApiKey(activeWorkspace.id, result.apiKey);
-      activeWorkspace = getActiveWorkspace() ?? null;
-    }
     log.debug('[Auth] Refetched API key successfully');
     return { success: true, keyIdentifier: result.keyIdentifier };
   } catch (error: any) {
@@ -2974,12 +2468,11 @@ ipcMain.handle('auth:logout', async () => {
     backgroundBuilder.dispose();
     ensuredApps.clear();
     packageInstaller.reset();
-    await stopAgentInfrastructure();
+    await agentInfrastructure.stop();
     containerService.stop();
     getTaskScheduler()?.stop();
-    deactivateAllWorkspaces();
-    activeWorkspace = null;
-    cachedApiKey = null;
+    workspaceController.deactivateAll();
+    destroyTokenManager();
     const result = await logout();
     return result;
   } catch (error: any) {
@@ -3012,6 +2505,7 @@ ipcMain.handle('auth:setEndpoint', (_event, endpoint: string) => {
 
 // Scheduled Tasks IPC handlers
 ipcMain.handle('scheduledTasks:list', () => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return [];
   return listTasks(activeWorkspace.id);
 });
@@ -3021,6 +2515,7 @@ ipcMain.handle('scheduledTasks:get', (_event, id: string) => {
 });
 
 ipcMain.handle('scheduledTasks:create', (_event, data: CreateTaskData) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) throw new Error('No active workspace');
   const task = createTask(activeWorkspace.id, data.name, data.description, data.prompt, data.cron_expression, data.session_source ?? null);
   getTaskScheduler()?.scheduleTask(task.id);
@@ -3062,6 +2557,7 @@ ipcMain.handle('scheduledTasks:setEnabled', (_event, id: string, enabled: boolea
 });
 
 ipcMain.handle('scheduledTasks:runNow', async (_event, id: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) throw new Error('No active workspace');
   const task = getTask(id);
   if (!task) throw new Error('Task not found');
@@ -3074,6 +2570,7 @@ ipcMain.handle('scheduledTasks:listRuns', (_event, taskId: string) => {
 
 // .academia/ file IPC handlers
 ipcMain.handle('academiaFile:read', async (_event, relativePath: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return { content: '' };
   const normalized = path.normalize(relativePath);
   if (normalized.startsWith('..') || path.isAbsolute(normalized)) {
@@ -3087,7 +2584,7 @@ ipcMain.handle('academiaFile:read', async (_event, relativePath: string) => {
       return { content: '' };
     }
   }
-  const filePath = path.join(activeWorkspace.directory_path, ACADEMIA_DIR, normalized);
+  const filePath = path.join(workspaceController.workspacePath!, ACADEMIA_DIR, normalized);
   try {
     return { content: await fsPromises.readFile(filePath, 'utf-8') };
   } catch {
@@ -3096,6 +2593,7 @@ ipcMain.handle('academiaFile:read', async (_event, relativePath: string) => {
 });
 
 ipcMain.handle('academiaFile:write', async (_event, relativePath: string, content: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) throw new Error('No active workspace');
   const normalized = path.normalize(relativePath);
   if (normalized.startsWith('..') || path.isAbsolute(normalized)) {
@@ -3104,7 +2602,7 @@ ipcMain.handle('academiaFile:write', async (_event, relativePath: string, conten
   if (containerService.isOverlayEnabled() && containerService.isRunning()) {
     await containerService.writeContentToContainer(content, `/data/${ACADEMIA_DIR}/${normalized}`);
   } else {
-    const filePath = path.join(activeWorkspace.directory_path, ACADEMIA_DIR, normalized);
+    const filePath = path.join(workspaceController.workspacePath!, ACADEMIA_DIR, normalized);
     await fsPromises.mkdir(path.dirname(filePath), { recursive: true });
     await fsPromises.writeFile(filePath, content, 'utf-8');
   }
@@ -3307,8 +2805,9 @@ ipcMain.handle(IPC_CHANNELS.OVERLAY_ENSURE_READY, async () => {
   }
   if (cobuildingHttpBaseUrl && cobuildingHttpAuthToken && !windowMonitorService.isRunning()) {
     windowMonitorService.start(cobuildingHttpBaseUrl, cobuildingHttpAuthToken, false);
+    const activeWorkspace = workspaceController.activeWorkspace;
     if (activeWorkspace) {
-      windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
+      windowMonitorService.setActiveWorkspaceDirectories(workspaceController.userDirectoryPaths);
       windowMonitorService.setSessionsProvider(({ documentPath, documentPathLike }) => {
         if (!activeWorkspace) return [];
         const rows = documentPathLike !== undefined

@@ -15,14 +15,11 @@ export const PodmanDebug: React.FC = () => {
   const [baseImageDownloaded, setBaseImageDownloaded] = useState(false);
   const [imageSource, setImageSource] = useState<ImageSource>('registry');
   const [baseImageInProgress, setBaseImageInProgress] = useState(false);
-  const [deletingImage, setDeletingImage] = useState(false);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [envInfo, setEnvInfo] = useState<EnvironmentInfoPayload | null>(null);
-  const [rebuilding, setRebuilding] = useState(false);
   const [expandedApps, setExpandedApps] = useState<Set<string>>(new Set());
-  const [bgBuildMessage, setBgBuildMessage] = useState<string | null>(null);
   type PackageStates = Record<PackageRegistry, Record<string, PackageState>>;
   const emptyPackageStates: PackageStates = { pip: {}, npm: {}, R: {}, apt: {}, manual: {} };
   const [packageStates, setPackageStates] = useState<PackageStates>(emptyPackageStates);
@@ -32,6 +29,14 @@ export const PodmanDebug: React.FC = () => {
   const [overlayEnabled, setOverlayEnabled] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
+  const [pruning, setPruning] = useState(false);
+  const [pruneResult, setPruneResult] = useState<string | null>(null);
+  const [gracefulShutdownBusy, setGracefulShutdownBusy] = useState(false);
+  const [gracefulShutdownDone, setGracefulShutdownDone] = useState(false);
+  const [resetDownloadBusy, setResetDownloadBusy] = useState(false);
+  const [downloadResetDone, setDownloadResetDone] = useState(false);
+
+  const isDev = window.authAPI.isDev;
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -106,38 +111,12 @@ export const PodmanDebug: React.FC = () => {
     return () => cleanups.forEach((fn) => fn());
   }, []);
 
-  // Track background build progress
   useEffect(() => {
-    const cleanup = window.containerAPI.onBackgroundBuild((progress) => {
-      if (progress.stage === 'background-build-done') {
-        setBgBuildMessage(null);
-        setRebuilding(false);
-        refreshStatus();
-      } else if (progress.stage === 'background-build-error') {
-        setBgBuildMessage(`Error: ${progress.message}`);
-        setRebuilding(false);
-      } else {
-        setBgBuildMessage(progress.message);
-      }
-    });
-    return cleanup;
-  }, [refreshStatus]);
-
-  const handleRebuildEnvironment = async () => {
-    setRebuilding(true);
-    setError(null);
-    setBgBuildMessage('Starting rebuild...');
-    try {
-      await window.containerAPI.rebuildEnvironment();
-      setBgBuildMessage(null);
-      setRebuilding(false);
-      refreshStatus();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setBgBuildMessage(null);
-      setRebuilding(false);
+    if (running) {
+      setGracefulShutdownDone(false);
+      setDownloadResetDone(false);
     }
-  };
+  }, [running]);
 
   const toggleApp = (name: string) => {
     setExpandedApps((prev) => {
@@ -211,6 +190,40 @@ export const PodmanDebug: React.FC = () => {
     }
   };
 
+  const handleGracefulShutdownPodman = async () => {
+    setGracefulShutdownBusy(true);
+    setError(null);
+    try {
+      await window.containerAPI.gracefulShutdownPodman();
+      setGracefulShutdownDone(true);
+      setRunning(false);
+      await refreshStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGracefulShutdownBusy(false);
+    }
+  };
+
+  const handleResetImageDownload = async () => {
+    setResetDownloadBusy(true);
+    setError(null);
+    try {
+      await window.containerAPI.clearImageDownloadState();
+      setDownloadResetDone(true);
+      await refreshStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setResetDownloadBusy(false);
+    }
+  };
+
+  const handleRelaunchApp = () => {
+    setError(null);
+    void window.containerAPI.relaunchApp();
+  };
+
   const handleDeleteBinaries = async () => {
     setError(null);
     try {
@@ -218,6 +231,20 @@ export const PodmanDebug: React.FC = () => {
       setBundledDownloaded(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handlePruneImages = async () => {
+    setPruning(true);
+    setPruneResult(null);
+    setError(null);
+    try {
+      await window.debugAPI.pruneImages();
+      setPruneResult('Prune complete — check logs for details');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPruning(false);
     }
   };
 
@@ -232,19 +259,6 @@ export const PodmanDebug: React.FC = () => {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSyncing(false);
-    }
-  };
-
-  const handleDeleteImage = async () => {
-    setError(null);
-    setDeletingImage(true);
-    try {
-      await window.containerAPI.deleteImage();
-      setBaseImageDownloaded(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setDeletingImage(false);
     }
   };
 
@@ -354,22 +368,10 @@ export const PodmanDebug: React.FC = () => {
 
       <div className="debugSection__infoRow">
         <span className="debugSection__infoLabel">Base Image:</span>
-        {deletingImage ? (
-          <span className="debugSection__imageInProgress">Deleting...</span>
-        ) : baseImageInProgress ? (
+        {baseImageInProgress ? (
           <span className="debugSection__imageInProgress">Downloading...</span>
         ) : baseImageDownloaded ? (
-          <>
-            <span className="debugSection__bundledOk">Downloaded</span>
-            <button
-              className="debugSection__btnInline debugSection__btnInline--danger"
-              onClick={handleDeleteImage}
-              disabled={running}
-              title="Remove the base image"
-            >
-              <Trash2 size={14} />
-            </button>
-          </>
+          <span className="debugSection__bundledOk">Downloaded</span>
         ) : (
           <>
             <span className="debugSection__imageNotBuilt">Not downloaded</span>
@@ -387,15 +389,12 @@ export const PodmanDebug: React.FC = () => {
       {/* ─── Environment Section ─── */}
       {envInfo && <EnvironmentSection
         envInfo={envInfo}
-        rebuilding={rebuilding}
-        bgBuildMessage={bgBuildMessage}
         running={running}
         expandedApps={expandedApps}
         packageStates={packageStates}
         packageLines={packageLines}
         liveContainerExpanded={liveContainerExpanded}
         onToggleLiveContainer={() => setLiveContainerExpanded((v) => !v)}
-        onRebuildEnvironment={handleRebuildEnvironment}
         onToggleApp={toggleApp}
       />}
 
@@ -409,6 +408,58 @@ export const PodmanDebug: React.FC = () => {
           className={`debugSection__indicator ${running ? 'debugSection__indicator--running' : starting ? 'debugSection__indicator--starting' : 'debugSection__indicator--stopped'}`}
         />
         <span>{running ? 'Running' : starting ? 'Starting...' : stopping ? 'Stopping...' : 'Stopped'}</span>
+      </div>
+
+      <div
+        style={{
+          margin: '12px 0',
+          padding: '12px',
+          background: '#faf6f0',
+          borderRadius: 6,
+          border: '1px solid #e8dcc8',
+        }}
+      >
+        <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, color: '#666', fontWeight: 600, marginBottom: 8 }}>
+          Download reset
+        </div>
+        <p style={{ fontSize: 12, color: '#555', margin: '0 0 10px' }}>
+          Same steps as <code>scripts/reset-downloads.sh</code>: after graceful shutdown, destroy the machine, remove bundled Podman binaries, image cache,
+          isolated Podman HOME and runtime dirs, app-local podman data, and clear <code>loadedImageVersion</code> / <code>imageTier</code> in settings. Then{' '}
+          {isDev ? 'quit the app (restart from your dev terminal).' : 'relaunch the app so setup can run again.'}
+        </p>
+        <div className="debugSection__actions" style={{ flexWrap: 'wrap', gap: 8 }}>
+          <button
+            type="button"
+            className="debugSection__btn debugSection__btn--stop"
+            onClick={handleGracefulShutdownPodman}
+            disabled={gracefulShutdownBusy || !running || gracefulShutdownDone}
+            title="Stop agent and container, then podman machine stop"
+          >
+            {gracefulShutdownBusy ? 'Shutting down…' : 'Graceful shutdown (Podman + VM)'}
+          </button>
+          <button
+            type="button"
+            className="debugSection__btn"
+            onClick={handleResetImageDownload}
+            disabled={!gracefulShutdownDone || resetDownloadBusy || downloadResetDone}
+            title="Same as reset-downloads.sh: machine rm, binaries, caches, podman dirs, settings keys"
+          >
+            {resetDownloadBusy ? 'Clearing…' : 'Reset downloads'}
+          </button>
+          <button
+            type="button"
+            className="debugSection__btn debugSection__btn--start"
+            onClick={handleRelaunchApp}
+            disabled={!downloadResetDone}
+            title={
+              isDev
+                ? 'Quit the app (development — relaunch is only for packaged builds)'
+                : 'Quit and start the app again'
+            }
+          >
+            {isDev ? 'Quit app' : 'Relaunch app'}
+          </button>
+        </div>
       </div>
 
       <div className="debugSection__actions">
@@ -426,7 +477,18 @@ export const PodmanDebug: React.FC = () => {
         >
           {stopping ? 'Stopping...' : 'Stop'}
         </button>
+        <button
+          className="debugSection__btn"
+          onClick={handlePruneImages}
+          disabled={pruning}
+          title="Remove unused images and reclaim VM disk space"
+        >
+          {pruning ? 'Pruning...' : 'Prune Images'}
+        </button>
       </div>
+      {pruneResult && (
+        <span style={{ fontSize: 12, color: '#28a745', marginTop: 4, display: 'block' }}>{pruneResult}</span>
+      )}
 
       {running && overlayEnabled && (
         <div style={{ margin: '12px 0', padding: '12px', background: '#f0f7ff', borderRadius: 6, border: '1px solid #b3d4fc' }}>
@@ -465,15 +527,12 @@ export const PodmanDebug: React.FC = () => {
 
 interface EnvironmentSectionProps {
   envInfo: EnvironmentInfoPayload;
-  rebuilding: boolean;
-  bgBuildMessage: string | null;
   running: boolean;
   expandedApps: Set<string>;
   packageStates: Record<PackageRegistry, Record<string, PackageState>>;
   packageLines: Record<string, string>;
   liveContainerExpanded: boolean;
   onToggleLiveContainer: () => void;
-  onRebuildEnvironment: () => void;
   onToggleApp: (name: string) => void;
 }
 
@@ -486,20 +545,12 @@ const subHeadingStyle: React.CSSProperties = {
 };
 
 const EnvironmentSection: React.FC<EnvironmentSectionProps> = ({
-  envInfo, rebuilding, bgBuildMessage, running,
+  envInfo, running,
   expandedApps, packageStates, packageLines, liveContainerExpanded,
-  onToggleLiveContainer, onRebuildEnvironment, onToggleApp,
+  onToggleLiveContainer, onToggleApp,
 }) => {
   const totalPkgs = envInfo.totalPip.length + envInfo.totalNpm.length +
     envInfo.totalR.length + envInfo.totalApt.length + envInfo.totalSetup.length;
-
-  const buildStateLabel = (state: string) => {
-    switch (state) {
-      case 'building': return 'Building...';
-      case 'building-pending': return 'Building (another queued)...';
-      default: return 'Idle';
-    }
-  };
 
   const appsWithDeps = envInfo.apps.filter(
     (a) => a.pip.length > 0 || Object.keys(a.npm).length > 0 ||
@@ -580,52 +631,6 @@ const EnvironmentSection: React.FC<EnvironmentSectionProps> = ({
             })}
           </div>
         )}
-      </div>
-
-      {/* ─── Next-session image ─── */}
-      <div style={subBlockStyle}>
-        <div style={subHeadingStyle}>Next-session image</div>
-        <div className="debugSection__infoRow">
-          <span className="debugSection__infoLabel">Type:</span>
-          {envInfo.imageType === 'user' ? (
-            <span className="debugSection__bundledOk">User image ({totalPkgs} extra package{totalPkgs !== 1 ? 's' : ''})</span>
-          ) : (
-            <span style={{ color: '#666' }}>Base image only</span>
-          )}
-        </div>
-        <div className="debugSection__infoRow">
-          <span className="debugSection__infoLabel">Sync:</span>
-          {envInfo.inSync ? (
-            <span className="debugSection__bundledOk">In sync</span>
-          ) : envInfo.environmentHash ? (
-            <span style={{ color: '#bf8700' }}>Rebuild needed</span>
-          ) : (
-            <span style={{ color: '#666' }}>Not yet built</span>
-          )}
-          {envInfo.imageHash && (
-            <code className="debugSection__mono" style={{ marginLeft: 8 }} title="Image hash">
-              {envInfo.imageHash}
-            </code>
-          )}
-        </div>
-        <div className="debugSection__infoRow">
-          <span className="debugSection__infoLabel">Build:</span>
-          <span
-            className={`debugSection__indicator ${envInfo.backgroundBuildState !== 'idle' ? 'debugSection__indicator--starting' : ''}`}
-            style={{ display: 'inline-block', marginRight: 4 }}
-          />
-          <span>{bgBuildMessage || buildStateLabel(envInfo.backgroundBuildState)}</span>
-        </div>
-        <div className="debugSection__actions" style={{ marginTop: 8 }}>
-          <button
-            className="debugSection__btn debugSection__btn--start"
-            onClick={onRebuildEnvironment}
-            disabled={rebuilding || !running}
-            title="Regenerate environment from dep files and rebuild image"
-          >
-            {rebuilding ? 'Rebuilding...' : 'Rebuild image'}
-          </button>
-        </div>
       </div>
 
       {/* ─── Installed packages ─── */}

@@ -336,6 +336,16 @@ jobs:
           DATADOG_APPLICATION_ID: ${{ vars.DATADOG_APPLICATION_ID }}
           DATADOG_CLIENT_TOKEN: ${{ vars.DATADOG_CLIENT_TOKEN }}
           DATADOG_SITE: ${{ vars.DATADOG_SITE }}
+          # Sentry DSN — public, safe to bundle. Webpack DefinePlugin bakes it
+          # into the renderer + main bundles at build time. Empty → Sentry no-ops.
+          SENTRY_DSN: ${{ vars.SENTRY_DSN }}
+          # Source map upload to Sentry. AUTH_TOKEN is a real secret (read/write
+          # scope on the Sentry project). ORG and PROJECT are slugs, not sensitive.
+          # When any of these is unset, @sentry/webpack-plugin skips upload —
+          # the build still succeeds, you just get minified stack traces in Sentry.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
           ENTRY_POINT: ${{ steps.artifact-name.outputs.entry_point }}
           # Google Docs OAuth credentials (Phase C2). Baked into the main bundle
           # at build time by webpack.DefinePlugin. When unset the build still
@@ -620,3 +630,115 @@ jobs:
           draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-latest:
+    needs: [calculate-version, package]
+    name: Publish Latest Version Manifest
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Generate and upload latest.json
+        shell: bash
+        env:
+          VERSION: ${{ needs.calculate-version.outputs.version }}
+          CHANNEL: ${{ needs.calculate-version.outputs.channel }}
+          BUCKET: ${{ vars.S3_BUCKET_NAME }}
+          CLOUDFRONT_DOMAIN: ${{ vars.CLOUDFRONT_DOMAIN }}
+        run: |
+          set -e
+
+          echo "Generating latest.json for ${CHANNEL} channel, version ${VERSION}"
+
+          # Helper: find a file by extension in an S3 prefix
+          find_s3_file() {
+            local prefix="$1"
+            local extension="$2"
+            local result
+            result=$(aws s3api list-objects-v2 \
+              --bucket "$BUCKET" \
+              --prefix "$prefix" \
+              --query 'Contents[].Key' \
+              --output json 2>/dev/null)
+            if [ "$result" = "null" ] || [ -z "$result" ]; then
+              echo ""
+              return
+            fi
+            echo "$result" | jq -r ".[] | select(endswith(\"${extension}\"))" | head -1
+          }
+
+          # Helper: URL-encode spaces in S3 key for CloudFront URL
+          url_encode_path() {
+            echo "$1" | sed 's/ /%20/g'
+          }
+
+          # Discover filenames from S3
+          MAC_ARM64_KEY=$(find_s3_file "${CHANNEL}/arm64/${VERSION}/" ".dmg")
+          MAC_X64_KEY=$(find_s3_file "${CHANNEL}/x64/${VERSION}/" ".dmg")
+          WIN_X64_KEY=$(find_s3_file "${CHANNEL}/${VERSION}/" ".exe")
+
+          # Build download URLs
+          DOWNLOADS_JSON="{}"
+
+          if [ -n "$MAC_ARM64_KEY" ]; then
+            MAC_ARM64_URL="https://${CLOUDFRONT_DOMAIN}/$(url_encode_path "$MAC_ARM64_KEY")"
+            DOWNLOADS_JSON=$(echo "$DOWNLOADS_JSON" | jq --arg url "$MAC_ARM64_URL" '. + {"mac-arm64": $url}')
+            echo "mac-arm64: $MAC_ARM64_URL"
+          else
+            echo "WARNING: No arm64 DMG found at ${CHANNEL}/arm64/${VERSION}/"
+          fi
+
+          if [ -n "$MAC_X64_KEY" ]; then
+            MAC_X64_URL="https://${CLOUDFRONT_DOMAIN}/$(url_encode_path "$MAC_X64_KEY")"
+            DOWNLOADS_JSON=$(echo "$DOWNLOADS_JSON" | jq --arg url "$MAC_X64_URL" '. + {"mac-x64": $url}')
+            echo "mac-x64: $MAC_X64_URL"
+          else
+            echo "WARNING: No x64 DMG found at ${CHANNEL}/x64/${VERSION}/"
+          fi
+
+          if [ -n "$WIN_X64_KEY" ]; then
+            WIN_X64_URL="https://${CLOUDFRONT_DOMAIN}/$(url_encode_path "$WIN_X64_KEY")"
+            DOWNLOADS_JSON=$(echo "$DOWNLOADS_JSON" | jq --arg url "$WIN_X64_URL" '. + {"windows-x64": $url}')
+            echo "windows-x64: $WIN_X64_URL"
+          else
+            echo "WARNING: No Windows EXE found at ${CHANNEL}/${VERSION}/"
+          fi
+
+          # Generate latest.json
+          RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          jq -n \
+            --arg version "$VERSION" \
+            --arg channel "$CHANNEL" \
+            --arg releaseDate "$RELEASE_DATE" \
+            --argjson downloads "$DOWNLOADS_JSON" \
+            '{version: $version, channel: $channel, releaseDate: $releaseDate, downloads: $downloads}' \
+            > latest.json
+
+          echo "Generated latest.json:"
+          cat latest.json
+
+          # Upload to S3
+          aws s3 cp latest.json "s3://${BUCKET}/${CHANNEL}/latest.json" \
+            --content-type "application/json"
+
+          echo "Uploaded to s3://${BUCKET}/${CHANNEL}/latest.json"
+
+      - name: Invalidate CloudFront cache
+        shell: bash
+        continue-on-error: true
+        env:
+          CHANNEL: ${{ needs.calculate-version.outputs.channel }}
+          DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          echo "Invalidating CloudFront cache for /${CHANNEL}/latest.json..."
+          aws cloudfront create-invalidation \
+            --distribution-id "${DISTRIBUTION_ID}" \
+            --invalidation-batch "{\"Paths\":{\"Quantity\":1,\"Items\":[\"/${CHANNEL}/latest.json\"]},\"CallerReference\":\"latest-$(date +%s)\"}"
+          echo "CloudFront cache invalidation initiated"

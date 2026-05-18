@@ -1,9 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import {
   ThreadPrimitive,
   ComposerPrimitive,
   AuiIf,
-  useThreadRuntime,
 } from '@assistant-ui/react';
 import {
   SendIcon,
@@ -16,51 +15,27 @@ import { Button } from './ui/button';
 import { ModelSelector } from './ModelSelector';
 import type { FC } from 'react';
 
-interface GlobalComposerProps {
-  isInChatDetail: boolean;
-  onNavigateToChat: () => void;
-}
-
-export const GlobalComposer: FC<GlobalComposerProps> = ({
-  isInChatDetail,
-  onNavigateToChat,
-}) => {
+/**
+ * Universal composer rendered on every page that isn't settings/debug/tool-detail.
+ *
+ * Navigation to chat detail on send is handled by the chatAdapter's `onSend`
+ * callback (see `useElectronChatAdapter` in chatAdapter.ts), not here. That way
+ * every send — regardless of where it was initiated — produces a deterministic,
+ * synchronous navigation, instead of relying on a state-subscription watcher
+ * that could miss the 0→1 message-count transition under remount or
+ * suppressed-reset conditions.
+ */
+export const GlobalComposer: FC = () => {
   return (
     <div className="globalComposer">
       <div className="globalComposerInner">
         <ThreadPrimitive.Root>
-          <NavigateOnSend isInChatDetail={isInChatDetail} onNavigateToChat={onNavigateToChat} />
           <ComposerBody />
         </ThreadPrimitive.Root>
       </div>
     </div>
   );
 };
-
-/**
- * Subscribes to thread message count changes. When a message appears on a
- * previously-empty thread while not in chat detail, navigates to the chat view.
- */
-function NavigateOnSend({ isInChatDetail, onNavigateToChat }: GlobalComposerProps) {
-  const threadRuntime = useThreadRuntime();
-  const isInChatDetailRef = useRef(isInChatDetail);
-  isInChatDetailRef.current = isInChatDetail;
-  const onNavigateRef = useRef(onNavigateToChat);
-  onNavigateRef.current = onNavigateToChat;
-
-  useEffect(() => {
-    let prevEmpty = threadRuntime.getState().messages.length === 0;
-    return threadRuntime.subscribe(() => {
-      const nowEmpty = threadRuntime.getState().messages.length === 0;
-      if (prevEmpty && !nowEmpty && !isInChatDetailRef.current) {
-        onNavigateRef.current();
-      }
-      prevEmpty = nowEmpty;
-    });
-  }, [threadRuntime]);
-
-  return null;
-}
 
 const ComposerBody: FC = () => {
   return (

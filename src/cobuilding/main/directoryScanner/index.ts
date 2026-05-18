@@ -3,23 +3,16 @@ import * as path from "path";
 import log from "electron-log";
 import { resolveClaudeBinary } from "../sdkBinarySetup";
 import { createReport, updateReportStatus } from "../db/reportRepository";
-import { createBriefing } from "../db/briefingsRepository";
-import { AGENT_MEMORY_SUBDIR } from "../../shared/paths";
 import {
   generateDirectoryTree,
-  DIRECTORY_ORGANIZATION_PROMPT,
   type ScanParams,
   type ScannerEvent,
-  type SuggestionParsed,
-  type TaggedFileParsed,
   type ScanContext,
 } from "./shared";
 import { runResearchProfileAgent } from "./agents/researchProfile";
-import { runTaskSuggestionAgent } from "./agents/taskSuggestion";
-import {
-  runFileTaggingAgent,
-  type FileTaggingResult,
-} from "./agents/fileTagging";
+import { runQuickTaskSuggestionAgent, runInDepthTaskSuggestionAgent } from "./agents/taskSuggestion";
+import { runFileTaggingAgent } from "./agents/fileTagging";
+import { captureError } from "../../shared/telemetry";
 
 export type { ScannerEvent, ScanParams };
 
@@ -28,7 +21,8 @@ export async function scanWorkspaceDirectory(
 ): Promise<void> {
   const {
     workspaceId,
-    directoryPath,
+    directoryPaths,
+    memoryDir,
     apiKey,
     baseURL,
     onMessage,
@@ -37,7 +31,7 @@ export async function scanWorkspaceDirectory(
   const reportId = randomUUID();
 
   log.info(
-    `[DirectoryScanner] Starting scan for workspace ${workspaceId} at ${directoryPath}`,
+    `[DirectoryScanner] Starting scan for workspace ${workspaceId} at [${directoryPaths.join(', ')}]`,
   );
 
   const claudeBinaryPath = resolveClaudeBinary();
@@ -50,18 +44,25 @@ export async function scanWorkspaceDirectory(
   createReport(reportId, workspaceId, "directory_scan");
   updateReportStatus(reportId, "running");
 
+  const treeOutputs = directoryPaths.map((dp) => ({
+    directoryPath: dp,
+    tree: generateDirectoryTree(dp),
+  }));
+
   const ctx: ScanContext = {
     claudeBinaryPath,
-    directoryPath,
+    cwd: params.cwd,
+    directoryPaths,
     apiKey,
     baseURL,
     abortController: new AbortController(),
-    treeOutput: generateDirectoryTree(directoryPath),
+    treeOutputs,
     workspaceId,
     reportId,
-    memoryDir: path.join(directoryPath, AGENT_MEMORY_SUBDIR),
+    memoryDir,
     onMessage,
     onBriefingsChanged,
+    onNotifyUser: params.onNotifyUser,
   };
 
   const scanStartTime = Date.now();
@@ -73,7 +74,7 @@ export async function scanWorkspaceDirectory(
     // background and update the report / create briefings when they finish.
     const profilePromise = runResearchProfileAgent(ctx);
     const taggingPromise = runFileTaggingAgent(ctx);
-    const suggestionPromise = runTaskSuggestionAgent(ctx);
+    const suggestionPromise = runQuickTaskSuggestionAgent(ctx);
 
     const profile = await profilePromise;
 
@@ -88,53 +89,48 @@ export async function scanWorkspaceDirectory(
     onMessage({ type: "complete", reportId, reportData });
 
     // Background agents — fire-and-forget
-    completeBackgroundWork(taggingPromise, suggestionPromise, ctx);
+    completeBackgroundWork(taggingPromise, suggestionPromise, ctx).catch((err) => {
+      log.error("[DirectoryScanner] Background work failed:", err);
+    });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     log.error(
       `[DirectoryScanner] Scan error for workspace ${workspaceId}:`,
       err,
     );
+    captureError(err, {
+      subsystem: 'workspace_scan',
+      extra: { workspace_id: workspaceId, report_id: reportId },
+    });
     updateReportStatus(reportId, "failed", undefined, errorMessage);
     onMessage({ type: "error", error: errorMessage });
   }
 }
 
 async function completeBackgroundWork(
-  taggingPromise: Promise<FileTaggingResult>,
-  suggestionPromise: Promise<SuggestionParsed[]>,
+  taggingPromise: Promise<unknown>,
+  suggestionPromise: Promise<void>,
   ctx: ScanContext,
 ): Promise<void> {
-  createBriefing({
-    workspaceId: ctx.workspaceId,
-    type: "suggested_action",
-    sourceReportId: ctx.reportId,
-    whyImSuggestingThis:
-      "A well-organized workspace makes it easier to find files and helps me give better recommendations.",
-    briefingData: {
-      title: "Organize your research directory",
-      description:
-        "I will figure out an effective way to organize the files in your workspace.",
-      chat_prompt: DIRECTORY_ORGANIZATION_PROMPT,
-    },
+  await suggestionPromise.catch((err) => {
+    log.error("[DirectoryScanner] Quick task suggestion agent failed:", err);
   });
   ctx.onBriefingsChanged();
 
-  const tagging = await taggingPromise.catch((err) => {
+  try {
+    const notification = await runInDepthTaskSuggestionAgent(ctx);
+    if (notification.made_changes) {
+      ctx.onBriefingsChanged();
+      ctx.onNotifyUser(notification.title, notification.body);
+    }
+  } catch (err) {
+    log.error("[DirectoryScanner] In-depth task suggestion agent failed:", err);
+  }
+
+  await taggingPromise.catch((err) => {
     log.error("[DirectoryScanner] File tagging agent failed:", err);
-    return { taggedFiles: [] as TaggedFileParsed[] };
   });
 
-  const suggestions = await suggestionPromise.catch((err) => {
-    log.error("[DirectoryScanner] Task suggestion agent failed:", err);
-    return [] as SuggestionParsed[];
-  });
-
-  updateReportStatus(
-    ctx.reportId,
-    "completed",
-    JSON.stringify({ tagged_files: tagging.taggedFiles, suggestions }),
-  );
   log.info(
     `[DirectoryScanner] Background agents completed for workspace ${ctx.workspaceId}`,
   );

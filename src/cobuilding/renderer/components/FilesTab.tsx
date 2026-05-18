@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState, type FC } from 'react';
+import type { WorkspaceDirectory } from '../../shared/types';
 import {
   ChevronRightIcon,
   FileIcon,
@@ -42,21 +43,23 @@ interface ContextMenuState {
   node: TreeNode;
 }
 
-type FileTagType = 'manuscript' | 'grant' | 'presentation';
+type FileTagType = 'manuscript' | 'grant' | 'presentation' | 'reference';
 
 const FILE_TAG_LABEL: Record<FileTagType, string> = {
   manuscript: 'MANUSCRIPT',
   grant: 'GRANT',
   presentation: 'SLIDES',
+  reference: 'REFERENCE',
 };
 
 interface FilesTabProps {
   workspacePath: string;
+  userDirectories?: WorkspaceDirectory[];
   onSelectFile: (path: string) => void;
   onFileCount?: (count: number) => void;
 }
 
-export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile, onFileCount }) => {
+export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, onSelectFile, onFileCount }) => {
   const workspaceName = workspacePath.split('/').pop() ?? workspacePath;
   const [rootChildren, setRootChildren] = useState<TreeNode[]>([]);
   const [rootExpanded, setRootExpanded] = useState(true);
@@ -68,6 +71,19 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile, onFil
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [creatingIn, setCreatingIn] = useState<{ dirPath: string; type: 'file' | 'folder' } | null>(null);
   const [fileTagMap, setFileTagMap] = useState<Map<string, FileTagType>>(new Map());
+
+  const resolveRelPath = useCallback((filePath: string): string => {
+    if (filePath.startsWith(workspacePath + '/')) return filePath.slice(workspacePath.length + 1);
+    let bestLen = 0;
+    let bestSlice = filePath;
+    for (const ud of (userDirectories ?? [])) {
+      if (filePath.startsWith(ud.directory_path + '/') && ud.directory_path.length > bestLen) {
+        bestLen = ud.directory_path.length;
+        bestSlice = filePath.slice(ud.directory_path.length + 1);
+      }
+    }
+    return bestSlice;
+  }, [workspacePath, userDirectories]);
 
   useEffect(() => {
     window.scannedFilesAPI.getAll().then((files) => {
@@ -118,8 +134,9 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile, onFil
   }, []);
 
   const loadRoot = useCallback(async () => {
+    const userDirNames = new Set((userDirectories ?? []).map(ud => ud.directory_path.split('/').pop()));
     const entries = (await window.filesAPI.readDirectory(workspacePath))
-      .filter((e) => !isHiddenWorkspaceEntry(e.name));
+      .filter((e) => !isHiddenWorkspaceEntry(e.name) && !userDirNames.has(e.name));
     const nodes = entries.map((e) => ({
       name: e.name,
       path: e.path,
@@ -130,9 +147,17 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile, onFil
     setRootLoaded(true);
     setRootExpanded(true);
     if (onFileCount) {
-      countFilesFromEntries(entries).then(onFileCount);
+      const dirs = userDirectories ?? [];
+      Promise.all([
+        countFilesFromEntries(entries),
+        ...dirs.map(async (ud) => {
+          const udEntries = (await window.filesAPI.readDirectory(ud.directory_path))
+            .filter((e) => !isHiddenWorkspaceEntry(e.name));
+          return countFilesFromEntries(udEntries);
+        }),
+      ]).then((counts) => onFileCount(counts.reduce((a, b) => a + b, 0)));
     }
-  }, [workspacePath, onFileCount, countFilesFromEntries]);
+  }, [workspacePath, userDirectories, onFileCount, countFilesFromEntries]);
 
   useEffect(() => {
     loadRoot();
@@ -280,6 +305,28 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile, onFil
     setContextMenu(null);
     await window.filesAPI.revealInFinder(targetPath);
   }, [contextMenu]);
+
+  const handleSetTag = useCallback(async (tagType: FileTagType) => {
+    if (!contextMenu || contextMenu.node.isDirectory) return;
+    const node = contextMenu.node;
+    setContextMenu(null);
+    const relPath = resolveRelPath(node.path);
+    await window.scannedFilesAPI.updateTag(relPath, node.name, tagType);
+    setFileTagMap((prev) => new Map(prev).set(relPath, tagType));
+  }, [contextMenu, resolveRelPath]);
+
+  const handleRemoveTag = useCallback(async () => {
+    if (!contextMenu || contextMenu.node.isDirectory) return;
+    const node = contextMenu.node;
+    setContextMenu(null);
+    const relPath = resolveRelPath(node.path);
+    await window.scannedFilesAPI.removeTag(relPath);
+    setFileTagMap((prev) => {
+      const next = new Map(prev);
+      next.delete(relPath);
+      return next;
+    });
+  }, [contextMenu, resolveRelPath]);
 
   const handleRenameNodePath = useCallback((path: string) => {
     setRenamingPath(path);
@@ -446,6 +493,36 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile, onFil
               onCreateCancel={handleCreateCancel}
             />
           ))}
+        {(userDirectories ?? []).map((ud) => (
+          <FileTreeNode
+            key={ud.directory_path}
+            node={{
+              name: ud.display_name || ud.directory_path.split('/').pop() || ud.directory_path,
+              path: ud.directory_path,
+              isDirectory: true,
+              children: [],
+            }}
+            depth={0}
+            workspacePath={ud.directory_path}
+            fileTagMap={fileTagMap}
+            onSelectFile={onSelectFile}
+            loadChildren={loadChildren}
+            onDropOnDir={handleDropOnDir}
+            onDragOverDir={handleDragOverDir}
+            onDragLeaveDir={handleDragLeaveDir}
+            dropTargetPath={dropTargetPath}
+            refreshKey={refreshKey}
+            onContextMenu={handleContextMenu}
+            renamingPath={renamingPath}
+            onRenameCommit={handleRenameCommit}
+            onRenameCancel={handleRenameCancel}
+            onRenameRequest={handleRenameNodePath}
+            onDeleteRequest={handleDeleteNodePath}
+            creatingIn={creatingIn}
+            onCreateCommit={handleCreateCommit}
+            onCreateCancel={handleCreateCancel}
+          />
+        ))}
       </div>
       {copyProgress && (
         <div className="filesTabCopyProgress">
@@ -474,6 +551,32 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile, onFil
               <button className="fileTreeContextMenuItem" onClick={() => handleCreateNew(contextMenu.node.path, 'folder')}>
                 New Folder
               </button>
+              <div className="fileTreeContextMenuSeparator" />
+            </>
+          )}
+          {!contextMenu.node.isDirectory && (
+            <>
+              {(['manuscript', 'grant', 'presentation', 'reference'] as FileTagType[]).map((t) => {
+                const relPath = resolveRelPath(contextMenu.node.path);
+                const isActive = fileTagMap.get(relPath) === t;
+                return (
+                  <button
+                    key={t}
+                    className={`fileTreeContextMenuItem${isActive ? ' fileTreeContextMenuItem--active' : ''}`}
+                    onClick={() => handleSetTag(t)}
+                  >
+                    Tag as {FILE_TAG_LABEL[t]}
+                  </button>
+                );
+              })}
+              {(() => {
+                const relPath = resolveRelPath(contextMenu.node.path);
+                return fileTagMap.has(relPath) ? (
+                  <button className="fileTreeContextMenuItem fileTreeContextMenuItem--destructive" onClick={handleRemoveTag}>
+                    Remove Tag
+                  </button>
+                ) : null;
+              })()}
               <div className="fileTreeContextMenuSeparator" />
             </>
           )}

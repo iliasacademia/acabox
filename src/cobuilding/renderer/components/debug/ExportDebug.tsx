@@ -42,10 +42,7 @@ export const ExportDebug: React.FC = () => {
         setImportStatus('idle');
         return;
       }
-      // Switch to the imported workspace in the main process, then reload
-      // so the renderer starts fresh inside it — no onboarding needed.
-      await window.workspacesAPI.switch(res.workspaceId);
-      window.location.reload();
+      await window.containerAPI.relaunchApp();
     } catch (err) {
       setImportResult({ error: err instanceof Error ? err.message : String(err) });
       setImportStatus('idle');
@@ -85,7 +82,7 @@ export const ExportDebug: React.FC = () => {
 
       <div>
         <p className="debugSection__desc" style={{ marginBottom: 10 }}>
-          Import a previously exported workspace ZIP. Creates a new workspace — switch to it from the workspace switcher after import.
+          Import a previously exported workspace ZIP. The app will restart with the imported workspace active.
         </p>
         <div className="debugSection__actions">
           <button
@@ -98,7 +95,7 @@ export const ExportDebug: React.FC = () => {
         </div>
         {importResult?.workspaceName && (
           <div className="debugSection__progress" style={{ marginTop: 8 }}>
-            Imported as <strong>{importResult.workspaceName}</strong> at <code>{importResult.workspaceDir}</code>. Switch to it from the workspace switcher.
+            Imported as <strong>{importResult.workspaceName}</strong> at <code>{importResult.workspaceDir}</code>.
           </div>
         )}
         {importResult?.error && (

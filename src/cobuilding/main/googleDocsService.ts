@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { shell, app, safeStorage } from 'electron';
 import { OAuth2Client } from 'google-auth-library';
+import { captureError } from '../shared/telemetry';
 
 /**
  * OAuth + Docs API client for Phase C2 Google Docs integration.
@@ -166,6 +167,7 @@ export async function startOAuthFlow(): Promise<void> {
           res.end(html('Error connecting to Google Docs.'));
           clearTimeout(timeout);
           server.close();
+          captureError(err, { subsystem: 'auth_oauth_google', extra: { phase: 'token_exchange' } });
           reject(err);
         }
       });

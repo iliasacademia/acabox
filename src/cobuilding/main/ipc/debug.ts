@@ -6,13 +6,15 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 import log from 'electron-log';
 import { getAllPodmanDataPaths } from '../podmanBinaries';
-import { getDatabase } from '../db/database';
-import { getObservationsDatabase } from '../db/observationsDatabase';
-import { getSchedulingDatabase } from '../db/schedulingDatabase';
-import { getActiveWorkspace, createWorkspace, touchWorkspace } from '../db/workspaceRepository';
+import { closeDatabase, getDatabase, initDatabase } from '../db/database';
+import { closeObservationsDatabase, getObservationsDatabase, initObservationsDatabase } from '../db/observationsDatabase';
+import { closeSchedulingDatabase, getSchedulingDatabase, initSchedulingDatabase } from '../db/schedulingDatabase';
+import { getActiveWorkspace, createWorkspace, addWorkspaceDirectory, touchWorkspace } from '../db/workspaceRepository';
 import { containerService } from '../containerService';
+import { WORKSPACE_DATA_DIR } from '../../shared/paths';
 import { systemLogger } from '../systemLogger';
 import { commandLogger } from '../commandLogger';
+import { captureError } from '../../shared/telemetry';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const crossZip = require('cross-zip');
@@ -53,6 +55,35 @@ export function registerDebugHandlers() {
 
   ipcMain.handle('debug:syncOverlay', async () => {
     return containerService.syncOverlay();
+  });
+
+  // Telemetry test hooks — fire main-process errors of various shapes so we can
+  // verify they reach Sentry from a button in the Debug → Telemetry panel.
+  // The thrown / rejected errors deliberately escape the IPC handler's try/catch
+  // by running on a fresh tick.
+  ipcMain.handle('debug:telemetry-test', async (_event: unknown, kind: string, subsystem?: string) => {
+    log.info(`[Telemetry test] main-side trigger: kind=${kind} subsystem=${subsystem ?? ''}`);
+    switch (kind) {
+      case 'uncaught':
+        setImmediate(() => {
+          throw new Error('telemetry test: main process uncaught exception');
+        });
+        return { ok: true };
+      case 'rejection':
+        setImmediate(() => {
+          // Intentionally unhandled — the global unhandledRejection handler captures it.
+          void Promise.reject(new Error('telemetry test: main process unhandled rejection'));
+        });
+        return { ok: true };
+      case 'capture':
+        captureError(new Error('telemetry test: main process explicit captureError'), {
+          subsystem: subsystem || 'container',
+          extra: { source: 'debug-panel' },
+        });
+        return { ok: true };
+      default:
+        return { ok: false, error: `unknown kind: ${kind}` };
+    }
   });
 
   ipcMain.handle('debug:isOverlayEnabled', () => {
@@ -175,14 +206,6 @@ export function registerDebugHandlers() {
       r.ok ? ok('Podman config & data') : fail('Podman config & data', r.error!);
     }
 
-    // ── Container Image ──
-    if (set.has('container-image')) {
-      try {
-        await containerService.deleteImage();
-        ok('Container image');
-      } catch (e) { fail('Container image', (e as Error).message); }
-    }
-
     // ── Podman VM State ──
     if (set.has('podman-vm')) {
       try { containerService.stop(); } catch { /* ok */ }
@@ -207,6 +230,10 @@ export function registerDebugHandlers() {
 
     log.warn('[Debug] clearSelected:', { cleared: results, errors });
     return { cleared: results, errors };
+  });
+
+  ipcMain.handle('debug:pruneImages', async () => {
+    await containerService.pruneImages();
   });
 
   ipcMain.handle('debug:exportWorkspace', async () => {
@@ -400,7 +427,8 @@ export function registerDebugHandlers() {
 
       // Create workspace DB record
       const newWorkspaceId = randomUUID();
-      createWorkspace(newWorkspaceId, dirName, workspaceDir, '');
+      createWorkspace(newWorkspaceId, '');
+      addWorkspaceDirectory(randomUUID(), newWorkspaceId, workspaceDir, dirName);
 
       const db = getDatabase();
 
@@ -531,24 +559,66 @@ export function registerDebugHandlers() {
     }
   });
 
-  ipcMain.handle('debug:hardResetWorkspace', async () => {
-    const workspace = getActiveWorkspace();
-    if (!workspace) return { ok: false, error: 'No active workspace' };
+  ipcMain.handle('debug:exportLogs', async () => {
+    const systemEntries = systemLogger.getAll();
+    const commandEntries = commandLogger.getAll();
 
-    // Remove workspace file directories
-    for (const dir of ['.applications', '.academia']) {
-      const p = path.join(workspace.directory_path, dir);
-      if (fs.existsSync(p)) {
-        fs.rmSync(p, { recursive: true, force: true });
+    const lines: string[] = [];
+    lines.push('=== System Logs ===');
+    for (const e of systemEntries) {
+      lines.push(`[${e.timestamp}] [${e.level.toUpperCase()}] ${e.text}`);
+    }
+    lines.push('');
+    lines.push('=== Command Logs ===');
+    for (const e of commandEntries) {
+      lines.push(`[${e.timestamp}] [${e.source}] ${e.appDirName ? `[${e.appDirName}] ` : ''}$ ${e.command.join(' ')} (exit ${e.exitCode})`);
+      if (e.stdout) lines.push(e.stdout);
+      if (e.stderr) lines.push(`[stderr] ${e.stderr}`);
+    }
+
+    const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const defaultPath = path.join(app.getPath('downloads'), `debug-logs-${dateStr}.txt`);
+
+    const { filePath, canceled } = await dialog.showSaveDialog({
+      title: 'Export Debug Logs',
+      defaultPath,
+      filters: [{ name: 'Text Files', extensions: ['txt'] }],
+    });
+
+    if (canceled || !filePath) return { ok: true, canceled: true };
+
+    await fsPromises.writeFile(filePath, lines.join('\n'), 'utf-8');
+    log.info('[Debug] Exported logs to', filePath);
+    return { ok: true, savedPath: filePath };
+  });
+
+  ipcMain.handle('debug:hardResetWorkspace', async () => {
+    const userDataPath = app.getPath('userData');
+
+    // Remove agent-controlled directory
+    const agentDir = path.join(userDataPath, WORKSPACE_DATA_DIR);
+    if (fs.existsSync(agentDir)) {
+      fs.rmSync(agentDir, { recursive: true, force: true });
+    }
+
+    // Close all database connections, delete the files, and reinitialize.
+    closeDatabase();
+    closeObservationsDatabase();
+    closeSchedulingDatabase();
+
+    const dbNames = ['cobuilding.db', 'observations.db', 'scheduling.db'];
+    const suffixes = ['', '-wal', '-shm'];
+    for (const name of dbNames) {
+      for (const suffix of suffixes) {
+        removePath(path.join(userDataPath, name + suffix));
       }
     }
 
-    // Hard-delete the workspace row — ON DELETE CASCADE removes sessions,
-    // messages, briefings, calendar events/resources/reactions, plans,
-    // scanned_files, and workspace_reports automatically.
-    getDatabase().prepare('DELETE FROM workspaces WHERE id = ?').run(workspace.id);
+    initDatabase(userDataPath);
+    initObservationsDatabase(userDataPath);
+    initSchedulingDatabase(userDataPath);
 
-    log.warn('[Debug] Hard reset workspace:', workspace.id, workspace.name);
+    log.warn('[Debug] Hard reset: deleted and recreated all databases');
     return { ok: true };
   });
 }

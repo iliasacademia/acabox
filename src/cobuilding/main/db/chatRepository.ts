@@ -15,6 +15,7 @@ export interface Message {
   session_id: string;
   type: string;
   content: string;
+  message_id: string | null;
   created_at: string;
 }
 
@@ -104,12 +105,13 @@ export function insertMessage(
   sessionId: string,
   type: string,
   content: string,
+  messageId?: string,
 ): number {
   const result = getDatabase()
     .prepare(
-      'INSERT INTO messages (session_id, type, content) VALUES (?, ?, ?)',
+      'INSERT INTO messages (session_id, type, content, message_id) VALUES (?, ?, ?, ?)',
     )
-    .run(sessionId, type, content);
+    .run(sessionId, type, content, messageId ?? null);
 
   // Touch the session's updated_at
   getDatabase()
@@ -119,6 +121,48 @@ export function insertMessage(
     .run(sessionId);
 
   return result.lastInsertRowid as number;
+}
+
+/**
+ * Look up an existing user-message row by its renderer-generated messageId.
+ * Used to dedupe `chat:send` invocations when a reload re-fires the same
+ * logical message. Returns undefined if no such row exists.
+ */
+export function findMessageByMessageId(
+  sessionId: string,
+  messageId: string,
+): Message | undefined {
+  return getDatabase()
+    .prepare('SELECT * FROM messages WHERE session_id = ? AND message_id = ? LIMIT 1')
+    .get(sessionId, messageId) as Message | undefined;
+}
+
+/**
+ * Delete `assistant` and `tool_result` rows that follow the most recent
+ * `result` row in a session. These are the rows produced mid-turn before a
+ * crash/restart left the turn unfinished — without cleanup the renderer
+ * shows a tool-use spinner forever. User rows are preserved so the user
+ * can still see what they asked even if no reply landed.
+ *
+ * Called at AgentSession startup before any new turn begins. Caller is
+ * expected to log the row count when nonzero.
+ */
+export function cleanupOrphanTurnRows(sessionId: string): number {
+  const lastResult = getDatabase()
+    .prepare("SELECT MAX(id) as maxId FROM messages WHERE session_id = ? AND type = 'result'")
+    .get(sessionId) as { maxId: number | null } | undefined;
+  const cursor = lastResult?.maxId ?? 0;
+
+  const result = getDatabase()
+    .prepare(`
+      DELETE FROM messages
+      WHERE session_id = ?
+        AND id > ?
+        AND type IN ('assistant', 'tool_result')
+    `)
+    .run(sessionId, cursor);
+
+  return result.changes as number;
 }
 
 export function deleteSession(id: string): void {

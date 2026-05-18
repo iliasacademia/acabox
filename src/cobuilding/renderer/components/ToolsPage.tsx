@@ -47,14 +47,6 @@ function formatLastUsed(lastOpened: string | null): string | null {
   return `used ${years} year${years === 1 ? '' : 's'} ago`;
 }
 
-interface SuggestedMiniApp {
-  name: string;
-  type?: string;
-  why_im_suggesting_this: string;
-  description?: string;
-  details_on_what_to_build?: string;
-}
-
 interface AvailableStub {
   name: string;
   description: string;
@@ -62,7 +54,7 @@ interface AvailableStub {
   preBuilt?: boolean;
   lastOpened: string;
   status?: string;
-  filePickerType?: 'manuscript' | 'grant' | 'presentation' | 'all' | 'manuscript_grant';
+  filePickerType?: 'manuscript' | 'grant' | 'presentation' | 'reference' | 'all' | 'manuscript_grant';
   chatPromptTemplate?: (filePath: string) => string;
   /**
    * If set, picking a file opens it in MS Word with the popup-v2 overlay
@@ -79,8 +71,8 @@ function hoursAgoIso(hours: number): string {
 
 const AVAILABLE_TOOLS_STUB: AvailableStub[] = [
   {
-    name: 'Introduction Review',
-    description: 'Review the introduction section of your manuscript and propose edits in MS Word',
+    name: 'Peer Review',
+    description: 'Review your manuscript and provide structured feedback in MS Word',
     tag: 'ON-DEMAND',
     preBuilt: true,
     lastOpened: hoursAgoIso(2),
@@ -104,13 +96,17 @@ const AVAILABLE_TOOLS_STUB: AvailableStub[] = [
   { name: 'Reactions', description: 'AI reactions to your browser and file activity, delivered periodically', tag: 'SCHEDULED', preBuilt: true, lastOpened: hoursAgoIso(24) },
 ];
 
+import { resolveWorkspacePath } from '../utils/resolveWorkspacePath';
+
 export function ToolsPage({
   workspacePath,
+  userDirectoryPaths,
   onSelectApp,
   onSwitchToChat,
   onOpenReactions,
 }: {
   workspacePath: string;
+  userDirectoryPaths?: string[];
   onSelectApp: (dirName: string, opts?: { preBuilt?: boolean }) => void;
   onSwitchToChat: () => void;
   onOpenReactions: () => void;
@@ -119,7 +115,7 @@ export function ToolsPage({
   const [apps, setApps] = useState<ToolsPageMiniApp[]>([]);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
-  const [suggestedApps, setSuggestedApps] = useState<SuggestedMiniApp[]>([]);
+  const [suggestedApps, setSuggestedApps] = useState<Briefing[]>([]);
   const assistantRuntime = useAssistantRuntime();
   const composerRuntime = useComposerRuntime();
 
@@ -154,20 +150,13 @@ export function ToolsPage({
   }, []);
 
   useEffect(() => {
-    window.reportsAPI.getLatest('directory_scan').then((report) => {
-      if (!report?.suggested_mini_apps) return;
-      try {
-        const parsed = JSON.parse(report.suggested_mini_apps);
-        if (Array.isArray(parsed)) {
-          const miniApps = parsed.filter(
-            (s: SuggestedMiniApp) => !s.type || s.type === 'mini_app',
-          );
-          setSuggestedApps(miniApps);
-        }
-      } catch {
-        // ignore malformed JSON
-      }
-    });
+    const fetchSuggestions = () => {
+      window.briefingsAPI
+        .list({ type: ['suggested_tool'], status: ['new'] })
+        .then(setSuggestedApps);
+    };
+    fetchSuggestions();
+    return window.briefingsAPI.onChanged(fetchSuggestions);
   }, []);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -202,10 +191,11 @@ export function ToolsPage({
     }
   }, [refresh, onSelectApp]);
 
-  const handleBuildSuggested = useCallback((tool: SuggestedMiniApp) => {
+  const handleBuildSuggested = useCallback((briefing: Briefing) => {
+    const data: BriefingDataSuggestedTool = JSON.parse(briefing.briefing_data);
     assistantRuntime.switchToNewThread();
     setTimeout(() => {
-      composerRuntime.setText(`Build me a tool called "${tool.name}". ${tool.description ?? tool.details_on_what_to_build}`);
+      composerRuntime.setText(`Build me a tool called "${data.name}". ${data.details_on_what_to_build}`);
       onSwitchToChat();
       setTimeout(() => {
         const input = document.querySelector<HTMLTextAreaElement>('.composerInput');
@@ -223,8 +213,8 @@ export function ToolsPage({
     }, 0);
   }, [assistantRuntime, composerRuntime, onSwitchToChat]);
 
-  const handleDismissSuggested = useCallback((tool: SuggestedMiniApp) => {
-    setSuggestedApps((prev) => prev.filter((t) => t.name !== tool.name));
+  const handleDismissSuggested = useCallback((briefing: Briefing) => {
+    window.briefingsAPI.setStatus(briefing.id, 'dismissed');
   }, []);
 
   const [toolFilter, setToolFilter] = useState<'all' | 'on-demand' | 'scheduled'>('all');
@@ -278,7 +268,7 @@ export function ToolsPage({
   const handlePickFile = useCallback(async (stub: AvailableStub, filePath: string) => {
     if (stub.useWordOverlay) {
       if (!(await ensureAccessibilityPermission())) return;
-      const absolutePath = filePath.startsWith('/') ? filePath : `${workspacePath}/${filePath}`;
+      const absolutePath = resolveWorkspacePath(filePath, workspacePath, userDirectoryPaths ?? []);
       const fileUrl = absolutePath.startsWith('file://') ? absolutePath : `file://${absolutePath}`;
       setFilePicker(null);
       try {
@@ -298,7 +288,7 @@ export function ToolsPage({
       composerRuntime.setText(stub.chatPromptTemplate!(filePath));
       composerRuntime.send();
     }, 100);
-  }, [assistantRuntime, composerRuntime, onSwitchToChat, workspacePath]);
+  }, [assistantRuntime, composerRuntime, onSwitchToChat, workspacePath, userDirectoryPaths]);
 
   const handleBrowseFile = useCallback(async (stub: AvailableStub) => {
     setFilePicker(null);
@@ -377,26 +367,27 @@ export function ToolsPage({
               <span className="toolsSection__meta">&middot; based on patterns I noticed in your work</span>
             </h2>
             <div className="toolsCard">
-              {suggestedApps.map((tool, i) => {
+              {suggestedApps.map((briefing, i) => {
+                const data: BriefingDataSuggestedTool = JSON.parse(briefing.briefing_data);
                 const bordered = i > 0 ? ' toolRow--bordered' : '';
                 return (
-                  <div key={tool.name} className={`toolRow${bordered}`}>
+                  <div key={briefing.id} className={`toolRow${bordered}`}>
                     <div className="toolRow__icon">
                       <LayoutGridIcon style={{ width: 18, height: 18 }} />
                     </div>
                     <div className="toolRow__info">
                       <div className="toolRow__header">
-                        <button className="toolRow__name" onClick={() => handleBuildSuggested(tool)}>
-                          {tool.name}
+                        <button className="toolRow__name" onClick={() => handleBuildSuggested(briefing)}>
+                          {data.name}
                         </button>
                       </div>
-                      <div className="toolRow__description">{tool.why_im_suggesting_this}</div>
+                      <div className="toolRow__description">{briefing.why_im_suggesting_this}</div>
                     </div>
                     <div className="toolRow__actions">
-                      <button className="toolRow__secondaryBtn" onClick={() => handleDismissSuggested(tool)}>
+                      <button className="toolRow__secondaryBtn" onClick={() => handleDismissSuggested(briefing)}>
                         Skip
                       </button>
-                      <button className="toolRow__primaryBtn" onClick={() => handleBuildSuggested(tool)}>
+                      <button className="toolRow__primaryBtn" onClick={() => handleBuildSuggested(briefing)}>
                         Build it
                       </button>
                     </div>
@@ -630,16 +621,16 @@ export function ToolsPage({
                     : 'No tagged files found from your last scan. Use "Browse files" to select manually.'}
                 </div>
               ) : (
-                (['manuscript', 'grant', 'presentation'] as const)
+                (['manuscript', 'grant', 'presentation', 'reference'] as const)
                   .filter((type) => {
                     if (filePicker.stub.filePickerType === 'all') return filePicker.files.some((f) => f.file_type === type);
-                    if (filePicker.stub.filePickerType === 'manuscript_grant') return type !== 'presentation' && filePicker.files.some((f) => f.file_type === type);
+                    if (filePicker.stub.filePickerType === 'manuscript_grant') return (type === 'manuscript' || type === 'grant') && filePicker.files.some((f) => f.file_type === type);
                     return type === filePicker.stub.filePickerType;
                   })
                   .map((type) => {
                     const group = filePicker.files.filter((f) => f.file_type === type);
                     if (group.length === 0) return null;
-                    const label = type === 'manuscript' ? 'Manuscripts' : type === 'grant' ? 'Grants' : 'Presentations';
+                    const label = type === 'manuscript' ? 'Manuscripts' : type === 'grant' ? 'Grants' : type === 'reference' ? 'References' : 'Presentations';
                     return (
                       <div key={type} className="filePickerModal__group">
                         <div className="filePickerModal__groupLabel">{label}</div>

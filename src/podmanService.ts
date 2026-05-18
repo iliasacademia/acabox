@@ -138,11 +138,24 @@ class PodmanService {
 
     this.log('Stopping container...');
     const podmanBin = this.getPodmanBin();
+    const podmanEnv = this.getPodmanEnv();
+
+    // Send VM poweroff BEFORE stopping the container
+    try {
+      execFileSync(podmanBin, ['machine', 'ssh', '--', 'sudo', 'systemctl', 'poweroff'], {
+        env: podmanEnv,
+        timeout: 10000,
+        stdio: 'ignore',
+      });
+      this.log('VM poweroff sent');
+    } catch (error) {
+      this.log(`VM poweroff result: ${(error as Error).message}`);
+    }
 
     // Synchronously stop the container so it completes before the app exits
     try {
       execFileSync(podmanBin, ['stop', '-t', '3', CONTAINER_NAME], {
-        env: this.getPodmanEnv(),
+        env: podmanEnv,
         timeout: 5000,
       });
       this.log('Container stopped successfully');
@@ -158,6 +171,7 @@ class PodmanService {
     this.containerProcess = null;
     this.shellPort = null;
     this.previewPort = null;
+
     this.log('Cleanup complete');
     this.closeLogStream();
   }

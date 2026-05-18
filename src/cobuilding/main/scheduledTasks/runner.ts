@@ -45,7 +45,9 @@ export function runScheduledTask(
       onNotificationClick,
     );
 
-    registerSession(sessionId, session);
+    // Headless: no chat UI, so visibility-based eviction must not apply.
+    // Cleanup is driven by the onDone/onError callbacks above.
+    registerSession(sessionId, session, 'background');
 
     session.sendMessage(task.prompt);
   });

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import type {
   ChatModelAdapter,
   ThreadAssistantMessagePart,
@@ -18,16 +18,32 @@ export function toAsyncIterable(
   };
 }
 
-export function useElectronChatAdapter(): ChatModelAdapter {
+/**
+ * `onSend` fires synchronously at the start of every send (regardless of where
+ * it was initiated — global composer, chat detail, anywhere). The caller uses
+ * this to navigate the UI to chat detail. The callback is read through a ref
+ * so updates don't invalidate the memoized adapter identity.
+ */
+export function useElectronChatAdapter(onSend?: () => void): ChatModelAdapter {
   const aui = useAui() as any;
-  return useMemo(() => createElectronChatAdapter(aui), [aui]);
+  const onSendRef = useRef(onSend);
+  onSendRef.current = onSend;
+  return useMemo(() => createElectronChatAdapter(aui, onSendRef), [aui]);
 }
 
-function createElectronChatAdapter(aui: any): ChatModelAdapter {
+function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefObject<(() => void) | undefined>): ChatModelAdapter {
   return {
     async *run({ messages, abortSignal, context }) {
       const lastUserMessage = messages.filter((m) => m.role === 'user').pop();
       if (!lastUserMessage) return;
+
+      // Fire the navigation hook before any IPC. Idempotent if the user is
+      // already in chat detail (parent's setState calls compare equal). This
+      // is the single deterministic point that ensures the UI opens the chat
+      // on every send — replacing the old NavigateOnSend state subscription
+      // which could miss the 0→1 transition under remount / suppressed-reset
+      // conditions.
+      onSendRef.current?.();
 
       const { remoteId } = await aui.threadListItem().initialize();
       const threadId = remoteId;
@@ -49,9 +65,19 @@ function createElectronChatAdapter(aui: any): ChatModelAdapter {
         delete (window as any).__nextSessionDocumentPath;
       }
 
-      const responseStream = toAsyncIterable(
-        window.chatAPI.sendMessage(threadId, userText, extractAttachments(lastUserMessage), model, pendingDocPath),
+      // Single correlation id for the full renderer → main → agent-server →
+      // SSE round-trip. Grep this id across logs to reconstruct a turn.
+      const messageId = crypto.randomUUID();
+      console.log(`[ChatAdapter] send messageId=${messageId} threadId=${threadId} textLen=${userText.length}`);
+
+      // sendMessage returns the stream synchronously; failures from main are
+      // surfaced via the chat:error channel that the stream iterator already
+      // listens on. Awaiting across contextBridge would break the stream's
+      // `next()` proxying — see preload's sendMessage comment.
+      const { stream, release } = window.chatAPI.sendMessage(
+        threadId, userText, extractAttachments(lastUserMessage), model, pendingDocPath, messageId,
       );
+      const responseStream = toAsyncIterable(stream);
 
       const response = responseBuilder();
       resetProgress();
@@ -81,6 +107,15 @@ function createElectronChatAdapter(aui: any): ChatModelAdapter {
       } finally {
         abortSignal.removeEventListener('abort', onAbort);
         resetProgress();
+        // Free OUR stream iterator's slot. `release` is bound to the
+        // iterator returned by sendMessage above — if a takeover
+        // force-subscribed mid-turn and replaced it, this call's cleanup
+        // ownership check makes it a no-op on the takeover's iterator
+        // instead of killing it. A `chatAPI.releaseStream(threadId)` style
+        // call would do the latter and break the takeover's resumeRun.
+        // (Abort-path already calls markDone via `stopResponding`; this
+        // is a no-op in that case.)
+        release();
       }
     },
   };

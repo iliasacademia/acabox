@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import log from 'electron-log';
 import { containerService } from './containerService';
+import { captureError } from '../shared/telemetry';
 
 /**
  * Package-level install coordinator.
@@ -215,6 +216,10 @@ class PackageInstaller extends EventEmitter {
     } catch (err) {
       waveError = err instanceof Error ? err : new Error(String(err));
       log.warn(`[PackageInstaller] ${registry} wave failed: ${waveError.message}`);
+      captureError(err, {
+        subsystem: 'package_install',
+        extra: { registry, package_count: packages.length },
+      });
     } finally {
       this.currentWaves[registry].delete(packages);
 
@@ -316,10 +321,10 @@ class PackageInstaller extends EventEmitter {
         return [
           'sh', '-c',
           'PIP=$(command -v /opt/venv/bin/pip || command -v pip3 || echo pip) && '
-            + 'exec $PIP install --no-input ' + packages.join(' '),
+            + 'exec $PIP install --no-input --target /opt/pip-site ' + packages.join(' '),
         ];
       case 'npm':
-        return ['npm', 'install', '-g', ...packages];
+        return ['npm', 'install', '-g', '--prefix', '/opt/npm-site', ...packages];
       case 'R': {
         const safe = packages.map((p) => p.replace(/[^a-zA-Z0-9._]/g, ''));
         const vec = 'c(' + safe.map((p) => `"${p}"`).join(',') + ')';

@@ -7,13 +7,6 @@ import * as path from "path";
 import log from "electron-log";
 import { tree as generateTreeCli } from "tree-node-cli";
 
-export interface SuggestionParsed {
-  name?: unknown;
-  type?: unknown;
-  why_im_suggesting_this?: unknown;
-  description?: unknown;
-}
-
 export interface TaggedFileParsed {
   file_path?: unknown;
   path?: unknown;
@@ -30,55 +23,53 @@ export type ScannerEvent =
 
 export interface ScanParams {
   workspaceId: string;
-  directoryPath: string;
+  cwd: string;
+  directoryPaths: string[];
+  memoryDir: string;
   apiKey: string;
   baseURL?: string;
   onMessage: (event: ScannerEvent) => void;
   onBriefingsChanged: () => void;
+  onNotifyUser: (title: string, body: string) => void;
+}
+
+export interface TreeOutput {
+  directoryPath: string;
+  tree: string;
 }
 
 export interface ScanContext {
   claudeBinaryPath: string;
-  directoryPath: string;
+  cwd: string;
+  directoryPaths: string[];
   apiKey: string;
   baseURL?: string;
   abortController: AbortController;
-  treeOutput: string;
+  treeOutputs: TreeOutput[];
   workspaceId: string;
   reportId: string;
   memoryDir: string;
   onMessage: (event: ScannerEvent) => void;
   onBriefingsChanged: () => void;
+  onNotifyUser: (title: string, body: string) => void;
 }
 
 export const DIRECTORY_ORGANIZATION_PROMPT = `Please help me organize my research directory. First, inspect the workspace and understand the current file structure, research projects, documents, data, scripts, outputs, and any existing naming conventions. Then recommend an effective organization plan for the directory.
 
 YOU MUST ALWAYS present me with a clear plan before proceeding to take any actions or make any file modifications. Do not move, rename, delete, rewrite, or create files until I explicitly approve the plan.`;
 
-export const SYSTEM_PROMPT_PREAMBLE = `## Speed is critical — this is your #1 priority
-
-A user is waiting on this scan. You MUST finish as fast as possible. Every extra turn you take is noticeable delay.
-
-- **Minimize turns**: Do as much as you can in each response.
-- **Don't over-explore**: A good-enough scan that finishes in 30 seconds is far better than a thorough scan that takes 2 minutes. Once you have enough signal to produce your output, stop exploring and write it.
-- **Keep summaries concise**: Write short, focused summaries. Do not pad them with unnecessary detail.
-
-## Hidden files and directories
+export const FILE_ACCESS_PREAMBLE = `## Hidden files and directories
 
 **Ignore all hidden files and directories** (names starting with a dot, e.g. \`.git\`, \`.vscode\`, \`.env\`, \`.DS_Store\`). Do not scan them, read them, or include them in your report. They are not relevant to the researcher's work. Access to hidden paths is blocked and will fail — do not attempt it.
 
 ## Directory boundaries
 
-**Only access files within the current working directory.** You are scanning one specific directory — do not read, glob, or grep paths outside of it. This includes:
-- Parent directories (e.g. \`../\`, or absolute paths that go up from the scan root)
-- Sibling directories at the same level or above the scan root
-- Any absolute path that does not begin with the scan root
+**Only access files within the provided scan directories.** You may be scanning one or more directories — do not read, glob, or grep paths outside of them. This includes:
+- Parent directories (e.g. \`../\`, or absolute paths that go up from a scan root)
+- Sibling directories at the same level or above the scan roots
+- Any absolute path that does not begin with one of the scan roots
 
-Access to paths outside the scan directory is blocked and will fail — do not attempt it. Use relative paths or glob patterns anchored within the scan root (e.g. \`**/*.docx\`), never absolute paths to other locations on disk.
-
-## Using the directory tree
-
-A pre-generated directory tree is included in the user prompt. It shows all non-hidden files with modification dates, sorted by most recent first. Use it to identify the most important files and directories. Do NOT run broad Glob surveys like \`**/*\` — the tree already provides this. Only use Glob for targeted searches if the tree's depth limit may have excluded relevant subdirectories.
+Access to paths outside the scan directories is blocked and will fail — do not attempt it. **Always use absolute paths** when reading files, globbing, or grepping — the working directory is not set to the scan directory, so relative paths will not resolve correctly.
 
 ## Token usage
 
@@ -92,6 +83,22 @@ A pre-generated directory tree is included in the user prompt. It shows all non-
 
 The directory tree includes modification dates for each file. Use these to understand what the researcher has been working on recently.
 `;
+
+export const SCAN_SPEED_PREAMBLE = `## Speed is critical — this is your #1 priority
+
+A user is waiting on this scan. You MUST finish as fast as possible. Every extra turn you take is noticeable delay.
+
+- **Minimize turns**: Do as much as you can in each response.
+- **Don't over-explore**: A good-enough scan that finishes in 30 seconds is far better than a thorough scan that takes 2 minutes. Once you have enough signal to produce your output, stop exploring and write it.
+- **Keep summaries concise**: Write short, focused summaries. Do not pad them with unnecessary detail.
+
+## Using the directory tree
+
+A pre-generated directory tree is included in the user prompt. It shows all non-hidden files with modification dates, sorted by most recent first. Use it to identify the most important files and directories. Do NOT run broad Glob surveys like \`**/*\` — the tree already provides this. Only use Glob for targeted searches if the tree's depth limit may have excluded relevant subdirectories.
+`;
+
+export const SYSTEM_PROMPT_PREAMBLE = `${SCAN_SPEED_PREAMBLE}
+${FILE_ACCESS_PREAMBLE}`;
 
 export function generateDirectoryTree(directoryPath: string): string {
   const rawTree = generateTreeCli(directoryPath, {
@@ -112,6 +119,18 @@ export function generateDirectoryTree(directoryPath: string): string {
   }
   log.info(`[DirectoryScanner] Tree generated (${lines.length} lines)`);
   return rawTree;
+}
+
+export function formatTreesForPrompt(treeOutputs: TreeOutput[]): string {
+  if (treeOutputs.length === 1) {
+    return treeOutputs[0].tree;
+  }
+  return treeOutputs
+    .map(
+      ({ directoryPath, tree }) =>
+        `### ${path.basename(directoryPath)} (${directoryPath})\n\`\`\`\n${tree}\n\`\`\``,
+    )
+    .join("\n\n");
 }
 
 export async function consumeAgentStream<T>(
@@ -139,14 +158,14 @@ export async function consumeAgentStream<T>(
 }
 
 export function buildCommonQueryOptions(ctx: ScanContext) {
-  const { claudeBinaryPath, directoryPath, apiKey, baseURL, abortController } =
+  const { claudeBinaryPath, directoryPaths, apiKey, baseURL, abortController } =
     ctx;
   return {
     abortController,
     pathToClaudeCodeExecutable: claudeBinaryPath,
     tools: ["Read", "Glob", "Grep"],
     allowedTools: ["Read", "Glob", "Grep"],
-    cwd: directoryPath,
+    cwd: ctx.cwd,
     env: {
       ...process.env,
       ANTHROPIC_API_KEY: apiKey,
@@ -156,7 +175,7 @@ export function buildCommonQueryOptions(ctx: ScanContext) {
     thinking: { type: "disabled" as const },
     effort: "low" as const,
     settingSources: [] as any[],
-    hooks: createHooks(directoryPath),
+    hooks: createHooks(directoryPaths),
     stderr: (data: string) => {
       for (const line of data.split("\n").filter(Boolean)) {
         log.debug(`[DirectoryScanner:stderr] ${line}`);
@@ -165,8 +184,8 @@ export function buildCommonQueryOptions(ctx: ScanContext) {
   };
 }
 
-function createHooks(directoryPath: string) {
-  const root = path.resolve(directoryPath);
+function createHooks(directoryPaths: string[]) {
+  const roots = directoryPaths.map((dp) => path.resolve(dp));
 
   const getToolPaths = (input: unknown) => {
     const toolInput = (input as PreToolUseHookInput).tool_input as Record<
@@ -201,9 +220,12 @@ function createHooks(directoryPath: string) {
   const blockOutsideCwd: HookCallback = async (input) => {
     for (const p of getToolPaths(input)) {
       if (!p.trim()) continue;
-      const resolved = path.resolve(root, p);
-      if (resolved !== root && !resolved.startsWith(root + path.sep)) {
-        return deny(`Access outside the scan directory is not allowed: ${p}`);
+      const isAllowed = roots.some((root) => {
+        const resolved = path.resolve(root, p);
+        return resolved === root || resolved.startsWith(root + path.sep);
+      });
+      if (!isAllowed) {
+        return deny(`Access outside the scan directories is not allowed: ${p}`);
       }
     }
     return {};

@@ -208,7 +208,7 @@ parse_npm_spec() {
 # Query the resolved installed version of a global npm package.
 npm_installed_version() {
   local name="$1"
-  run_in_container npm list -g --depth=0 --json "$name" 2>/dev/null \
+  run_in_container npm list -g --prefix /opt/npm-site --depth=0 --json "$name" 2>/dev/null \
     | jq -r --arg n "$name" '.dependencies[$n].version // empty'
 }
 
@@ -265,16 +265,16 @@ ensure_container
 case "$MANAGER" in
   pip)
     echo "install: pip install ${PACKAGES[*]} (in $CONTAINER)"
-    run_in_container /opt/venv/bin/pip install --no-input "${PACKAGES[@]}"
-    sync_to_jupyter /opt/venv/bin/pip install --no-input "${PACKAGES[@]}"
+    run_in_container /opt/venv/bin/pip install --no-input --target /opt/pip-site "${PACKAGES[@]}"
+    sync_to_jupyter /opt/venv/bin/pip install --no-input --target /opt/pip-site "${PACKAGES[@]}"
     record_pip "${PACKAGES[@]}"
     echo "install: recorded in $APP_DIR/requirements.txt"
     ;;
 
   npm)
     echo "install: npm install -g ${PACKAGES[*]} (in $CONTAINER)"
-    run_in_container npm install -g "${PACKAGES[@]}"
-    sync_to_jupyter npm install -g "${PACKAGES[@]}"
+    run_in_container npm install -g --prefix /opt/npm-site "${PACKAGES[@]}"
+    sync_to_jupyter npm install -g --prefix /opt/npm-site "${PACKAGES[@]}"
     record_npm "${PACKAGES[@]}"
     echo "install: recorded in $APP_DIR/package.json"
     ;;

@@ -24,6 +24,7 @@ import { ConversationListView, NotLinkedView, WorkspaceSessionsView, WorkspaceCo
 import {
   findAutoOpenCandidate,
   shouldAutoOpenFreshSession,
+  shouldAutoOpenBlankChat,
   shouldClearActiveOnDocChange,
   isActiveSessionStaleForDoc,
   getUpdatedActiveSessionTitle,
@@ -422,10 +423,11 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   // an empty list. Effectively auto-clicks "+ New" so there's no separate
   // empty-list state for users to land in.
   useEffect(() => {
-    if (isInWorkspace && workspaceSessions.length === 0 && !activeSession) {
+    if (shouldAutoOpenBlankChat(isInWorkspace, workspaceSessions.length, activeSession?.id ?? null)) {
       const id = crypto.randomUUID();
       console.log('[AcademiaNotificationsPopupV2] Empty workspace — auto-opening blank chat:', id);
       setActiveSession({ id, title: 'New Conversation' });
+      setShowingList(false);
     }
   }, [isInWorkspace, workspaceSessions.length, activeSession]);
 

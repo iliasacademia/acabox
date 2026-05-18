@@ -56,6 +56,7 @@ export function createBriefing(input: CreateBriefingInput): string {
 
 export interface ListBriefingsFilter {
   status?: BriefingStatus[];
+  type?: BriefingType[];
   limit?: number;
 }
 
@@ -72,13 +73,23 @@ export function listBriefings(
     params.push(...filter.status);
   }
 
-  let sql = `SELECT * FROM briefings WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC`;
+  if (filter.type && filter.type.length > 0) {
+    clauses.push(`type IN (${filter.type.map(() => '?').join(', ')})`);
+    params.push(...filter.type);
+  }
+
+  let sql = `SELECT * FROM briefings WHERE ${clauses.join(' AND ')} ORDER BY COALESCE(sort_order, 999999), created_at DESC`;
   if (typeof filter.limit === 'number') {
     sql += ' LIMIT ?';
     params.push(filter.limit);
   }
 
   return db.prepare(sql).all(...params) as Briefing[];
+}
+
+export function getBriefingById(id: string): Briefing | undefined {
+  const db = getDatabase();
+  return db.prepare('SELECT * FROM briefings WHERE id = ?').get(id) as Briefing | undefined;
 }
 
 export function setBriefingStatus(id: string, status: BriefingStatus): void {
@@ -90,4 +101,59 @@ export function setBriefingStatus(id: string, status: BriefingStatus): void {
   ).run(status, id);
 }
 
+export type SuggestionType = 'suggested_action' | 'suggested_tool';
 
+const SUGGESTION_TYPES: SuggestionType[] = ['suggested_action', 'suggested_tool'];
+
+export interface UpdateBriefingInput {
+  briefingData?: unknown;
+  whyImSuggestingThis?: string | null;
+  type?: SuggestionType;
+}
+
+export function updateBriefing(id: string, updates: UpdateBriefingInput): void {
+  const db = getDatabase();
+  const row = db.prepare('SELECT type FROM briefings WHERE id = ?').get(id) as { type: string } | undefined;
+  if (!row || !SUGGESTION_TYPES.includes(row.type as SuggestionType)) return;
+
+  const sets: string[] = ["updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now')"];
+  const params: unknown[] = [];
+
+  if (updates.briefingData !== undefined) {
+    sets.push('briefing_data = ?');
+    params.push(typeof updates.briefingData === 'string' ? updates.briefingData : JSON.stringify(updates.briefingData));
+  }
+  if (updates.whyImSuggestingThis !== undefined) {
+    sets.push('why_im_suggesting_this = ?');
+    params.push(updates.whyImSuggestingThis);
+  }
+  if (updates.type !== undefined) {
+    sets.push('type = ?');
+    params.push(updates.type);
+  }
+
+  params.push(id);
+  db.prepare(`UPDATE briefings SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+}
+
+export function deleteBriefing(id: string, workspaceId: string): boolean {
+  const db = getDatabase();
+  const row = db.prepare('SELECT type FROM briefings WHERE id = ? AND workspace_id = ?').get(id, workspaceId) as { type: string } | undefined;
+  if (!row || !SUGGESTION_TYPES.includes(row.type as SuggestionType)) return false;
+
+  db.prepare('DELETE FROM briefings WHERE id = ? AND workspace_id = ?').run(id, workspaceId);
+  return true;
+}
+
+export function reorderBriefings(workspaceId: string, orderedIds: string[]): void {
+  const db = getDatabase();
+  const stmt = db.prepare(
+    `UPDATE briefings SET sort_order = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now')
+     WHERE id = ? AND workspace_id = ? AND type IN ('suggested_action', 'suggested_tool')`,
+  );
+  db.transaction(() => {
+    for (let i = 0; i < orderedIds.length; i++) {
+      stmt.run(i, orderedIds[i], workspaceId);
+    }
+  })();
+}

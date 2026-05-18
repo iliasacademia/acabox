@@ -161,6 +161,28 @@ export function refreshActiveThread(switcher: ThreadSwitcher, sessionId: string)
 }
 
 /**
+ * Should the overlay auto-open a blank chat for an empty workspace?
+ *
+ * When a document is in a workspace but has zero sessions, the overlay
+ * should default to a fresh blank chat (composer + welcome) rather than
+ * showing an empty list. Returns true when all three conditions hold:
+ *   1. The document is in a workspace (`isInWorkspace`)
+ *   2. There are no existing sessions (`sessionsCount === 0`)
+ *   3. No session is currently active (`activeSessionId === null`)
+ *
+ * Callers must BOTH set the active session AND show it (hide the list)
+ * when this returns true — forgetting the latter leaves the blank chat
+ * mounted but hidden behind the (now-empty) sessions list view.
+ */
+export function shouldAutoOpenBlankChat(
+  isInWorkspace: boolean,
+  sessionsCount: number,
+  activeSessionId: string | null,
+): boolean {
+  return isInWorkspace && sessionsCount === 0 && activeSessionId === null;
+}
+
+/**
  * Should an incoming SSE / IPC chat-event trigger a foreign-refresh?
  *
  * The server emits two interesting cross-surface events: `done` (assistant

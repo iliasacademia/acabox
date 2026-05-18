@@ -34,35 +34,56 @@ import { readFileSync, existsSync, readdirSync } from 'fs';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { AGENT_MEMORY_SUBDIR } from '../shared/paths';
+import { SUGGESTED_TASKS_TOOL_DEFS } from '../shared/suggestedTasksTools';
+import { mergeSessionConfig, filterMcpServers, type AgentConfig, type SessionOverrides } from './sessionConfig';
 
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-interface AgentConfig {
-  port: number;
-  claudeBinaryPath: string;
-  mcpServers: Record<string, { type: 'http'; url: string }>;
-  anthropicApiKey: string;
-  anthropicBaseURL?: string;
-  model: string;
-  systemPrompt: unknown;
-  allowedTools: string[];
-  settingSources: string[];
-  soulMd?: string;
-  docxGuidance?: string;
-}
-
 interface SessionState {
+  sessionId: string;
   queryInstance: Query | null;
   messageQueue: MessageQueue<UserMessagePayload>;
   sseClients: Set<ServerResponse>;
   running: boolean;
   stopped: boolean;
-  bufferedEvents: Array<{ event: string; data: unknown }>;
+  // Monotonic per-session counter stamped on every SSE event as `id:` so the
+  // host can replay from a known cursor after a reconnect.
+  eventSeq: number;
+  // Ring buffer of the most recent 500 events (drop-oldest). Stays populated
+  // even while clients are attached, so a reconnect with `Last-Event-Id` can
+  // replay anything the client missed during the disconnect window.
+  bufferedEvents: Array<{ id: number; event: string; data: unknown }>;
   pendingMcpCalls: Map<string, { resolve: (result: unknown) => void; reject: (error: Error) => void }>;
+  // Server-side backstop for orphan sessions: if the host crashes / drops
+  // its reference without calling /stop, the idle timer evicts the session
+  // after IDLE_EVICTION_MS of inactivity.
+  idleTimer: NodeJS.Timeout | null;
+  // Monotonic ms timestamp of the last time `bumpActivity` actually re-armed
+  // the timer. Throttles re-arming so a streaming turn doesn't pay
+  // clearTimeout+setTimeout on every SSE event.
+  lastBumpAt: number;
 }
+
+// Server-side idle eviction window. Host-side visibility cleanup is the
+// primary mechanism; this catches orphans and reclaims subprocess memory
+// from sessions the user opened but isn't actively engaging with. Short
+// enough that an idle chat sitting open doesn't pin agent processes for
+// long, with the host transparently recreating the session (resumed from
+// sdk_session_id) the next time the user sends a message.
+const IDLE_EVICTION_MS = 10 * 60 * 1000;
+// Don't re-arm the idle timer more often than this. Within a single turn
+// the agent can broadcast hundreds of SSE events per second, and each
+// bumpActivity call costs a clearTimeout+setTimeout pair. The throttle
+// is far smaller than IDLE_EVICTION_MS so the worst-case delay before
+// eviction fires after the last real activity is bounded.
+const BUMP_THROTTLE_MS = 30 * 1000;
+// Reschedule window when the eviction check finds an MCP call in flight.
+// The full IDLE_EVICTION_MS would mean a stalled MCP call delays eviction
+// by 10+ minutes; this lets us re-check soon after the call resolves.
+const BUSY_RECHECK_MS = 30 * 1000;
 
 interface UserMessagePayload {
   text: string;
@@ -519,6 +540,39 @@ function createMcpRelayServers(state: SessionState) {
         }, relay('grants', 'update_project')),
       ],
     }),
+
+    'suggested-tasks': (() => {
+      const d = SUGGESTED_TASKS_TOOL_DEFS;
+      return createSdkMcpServer({
+        name: 'suggested-tasks',
+        tools: [
+          tool('list_suggestions', d.list_suggestions.description, d.list_suggestions.schema, relay('suggested-tasks', 'list_suggestions')),
+          tool('create_suggestion', d.create_suggestion.description, d.create_suggestion.schema, relay('suggested-tasks', 'create_suggestion')),
+          tool('update_suggestion', d.update_suggestion.description, d.update_suggestion.schema, relay('suggested-tasks', 'update_suggestion')),
+          tool('reorder_suggestions', d.reorder_suggestions.description, d.reorder_suggestions.schema, relay('suggested-tasks', 'reorder_suggestions')),
+          tool('delete_suggestion', d.delete_suggestion.description, d.delete_suggestion.schema, relay('suggested-tasks', 'delete_suggestion')),
+        ],
+      });
+    })(),
+
+    workspace: createSdkMcpServer({
+      name: 'workspace',
+      tools: [
+        tool('get_scanned_files',
+          'List files discovered in the workspace during the onboarding scan, with their type tags (manuscript, grant, presentation, reference). Optionally filter by file_type.',
+          {
+            file_type: z.enum(['manuscript', 'grant', 'presentation', 'reference']).optional()
+              .describe('Filter results to a specific file type. Returns all types if omitted.'),
+          },
+          relay('workspace', 'get_scanned_files'),
+        ),
+        tool('get_research_profile',
+          'Get the user\'s research profile generated during the workspace onboarding scan. Returns a summary of who the user is, their research field, and what they are currently working on.',
+          {},
+          relay('workspace', 'get_research_profile'),
+        ),
+      ],
+    }),
   };
 }
 
@@ -607,41 +661,47 @@ function buildContentBlocks(payload: UserMessagePayload): string | unknown[] {
   return blocks;
 }
 
-function createSession(sessionId: string, config: AgentConfig, resumeSessionId?: string): SessionState {
+function createSession(sessionId: string, config: AgentConfig, resumeSessionId?: string, overrides?: SessionOverrides): SessionState {
   const messageQueue = createMessageQueue<UserMessagePayload>();
 
   const state: SessionState = {
+    sessionId,
     queryInstance: null,
     messageQueue,
     sseClients: new Set(),
     running: false,
     stopped: false,
+    eventSeq: 0,
     bufferedEvents: [],
     pendingMcpCalls: new Map(),
+    idleTimer: null,
+    lastBumpAt: 0,
   };
 
   console.log(`[AgentServer] Creating session ${sessionId}`);
 
   const mcpRelayServers = createMcpRelayServers(state);
 
+  const sessionConfig = mergeSessionConfig(config, overrides);
+
   async function startQuery(resume?: string): Promise<void> {
     state.running = true;
-    console.log(`[AgentServer] Starting query() with model=${config.model}${resume ? `, resuming ${resume}` : ''}`);
+    console.log(`[AgentServer] Starting query() with model=${sessionConfig.model}${resume ? `, resuming ${resume}` : ''}`);
 
     // Create a fresh generator each time — if we're retrying after a failed
     // resume, the previous generator was consumed by the failed query.
     const queryInstance = query({
       prompt: userMessageGenerator(messageQueue),
       options: {
-        pathToClaudeCodeExecutable: config.claudeBinaryPath,
+        pathToClaudeCodeExecutable: sessionConfig.claudeBinaryPath,
         stderr: (data: string) => {
           for (const line of data.split('\n').filter(Boolean)) {
             console.log(`[AgentServer:stderr] ${line}`);
           }
         },
-        model: config.model,
+        model: sessionConfig.model,
         thinking: { type: 'adaptive' },
-        systemPrompt: buildSystemPrompt(config) as any,
+        systemPrompt: buildSystemPrompt(sessionConfig) as any,
         ...(resume && { resume }),
         includePartialMessages: true,
         cwd: '/data',
@@ -649,19 +709,19 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
           // Inherit the container's full environment (PATH, NODE_PATH, VIRTUAL_ENV, etc.)
           // so the subprocess can find system binaries (ls, grep, python3, etc.)
           ...process.env,
-          ANTHROPIC_API_KEY: config.anthropicApiKey,
-          ...(config.anthropicBaseURL ? { ANTHROPIC_BASE_URL: config.anthropicBaseURL } : {}),
+          ANTHROPIC_API_KEY: sessionConfig.anthropicApiKey,
+          ...(sessionConfig.anthropicBaseURL ? { ANTHROPIC_BASE_URL: sessionConfig.anthropicBaseURL } : {}),
           MINI_APP_WORKSPACE_DIR: '/data',
           COBUILDING_INSIDE_CONTAINER: '1',
           CLAUDE_CONFIG_DIR: '/data/.academia/claude-config',
         },
-        settingSources: config.settingSources as any[],
+        settingSources: sessionConfig.settingSources as any[],
         settings: {
           autoMemoryEnabled: true,
           autoMemoryDirectory: `/data/${AGENT_MEMORY_SUBDIR}`,
         },
-        mcpServers: mcpRelayServers as any,
-        allowedTools: config.allowedTools,
+        mcpServers: filterMcpServers(mcpRelayServers, sessionConfig.allowedTools) as any,
+        allowedTools: sessionConfig.allowedTools,
         hooks: {
           PreToolUse: [{ hooks: [docxProtectionHook] }],
         },
@@ -719,7 +779,54 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
   })();
 
   sessions.set(sessionId, state);
+  bumpActivity(sessionId, state);
   return state;
+}
+
+const SSE_RING_BUFFER_SIZE = 500;
+
+/**
+ * Resets the idle eviction timer. Called on every signal of activity
+ * (inbound POST, outbound SSE event). Re-arming is throttled by
+ * BUMP_THROTTLE_MS because a streaming turn can fire hundreds of SSE
+ * events per second and the timer doesn't need that resolution.
+ *
+ * The state.running flag tracks the lifetime of the query() loop, not
+ * per-turn activity — it stays true while the loop is idle-waiting for
+ * the next user message. So we gate eviction on `pendingMcpCalls`
+ * instead: an in-flight tool call means the agent is blocked on the
+ * host, not actually idle.
+ */
+function bumpActivity(sessionId: string, state: SessionState): void {
+  const now = Date.now();
+  if (state.idleTimer && now - state.lastBumpAt < BUMP_THROTTLE_MS) return;
+  if (state.idleTimer) clearTimeout(state.idleTimer);
+  state.lastBumpAt = now;
+  state.idleTimer = setTimeout(() => {
+    const current = sessions.get(sessionId);
+    if (!current || current !== state) return;
+    if (state.stopped) return;
+    if (state.pendingMcpCalls.size > 0) {
+      // Don't evict mid tool-call. Reschedule with a short window so we
+      // re-check soon after the call resolves rather than waiting a full
+      // IDLE_EVICTION_MS, which would delay eviction by 10+ minutes if
+      // the call hangs.
+      state.idleTimer = setTimeout(() => bumpActivity(sessionId, state), BUSY_RECHECK_MS);
+      return;
+    }
+    console.log(`[AgentServer] Idle eviction firing for session ${sessionId} after ${IDLE_EVICTION_MS}ms`);
+    state.stopped = true;
+    // Closing queryInstance unblocks startQuery's for-await, which then
+    // broadcasts a 'done' event to attached SSE clients. The host treats
+    // that as a clean session-end and will recreate-with-resume on the
+    // next user message.
+    if (state.queryInstance) {
+      state.queryInstance.close();
+      state.queryInstance = null;
+    }
+    state.messageQueue.done();
+    sessions.delete(sessionId);
+  }, IDLE_EVICTION_MS);
 }
 
 function broadcastSSE(state: SessionState, event: string, data: unknown): void {
@@ -727,15 +834,24 @@ function broadcastSSE(state: SessionState, event: string, data: unknown): void {
     console.error(`[AgentServer] Broadcasting error:`, JSON.stringify(data));
   }
 
-  if (state.sseClients.size === 0) {
-    // Cap buffer to prevent unbounded growth if SSE client is slow to connect
-    if (state.bufferedEvents.length < 500) {
-      state.bufferedEvents.push({ event, data });
-    }
-    return;
+  // Any outbound activity counts as a liveness signal for idle eviction.
+  // Without this, the timer set on the last inbound POST would expire
+  // mid-turn even though the agent is actively producing output.
+  bumpActivity(state.sessionId, state);
+
+  const id = ++state.eventSeq;
+
+  // Always retain the event in the ring buffer (drop oldest at cap) so a
+  // reconnect with `Last-Event-Id` can replay missed events, regardless of
+  // whether any client is currently attached.
+  state.bufferedEvents.push({ id, event, data });
+  if (state.bufferedEvents.length > SSE_RING_BUFFER_SIZE) {
+    state.bufferedEvents.shift();
   }
 
-  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  if (state.sseClients.size === 0) return;
+
+  const payload = formatSSEEvent(id, event, data);
   for (const client of state.sseClients) {
     client.write(payload);
     if (event === 'done' || event === 'error') {
@@ -745,6 +861,10 @@ function broadcastSSE(state: SessionState, event: string, data: unknown): void {
   if (event === 'done' || event === 'error') {
     state.sseClients.clear();
   }
+}
+
+function formatSSEEvent(id: number, event: string, data: unknown): string {
+  return `id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
 // ---------------------------------------------------------------------------
@@ -789,7 +909,12 @@ function startServer(config: AgentConfig): void {
         const body = JSON.parse(await readBody(req));
         const sessionId = body.sessionId ?? randomUUID();
         const resumeSessionId = body.resumeSessionId;
-        createSession(sessionId, config, resumeSessionId);
+        const sessionOverrides: SessionOverrides = {
+          additionalAllowedTools: body.additionalAllowedTools,
+          soulMd: body.soulMd,
+          hostGuidance: body.hostGuidance,
+        };
+        createSession(sessionId, config, resumeSessionId, sessionOverrides);
         sendJSON(res, 201, { sessionId });
         return;
       }
@@ -804,7 +929,12 @@ function startServer(config: AgentConfig): void {
         // POST /sessions/:id/messages
         if (route.action === 'messages' && req.method === 'POST') {
           const body = JSON.parse(await readBody(req));
+          // messageId is a host-generated correlation id for the turn. We just
+          // log it here so an engineer grepping for the id can see when the
+          // container received the corresponding POST.
+          console.log(`[AgentServer] message received sessionId=${route.sessionId} messageId=${body.messageId ?? '(none)'} textLen=${(body.text ?? '').length}`);
           state.messageQueue.push({ text: body.text ?? '', attachments: body.attachments });
+          bumpActivity(route.sessionId, state);
           sendJSON(res, 200, { ok: true });
           return;
         }
@@ -820,16 +950,26 @@ function startServer(config: AgentConfig): void {
           res.write(':ok\n\n');
           state.sseClients.add(res);
 
-          // Replay buffered events
+          // Replay events the client hasn't seen yet. `Last-Event-Id` is the
+          // last id the client processed; we resume from id+1. If the client
+          // has no cursor (fresh connect), replay the entire buffer.
+          const lastEventIdHeader = req.headers['last-event-id'];
+          const lastEventId = typeof lastEventIdHeader === 'string' ? Number.parseInt(lastEventIdHeader, 10) : NaN;
+          const resumeFrom = Number.isFinite(lastEventId) ? lastEventId : 0;
+          let replayed = 0;
           for (const buffered of state.bufferedEvents) {
-            const payload = `event: ${buffered.event}\ndata: ${JSON.stringify(buffered.data)}\n\n`;
-            res.write(payload);
+            if (buffered.id <= resumeFrom) continue;
+            res.write(formatSSEEvent(buffered.id, buffered.event, buffered.data));
+            replayed++;
             if (buffered.event === 'done' || buffered.event === 'error') {
               res.end();
               state.sseClients.delete(res);
+              break;
             }
           }
-          state.bufferedEvents = [];
+          if (Number.isFinite(lastEventId)) {
+            console.log(`[AgentServer] SSE reconnect sessionId=${route.sessionId} resumeFrom=${resumeFrom} replayed=${replayed}`);
+          }
 
           req.on('close', () => { state.sseClients.delete(res); });
           return;
@@ -847,6 +987,7 @@ function startServer(config: AgentConfig): void {
               pending.resolve(result);
             }
           }
+          bumpActivity(route.sessionId, state);
           sendJSON(res, 200, { ok: true });
           return;
         }
@@ -854,6 +995,10 @@ function startServer(config: AgentConfig): void {
         // POST /sessions/:id/stop
         if (route.action === 'stop' && req.method === 'POST') {
           state.stopped = true;
+          if (state.idleTimer) {
+            clearTimeout(state.idleTimer);
+            state.idleTimer = null;
+          }
           if (state.queryInstance) {
             state.queryInstance.close();
             state.queryInstance = null;
@@ -886,6 +1031,7 @@ function startServer(config: AgentConfig): void {
     console.log('[AgentServer] SIGTERM received, shutting down...');
     for (const [id, state] of sessions) {
       state.stopped = true;
+      if (state.idleTimer) clearTimeout(state.idleTimer);
       state.queryInstance?.close();
       state.messageQueue.done();
       for (const [, pending] of state.pendingMcpCalls) {

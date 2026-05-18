@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
+import { resolveWorkspacePath } from '../utils/resolveWorkspacePath';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 import {
   ArrowUpRightIcon,
@@ -104,11 +105,11 @@ function renderBriefingCard(parsed: ParsedBriefing): BriefingCardDisplay | null 
       };
     case 'writing_agent':
       return {
-        eyebrow: 'I can review this for you',
-        title: parsed.data.title || 'Review your manuscript introduction',
+        eyebrow: 'I can do this for you',
+        title: parsed.data.title || 'Peer review your manuscript',
         subtitle: basenameNoExt(parsed.data.file_path) || undefined,
-        primaryLabel: 'Review in Word',
-        fallbackDescription: parsed.data.description || `I'll review the introduction of ${basename(parsed.data.file_path)} and propose 2–3 edits to strengthen it.`,
+        primaryLabel: 'Open in Word',
+        fallbackDescription: parsed.data.description || `I'll read ${basename(parsed.data.file_path)} as a peer reviewer and flag concerns about the argument, evidence, methodology, and structure.`,
         Icon: PencilIcon,
       };
     default:
@@ -118,10 +119,12 @@ function renderBriefingCard(parsed: ParsedBriefing): BriefingCardDisplay | null 
 
 export function HomePage({
   workspacePath,
+  userDirectoryPaths,
   onSelectFile: _onSelectFile,
   onSwitchToChat,
 }: {
   workspacePath: string;
+  userDirectoryPaths?: string[];
   onSelectFile: (filePath: string) => void;
   onSwitchToChat: () => void;
 }) {
@@ -171,7 +174,7 @@ export function HomePage({
       );
     } else if (parsed.type === 'writing_agent') {
       if (!(await ensureAccessibilityPermission())) return;
-      const absolutePath = `${workspacePath}/${parsed.data.file_path}`;
+      const absolutePath = resolveWorkspacePath(parsed.data.file_path, workspacePath, userDirectoryPaths ?? []);
       const fileUrl = absolutePath.startsWith('file://')
         ? absolutePath
         : `file://${absolutePath}`;

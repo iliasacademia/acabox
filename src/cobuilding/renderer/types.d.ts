@@ -1,4 +1,4 @@
-import type { ChatAPI, Workspace, ScheduledTask, ScheduledTaskRun, CreateTaskData, UpdateTaskData, CalendarGroup, CalendarEvent, EventFile, GroupFile, CreateGroupData, UpdateGroupData, CreateEventData, UpdateEventData, EventDependency, CreateDependencyData, UpdateDependencyData, CascadeUpdate, CalendarResource, CalendarResourceType, CreateResourceData, UpdateResourceData, MoveResourceData, ListResourcesOptions, WorkspaceFileEntry } from '../shared/types';
+import type { ChatAPI, Workspace, WorkspaceDirectory, ScheduledTask, ScheduledTaskRun, CreateTaskData, UpdateTaskData, CalendarGroup, CalendarEvent, EventFile, GroupFile, CreateGroupData, UpdateGroupData, CreateEventData, UpdateEventData, EventDependency, CreateDependencyData, UpdateDependencyData, CascadeUpdate, CalendarResource, CalendarResourceType, CreateResourceData, UpdateResourceData, MoveResourceData, ListResourcesOptions, WorkspaceFileEntry } from '../shared/types';
 
 interface DirEntry {
   name: string;
@@ -43,13 +43,9 @@ interface FilesAPI {
 
 interface WorkspacesAPI {
   getActive(): Promise<Workspace | null>;
-  list(): Promise<Workspace[]>;
-  getDefaultDirectory(name: string): Promise<string>;
-  create(data: { name: string; directoryPath: string }): Promise<Workspace>;
-  switch(id: string): Promise<Workspace>;
-  update(data: { name: string; directoryPath: string }): Promise<Workspace>;
+  create(data: { name: string; directoryPaths: string[] }): Promise<Workspace>;
   selectDirectory(): Promise<string | undefined>;
-  deleteAll(): Promise<void>;
+  listDirectories(): Promise<WorkspaceDirectory[]>;
 }
 
 interface SessionData {
@@ -86,31 +82,33 @@ interface SessionsAPI {
 interface ContainerAPI {
   start(): Promise<void>;
   stop(): Promise<void>;
+  /** Stop agent, container, and Podman VM — use before clearing image downloads. */
+  gracefulShutdownPodman(): Promise<void>;
+  /** Clear download setup like scripts/reset-downloads.sh (VM, binaries, cache, podman dirs, settings keys). */
+  clearImageDownloadState(): Promise<void>;
   status(): Promise<{ running: boolean }>;
   exec(command: string[]): Promise<{ stdout: string; stderr: string }>;
   getBinaryMode(): Promise<'system' | 'bundled'>;
   setBinaryMode(mode: 'system' | 'bundled'): Promise<void>;
   getImageSource(): Promise<'registry' | 'local'>;
   setImageSource(source: 'registry' | 'local'): Promise<void>;
+  quitApp(): Promise<void>;
+  relaunchApp(): Promise<void>;
   getBundledStatus(): Promise<{ downloaded: boolean; binDir: string }>;
   downloadBinaries(): Promise<void>;
   deleteBinaries(): Promise<void>;
-  deleteImage(): Promise<void>;
   downloadImage(): Promise<void>;
   getName(): Promise<string>;
-  isImageBuilt(): Promise<boolean>;
   isBaseImageDownloaded(): Promise<boolean>;
   ensureSetup(): Promise<void>;
   getEnvironmentInfo(): Promise<EnvironmentInfoPayload | null>;
   appDepsReady(dirName: string): Promise<boolean>;
   ensureAppDeps(dirName: string): Promise<{ installed: string[] }>;
   getAppInstallRequests(dirName: string): Promise<Array<{ registry: PackageRegistry; packages: string[] }>>;
-  rebuildEnvironment(): Promise<void>;
   onSetupProgress(callback: (progress: { stage: string; message: string }) => void): () => void;
   onProgress(callback: (progress: { stage: string; message: string }) => void): () => void;
   onPackageState(callback: (e: { registry: PackageRegistry; package: string; state: PackageState }) => void): () => void;
   onPackageLine(callback: (e: { registry: PackageRegistry; package: string; line: string }) => void): () => void;
-  onBackgroundBuild(callback: (progress: { stage: string; message: string; percent?: number }) => void): () => void;
 }
 
 interface AuthAPI {
@@ -150,11 +148,6 @@ declare global {
   type PackageState = 'queued' | 'installing' | 'installed' | 'failed';
 
   interface EnvironmentInfoPayload {
-    imageType: 'base' | 'user';
-    imageHash: string | null;
-    environmentHash: string | null;
-    inSync: boolean;
-    backgroundBuildState: 'idle' | 'building' | 'building-pending';
     packageStates: Record<PackageRegistry, Record<string, PackageState>>;
     packageLines: Record<PackageRegistry, Record<string, string>>;
     totalPip: string[];
@@ -220,13 +213,11 @@ declare global {
 
   interface WorkspacesAPI {
     getActive(): Promise<Workspace | null>;
-    list(): Promise<Workspace[]>;
-    getDefaultDirectory(name: string): Promise<string>;
-    create(data: { name: string; directoryPath: string }): Promise<Workspace>;
-    switch(id: string): Promise<Workspace>;
-    update(data: { name: string; directoryPath: string }): Promise<Workspace>;
+    create(data: { name: string; directoryPaths: string[] }): Promise<Workspace>;
     selectDirectory(): Promise<string | undefined>;
-    deleteAll(): Promise<void>;
+    listDirectories(): Promise<WorkspaceDirectory[]>;
+    addDirectory(directoryPath: string): Promise<WorkspaceDirectory>;
+    removeDirectory(directoryId: string): Promise<void>;
   }
 
   interface SessionData {
@@ -264,6 +255,8 @@ declare global {
   interface ContainerAPI {
     start(): Promise<void>;
     stop(): Promise<void>;
+    gracefulShutdownPodman(): Promise<void>;
+    clearImageDownloadState(): Promise<void>;
     status(): Promise<{ running: boolean }>;
     exec(command: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }>;
     syncOverlay(): Promise<{ durationMs: number }>;
@@ -272,25 +265,25 @@ declare global {
     setBinaryMode(mode: 'system' | 'bundled'): Promise<void>;
     getImageSource(): Promise<'registry' | 'local'>;
     setImageSource(source: 'registry' | 'local'): Promise<void>;
+    quitApp(): Promise<void>;
+    relaunchApp(): Promise<void>;
+    getMemoryLimit(): Promise<'2g' | '4g' | '6g' | '8g'>;
+    setMemoryLimit(limit: '2g' | '4g' | '6g' | '8g'): Promise<void>;
     getBundledStatus(): Promise<{ downloaded: boolean; binDir: string }>;
     downloadBinaries(): Promise<void>;
     deleteBinaries(): Promise<void>;
-    deleteImage(): Promise<void>;
     downloadImage(): Promise<void>;
     getName(): Promise<string>;
-    isImageBuilt(): Promise<boolean>;
     isBaseImageDownloaded(): Promise<boolean>;
     ensureSetup(): Promise<void>;
     getEnvironmentInfo(): Promise<EnvironmentInfoPayload | null>;
     appDepsReady(dirName: string): Promise<boolean>;
     ensureAppDeps(dirName: string): Promise<{ installed: string[] }>;
     getAppInstallRequests(dirName: string): Promise<Array<{ registry: PackageRegistry; packages: string[] }>>;
-    rebuildEnvironment(): Promise<void>;
     onSetupProgress(callback: (progress: { stage: string; message: string; percent?: number }) => void): () => void;
     onProgress(callback: (progress: { stage: string; message: string; percent?: number }) => void): () => void;
     onPackageState(callback: (e: { registry: PackageRegistry; package: string; state: PackageState }) => void): () => void;
     onPackageLine(callback: (e: { registry: PackageRegistry; package: string; line: string }) => void): () => void;
-    onBackgroundBuild(callback: (progress: { stage: string; message: string; percent?: number }) => void): () => void;
   }
 
   interface CommandLogEntry {
@@ -415,13 +408,22 @@ declare global {
       podmanPaths: DataPathInfo[];
     }>;
     clearSelected(ids: string[]): Promise<{ cleared: string[]; errors: string[] }>;
+    exportLogs(): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean }>;
     exportWorkspace(): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean; error?: string }>;
     importWorkspace(): Promise<{ ok: boolean; workspaceName?: string; workspaceDir?: string; workspaceId?: string; canceled?: boolean; error?: string }>;
     hardResetWorkspace(): Promise<{ ok: boolean; error?: string }>;
+    restartOnboarding(): Promise<void>;
+    pruneImages(): Promise<void>;
     syncOverlay(): Promise<{ durationMs: number }>;
     isOverlayEnabled(): Promise<boolean>;
     /** Pipes a renderer-side log line into electron-log on the main process. */
     log(msg: string): Promise<void>;
+    /**
+     * Triggers a test error on the main process to verify Sentry wiring.
+     * kind: 'uncaught' | 'rejection' | 'capture'
+     * subsystem: optional tag applied when kind === 'capture'
+     */
+    telemetryTest(kind: string, subsystem?: string): Promise<{ ok: boolean; error?: string }>;
   }
 
   interface SettingsAPI {
@@ -705,14 +707,32 @@ declare global {
     chat_prompt: string;
   }
 
+  interface ListBriefingsFilter {
+    status?: BriefingStatus[];
+    type?: BriefingType[];
+    limit?: number;
+  }
+
   interface BriefingsAPI {
-    list(filter?: {
-      status?: BriefingStatus[];
-      limit?: number;
-    }): Promise<Briefing[]>;
+    list(filter?: ListBriefingsFilter): Promise<Briefing[]>;
     setStatus(id: string, status: BriefingStatus): Promise<void>;
     /** Subscribe to create/update/status changes. Returns unsubscribe. */
     onChanged(callback: () => void): () => void;
+  }
+
+  interface AppNotification {
+    id: string;
+    type: string;
+    title: string;
+    body: string;
+    created_at: string;
+    read_at: string | null;
+  }
+
+  interface NotificationsAPI {
+    list(limit?: number): Promise<AppNotification[]>;
+    unreadCount(): Promise<number>;
+    markAllAsRead(): Promise<void>;
   }
 
   interface ScannedFile {
@@ -721,13 +741,16 @@ declare global {
     report_id: string | null;
     file_path: string;
     file_name: string;
-    file_type: 'manuscript' | 'grant' | 'presentation';
+    file_type: 'manuscript' | 'grant' | 'presentation' | 'reference';
     created_at: string;
+    markdown_path?: string;
   }
 
   interface ScannedFilesAPI {
-    getByType(fileType: 'manuscript' | 'grant' | 'presentation'): Promise<ScannedFile[]>;
+    getByType(fileType: 'manuscript' | 'grant' | 'presentation' | 'reference'): Promise<ScannedFile[]>;
     getAll(): Promise<ScannedFile[]>;
+    updateTag(filePath: string, fileName: string, fileType: 'manuscript' | 'grant' | 'presentation' | 'reference'): Promise<void>;
+    removeTag(filePath: string): Promise<void>;
   }
 
   interface Window {
@@ -757,6 +780,7 @@ declare global {
     scannerAPI: ScannerAPI;
     papersAPI: PapersAPI;
     briefingsAPI: BriefingsAPI;
+    notificationsAPI: NotificationsAPI;
     scannedFilesAPI: ScannedFilesAPI;
     nativeToolsAPI: { getUrl(toolId: string): Promise<string | null> };
     academiaAPI: {

@@ -19,15 +19,18 @@ import { FileViewer } from './components/FileViewer';
 import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
 import { ToolsPage } from './components/ToolsPage';
+import { NotificationBell } from './components/NotificationBell';
 import { PaperMonitorView } from './components/PaperMonitorView';
 import { ReactionsToolView } from './components/ReactionsToolView';
 import { HomePage } from './components/HomePage';
+import { resolveWorkspacePath } from './utils/resolveWorkspacePath';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { useElectronChatAdapter } from './chatAdapter';
 import { sessionListAdapter } from './sessionListAdapter';
 import { useThreadHistoryAdapter } from './threadHistoryAdapter';
 import { createAttachmentAdapter } from './attachmentAdapter';
 import { useSessionSubscription } from './useSessionSubscription';
+import { reloadThreadHistory } from './reloadThreadHistory';
 import WorkspaceOnboarding from './components/WorkspaceOnboarding';
 import ScanningProgress from './components/ScanningProgress';
 import ScanResultsReview from './components/ScanResultsReview';
@@ -40,9 +43,15 @@ import { GlobalComposer } from './components/GlobalComposer';
 import { useTabs } from './tabs/useTabs';
 import type { TabDescriptor } from './tabs/types';
 import { kernelRegistry } from './components/notebook/kernelRegistry';
-import type { Workspace } from '../shared/types';
+import type { Workspace, WorkspaceDirectory } from '../shared/types';
 import { initFullStory, identifyUser, trackEvent } from './utils/fullstory';
+import { initSentryRenderer } from './sentry';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import './App.css';
+
+// Initialize Sentry before any other code runs so unhandled errors during
+// React tree construction are captured. No-op when SENTRY_DSN is empty.
+initSentryRenderer();
 
 /** Listens for quick-chat:inject IPC and creates a new thread with the message + context. */
 function QuickChatInjector({ onSwitchToChat }: { onSwitchToChat: () => void }) {
@@ -189,6 +198,7 @@ function SessionTitleUpdater() {
   return null;
 }
 
+
 /**
  * Refresh the thread list when main broadcasts `sessions:changed`
  * (e.g. overlay creates a chat or sends a message that re-sorts).
@@ -272,43 +282,81 @@ function ForeignTurnWatcherDesktop() {
         return;
       }
       window.debugAPI.log('[ForeignTurnWatcher] gate=proceed');
-      try {
-        // Best-effort: nudge the runtime to drop cached per-thread state
-        // and reload via the history adapter. Whether
-        // `__internal_loadHistory` exists is version-dependent (logs
-        // confirmed it's missing in our current assistant-ui — see
-        // `cachePoke=noMethod`), so this is a no-op until we find the
-        // real reload API. Left in place as documentation of the
-        // mechanism we WOULD want, and so log lines surface clearly
-        // when the API does land.
-        //
-        // The previous implementation chained switchToThread(other) +
-        // switchToThread(sessionId) hoping to force a re-mount. Logs
-        // showed assistant-ui silently dropped the back-switch, leaving
-        // the user stranded on the away thread — exactly the "switched
-        // to a different conversation" regression. That trick is
-        // removed. Until the proper reload mechanism lands, we accept
-        // that the desktop's view of an active foreign session won't
-        // refresh in-place; the user can navigate away and back to
-        // force a re-load if needed.
-        const threadsCore: any = (runtime as any)?._core?.threads;
-        const threadCore: any = threadsCore?.getThreadRuntimeCore?.(sessionId)
-          ?? threadsCore?._threads?.get?.(sessionId)
-          ?? null;
-        if (threadCore) {
-          const hadMethod = typeof threadCore.__internal_loadHistory === 'function';
-          threadCore._loadHistoryPromise = null;
-          threadCore.__internal_loadHistory?.();
-          window.debugAPI.log(`[ForeignTurnWatcher] cachePoke=${hadMethod ? 'ran' : 'noMethod'}`);
-        } else {
-          window.debugAPI.log('[ForeignTurnWatcher] cachePoke=noThreadCore');
-        }
-      } catch (err) {
-        console.warn('[ForeignTurnWatcher] reload nudge failed', err);
-      }
+      // The previous implementation here targeted `__internal_loadHistory` /
+      // `_loadHistoryPromise`, which don't exist on this assistant-ui
+      // version — the real internals are `__internal_load` /
+      // `_loadPromise`, used by `reloadThreadHistory`.
+      void reloadThreadHistory(runtime, sessionId);
     });
     return unsubscribe;
   }, [runtime]);
+
+  return null;
+}
+
+/**
+ * Reloads the active thread's history from SQLite when entering chat detail
+ * or switching threads. Skips when a turn is in flight — `import` resets the
+ * message tree, which orphans the in-flight assistant message and silences
+ * `ProcessingIndicator`.
+ *
+ * Two signals together: `thread.isRunning` covers the just-sent window
+ * before the agent loop has flipped `turnState.turnInProgress`;
+ * `isTurnInProgress` covers reattach after the local run has ended but
+ * the server-side turn continues. Both checked so each window is caught.
+ */
+function RefreshOnEnterChatDetail({ isInChatDetail }: { isInChatDetail: boolean }) {
+  const runtime = useAssistantRuntime();
+  const activeRemoteId = useAuiState((s: any) => s.threadListItem?.remoteId) as string | undefined;
+  const isRunningRef = useRef(false);
+  isRunningRef.current = useAuiState((s: any) => s.thread?.isRunning ?? false) as boolean;
+
+  useEffect(() => {
+    if (!isInChatDetail || !activeRemoteId) return;
+    let cancelled = false;
+    void (async () => {
+      if (isRunningRef.current) return;
+      const inProgress = await window.chatAPI.isTurnInProgress(activeRemoteId);
+      if (cancelled || isRunningRef.current || inProgress) return;
+      void reloadThreadHistory(runtime, activeRemoteId);
+    })();
+    return () => { cancelled = true; };
+  }, [isInChatDetail, activeRemoteId, runtime]);
+
+  return null;
+}
+
+/**
+ * Catches every turn-complete (fired as a window event by preload's
+ * chat:event handler) and pulls SQLite if the renderer isn't already
+ * driving a local run.
+ *
+ * Belt-and-braces: `useSessionSubscription`'s driving-path post-turn reload
+ * covers the case where the subscription itself fed the run, but doesn't
+ * help when chatAdapter was the driver (its run already ended) and an
+ * out-of-band sync is still needed — e.g. a foreign turn slipped in
+ * between turns and we want SQLite to be the visible truth. Gating on
+ * `thread.isRunning` skips the local-driver case where the in-memory
+ * state is already current and a reload would just move messages into
+ * an orphan branch.
+ */
+function RefreshOnTurnEnd({ isInChatDetail }: { isInChatDetail: boolean }) {
+  const runtime = useAssistantRuntime();
+  const activeRemoteId = useAuiState((s: any) => s.threadListItem?.remoteId) as string | undefined;
+  const isRunningRef = useRef(false);
+  isRunningRef.current = useAuiState((s: any) => s.thread?.isRunning ?? false) as boolean;
+
+  useEffect(() => {
+    if (!isInChatDetail || !activeRemoteId) return;
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { threadId?: string } | undefined;
+      if (detail?.threadId !== activeRemoteId) return;
+      if (isRunningRef.current) return;
+      void reloadThreadHistory(runtime, activeRemoteId);
+    };
+    window.addEventListener('chat:turn-end', handler);
+    return () => window.removeEventListener('chat:turn-end', handler);
+  }, [isInChatDetail, activeRemoteId, runtime]);
 
   return null;
 }
@@ -338,23 +386,38 @@ function ShowChatOnThreadSelect({ onShowChat, suppressRef }: { onShowChat: () =>
 }
 
 /**
- * Switches to a new (empty) thread whenever the user leaves chat detail view.
- * This ensures the GlobalComposer always targets a fresh thread on non-chat pages.
+ * Ensures the GlobalComposer always targets a fresh thread by switching to
+ * a new thread whenever the user transitions *into* a state where the
+ * GlobalComposer is visible and they're not viewing a specific chat.
+ *
+ * Watching only the chat-detail edge wasn't enough: other components
+ * (`AppSessionSwitcher`, `ReactionsToolView`, notification navigation) call
+ * `switchToThread(existingId)` from views where the GlobalComposer is
+ * hidden, leaving `mainThreadId` pinned to that session. When the user
+ * navigates from one of those views back to home / files / chats-list,
+ * `mainThreadId` is still the existing session and the next GlobalComposer
+ * send routes there. Triggering on `(globalComposerVisible && !isInChatDetail)`
+ * catches every such transition; views that legitimately pin a thread
+ * (miniapp, paper-monitor, reactions) all hide the GlobalComposer, so the
+ * reset only fires when the user actually surfaces it again.
  */
-function ResetThreadOnLeavingDetail({
+function ResetThreadWhenComposerVisible({
+  globalComposerVisible,
   isInChatDetail,
   suppressRef,
   suppressResetRef,
 }: {
+  globalComposerVisible: boolean;
   isInChatDetail: boolean;
   suppressRef: React.MutableRefObject<boolean>;
   suppressResetRef: React.MutableRefObject<boolean>;
 }) {
   const runtime = useAssistantRuntime();
-  const prevRef = useRef(isInChatDetail);
+  const shouldHaveFreshThread = globalComposerVisible && !isInChatDetail;
+  const prevRef = useRef(shouldHaveFreshThread);
 
   useEffect(() => {
-    if (prevRef.current && !isInChatDetail) {
+    if (!prevRef.current && shouldHaveFreshThread) {
       if (suppressResetRef.current) {
         suppressResetRef.current = false;
       } else {
@@ -362,8 +425,8 @@ function ResetThreadOnLeavingDetail({
         runtime.switchToNewThread();
       }
     }
-    prevRef.current = isInChatDetail;
-  }, [isInChatDetail, runtime, suppressRef, suppressResetRef]);
+    prevRef.current = shouldHaveFreshThread;
+  }, [shouldHaveFreshThread, runtime, suppressRef, suppressResetRef]);
 
   return null;
 }
@@ -519,6 +582,10 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
   const [fileOpenedFrom, setFileOpenedFrom] = useState<'files' | 'chat'>('files');
   const [fileReturnThreadId, setFileReturnThreadId] = useState<string | null>(null);
   const [fileCount, setFileCount] = useState(0);
+  const [userDirectories, setUserDirectories] = useState<WorkspaceDirectory[]>([]);
+  useEffect(() => {
+    window.workspacesAPI.listDirectories().then(setUserDirectories).catch((err) => console.error('[ChatView] listDirectories failed:', err));
+  }, [workspace.id]);
   const [debugSection, setDebugSection] = useState<DebugSection>(() => {
     const saved = localStorage.getItem('debug-section');
     return (saved as DebugSection) || 'apps';
@@ -554,9 +621,13 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
   }, [workspace.directory_path]);
 
 
+  // Held in a ref so the chatAdapter's onSend callback always reads the
+  // latest setters without invalidating the adapter's memoized identity.
+  const navigateToChatDetailRef = useRef<() => void>(() => {});
+
   const runtime = useRemoteThreadListRuntime({
     runtimeHook: () => {
-      const chatAdapter = useElectronChatAdapter();
+      const chatAdapter = useElectronChatAdapter(() => navigateToChatDetailRef.current());
       const history = useThreadHistoryAdapter();
       const attachments = useMemo(
         () => createAttachmentAdapter(workspace.directory_path),
@@ -568,6 +639,28 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
     },
     adapter: sessionListAdapter,
   });
+
+  // Refresh on every render so we always close over the current state setters
+  // and view flags. Cheap — assigning a function reference.
+  //
+  // Skip navigation when the user is already typing into a side-panel chat
+  // (rendered as `<Thread />` inside one of the tools detail views). In those
+  // modes the GlobalComposer is hidden, so the only composer available is the
+  // side-panel one — and the chat the user is sending to is already on
+  // screen. Switching tabs would close the miniapp/paper-monitor/reactions
+  // view the user was looking at.
+  navigateToChatDetailRef.current = () => {
+    const inToolsSidePanel = sidebarTab === 'tools' && (
+      (toolsViewMode === 'detail' && activeTab?.kind === 'miniapp') ||
+      toolsViewMode === 'paper-monitor' ||
+      toolsViewMode === 'reactions'
+    );
+    if (inToolsSidePanel) return;
+
+    setSidebarTab('chats');
+    setChatViewMode('detail');
+    deactivateAllTabs();
+  };
 
   const handleSelectFile = useCallback((filePath: string, from?: 'files' | 'chat') => {
     const ext = filePath.split('.').pop()?.toLowerCase();
@@ -586,7 +679,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
   // Open file tabs from clickable paths in chat messages
   useEffect(() => {
     const handler = (e: CustomEvent<{ filePath: string; lineNumber?: number }>) => {
-      const absolutePath = `${workspace.directory_path}/${e.detail.filePath}`;
+      const absolutePath = resolveWorkspacePath(e.detail.filePath, workspace.directory_path, workspace.user_directory_paths ?? []);
       // Capture the current thread ID so "Back to chat" can restore it
       const threadId = runtime.threads.getState().mainThreadId;
       setFileReturnThreadId(threadId ?? null);
@@ -595,7 +688,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
     };
     window.addEventListener('open-file-tab', handler);
     return () => window.removeEventListener('open-file-tab', handler);
-  }, [workspace.directory_path, handleSelectFile, runtime]);
+  }, [workspace.directory_path, workspace.user_directory_paths, handleSelectFile, runtime]);
 
   const handleSelectApp = useCallback((dirName: string, opts?: { forceReload?: boolean; preBuilt?: boolean }) => {
     console.debug('[handleSelectApp] Opening mini app tab:', dirName, opts);
@@ -651,6 +744,16 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const activeMiniAppDirName = activeTab?.kind === 'miniapp' && activeTab.data.kind === 'miniapp' ? activeTab.data.dirName : null;
 
+  const isInChatDetail = sidebarTab === 'chats' && chatViewMode === 'detail';
+  // Views with their own side-panel composer hide the global composer; only
+  // pages where the user could plausibly initiate a *new* conversation count.
+  const globalComposerVisible =
+    sidebarTab !== 'settings' &&
+    sidebarTab !== 'debug' &&
+    !(sidebarTab === 'tools' && toolsViewMode === 'detail' && activeTab?.kind === 'miniapp') &&
+    !(sidebarTab === 'tools' && toolsViewMode === 'paper-monitor') &&
+    !(sidebarTab === 'tools' && toolsViewMode === 'reactions');
+
   // Toggle a body class while dragging any panel divider so iframes/webviews
   // don't swallow the mousemove/mouseup events. CSS pairs this with
   // `pointer-events: none` on iframes during drag.
@@ -668,7 +771,9 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
       <AppSessionSwitcher activeDirName={activeMiniAppDirName} cacheRef={appSessionCacheRef} suppressRef={suppressThreadDeactivateRef} />
       <OpenMiniAppHandler onOpen={handleSelectApp} />
       <QuickChatInjector onSwitchToChat={() => { setSidebarTab('chats'); setChatViewMode('detail'); deactivateAllTabs(); }} />
-      <ResetThreadOnLeavingDetail isInChatDetail={sidebarTab === 'chats' && chatViewMode === 'detail'} suppressRef={suppressThreadDeactivateRef} suppressResetRef={suppressThreadResetRef} />
+      <ResetThreadWhenComposerVisible globalComposerVisible={globalComposerVisible} isInChatDetail={isInChatDetail} suppressRef={suppressThreadDeactivateRef} suppressResetRef={suppressThreadResetRef} />
+      <RefreshOnEnterChatDetail isInChatDetail={isInChatDetail} />
+      <RefreshOnTurnEnd isInChatDetail={isInChatDetail} />
       <NotificationNavigator setSidebarTab={setSidebarTab} setChatViewMode={setChatViewMode} setToolsViewMode={setToolsViewMode} deactivateAllTabs={deactivateAllTabs} />
       <OverlayNavigationHandler setSidebarTab={setSidebarTab} setChatViewMode={setChatViewMode} deactivateAllTabs={deactivateAllTabs} />
       <TooltipProvider>
@@ -706,6 +811,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
               </button>
             </nav>
             <div className="topNavBar__right">
+              <NotificationBell onNavigateHome={() => { setSidebarTab('home'); deactivateAllTabs(); }} />
               <button
                 className={`topNavTab${sidebarTab === 'debug' ? ' topNavTab--active' : ''}`}
                 onClick={() => setSidebarTab('debug')}
@@ -726,6 +832,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
               <div className="homeContent">
                 <HomePage
                   workspacePath={workspace.directory_path}
+                  userDirectoryPaths={workspace.user_directory_paths}
                   onSelectFile={handleSelectFile}
                   onSwitchToChat={() => {
                     setSidebarTab('chats');
@@ -877,6 +984,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
               ) : (
                 <ToolsPage
                   workspacePath={workspace.directory_path}
+                  userDirectoryPaths={workspace.user_directory_paths}
                   onSelectApp={handleSelectApp}
                   onSwitchToChat={() => setSidebarTab('chats')}
                   onOpenReactions={() => setToolsViewMode('reactions')}
@@ -923,6 +1031,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
                     <div className="filesPage__explorerCard">
                       <FilesTab
                         workspacePath={workspace.directory_path}
+                        userDirectories={userDirectories}
                         onSelectFile={handleSelectFile}
                         onFileCount={setFileCount}
                       />
@@ -983,25 +1092,15 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
                 }}
                 onLogout={onLogout}
                 onRestartOnboarding={onRestartOnboarding}
+                onDirectoriesChanged={(dirs) => {
+                  setUserDirectories(dirs);
+                }}
                 inline
               />
             </div>
           </div>
           {/* Global composer — shown on all pages except settings, debug, tool detail view */}
-          {sidebarTab !== 'settings' &&
-           sidebarTab !== 'debug' &&
-           !(sidebarTab === 'tools' && toolsViewMode === 'detail' && activeTab?.kind === 'miniapp') &&
-           !(sidebarTab === 'tools' && toolsViewMode === 'paper-monitor') &&
-           !(sidebarTab === 'tools' && toolsViewMode === 'reactions') && (
-            <GlobalComposer
-              isInChatDetail={sidebarTab === 'chats' && chatViewMode === 'detail'}
-              onNavigateToChat={() => {
-                setSidebarTab('chats');
-                setChatViewMode('detail');
-                deactivateAllTabs();
-              }}
-            />
-          )}
+          {globalComposerVisible && <GlobalComposer />}
         </div>
         </div>
       </TooltipProvider>
@@ -1144,5 +1243,9 @@ if (NativeResizeObserver) {
 const container = document.getElementById('root');
 if (container) {
   const root = createRoot(container);
-  root.render(<App />);
+  root.render(
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
 }
