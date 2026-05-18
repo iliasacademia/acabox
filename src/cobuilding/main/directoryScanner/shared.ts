@@ -7,13 +7,6 @@ import * as path from "path";
 import log from "electron-log";
 import { tree as generateTreeCli } from "tree-node-cli";
 
-export interface SuggestionParsed {
-  name?: unknown;
-  type?: unknown;
-  why_im_suggesting_this?: unknown;
-  description?: unknown;
-}
-
 export interface TaggedFileParsed {
   file_path?: unknown;
   path?: unknown;

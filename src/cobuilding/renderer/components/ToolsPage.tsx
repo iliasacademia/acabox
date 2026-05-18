@@ -47,14 +47,6 @@ function formatLastUsed(lastOpened: string | null): string | null {
   return `used ${years} year${years === 1 ? '' : 's'} ago`;
 }
 
-interface SuggestedMiniApp {
-  name: string;
-  type?: string;
-  why_im_suggesting_this: string;
-  description?: string;
-  details_on_what_to_build?: string;
-}
-
 interface AvailableStub {
   name: string;
   description: string;
@@ -123,7 +115,7 @@ export function ToolsPage({
   const [apps, setApps] = useState<ToolsPageMiniApp[]>([]);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
-  const [suggestedApps, setSuggestedApps] = useState<SuggestedMiniApp[]>([]);
+  const [suggestedApps, setSuggestedApps] = useState<Briefing[]>([]);
   const assistantRuntime = useAssistantRuntime();
   const composerRuntime = useComposerRuntime();
 
@@ -158,20 +150,13 @@ export function ToolsPage({
   }, []);
 
   useEffect(() => {
-    window.reportsAPI.getLatest('directory_scan').then((report) => {
-      if (!report?.suggested_mini_apps) return;
-      try {
-        const parsed = JSON.parse(report.suggested_mini_apps);
-        if (Array.isArray(parsed)) {
-          const miniApps = parsed.filter(
-            (s: SuggestedMiniApp) => !s.type || s.type === 'mini_app',
-          );
-          setSuggestedApps(miniApps);
-        }
-      } catch {
-        // ignore malformed JSON
-      }
-    });
+    const fetchSuggestions = () => {
+      window.briefingsAPI
+        .list({ type: ['suggested_tool'], status: ['new'] })
+        .then(setSuggestedApps);
+    };
+    fetchSuggestions();
+    return window.briefingsAPI.onChanged(fetchSuggestions);
   }, []);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -206,10 +191,11 @@ export function ToolsPage({
     }
   }, [refresh, onSelectApp]);
 
-  const handleBuildSuggested = useCallback((tool: SuggestedMiniApp) => {
+  const handleBuildSuggested = useCallback((briefing: Briefing) => {
+    const data: BriefingDataSuggestedTool = JSON.parse(briefing.briefing_data);
     assistantRuntime.switchToNewThread();
     setTimeout(() => {
-      composerRuntime.setText(`Build me a tool called "${tool.name}". ${tool.description ?? tool.details_on_what_to_build}`);
+      composerRuntime.setText(`Build me a tool called "${data.name}". ${data.details_on_what_to_build}`);
       onSwitchToChat();
       setTimeout(() => {
         const input = document.querySelector<HTMLTextAreaElement>('.composerInput');
@@ -227,8 +213,8 @@ export function ToolsPage({
     }, 0);
   }, [assistantRuntime, composerRuntime, onSwitchToChat]);
 
-  const handleDismissSuggested = useCallback((tool: SuggestedMiniApp) => {
-    setSuggestedApps((prev) => prev.filter((t) => t.name !== tool.name));
+  const handleDismissSuggested = useCallback((briefing: Briefing) => {
+    window.briefingsAPI.setStatus(briefing.id, 'dismissed');
   }, []);
 
   const [toolFilter, setToolFilter] = useState<'all' | 'on-demand' | 'scheduled'>('all');
@@ -381,26 +367,27 @@ export function ToolsPage({
               <span className="toolsSection__meta">&middot; based on patterns I noticed in your work</span>
             </h2>
             <div className="toolsCard">
-              {suggestedApps.map((tool, i) => {
+              {suggestedApps.map((briefing, i) => {
+                const data: BriefingDataSuggestedTool = JSON.parse(briefing.briefing_data);
                 const bordered = i > 0 ? ' toolRow--bordered' : '';
                 return (
-                  <div key={tool.name} className={`toolRow${bordered}`}>
+                  <div key={briefing.id} className={`toolRow${bordered}`}>
                     <div className="toolRow__icon">
                       <LayoutGridIcon style={{ width: 18, height: 18 }} />
                     </div>
                     <div className="toolRow__info">
                       <div className="toolRow__header">
-                        <button className="toolRow__name" onClick={() => handleBuildSuggested(tool)}>
-                          {tool.name}
+                        <button className="toolRow__name" onClick={() => handleBuildSuggested(briefing)}>
+                          {data.name}
                         </button>
                       </div>
-                      <div className="toolRow__description">{tool.why_im_suggesting_this}</div>
+                      <div className="toolRow__description">{briefing.why_im_suggesting_this}</div>
                     </div>
                     <div className="toolRow__actions">
-                      <button className="toolRow__secondaryBtn" onClick={() => handleDismissSuggested(tool)}>
+                      <button className="toolRow__secondaryBtn" onClick={() => handleDismissSuggested(briefing)}>
                         Skip
                       </button>
-                      <button className="toolRow__primaryBtn" onClick={() => handleBuildSuggested(tool)}>
+                      <button className="toolRow__primaryBtn" onClick={() => handleBuildSuggested(briefing)}>
                         Build it
                       </button>
                     </div>

@@ -9,13 +9,12 @@ import {
   consumeAgentStream,
   formatTreesForPrompt,
   type ScanContext,
-  type SuggestionParsed,
   type TreeOutput,
 } from "../shared";
 
 export async function runTaskSuggestionAgent(
   ctx: ScanContext,
-): Promise<SuggestionParsed[]> {
+): Promise<void> {
   const startTime = Date.now();
   log.info("[DirectoryScanner:TaskSuggestion] Starting task suggestion agent");
 
@@ -29,12 +28,10 @@ export async function runTaskSuggestionAgent(
     log.warn("[DirectoryScanner:TaskSuggestion] Could not read suggested-tasks SKILL.md");
   }
 
-  const createdSuggestions: SuggestionParsed[] = [];
   const mcpServer = createSuggestedTasksMcpServer({
     workspaceId: ctx.workspaceId,
     sourceReportId: ctx.reportId,
     onBriefingsChanged: () => ctx.onBriefingsChanged(),
-    onSuggestionCreated: (s) => createdSuggestions.push(s),
   });
 
   const commonOptions = buildCommonQueryOptions(ctx);
@@ -57,10 +54,8 @@ export async function runTaskSuggestionAgent(
 
   const seconds = Math.round((Date.now() - startTime) / 1000);
   log.info(
-    `[DirectoryScanner:TaskSuggestion] Completed in ${seconds}s (${createdSuggestions.length} suggestions)`,
+    `[DirectoryScanner:TaskSuggestion] Completed in ${seconds}s`,
   );
-
-  return createdSuggestions;
 }
 
 function buildSystemPrompt(skillContent: string): string {

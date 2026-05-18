@@ -30,6 +30,7 @@ import {
   listBriefings,
   setBriefingStatus,
   type BriefingStatus,
+  type ListBriefingsFilter,
 } from './db/briefingsRepository';
 import { getScannedFilesByType, getScannedFiles, updateFileTag, removeFileTag } from './db/scannedFilesRepository';
 import { kernelGatewayService } from './kernelGatewayService';
@@ -1248,7 +1249,7 @@ ipcMain.handle('papers:fetch', async (_event, input: FetchPapersInput) => {
 
 ipcMain.handle(
   'briefings:list',
-  (_event, filter?: { status?: BriefingStatus[]; limit?: number }) => {
+  (_event, filter?: ListBriefingsFilter) => {
     const activeWorkspace = workspaceController.activeWorkspace;
     if (!activeWorkspace) return [];
     return listBriefings(activeWorkspace.id, filter ?? {});

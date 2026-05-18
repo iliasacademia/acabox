@@ -701,11 +701,14 @@ declare global {
     chat_prompt: string;
   }
 
+  interface ListBriefingsFilter {
+    status?: BriefingStatus[];
+    type?: BriefingType[];
+    limit?: number;
+  }
+
   interface BriefingsAPI {
-    list(filter?: {
-      status?: BriefingStatus[];
-      limit?: number;
-    }): Promise<Briefing[]>;
+    list(filter?: ListBriefingsFilter): Promise<Briefing[]>;
     setStatus(id: string, status: BriefingStatus): Promise<void>;
     /** Subscribe to create/update/status changes. Returns unsubscribe. */
     onChanged(callback: () => void): () => void;

@@ -14,7 +14,6 @@ export interface SuggestedTasksContext {
   workspaceId: string;
   sourceReportId?: string;
   onBriefingsChanged?: () => void;
-  onSuggestionCreated?: (suggestion: { name: string; type: string; description: string; why_im_suggesting_this?: string }) => void;
 }
 
 // Only registers create_suggestion — the scan agent only needs to create.
@@ -49,7 +48,6 @@ export async function handleCreateSuggestion(
     whyImSuggestingThis: args.why_im_suggesting_this ?? null,
   });
   ctx.onBriefingsChanged?.();
-  ctx.onSuggestionCreated?.(args);
 
   return { content: [{ type: 'text' as const, text: JSON.stringify({ id, type: briefingType }) }] };
 }

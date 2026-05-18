@@ -3,22 +3,15 @@ import * as path from "path";
 import log from "electron-log";
 import { resolveClaudeBinary } from "../sdkBinarySetup";
 import { createReport, updateReportStatus } from "../db/reportRepository";
-import { createBriefing } from "../db/briefingsRepository";
 import {
   generateDirectoryTree,
-  DIRECTORY_ORGANIZATION_PROMPT,
   type ScanParams,
   type ScannerEvent,
-  type SuggestionParsed,
-  type TaggedFileParsed,
   type ScanContext,
 } from "./shared";
 import { runResearchProfileAgent } from "./agents/researchProfile";
 import { runTaskSuggestionAgent } from "./agents/taskSuggestion";
-import {
-  runFileTaggingAgent,
-  type FileTaggingResult,
-} from "./agents/fileTagging";
+import { runFileTaggingAgent } from "./agents/fileTagging";
 
 export type { ScannerEvent, ScanParams };
 
@@ -109,40 +102,17 @@ export async function scanWorkspaceDirectory(
 }
 
 async function completeBackgroundWork(
-  taggingPromise: Promise<FileTaggingResult>,
-  suggestionPromise: Promise<SuggestionParsed[]>,
+  taggingPromise: Promise<unknown>,
+  suggestionPromise: Promise<void>,
   ctx: ScanContext,
 ): Promise<void> {
-  createBriefing({
-    workspaceId: ctx.workspaceId,
-    type: "suggested_action",
-    sourceReportId: ctx.reportId,
-    whyImSuggestingThis:
-      "A well-organized workspace makes it easier to find files and helps me give better recommendations.",
-    briefingData: {
-      title: "Organize your research directory",
-      description:
-        "I will figure out an effective way to organize the files in your workspace.",
-      chat_prompt: DIRECTORY_ORGANIZATION_PROMPT,
-    },
-  });
-  ctx.onBriefingsChanged();
-
-  const tagging = await taggingPromise.catch((err) => {
+  await taggingPromise.catch((err) => {
     log.error("[DirectoryScanner] File tagging agent failed:", err);
-    return { taggedFiles: [] as TaggedFileParsed[] };
   });
 
-  const suggestions = await suggestionPromise.catch((err) => {
+  await suggestionPromise.catch((err) => {
     log.error("[DirectoryScanner] Task suggestion agent failed:", err);
-    return [] as SuggestionParsed[];
   });
-
-  updateReportStatus(
-    ctx.reportId,
-    "completed",
-    JSON.stringify({ tagged_files: tagging.taggedFiles, suggestions }),
-  );
   log.info(
     `[DirectoryScanner] Background agents completed for workspace ${ctx.workspaceId}`,
   );
