@@ -61,6 +61,7 @@ export async function scanWorkspaceDirectory(
     memoryDir,
     onMessage,
     onBriefingsChanged,
+    onNotifyUser: params.onNotifyUser,
   };
 
   const scanStartTime = Date.now();
@@ -106,16 +107,23 @@ async function completeBackgroundWork(
   suggestionPromise: Promise<void>,
   ctx: ScanContext,
 ): Promise<void> {
-  await taggingPromise.catch((err) => {
-    log.error("[DirectoryScanner] File tagging agent failed:", err);
-  });
-
   await suggestionPromise.catch((err) => {
     log.error("[DirectoryScanner] Quick task suggestion agent failed:", err);
   });
+  ctx.onBriefingsChanged();
 
-  await runInDepthTaskSuggestionAgent(ctx).catch((err) => {
+  try {
+    const notification = await runInDepthTaskSuggestionAgent(ctx);
+    if (notification.made_changes) {
+      ctx.onBriefingsChanged();
+      ctx.onNotifyUser(notification.title, notification.body);
+    }
+  } catch (err) {
     log.error("[DirectoryScanner] In-depth task suggestion agent failed:", err);
+  }
+
+  await taggingPromise.catch((err) => {
+    log.error("[DirectoryScanner] File tagging agent failed:", err);
   });
 
   log.info(

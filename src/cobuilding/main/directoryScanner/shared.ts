@@ -30,6 +30,7 @@ export interface ScanParams {
   baseURL?: string;
   onMessage: (event: ScannerEvent) => void;
   onBriefingsChanged: () => void;
+  onNotifyUser: (title: string, body: string) => void;
 }
 
 export interface TreeOutput {
@@ -50,6 +51,7 @@ export interface ScanContext {
   memoryDir: string;
   onMessage: (event: ScannerEvent) => void;
   onBriefingsChanged: () => void;
+  onNotifyUser: (title: string, body: string) => void;
 }
 
 export const DIRECTORY_ORGANIZATION_PROMPT = `Please help me organize my research directory. First, inspect the workspace and understand the current file structure, research projects, documents, data, scripts, outputs, and any existing naming conventions. Then recommend an effective organization plan for the directory.

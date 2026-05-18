@@ -32,6 +32,7 @@ import {
   type BriefingStatus,
   type ListBriefingsFilter,
 } from './db/briefingsRepository';
+import { NotificationsController } from './controllers/NotificationsController';
 import { getScannedFilesByType, getScannedFiles, updateFileTag, removeFileTag } from './db/scannedFilesRepository';
 import { kernelGatewayService } from './kernelGatewayService';
 import { initDatabase, getDatabase, closeDatabase } from './db/database';
@@ -310,6 +311,11 @@ async function refreshCredentialsForSession(): Promise<{ apiKey: string; baseURL
   const result = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
   return { apiKey: result.apiKey, baseURL: result.baseURL };
 }
+
+const notificationsController = new NotificationsController({
+  workspaceController,
+  onDesktopNotificationClick: () => handleNotificationNavigation({ type: 'sidebar', tab: 'home' }),
+});
 
 const agentInfrastructure = new AgentInfrastructureController({
   workspaceController,
@@ -1266,6 +1272,20 @@ ipcMain.handle(
   },
 );
 
+// ─── Notifications IPC ─────────────────────────────────────────
+
+ipcMain.handle('notifications:list', (_event, limit?: number) => {
+  return notificationsController.list(limit);
+});
+
+ipcMain.handle('notifications:unreadCount', () => {
+  return notificationsController.getUnreadCount();
+});
+
+ipcMain.handle('notifications:markAllAsRead', () => {
+  notificationsController.markAllAsRead();
+});
+
 // ─── Scanned Files IPC ──────────────────────────────────────────
 
 ipcMain.handle('scannedFiles:getByType', (_event, fileType: string) => {
@@ -1369,6 +1389,9 @@ ipcMain.handle('scanner:start', async () => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('briefings:changed');
       }
+    },
+    onNotifyUser: (title: string, body: string) => {
+      notificationsController.notifyUser(title, body);
     },
   }).catch((err) => {
     log.error('[scanner:start] Scan failed:', err);

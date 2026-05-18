@@ -328,6 +328,12 @@ contextBridge.exposeInMainWorld('briefingsAPI', {
   },
 });
 
+contextBridge.exposeInMainWorld('notificationsAPI', {
+  list: (limit?: number) => ipcRenderer.invoke('notifications:list', limit),
+  unreadCount: () => ipcRenderer.invoke('notifications:unreadCount'),
+  markAllAsRead: () => ipcRenderer.invoke('notifications:markAllAsRead'),
+});
+
 contextBridge.exposeInMainWorld('scannedFilesAPI', {
   getByType: (fileType: string) => ipcRenderer.invoke('scannedFiles:getByType', fileType),
   getAll: () => ipcRenderer.invoke('scannedFiles:getAll'),
