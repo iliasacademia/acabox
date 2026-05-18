@@ -899,7 +899,7 @@ app.whenReady().then(async () => {
                       pendingContext.delete(sessionId);
                       if (!ctx) return userText;
                       const { resolveSessionHostApp } = require('./agentSession');
-                      const host = resolveSessionHostApp(ctx.documentPath);
+                      const { hostApp: host } = resolveSessionHostApp(ctx.documentPath);
                       const prefix = host.messagePrefix({
                         documentPath: ctx.documentPath,
                         selectedText: ctx.selectedText,
@@ -993,7 +993,7 @@ app.whenReady().then(async () => {
                   pendingContext.delete(sessionId);
                   if (!ctx) return userText;
                   const { resolveSessionHostApp } = require('./agentSession');
-                  const host = resolveSessionHostApp(ctx.documentPath);
+                  const { hostApp: host } = resolveSessionHostApp(ctx.documentPath);
                   const prefix = host.messagePrefix({ documentPath: ctx.documentPath, selectedText: ctx.selectedText });
                   return prefix ? `${prefix}\n${userText}` : userText;
                 },

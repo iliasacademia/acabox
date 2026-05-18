@@ -27,23 +27,24 @@ import { windowMonitorService } from '../../windowMonitorService';
  *      hardcoded wordHostApp module (so non-Word builds with no registered
  *      hosts at all still get *something* — should never happen in practice).
  */
-export function resolveSessionHostApp(documentPath: string | null | undefined): HostApp {
+export function resolveSessionHostApp(documentPath: string | null | undefined): { hostApp: HostApp; matched: boolean } {
   const registered = getRegisteredHostApps();
   const fromDoc = findHostAppForDocument(documentPath ?? null);
-  if (fromDoc) return fromDoc;
+  if (fromDoc) return { hostApp: fromDoc, matched: true };
   try {
     const focusedId = windowMonitorService.getFocusedWindowId();
     if (focusedId) {
       const hostId = windowMonitorService.getHostAppIdForWindow(focusedId);
       if (hostId) {
         const fromWindow = registered.find((h) => h.id === hostId);
-        if (fromWindow) return fromWindow;
+        if (fromWindow) return { hostApp: fromWindow, matched: true };
       }
     }
   } catch {
     // windowMonitorService unavailable (scheduled tasks, tests) — fall through.
   }
-  return registered.find((h) => h.id === wordHostApp.id) ?? registered[0] ?? wordHostApp;
+  const fallback = registered.find((h) => h.id === wordHostApp.id) ?? registered[0] ?? wordHostApp;
+  return { hostApp: fallback, matched: false };
 }
 
 // ─── MCP Relay Dispatch ──────────────────────────────────────────
@@ -181,7 +182,7 @@ export function createAgentSession(
   // Resolve which host app this session is acting on. See resolveSessionHostApp
   // for the resolution order — document path first, focused-window bundle id
   // as a backstop, then Word fallback.
-  const sessionHostApp: HostApp = resolveSessionHostApp(documentPath);
+  const { hostApp: sessionHostApp, matched: hostAppMatched } = resolveSessionHostApp(documentPath);
 
   const state: MessageProcessingState = { currentToolCallId: null, currentBlockIsThinking: false, pendingBashCalls: new Map() };
 
@@ -247,10 +248,10 @@ export function createAgentSession(
     if (content) soulMdContent = content;
   } catch { /* doesn't exist */ }
 
-  // Build system prompt using the host app's guidance (replaces hardcoded docx guidance)
-  const hostGuidance = [IDENTITY_PREAMBLE, sessionHostApp.systemPromptAppend]
-    .filter(Boolean)
-    .join('\n\n');
+  // Build system prompt: identity preamble always, host-app guidance only when matched.
+  const hostGuidance = hostAppMatched
+    ? [IDENTITY_PREAMBLE, sessionHostApp.systemPromptAppend].filter(Boolean).join('\n\n')
+    : IDENTITY_PREAMBLE;
 
   // Non-null while the create-session + SSE-listen loop is running. Drops
   // back to null when the loop ends (idle eviction, /stop). The next
@@ -281,6 +282,7 @@ export function createAgentSession(
           model: model || undefined,
           soulMd: soulMdContent,
           hostGuidance,
+          ...(hostAppMatched ? { additionalAllowedTools: sessionHostApp.allowedTools } : {}),
         });
 
         const createRes = await httpPost(`${agentBaseUrl}/sessions`, createBody);
