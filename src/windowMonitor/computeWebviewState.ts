@@ -64,7 +64,7 @@ export function applyFocusLossCarryForward(
     if (!hasOverlay && Object.keys(lastDesiredState).length > 0) {
       const carried: DesiredWebviewState = {};
       for (const [key, entry] of Object.entries(lastDesiredState)) {
-        carried[key] = { ...entry, background: true };
+        carried[key] = { ...entry, visible: false, background: true };
       }
       return { desiredState: carried, windowId: lastWindowId };
     }
