@@ -30,6 +30,7 @@ const SKILLS = [
   'reaction',
   'reactome-database',
   'string-database-ppi',
+  'suggested-tasks',
   'xlsx',
 ];
 

@@ -431,6 +431,12 @@ const migrations = [
       }
     },
   },
+  {
+    version: 25,
+    sql: `
+      ALTER TABLE briefings ADD COLUMN sort_order INTEGER;
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database, userDataPath: string) {

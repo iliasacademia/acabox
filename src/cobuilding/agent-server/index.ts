@@ -34,6 +34,7 @@ import { readFileSync, existsSync, readdirSync } from 'fs';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { AGENT_MEMORY_SUBDIR } from '../shared/paths';
+import { SUGGESTED_TASKS_TOOL_DEFS } from '../shared/suggestedTasksTools';
 
 
 // ---------------------------------------------------------------------------
@@ -552,6 +553,20 @@ function createMcpRelayServers(state: SessionState) {
         }, relay('grants', 'update_project')),
       ],
     }),
+
+    'suggested-tasks': (() => {
+      const d = SUGGESTED_TASKS_TOOL_DEFS;
+      return createSdkMcpServer({
+        name: 'suggested-tasks',
+        tools: [
+          tool('list_suggestions', d.list_suggestions.description, d.list_suggestions.schema, relay('suggested-tasks', 'list_suggestions')),
+          tool('create_suggestion', d.create_suggestion.description, d.create_suggestion.schema, relay('suggested-tasks', 'create_suggestion')),
+          tool('update_suggestion', d.update_suggestion.description, d.update_suggestion.schema, relay('suggested-tasks', 'update_suggestion')),
+          tool('reorder_suggestions', d.reorder_suggestions.description, d.reorder_suggestions.schema, relay('suggested-tasks', 'reorder_suggestions')),
+          tool('delete_suggestion', d.delete_suggestion.description, d.delete_suggestion.schema, relay('suggested-tasks', 'delete_suggestion')),
+        ],
+      });
+    })(),
 
     workspace: createSdkMcpServer({
       name: 'workspace',

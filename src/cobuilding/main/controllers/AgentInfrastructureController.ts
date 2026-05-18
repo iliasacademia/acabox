@@ -10,6 +10,14 @@ import type { WorkspaceController } from './WorkspaceController';
 import type { containerService as containerServiceInstance } from '../containerService';
 import { getCredentials } from '../cobuildingTokenManager';
 import { getScannedFilesByType, getScannedFiles } from '../db/scannedFilesRepository';
+import {
+  handleCreateSuggestion,
+  handleListSuggestions,
+  handleUpdateSuggestion,
+  handleReorderSuggestions,
+  handleDeleteSuggestion,
+  type SuggestedTasksContext,
+} from '../mcpServers/suggestedTasksMcpServer';
 import { getLatestReport } from '../db/reportRepository';
 import { AGENT_MEMORY_SUBDIR } from '../../shared/paths';
 import { queryActivity } from '../activityQuery';
@@ -38,6 +46,7 @@ export interface AgentInfrastructureDeps {
   containerService: typeof containerServiceInstance;
   refreshCredentials: () => Promise<{ apiKey: string; baseURL?: string }>;
   onNotificationClick?: (action: any) => void;
+  onBriefingsChanged?: () => void;
 }
 
 export class AgentInfrastructureController {
@@ -53,6 +62,7 @@ export class AgentInfrastructureController {
     const fail = (text: string) => ({ content: [{ type: 'text' as const, text }], isError: true });
 
     const onNotificationClick = this.deps.onNotificationClick;
+    const onBriefingsChanged = this.deps.onBriefingsChanged;
     const activeNotificationsSet = this._activeNotifications;
     const { containerService } = this.deps;
 
@@ -282,6 +292,32 @@ export class AgentInfrastructureController {
         },
       },
 
+      'suggested-tasks': (() => {
+        const stCtx: SuggestedTasksContext = { workspaceId: workspace.id, onBriefingsChanged };
+        return {
+          list_suggestions: async (args: any) => {
+            try { return await handleListSuggestions(args, stCtx); }
+            catch (err: any) { return fail(`Failed to list suggestions: ${err.message}`); }
+          },
+          create_suggestion: async (args: any) => {
+            try { return await handleCreateSuggestion(args, stCtx); }
+            catch (err: any) { return fail(`Failed to create suggestion: ${err.message}`); }
+          },
+          update_suggestion: async (args: any) => {
+            try { return await handleUpdateSuggestion(args, stCtx); }
+            catch (err: any) { return fail(`Failed to update suggestion: ${err.message}`); }
+          },
+          reorder_suggestions: async (args: any) => {
+            try { return await handleReorderSuggestions(args, stCtx); }
+            catch (err: any) { return fail(`Failed to reorder suggestions: ${err.message}`); }
+          },
+          delete_suggestion: async (args: any) => {
+            try { return await handleDeleteSuggestion(args, stCtx); }
+            catch (err: any) { return fail(`Failed to delete suggestion: ${err.message}`); }
+          },
+        };
+      })(),
+
       workspace: {
         get_scanned_files: async (args: any) => {
           try {
@@ -404,6 +440,11 @@ export class AgentInfrastructureController {
         'mcp__grants__favorite_opportunity', 'mcp__grants__hide_opportunity',
         'mcp__grants__set_hidden_reason', 'mcp__grants__visit_opportunity',
         'mcp__grants__update_project',
+        'mcp__suggested-tasks__list_suggestions',
+        'mcp__suggested-tasks__create_suggestion',
+        'mcp__suggested-tasks__update_suggestion',
+        'mcp__suggested-tasks__reorder_suggestions',
+        'mcp__suggested-tasks__delete_suggestion',
         'mcp__workspace__get_scanned_files',
         'mcp__workspace__get_research_profile',
       ],

@@ -315,6 +315,11 @@ const agentInfrastructure = new AgentInfrastructureController({
   containerService,
   refreshCredentials: refreshCredentialsForSession,
   onNotificationClick: handleNotificationNavigation,
+  onBriefingsChanged: () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('briefings:changed');
+    }
+  },
 });
 
 // Shared edit state store — keyed by toolCallId, synced between overlay and desktop
