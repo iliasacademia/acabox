@@ -19,7 +19,7 @@ import {
   type SuggestedTasksContext,
 } from '../mcpServers/suggestedTasksMcpServer';
 import { getLatestReport } from '../db/reportRepository';
-import { AGENT_MEMORY_SUBDIR } from '../../shared/paths';
+import { AGENT_MEMORY_SUBDIR, REFERENCES_SUBDIR, REFERENCES_INDEX } from '../../shared/paths';
 import { queryActivity } from '../activityQuery';
 import { getWordFilePath, getWordText, getWordSelection, saveWordDocument, openWordDocument } from '../../../server/wordActions';
 import { googleDocsGetActiveDoc, googleDocsGetText, googleDocsFindAndReplace } from '../mcpServers/googleDocsMcpServer';
@@ -324,8 +324,19 @@ export class AgentInfrastructureController {
             const files = args.file_type
               ? getScannedFilesByType(workspace.id, args.file_type)
               : getScannedFiles(workspace.id);
+
+            let refIndex: Record<string, string> = {};
+            try {
+              const indexPath = path.join(agentDir, REFERENCES_SUBDIR, REFERENCES_INDEX);
+              const raw = await fsPromises.readFile(indexPath, 'utf-8');
+              refIndex = JSON.parse(raw);
+            } catch { /* no index yet */ }
+
             const cleaned = files.map(({ file_path, file_name, file_type }: { file_path: string; file_name: string; file_type: string }) => ({
               file_path, file_name, file_type,
+              ...(file_type === 'reference' && refIndex[file_path]
+                ? { markdown_path: `${REFERENCES_SUBDIR}/${refIndex[file_path]}` }
+                : {}),
             }));
             return ok(JSON.stringify({ files: cleaned, count: cleaned.length }));
           } catch (err: any) {
