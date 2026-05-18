@@ -19,7 +19,7 @@ import {
   type SuggestedTasksContext,
 } from '../mcpServers/suggestedTasksMcpServer';
 import { getLatestReport } from '../db/reportRepository';
-import { AGENT_MEMORY_SUBDIR } from '../../shared/paths';
+import { AGENT_MEMORY_SUBDIR, REFERENCES_SUBDIR, REFERENCES_INDEX } from '../../shared/paths';
 import { queryActivity } from '../activityQuery';
 import { getWordFilePath, getWordText, getWordSelection, saveWordDocument, openWordDocument } from '../../../server/wordActions';
 import { googleDocsGetActiveDoc, googleDocsGetText, googleDocsFindAndReplace } from '../mcpServers/googleDocsMcpServer';
@@ -324,8 +324,19 @@ export class AgentInfrastructureController {
             const files = args.file_type
               ? getScannedFilesByType(workspace.id, args.file_type)
               : getScannedFiles(workspace.id);
+
+            let refIndex: Record<string, string> = {};
+            try {
+              const indexPath = path.join(agentDir, REFERENCES_SUBDIR, REFERENCES_INDEX);
+              const raw = await fsPromises.readFile(indexPath, 'utf-8');
+              refIndex = JSON.parse(raw);
+            } catch { /* no index yet */ }
+
             const cleaned = files.map(({ file_path, file_name, file_type }: { file_path: string; file_name: string; file_type: string }) => ({
               file_path, file_name, file_type,
+              ...(file_type === 'reference' && refIndex[file_path]
+                ? { markdown_path: `${REFERENCES_SUBDIR}/${refIndex[file_path]}` }
+                : {}),
             }));
             return ok(JSON.stringify({ files: cleaned, count: cleaned.length }));
           } catch (err: any) {
@@ -417,24 +428,12 @@ export class AgentInfrastructureController {
         'mcp__mini-apps__build_and_open_mini_application',
         'mcp__notification__show_notification',
         'mcp__reaction__create_reaction_thread',
-        'mcp__ms-word__get_file_path', 'mcp__ms-word__get_text',
-        'mcp__ms-word__get_selection', 'mcp__ms-word__save_document',
-        'mcp__ms-word__open_document', 'mcp__ms-word__find_and_replace',
         'mcp__citeright__find_references', 'mcp__citeright__create_citation_report',
         'mcp__citeright__get_citation_report', 'mcp__citeright__add_claim_to_report',
         'mcp__citeright__search_citations_for_claim', 'mcp__citeright__format_citations',
         'mcp__citeright__list_citation_reports',
         'mcp__zotero__status', 'mcp__zotero__search_library',
         'mcp__zotero__get_item', 'mcp__zotero__add_doi',
-        'mcp__google-docs__get_active_doc', 'mcp__google-docs__get_text',
-        'mcp__google-docs__find_and_replace',
-        'mcp__apple-notes__get_active_note', 'mcp__apple-notes__get_text',
-        'mcp__apple-notes__list_notes', 'mcp__apple-notes__search_notes',
-        'mcp__apple-notes__save_note', 'mcp__apple-notes__open_note',
-        'mcp__apple-notes__find_and_replace',
-        'mcp__obsidian__get_active_note', 'mcp__obsidian__get_text',
-        'mcp__obsidian__list_notes', 'mcp__obsidian__open_note',
-        'mcp__obsidian__find_and_replace',
         'mcp__grants__save_user_context', 'mcp__grants__create_project',
         'mcp__grants__get_project', 'mcp__grants__list_projects',
         'mcp__grants__favorite_opportunity', 'mcp__grants__hide_opportunity',

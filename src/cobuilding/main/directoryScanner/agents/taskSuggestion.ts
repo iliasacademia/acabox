@@ -14,7 +14,7 @@ import {
 } from "../shared";
 
 export async function runQuickTaskSuggestionAgent(ctx: ScanContext): Promise<void> {
-  return runTaskSuggestionAgent(ctx, {
+  await runTaskSuggestionAgent<void>(ctx, {
     label: "Quick",
     mcpMode: "create-only",
     prompt: buildQuickPrompt(ctx.directoryPaths, ctx.treeOutputs),
@@ -24,8 +24,8 @@ export async function runQuickTaskSuggestionAgent(ctx: ScanContext): Promise<voi
   });
 }
 
-export async function runInDepthTaskSuggestionAgent(ctx: ScanContext): Promise<void> {
-  return runTaskSuggestionAgent(ctx, {
+export async function runInDepthTaskSuggestionAgent(ctx: ScanContext): Promise<NotificationOutput> {
+  return runTaskSuggestionAgent<NotificationOutput>(ctx, {
     label: "InDepth",
     mcpMode: "full",
     prompt: buildInDepthPrompt(ctx.directoryPaths),
@@ -34,6 +34,7 @@ export async function runInDepthTaskSuggestionAgent(ctx: ScanContext): Promise<v
     maxBudgetUsd: 5,
     effort: "medium",
     thinking: { type: "adaptive" },
+    outputFormat: { type: "json_schema", schema: NOTIFICATION_OUTPUT_SCHEMA },
   });
 }
 
@@ -45,6 +46,22 @@ const ALL_SUGGESTED_TASKS_TOOLS = [
   "mcp__suggested-tasks__delete_suggestion",
 ];
 
+interface NotificationOutput {
+  made_changes: boolean;
+  title: string;
+  body: string;
+}
+
+const NOTIFICATION_OUTPUT_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    made_changes: { type: "boolean", description: "Whether any suggestions were created, updated, deleted, or reordered" },
+    title: { type: "string", description: "Short notification title, e.g. 'Suggestions updated'" },
+    body: { type: "string", description: "1-2 sentence summary of changes made" },
+  },
+  required: ["made_changes", "title", "body"],
+};
+
 interface AgentConfig {
   label: string;
   mcpMode: "create-only" | "full";
@@ -54,9 +71,10 @@ interface AgentConfig {
   maxBudgetUsd: number;
   effort?: "low" | "medium" | "high";
   thinking?: { type: "disabled" | "adaptive" };
+  outputFormat?: { type: "json_schema"; schema: Record<string, unknown> };
 }
 
-async function runTaskSuggestionAgent(ctx: ScanContext, config: AgentConfig): Promise<void> {
+async function runTaskSuggestionAgent<T>(ctx: ScanContext, config: AgentConfig): Promise<T> {
   const startTime = Date.now();
   log.info(`[DirectoryScanner:TaskSuggestion:${config.label}] Starting`);
 
@@ -74,7 +92,6 @@ async function runTaskSuggestionAgent(ctx: ScanContext, config: AgentConfig): Pr
     {
       workspaceId: ctx.workspaceId,
       sourceReportId: ctx.reportId,
-      onBriefingsChanged: () => ctx.onBriefingsChanged(),
     },
     config.mcpMode,
   );
@@ -91,16 +108,19 @@ async function runTaskSuggestionAgent(ctx: ScanContext, config: AgentConfig): Pr
       maxBudgetUsd: config.maxBudgetUsd,
       ...(config.effort ? { effort: config.effort } : {}),
       ...(config.thinking ? { thinking: config.thinking } : {}),
+      ...(config.outputFormat ? { outputFormat: config.outputFormat } : {}),
       tools: [...commonOptions.tools, ...config.tools],
       allowedTools: [...commonOptions.allowedTools, ...config.tools],
       mcpServers: { "suggested-tasks": mcpServer },
     },
   });
 
-  await consumeAgentStream(agentQuery);
+  const result = await consumeAgentStream<T>(agentQuery);
 
   const seconds = Math.round((Date.now() - startTime) / 1000);
   log.info(`[DirectoryScanner:TaskSuggestion:${config.label}] Completed in ${seconds}s`);
+
+  return result;
 }
 
 function buildSharedSystemPrompt(skillContent: string): string {
@@ -169,6 +189,7 @@ Use targeted Glob and Grep queries when you need to explore the workspace — av
    - Create new suggestions if you identify high-impact opportunities not yet covered using \`mcp__suggested-tasks__create_suggestion\`
    - Aim for variety across categories (literature synthesis, technique analysis, workflow automation, document review, data exploration)
 4. **Order by impact**: Call \`mcp__suggested-tasks__reorder_suggestions\` to put the highest-impact suggestions first.
+5. **Summarize your changes**: Your response will be captured as structured JSON with \`title\` and \`body\` fields. Provide a short title (e.g. "Suggestions updated") and a 1-2 sentence body summarizing what you changed (e.g. how many suggestions you added, updated, or removed).
 
 Focus on quality over quantity. A curated list of 4-6 excellent, specific suggestions is better than 10 mediocre ones.`;
 }

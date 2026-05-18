@@ -6,9 +6,9 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 import log from 'electron-log';
 import { getAllPodmanDataPaths } from '../podmanBinaries';
-import { getDatabase } from '../db/database';
-import { getObservationsDatabase } from '../db/observationsDatabase';
-import { getSchedulingDatabase } from '../db/schedulingDatabase';
+import { closeDatabase, getDatabase, initDatabase } from '../db/database';
+import { closeObservationsDatabase, getObservationsDatabase, initObservationsDatabase } from '../db/observationsDatabase';
+import { closeSchedulingDatabase, getSchedulingDatabase, initSchedulingDatabase } from '../db/schedulingDatabase';
 import { getActiveWorkspace, createWorkspace, addWorkspaceDirectory, touchWorkspace } from '../db/workspaceRepository';
 import { containerService } from '../containerService';
 import { WORKSPACE_DATA_DIR } from '../../shared/paths';
@@ -593,21 +593,32 @@ export function registerDebugHandlers() {
   });
 
   ipcMain.handle('debug:hardResetWorkspace', async () => {
-    const workspace = getActiveWorkspace();
-    if (!workspace) return { ok: false, error: 'No active workspace' };
+    const userDataPath = app.getPath('userData');
 
     // Remove agent-controlled directory
-    const agentDir = path.join(app.getPath('userData'), WORKSPACE_DATA_DIR);
+    const agentDir = path.join(userDataPath, WORKSPACE_DATA_DIR);
     if (fs.existsSync(agentDir)) {
       fs.rmSync(agentDir, { recursive: true, force: true });
     }
 
-    // Hard-delete the workspace row — ON DELETE CASCADE removes sessions,
-    // messages, briefings, calendar events/resources/reactions, plans,
-    // scanned_files, and workspace_reports automatically.
-    getDatabase().prepare('DELETE FROM workspaces WHERE id = ?').run(workspace.id);
+    // Close all database connections, delete the files, and reinitialize.
+    closeDatabase();
+    closeObservationsDatabase();
+    closeSchedulingDatabase();
 
-    log.warn('[Debug] Hard reset workspace:', workspace.id, workspace.name);
+    const dbNames = ['cobuilding.db', 'observations.db', 'scheduling.db'];
+    const suffixes = ['', '-wal', '-shm'];
+    for (const name of dbNames) {
+      for (const suffix of suffixes) {
+        removePath(path.join(userDataPath, name + suffix));
+      }
+    }
+
+    initDatabase(userDataPath);
+    initObservationsDatabase(userDataPath);
+    initSchedulingDatabase(userDataPath);
+
+    log.warn('[Debug] Hard reset: deleted and recreated all databases');
     return { ok: true };
   });
 }

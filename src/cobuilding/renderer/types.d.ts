@@ -720,6 +720,21 @@ declare global {
     onChanged(callback: () => void): () => void;
   }
 
+  interface AppNotification {
+    id: string;
+    type: string;
+    title: string;
+    body: string;
+    created_at: string;
+    read_at: string | null;
+  }
+
+  interface NotificationsAPI {
+    list(limit?: number): Promise<AppNotification[]>;
+    unreadCount(): Promise<number>;
+    markAllAsRead(): Promise<void>;
+  }
+
   interface ScannedFile {
     id: string;
     workspace_id: string;
@@ -765,6 +780,7 @@ declare global {
     scannerAPI: ScannerAPI;
     papersAPI: PapersAPI;
     briefingsAPI: BriefingsAPI;
+    notificationsAPI: NotificationsAPI;
     scannedFilesAPI: ScannedFilesAPI;
     nativeToolsAPI: { getUrl(toolId: string): Promise<string | null> };
     academiaAPI: {

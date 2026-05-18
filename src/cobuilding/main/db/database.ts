@@ -437,6 +437,21 @@ const migrations = [
       ALTER TABLE briefings ADD COLUMN sort_order INTEGER;
     `,
   },
+  {
+    version: 26,
+    sql: `
+      CREATE TABLE notifications (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+        read_at TEXT
+      );
+      CREATE INDEX idx_notifications_workspace_unread ON notifications(workspace_id, read_at);
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database, userDataPath: string) {

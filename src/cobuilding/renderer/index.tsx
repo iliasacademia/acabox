@@ -19,6 +19,7 @@ import { FileViewer } from './components/FileViewer';
 import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
 import { ToolsPage } from './components/ToolsPage';
+import { NotificationBell } from './components/NotificationBell';
 import { PaperMonitorView } from './components/PaperMonitorView';
 import { ReactionsToolView } from './components/ReactionsToolView';
 import { HomePage } from './components/HomePage';
@@ -810,6 +811,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
               </button>
             </nav>
             <div className="topNavBar__right">
+              <NotificationBell onNavigateHome={() => { setSidebarTab('home'); deactivateAllTabs(); }} />
               <button
                 className={`topNavTab${sidebarTab === 'debug' ? ' topNavTab--active' : ''}`}
                 onClick={() => setSidebarTab('debug')}
