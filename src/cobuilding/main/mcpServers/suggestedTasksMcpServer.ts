@@ -16,16 +16,31 @@ export interface SuggestedTasksContext {
   onBriefingsChanged?: () => void;
 }
 
-// Only registers create_suggestion — the scan agent only needs to create.
-// The full set of five tools is wired via the relay in agent-server/index.ts.
-export function createSuggestedTasksMcpServer(ctx: SuggestedTasksContext) {
+export function createSuggestedTasksMcpServer(
+  ctx: SuggestedTasksContext,
+  mode: 'create-only' | 'full' = 'create-only',
+) {
   const d = SUGGESTED_TASKS_TOOL_DEFS;
+  const createTool = tool('create_suggestion', d.create_suggestion.description, d.create_suggestion.schema,
+    async (args) => handleCreateSuggestion(args, ctx),
+  );
+
+  if (mode === 'create-only') {
+    return createSdkMcpServer({ name: 'suggested-tasks', tools: [createTool] });
+  }
+
   return createSdkMcpServer({
     name: 'suggested-tasks',
     tools: [
-      tool('create_suggestion', d.create_suggestion.description, d.create_suggestion.schema,
-        async (args) => handleCreateSuggestion(args, ctx),
-      ),
+      createTool,
+      tool('list_suggestions', d.list_suggestions.description, d.list_suggestions.schema,
+        async (args) => handleListSuggestions(args, ctx)),
+      tool('update_suggestion', d.update_suggestion.description, d.update_suggestion.schema,
+        async (args) => handleUpdateSuggestion(args, ctx)),
+      tool('reorder_suggestions', d.reorder_suggestions.description, d.reorder_suggestions.schema,
+        async (args) => handleReorderSuggestions(args, ctx)),
+      tool('delete_suggestion', d.delete_suggestion.description, d.delete_suggestion.schema,
+        async (args) => handleDeleteSuggestion(args, ctx)),
     ],
   });
 }

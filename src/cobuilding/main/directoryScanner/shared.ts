@@ -56,15 +56,7 @@ export const DIRECTORY_ORGANIZATION_PROMPT = `Please help me organize my researc
 
 YOU MUST ALWAYS present me with a clear plan before proceeding to take any actions or make any file modifications. Do not move, rename, delete, rewrite, or create files until I explicitly approve the plan.`;
 
-export const SYSTEM_PROMPT_PREAMBLE = `## Speed is critical — this is your #1 priority
-
-A user is waiting on this scan. You MUST finish as fast as possible. Every extra turn you take is noticeable delay.
-
-- **Minimize turns**: Do as much as you can in each response.
-- **Don't over-explore**: A good-enough scan that finishes in 30 seconds is far better than a thorough scan that takes 2 minutes. Once you have enough signal to produce your output, stop exploring and write it.
-- **Keep summaries concise**: Write short, focused summaries. Do not pad them with unnecessary detail.
-
-## Hidden files and directories
+export const FILE_ACCESS_PREAMBLE = `## Hidden files and directories
 
 **Ignore all hidden files and directories** (names starting with a dot, e.g. \`.git\`, \`.vscode\`, \`.env\`, \`.DS_Store\`). Do not scan them, read them, or include them in your report. They are not relevant to the researcher's work. Access to hidden paths is blocked and will fail — do not attempt it.
 
@@ -76,10 +68,6 @@ A user is waiting on this scan. You MUST finish as fast as possible. Every extra
 - Any absolute path that does not begin with one of the scan roots
 
 Access to paths outside the scan directories is blocked and will fail — do not attempt it. **Always use absolute paths** when reading files, globbing, or grepping — the working directory is not set to the scan directory, so relative paths will not resolve correctly.
-
-## Using the directory tree
-
-A pre-generated directory tree is included in the user prompt. It shows all non-hidden files with modification dates, sorted by most recent first. Use it to identify the most important files and directories. Do NOT run broad Glob surveys like \`**/*\` — the tree already provides this. Only use Glob for targeted searches if the tree's depth limit may have excluded relevant subdirectories.
 
 ## Token usage
 
@@ -93,6 +81,22 @@ A pre-generated directory tree is included in the user prompt. It shows all non-
 
 The directory tree includes modification dates for each file. Use these to understand what the researcher has been working on recently.
 `;
+
+export const SCAN_SPEED_PREAMBLE = `## Speed is critical — this is your #1 priority
+
+A user is waiting on this scan. You MUST finish as fast as possible. Every extra turn you take is noticeable delay.
+
+- **Minimize turns**: Do as much as you can in each response.
+- **Don't over-explore**: A good-enough scan that finishes in 30 seconds is far better than a thorough scan that takes 2 minutes. Once you have enough signal to produce your output, stop exploring and write it.
+- **Keep summaries concise**: Write short, focused summaries. Do not pad them with unnecessary detail.
+
+## Using the directory tree
+
+A pre-generated directory tree is included in the user prompt. It shows all non-hidden files with modification dates, sorted by most recent first. Use it to identify the most important files and directories. Do NOT run broad Glob surveys like \`**/*\` — the tree already provides this. Only use Glob for targeted searches if the tree's depth limit may have excluded relevant subdirectories.
+`;
+
+export const SYSTEM_PROMPT_PREAMBLE = `${SCAN_SPEED_PREAMBLE}
+${FILE_ACCESS_PREAMBLE}`;
 
 export function generateDirectoryTree(directoryPath: string): string {
   const rawTree = generateTreeCli(directoryPath, {

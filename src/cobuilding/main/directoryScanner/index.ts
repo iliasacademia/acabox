@@ -10,7 +10,7 @@ import {
   type ScanContext,
 } from "./shared";
 import { runResearchProfileAgent } from "./agents/researchProfile";
-import { runTaskSuggestionAgent } from "./agents/taskSuggestion";
+import { runQuickTaskSuggestionAgent, runInDepthTaskSuggestionAgent } from "./agents/taskSuggestion";
 import { runFileTaggingAgent } from "./agents/fileTagging";
 
 export type { ScannerEvent, ScanParams };
@@ -72,7 +72,7 @@ export async function scanWorkspaceDirectory(
     // background and update the report / create briefings when they finish.
     const profilePromise = runResearchProfileAgent(ctx);
     const taggingPromise = runFileTaggingAgent(ctx);
-    const suggestionPromise = runTaskSuggestionAgent(ctx);
+    const suggestionPromise = runQuickTaskSuggestionAgent(ctx);
 
     const profile = await profilePromise;
 
@@ -111,8 +111,13 @@ async function completeBackgroundWork(
   });
 
   await suggestionPromise.catch((err) => {
-    log.error("[DirectoryScanner] Task suggestion agent failed:", err);
+    log.error("[DirectoryScanner] Quick task suggestion agent failed:", err);
   });
+
+  await runInDepthTaskSuggestionAgent(ctx).catch((err) => {
+    log.error("[DirectoryScanner] In-depth task suggestion agent failed:", err);
+  });
+
   log.info(
     `[DirectoryScanner] Background agents completed for workspace ${ctx.workspaceId}`,
   );
