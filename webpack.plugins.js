@@ -2,6 +2,7 @@ const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const NativeWatchPlugin = require('./webpack.native-watch.plugin');
 const webpack = require('webpack');
+const { sentryWebpackPlugin } = require('@sentry/webpack-plugin');
 const { validateCloudFrontDomain } = require('./src/utils/validateCloudFrontDomain');
 const os = require('os');
 
@@ -69,6 +70,8 @@ module.exports = [
     'process.env.CLOUDFRONT_DOMAIN': JSON.stringify(process.env.CLOUDFRONT_DOMAIN || ''),
     'process.env.DATADOG_CLIENT_TOKEN': JSON.stringify(process.env.DATADOG_CLIENT_TOKEN || ''),
     'process.env.DATADOG_SITE': JSON.stringify(process.env.DATADOG_SITE || 'datadoghq.com'),
+    'process.env.DATADOG_APPLICATION_ID': JSON.stringify(process.env.DATADOG_APPLICATION_ID || ''),
+    'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN || ''),
     'process.env.ONBOARDING_V2_ENABLED': JSON.stringify(process.env.ONBOARDING_V2_ENABLED || 'false'),
     'process.env.FULLSTORY_FORCE_RECORDING': JSON.stringify(process.env.FULLSTORY_FORCE_RECORDING || 'false'),
     'process.env.ENTRY_POINT': JSON.stringify(process.env.ENTRY_POINT || ''),
@@ -104,5 +107,24 @@ module.exports = [
   }),
   new NativeWatchPlugin({
     debounceDelay: 300, // Wait 300ms after last change before rebuilding
+  }),
+  // Sentry source-map upload. Runs once per webpack compilation (main + renderer);
+  // each invocation uploads the maps from its own output directory, tagged with
+  // the same `release` value the runtime Sentry SDK uses (package.json version).
+  //
+  // No-op when SENTRY_AUTH_TOKEN is unset (local dev, CI without the secret
+  // configured) so the plugin doesn't fail the build.
+  sentryWebpackPlugin({
+    org: process.env.SENTRY_ORG,
+    project: process.env.SENTRY_PROJECT,
+    authToken: process.env.SENTRY_AUTH_TOKEN,
+    release: { name: require('./package.json').version },
+    disable:
+      !process.env.SENTRY_AUTH_TOKEN ||
+      !process.env.SENTRY_ORG ||
+      !process.env.SENTRY_PROJECT,
+    telemetry: false,
+    // Silent unless we're actually uploading (otherwise dev runs print noise).
+    silent: !process.env.SENTRY_AUTH_TOKEN,
   }),
 ];

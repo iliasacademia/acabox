@@ -418,6 +418,12 @@ declare global {
     isOverlayEnabled(): Promise<boolean>;
     /** Pipes a renderer-side log line into electron-log on the main process. */
     log(msg: string): Promise<void>;
+    /**
+     * Triggers a test error on the main process to verify Sentry wiring.
+     * kind: 'uncaught' | 'rejection' | 'capture'
+     * subsystem: optional tag applied when kind === 'capture'
+     */
+    telemetryTest(kind: string, subsystem?: string): Promise<{ ok: boolean; error?: string }>;
   }
 
   interface SettingsAPI {
