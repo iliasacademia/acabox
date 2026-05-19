@@ -3239,6 +3239,10 @@ body.cobuild-resizing webview {
   color: #2563eb;
 }
 
+.fileTreeRowAction--spinning svg {
+  animation: spin 1s linear infinite;
+}
+
 .fileTreeRowMain {
   display: flex;
   min-width: 0;

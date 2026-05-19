@@ -10,7 +10,7 @@ import {
   hasCredentials as googleDocsHasCredentials,
   hasDriveScope as googleDocsHasDriveScope,
 } from '../googleDocsService';
-import { listFiles as driveListFiles } from '../googleDriveService';
+import { listFiles as driveListFiles, generateDriveDirectoryTree } from '../googleDriveService';
 import {
   listWorkspaceDirectoriesBySource,
   removeWorkspaceDirectoriesBySource,
@@ -86,12 +86,12 @@ export class GoogleDriveController {
             JSON.stringify({ driveId: item.id, mimeType: item.mimeType, path: item.path }),
           );
         }
-        // Create cache subdirectories for each selected folder so files can be
-        // downloaded there. The parent google-drive-cache dir is already mounted
-        // into the container, so no restart is needed.
+        // Create cache subdirectories and generate the Drive tree for each
+        // selected folder so children are immediately available in the file view.
         const cacheBase = this.workspaceController.driveCacheBaseDir;
         for (const item of items) {
           fs.mkdirSync(path.join(cacheBase, item.name), { recursive: true });
+          await generateDriveDirectoryTree(item.id, item.name, wsId);
         }
         this.workspaceController.loadActiveWorkspace();
         return { success: true };
@@ -167,6 +167,22 @@ export class GoogleDriveController {
         return db.prepare('SELECT * FROM google_drive_cache WHERE workspace_id = ? ORDER BY relative_path').all(wsId);
       } catch {
         return [];
+      }
+    });
+
+    ipcMain.handle('googleDrive:refreshTree', async () => {
+      try {
+        const wsId = this.workspaceController.workspaceId;
+        if (!wsId) return { success: false, error: 'No active workspace' };
+        const dirs = listWorkspaceDirectoriesBySource(wsId, 'google-drive');
+        if (dirs.length === 0) return { success: false, error: 'No Google Drive folders connected' };
+        for (const d of dirs) {
+          const driveId = d.directory_path.replace('gdrive://', '');
+          await generateDriveDirectoryTree(driveId, d.display_name, wsId);
+        }
+        return { success: true };
+      } catch (err: any) {
+        return { success: false, error: err?.message ?? String(err) };
       }
     });
 
