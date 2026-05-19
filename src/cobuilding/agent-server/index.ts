@@ -769,8 +769,19 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
 
     state.queryInstance = queryInstance;
 
+    let authRetryCount = 0;
     for await (const message of queryInstance) {
       broadcastSSE(state, 'message', message);
+
+      const msg = message as any;
+      if (msg.type === 'system' && msg.subtype === 'api_retry' && (msg.error_status === 401 || msg.error_status === 403)) {
+        authRetryCount++;
+        if (authRetryCount > 1) {
+          console.log(`[AgentServer] Auth error persisted after retry (status=${msg.error_status}), aborting query`);
+          queryInstance.close();
+          throw new Error(`Failed to authenticate. API Error: ${msg.error_status}`);
+        }
+      }
     }
 
     broadcastSSE(state, 'done', {});
@@ -927,6 +938,7 @@ function sendJSON(res: ServerResponse, status: number, body: unknown): void {
 function parseRoute(url: string): { path: string; sessionId?: string; action?: string } {
   const parts = url.split('/').filter(Boolean);
   if (parts[0] === 'health') return { path: 'health' };
+  if (parts[0] === 'credentials') return { path: 'credentials' };
   if (parts[0] === 'sessions') {
     if (parts.length === 1) return { path: 'sessions' };
     if (parts.length === 3) return { path: 'session-action', sessionId: parts[1], action: parts[2] };
@@ -934,13 +946,28 @@ function parseRoute(url: string): { path: string; sessionId?: string; action?: s
   return { path: 'unknown' };
 }
 
-function startServer(config: AgentConfig): void {
+function startServer(initialConfig: AgentConfig): void {
+  let currentConfig = initialConfig;
+
   const server = createServer(async (req, res) => {
     const route = parseRoute(req.url ?? '/');
 
     try {
       if (route.path === 'health' && req.method === 'GET') {
         sendJSON(res, 200, { status: 'ok', sessions: sessions.size });
+        return;
+      }
+
+      if (route.path === 'credentials' && req.method === 'POST') {
+        const body = JSON.parse(await readBody(req));
+        if (body.anthropicApiKey) {
+          currentConfig = { ...currentConfig, anthropicApiKey: body.anthropicApiKey };
+        }
+        if ('anthropicBaseURL' in body) {
+          currentConfig = { ...currentConfig, anthropicBaseURL: body.anthropicBaseURL || undefined };
+        }
+        console.log('[AgentServer] Credentials updated');
+        sendJSON(res, 200, { ok: true });
         return;
       }
 
@@ -953,7 +980,7 @@ function startServer(config: AgentConfig): void {
           soulMd: body.soulMd,
           hostGuidance: body.hostGuidance,
         };
-        createSession(sessionId, config, resumeSessionId, sessionOverrides);
+        createSession(sessionId, currentConfig, resumeSessionId, sessionOverrides);
         sendJSON(res, 201, { sessionId });
         return;
       }
@@ -1062,8 +1089,8 @@ function startServer(config: AgentConfig): void {
     }
   });
 
-  server.listen(config.port, '0.0.0.0', () => {
-    console.log(`[AgentServer] Listening on 0.0.0.0:${config.port}`);
+  server.listen(currentConfig.port, '0.0.0.0', () => {
+    console.log(`[AgentServer] Listening on 0.0.0.0:${currentConfig.port}`);
   });
 
   process.on('SIGTERM', () => {
@@ -1091,5 +1118,4 @@ function startServer(config: AgentConfig): void {
 // The subprocess also receives it via the query() env option.
 process.env.CLAUDE_CONFIG_DIR = '/data/.academia/claude-config';
 
-const config = loadConfig();
-startServer(config);
+startServer(loadConfig());
