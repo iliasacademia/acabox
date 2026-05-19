@@ -56,8 +56,8 @@ const NOTIFICATION_OUTPUT_SCHEMA = {
   type: "object" as const,
   properties: {
     made_changes: { type: "boolean", description: "Whether any suggestions were created, updated, deleted, or reordered" },
-    title: { type: "string", description: "Short notification title, e.g. 'Suggestions updated'" },
-    body: { type: "string", description: "1-2 sentence summary of changes made" },
+    title: { type: "string", description: "Short, enticing notification title that highlights a specific task you can do for the user, e.g. 'I can visualize your RNA-seq results'" },
+    body: { type: "string", description: "1-2 sentence description that highlights the most compelling things you found you can help with. Focus on what you can do for the user, not on internal bookkeeping like how many suggestions were added or reordered." },
   },
   required: ["made_changes", "title", "body"],
 };
@@ -124,13 +124,13 @@ async function runTaskSuggestionAgent<T>(ctx: ScanContext, config: AgentConfig):
 }
 
 function buildSharedSystemPrompt(skillContent: string): string {
-  return `You are a research workspace assistant. Your job is to identify and suggest things you can do for a researcher that would significantly expedite their research.
+  return `You are a research workspace assistant. Your job is to look at a researcher's files and show them what you can build and do for them — especially things they wouldn't think to ask for.
 
 ${FILE_ACCESS_PREAMBLE}
 
 ## Suggested tasks guidance
 
-Follow the guidance below closely. It defines what makes a good suggestion, the suggestion types, quality criteria, and examples.
+Follow the guidance below closely. It defines what makes a good suggestion, the suggestion types, quality criteria, feasibility requirements, and examples.
 
 ${skillContent}`;
 }
@@ -152,13 +152,15 @@ ${SCAN_SPEED_PREAMBLE}
 ${dirDescription}
 
 Use the directory ${multi ? "trees" : "tree"} below to guide your analysis. Skip broad Glob surveys and go directly to reading the most important files. Focus on understanding:
-- What projects the researcher has and what each contains
-- What tools, languages, and frameworks they use
-- What research techniques and methods they employ
-- What repetitive workflows could be automated
-- What things you could build or do that would save them the most time
+- What data and research files they have (datasets, papers, experimental results)
+- What research domain they're in and what specific problems they're working on
+- What research techniques and methods they use (e.g. Western blots, RNA-seq, regression analysis, surveys)
+- What repetitive workflows you spot (data formatting, figure generation, similar file processing)
+- What computational methods are described in their papers that you could reproduce as interactive tools
+- What custom interactive tools you could build for their specific data
+- What deep analysis or synthesis work you could do that they wouldn't think to ask for
 
-Create 2 high-impact task suggestions using the \`mcp__suggested-tasks__create_suggestion\` tool — ideally one \`one_time_task\` and one \`mini_app\`. Focus on the most impactful things you can identify quickly. Work as fast as possible.
+Create 2-3 suggestions using the \`mcp__suggested-tasks__create_suggestion\` tool. Do not create more than that — an in-depth scan will follow to add and refine suggestions. Make suggestion names specific and enticing (e.g. "Explore your RNA-seq results interactively" not "Data analysis tool"). Work as fast as possible.
 
 ## Directory ${multi ? "trees" : "tree"}
 
@@ -173,7 +175,7 @@ function buildInDepthPrompt(directoryPaths: string[]): string {
     ? `The researcher's workspace directories are:\n${directoryPaths.map((dp, i) => `${i + 1}. ${dp}`).join("\n")}`
     : `The researcher's workspace directory is: ${directoryPaths[0]}`;
 
-  return `You are performing an in-depth review and curation of the researcher's suggested tasks collection. Your goal is to ensure the suggestions shown on their Home tab are the most impactful things you can offer.
+  return `You are performing an in-depth review and curation of the researcher's suggested tasks collection.
 
 ${dirDescription}
 
@@ -182,14 +184,13 @@ Use targeted Glob and Grep queries when you need to explore the workspace — av
 ## Your process
 
 1. **Review existing suggestions**: Call \`mcp__suggested-tasks__list_suggestions\` to see what's currently suggested. Pay attention to the \`created_at\` timestamps on each suggestion.
-2. **Evaluate each suggestion**: For each existing suggestion, assess whether it is specific enough, tied to real files in the workspace, and genuinely high-impact. Read files in the workspace as needed to verify and improve your understanding.
+2. **Evaluate each suggestion** against the quality criteria and feasibility checklists in the suggested tasks guidance above. Read files in the workspace as needed to verify and improve your understanding.
 3. **Improve the collection**:
    - Update suggestions that are too vague or could be more specific using \`mcp__suggested-tasks__update_suggestion\`
-   - Delete suggestions that are low-impact or redundant using \`mcp__suggested-tasks__delete_suggestion\` — but avoid deleting recently created suggestions (check \`created_at\`). Prefer updating over deleting when a suggestion was just created.
+   - Delete suggestions that are low-impact, redundant, or less compelling than the others using \`mcp__suggested-tasks__delete_suggestion\` — but never delete suggestions created less than 1 hour ago (check \`created_at\`). Prefer updating over deleting when possible.
    - Create new suggestions if you identify high-impact opportunities not yet covered using \`mcp__suggested-tasks__create_suggestion\`
-   - Aim for variety across categories (literature synthesis, technique analysis, workflow automation, document review, data exploration)
-4. **Order by impact**: Call \`mcp__suggested-tasks__reorder_suggestions\` to put the highest-impact suggestions first.
-5. **Summarize your changes**: Your response will be captured as structured JSON with \`title\` and \`body\` fields. Provide a short title (e.g. "Suggestions updated") and a 1-2 sentence body summarizing what you changed (e.g. how many suggestions you added, updated, or removed).
+4. **Order by impact**: Call \`mcp__suggested-tasks__reorder_suggestions\` to put the highest-impact suggestions first. Do not reorder suggestions created less than 1 hour ago — the user may already be looking at them.
+5. **Write an enticing notification**: Your response will be captured as structured JSON with \`title\` and \`body\` fields. The notification should catch the user's attention and make them want to check their suggestions. Write a short title that highlights a specific task you can do for the user (e.g. "I can visualize your RNA-seq results"). Write a 1-2 sentence body that highlights the most compelling things you found you can help with. Focus on what you can do for the user — never mention internal bookkeeping like how many suggestions were added, removed, or reordered.
 
-Focus on quality over quantity. A curated list of 4-6 excellent, specific suggestions is better than 10 mediocre ones.`;
+Apply the curation guidance from the suggested tasks skill — evaluate the collection as a cohesive whole and keep it tight.`;
 }
