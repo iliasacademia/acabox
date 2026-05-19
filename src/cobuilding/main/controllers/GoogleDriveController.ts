@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
+import * as path from 'path';
 import { ipcMain } from 'electron';
 import { randomUUID } from 'crypto';
 import {
@@ -21,16 +22,14 @@ import type { WorkspaceController } from './WorkspaceController';
 
 export interface GoogleDriveControllerDeps {
   workspaceController: WorkspaceController;
-  containerService: { isRunning(): boolean; start(mountMap: any): Promise<void> };
+  containerService?: { isRunning(): boolean; start(mountMap: any): Promise<void> };
 }
 
 export class GoogleDriveController {
   private workspaceController: WorkspaceController;
-  private containerService: GoogleDriveControllerDeps['containerService'];
 
   constructor(deps: GoogleDriveControllerDeps) {
     this.workspaceController = deps.workspaceController;
-    this.containerService = deps.containerService;
   }
 
   registerIpcHandlers(): void {
@@ -87,10 +86,14 @@ export class GoogleDriveController {
             JSON.stringify({ driveId: item.id, mimeType: item.mimeType, path: item.path }),
           );
         }
-        this.workspaceController.loadActiveWorkspace();
-        if (this.containerService.isRunning()) {
-          await this.containerService.start(this.workspaceController.mountMap);
+        // Create cache subdirectories for each selected folder so files can be
+        // downloaded there. The parent google-drive-cache dir is already mounted
+        // into the container, so no restart is needed.
+        const cacheBase = this.workspaceController.driveCacheBaseDir;
+        for (const item of items) {
+          fs.mkdirSync(path.join(cacheBase, item.name), { recursive: true });
         }
+        this.workspaceController.loadActiveWorkspace();
         return { success: true };
       } catch (err: any) {
         return { success: false, error: err?.message ?? String(err) };
@@ -175,10 +178,9 @@ export class GoogleDriveController {
         removeWorkspaceDirectoriesBySource(wsId, 'google-drive');
         const cacheDir = this.workspaceController.driveCacheBaseDir;
         await fsPromises.rm(cacheDir, { recursive: true, force: true });
+        // Re-create the base dir so the existing container mount stays valid
+        fs.mkdirSync(cacheDir, { recursive: true });
         this.workspaceController.loadActiveWorkspace();
-        if (this.containerService.isRunning()) {
-          await this.containerService.start(this.workspaceController.mountMap);
-        }
         return { success: true };
       } catch (err: any) {
         return { success: false, error: err?.message ?? String(err) };

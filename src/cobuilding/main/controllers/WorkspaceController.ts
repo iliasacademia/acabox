@@ -53,10 +53,7 @@ export class WorkspaceController {
   }
 
   get mountMap(): Array<{ hostPath: string; containerPath: string }> {
-    const driveDirectories = this._activeWorkspace
-      ? listWorkspaceDirectoriesBySource(this._activeWorkspace.id, 'google-drive')
-      : [];
-    return buildMountMap(this.workspacePath, this.userDirectories, driveDirectories);
+    return buildMountMap(this.workspacePath, this.userDirectories, this.driveCacheBaseDir);
   }
 
   get driveCacheBaseDir(): string {
@@ -168,13 +165,13 @@ function sanitizeMountName(dirPath: string): string {
 // Builds the ordered list of volume mounts for the podman container.
 // The agent-controlled directory is always first, mounted at /data (the container's
 // working directory). User directories follow, each mounted at /data/<sanitized-name>.
-// Google Drive directories are mounted at /data/google-drive/<folder-name> using
-// the original Drive folder name (paths are quoted in the podman script).
+// The google-drive-cache base directory is always mounted at /data/google-drive/ so
+// that new Drive folders appear inside the container without a restart.
 // If two directories produce the same name, duplicates get a _2, _3 suffix.
 export function buildMountMap(
   agentDir: string,
   directories: WorkspaceDirectory[],
-  driveDirectories: WorkspaceDirectory[] = [],
+  driveCacheBase?: string,
 ): Array<{ hostPath: string; containerPath: string }> {
   const result: Array<{ hostPath: string; containerPath: string }> = [
     { hostPath: agentDir, containerPath: '/data' },
@@ -188,18 +185,9 @@ export function buildMountMap(
     result.push({ hostPath: dir.directory_path, containerPath: `/data/${name}` });
   }
 
-  if (driveDirectories.length > 0) {
-    const cacheBase = path.join(app.getPath('userData'), 'google-drive-cache');
-    const driveCounts = new Map<string, number>();
-    for (const dd of driveDirectories) {
-      const base = dd.display_name;
-      const count = driveCounts.get(base) ?? 0;
-      driveCounts.set(base, count + 1);
-      const name = count > 0 ? `${base}_${count + 1}` : base;
-      const hostPath = path.join(cacheBase, name);
-      fs.mkdirSync(hostPath, { recursive: true });
-      result.push({ hostPath, containerPath: `/data/google-drive/${name}` });
-    }
+  if (driveCacheBase) {
+    fs.mkdirSync(driveCacheBase, { recursive: true });
+    result.push({ hostPath: driveCacheBase, containerPath: '/data/google-drive' });
   }
 
   return result;
