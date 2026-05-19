@@ -290,7 +290,10 @@ export async function downloadFile(
   const adjustedRelPath = isWorkspaceFile && exportInfo && !relativePath.endsWith(exportInfo.extension)
     ? relativePath + exportInfo.extension
     : relativePath;
-  const filePath = path.join(cacheBaseDir, adjustedRelPath);
+  const filePath = path.resolve(cacheBaseDir, adjustedRelPath);
+  if (!filePath.startsWith(path.resolve(cacheBaseDir) + path.sep)) {
+    return { success: false, error: 'Invalid file path' };
+  }
 
   // Check staleness via DB
   const cached = getCacheEntry(fileId);

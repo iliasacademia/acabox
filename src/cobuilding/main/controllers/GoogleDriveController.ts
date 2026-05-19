@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
-import { ipcMain } from 'electron';
+import { app, ipcMain } from 'electron';
 import { randomUUID } from 'crypto';
 import {
   isConnected as isGoogleDocsConnected,
@@ -88,9 +88,13 @@ export class GoogleDriveController {
         }
         // Create cache subdirectories and generate the Drive tree for each
         // selected folder so children are immediately available in the file view.
-        const cacheBase = this.workspaceController.driveCacheBaseDir;
+        const cacheBase = path.resolve(this.workspaceController.driveCacheBaseDir);
         for (const item of items) {
-          fs.mkdirSync(path.join(cacheBase, item.name), { recursive: true });
+          const subDir = path.resolve(cacheBase, item.name);
+          if (!subDir.startsWith(cacheBase + path.sep)) {
+            throw new Error('Invalid folder name');
+          }
+          fs.mkdirSync(subDir, { recursive: true });
           await generateDriveDirectoryTree(item.id, item.name, wsId);
         }
         this.workspaceController.loadActiveWorkspace();
@@ -192,7 +196,11 @@ export class GoogleDriveController {
         if (!wsId) return { success: false, error: 'No active workspace' };
         clearWorkspaceCache(wsId);
         removeWorkspaceDirectoriesBySource(wsId, 'google-drive');
-        const cacheDir = this.workspaceController.driveCacheBaseDir;
+        const cacheDir = path.resolve(this.workspaceController.driveCacheBaseDir);
+        const expectedParent = path.resolve(app.getPath('userData'));
+        if (!cacheDir.startsWith(expectedParent + path.sep)) {
+          return { success: false, error: 'Invalid cache directory path' };
+        }
         await fsPromises.rm(cacheDir, { recursive: true, force: true });
         // Re-create the base dir so the existing container mount stays valid
         fs.mkdirSync(cacheDir, { recursive: true });
