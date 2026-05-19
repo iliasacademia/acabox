@@ -15,12 +15,10 @@ import {
   WidthToggleIcon,
   DockRightIcon,
   UndockIcon,
-  POPUP_HEIGHT_ENABLE_FEEDBACK,
-  POPUP_HEIGHT_UNSAVED_DOCUMENT,
   POPUP_HEIGHT_PER_CONVERSATION,
 } from './popupV2/shared';
 import { useWordPollWebSocket } from './popupV2/useWordPollWebSocket';
-import { ConversationListView, NotLinkedView, WorkspaceSessionsView, WorkspaceConversationView, effectiveDocDisplayName } from './popupV2/MenuView';
+import { ConversationListView, WorkspaceSessionsView, WorkspaceConversationView, effectiveDocDisplayName } from './popupV2/MenuView';
 import {
   findAutoOpenCandidate,
   shouldAutoOpenFreshSession,
@@ -44,8 +42,6 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   // State for project file info
   const [projectId, setProjectId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isEnableFeedback, setIsEnableFeedback] = useState(false);
-  const [isUnsavedDocument, setIsUnsavedDocument] = useState(false);
   // Cobuilding workspace state
   const [isInWorkspace, setIsInWorkspace] = useState(false);
   const [workspaceSessions, setWorkspaceSessions] = useState<Array<{ id: string; title: string; created_at: string; is_running?: boolean }>>([]);
@@ -226,8 +222,6 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     if (pollData.fullStoryConfig) cacheFullStoryConfig(pollData.fullStoryConfig);
     onVisibilityChanged('popup', pollData.shouldShowPopupV2 ?? false);
 
-    setIsEnableFeedback(pollData.isEnableFeedback ?? false);
-    setIsUnsavedDocument(pollData.isUnsavedDocument ?? false);
     setIsInWorkspace(pollData.isInWorkspace ?? false);
     setWorkspaceSessions(pollData.workspaceSessions ?? []);
     setActiveDocumentDisplayName(pollData.activeDocumentDisplayName ?? null);
@@ -238,7 +232,11 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       setActiveSession({ id: activeSession!.id, title: newTitle });
     }
 
-    if (isActiveSessionStaleForDoc(activeSession?.id ?? null, pollData.workspaceSessions ?? [])) {
+    // Clear the local-session ref once the session appears in the DB.
+    if (localSessionIdRef.current && (pollData.workspaceSessions ?? []).some(s => s.id === localSessionIdRef.current)) {
+      localSessionIdRef.current = null;
+    }
+    if (activeSession?.id !== localSessionIdRef.current && isActiveSessionStaleForDoc(activeSession?.id ?? null, pollData.workspaceSessions ?? [])) {
       setActiveSession(null);
       setShowingList(true);
     }
@@ -305,7 +303,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       persistAutoOpened(docPath, alreadyAutoOpened);
     }
 
-    if (!pollData.shouldShowPopupV2 && !pollData.isEnableFeedback && !pollData.isInWorkspace) {
+    if (!pollData.shouldShowPopupV2 && !pollData.isInWorkspace) {
       console.log(`[AcademiaNotificationsPopupV2] Hiding popup. Active path: ${pollData.activeDocumentPath || 'none'}`);
       if (sizeAnimRef.current !== null) {
         cancelAnimationFrame(sizeAnimRef.current);
@@ -351,10 +349,6 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       // Cobuilding overlay: always use a fixed height regardless of content.
       // The list / conversation scrolls internally; the launcher stays visible below.
       height = 460;
-    } else if (isEnableFeedback && isUnsavedDocument) {
-      height = POPUP_HEIGHT_UNSAVED_DOCUMENT;
-    } else if (isEnableFeedback) {
-      height = POPUP_HEIGHT_ENABLE_FEEDBACK;
     } else {
       height = POPUP_HEIGHT_CONVERSATIONS_BASE;
       height += Math.min(conversations.length, 5) * POPUP_HEIGHT_PER_CONVERSATION;
@@ -376,7 +370,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
         });
       }
     }
-  }, [isEnableFeedback, isUnsavedDocument, conversations, isWide, isInWorkspace, workspaceSessions, activeSession]);
+  }, [conversations, isWide, isInWorkspace, workspaceSessions, activeSession]);
 
   // Handle clicking a conversation — navigate to it in the main window
   const handleContinueConversation = async (conversation: ConversationItem) => {
@@ -406,6 +400,11 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   };
 
   const [showingList, setShowingList] = useState(!activeSession);
+  // Tracks a locally-created session ID that hasn't been persisted to the
+  // DB yet. The stale check skips this ID so poll broadcasts (triggered by
+  // text selection, window repositioning, etc.) don't yank the user out of
+  // a brand-new chat before the first message is sent.
+  const localSessionIdRef = useRef<string | null>(null);
 
   const handleBackToSessions = () => {
     setShowingList(true);
@@ -414,6 +413,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const handleNewConversation = () => {
     const id = crypto.randomUUID();
     console.log('[AcademiaNotificationsPopupV2] New conversation:', id);
+    localSessionIdRef.current = id;
     setActiveSession({ id, title: 'New Conversation' });
     setShowingList(false);
   };
@@ -426,6 +426,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     if (shouldAutoOpenBlankChat(isInWorkspace, workspaceSessions.length, activeSession?.id ?? null)) {
       const id = crypto.randomUUID();
       console.log('[AcademiaNotificationsPopupV2] Empty workspace — auto-opening blank chat:', id);
+      localSessionIdRef.current = id;
       setActiveSession({ id, title: 'New Conversation' });
       setShowingList(false);
     }
@@ -672,8 +673,6 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
                 onOpenSession={handleOpenSession}
                 onNewConversation={handleNewConversation}
               />
-            : isEnableFeedback
-            ? <NotLinkedView isUnsavedDocument={isUnsavedDocument} />
             : <ConversationListView
                 conversations={conversations}
                 isLoading={isLoading}

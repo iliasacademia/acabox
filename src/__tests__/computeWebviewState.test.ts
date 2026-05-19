@@ -293,7 +293,7 @@ describe('applyFocusLossCarryForward', () => {
     expect(result.desiredState).toEqual({});
   });
 
-  test('returns original state when desiredState already has entries', () => {
+  test('force-hides entries when host app not focused even if desiredState has entries', () => {
     const desiredState: DesiredWebviewState = {
       'button-v2': {
         url: 'http://localhost:3000/button',
@@ -303,8 +303,10 @@ describe('applyFocusLossCarryForward', () => {
     };
     const result = applyFocusLossCarryForward(desiredState, lastDesiredState, false, '42');
 
-    expect(result.desiredState).toBe(desiredState);
-    expect(result.windowId).toBeNull();
+    expect(result.desiredState['button-v2'].visible).toBe(false);
+    expect(result.desiredState['button-v2'].background).toBe(true);
+    expect(result.desiredState['button-v2'].frame).toEqual({ x: 50, y: 100, width: 150, height: 50 });
+    expect(result.windowId).toBe('42');
   });
 
   test('carries forward all entry types including review panels', () => {

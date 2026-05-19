@@ -14,7 +14,6 @@ const tokenParam = urlParams.get('token');
 
 // Define response type locally to avoid importing server types in client code
 interface WordPollResponse {
-  isEnableFeedback?: boolean;
   projectId?: number;
   projectFileId?: number;
   notificationCount: number;
@@ -46,12 +45,11 @@ function useWordPollWebSocket(
   wid: string | null,
   token: string | null,
   apiBaseUrl: string
-): { badgeCount: number; isReviewing: boolean; reviewStartedAt: number | null; shouldShowButtonV2: boolean; isEnableFeedback: boolean; focusedWid: string | null; hasSelectedText: boolean } {
+): { badgeCount: number; isReviewing: boolean; reviewStartedAt: number | null; shouldShowButtonV2: boolean; focusedWid: string | null; hasSelectedText: boolean } {
   const [badgeCount, setBadgeCount] = useState(0);
   const [isReviewing, setIsReviewing] = useState(false);
   const [reviewStartedAt, setReviewStartedAt] = useState<number | null>(null);
   const [shouldShowButtonV2, setShouldShowButtonV2] = useState(false);
-  const [isEnableFeedback, setIsEnableFeedback] = useState(false);
   const [focusedWid, setFocusedWid] = useState<string | null>(null);
   const [hasSelectedText, setHasSelectedText] = useState(false);
 
@@ -74,7 +72,6 @@ function useWordPollWebSocket(
       setIsReviewing(data.isReviewingSelectedText ?? false);
       setReviewStartedAt(data.selectedTextReviewStartedAt ?? null);
       setShouldShowButtonV2(data.shouldShowButtonV2 ?? false);
-      setIsEnableFeedback(data.isEnableFeedback ?? false);
       setHasSelectedText(data.hasSelectedText ?? false);
       if (data.wid) setFocusedWid(data.wid);
     }
@@ -193,7 +190,7 @@ function useWordPollWebSocket(
     };
   }, [wid, token, apiBaseUrl]);
 
-  return { badgeCount, isReviewing, reviewStartedAt, shouldShowButtonV2, isEnableFeedback, focusedWid, hasSelectedText };
+  return { badgeCount, isReviewing, reviewStartedAt, shouldShowButtonV2, focusedWid, hasSelectedText };
 }
 
 function postBridge(action: string, payload: Record<string, unknown>, widOverride?: string | null) {
@@ -228,7 +225,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
   } | null>(null);
   const didDragRef = useRef(false);
 
-  const { badgeCount, isReviewing, shouldShowButtonV2, isEnableFeedback, focusedWid, hasSelectedText } = useWordPollWebSocket(
+  const { badgeCount, isReviewing, shouldShowButtonV2, focusedWid, hasSelectedText } = useWordPollWebSocket(
     widParam,
     tokenParam,
     serverUrl
@@ -327,7 +324,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
       didDragRef.current = false;
       return;
     }
-    const action = isEnableFeedback ? 'enableFeedbackClicked' : 'openPopup';
+    const action = 'openPopup';
     setLoading(true);
     try {
       await fetch(`${serverUrl}/bridge`, {
@@ -369,7 +366,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
   }
 
   const displayCount = badgeCount > 9 ? '9+' : badgeCount.toString();
-  const showReviewSelection = hasSelectedText && !isEnableFeedback;
+  const showReviewSelection = hasSelectedText;
 
   return (
     <div className="button-container">
@@ -394,9 +391,9 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
           <span className="drag-dot" />
         </div>
         <span className="feedback-text" data-node-id="1630:6722">
-          {isEnableFeedback ? 'Enable feedback' : 'Academia'}
+          Academia
         </span>
-        {!isEnableFeedback && badgeCount > 0 && (
+        {badgeCount > 0 && (
           <div className="badge" data-node-id="1630:6723">
             <span className="badge-text" data-node-id="1630:6724">
               {displayCount}

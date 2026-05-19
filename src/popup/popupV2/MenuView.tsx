@@ -390,36 +390,3 @@ const ForeignTurnWatcher: React.FC<{ sessionId: string; onForeignDone: () => voi
   return null;
 };
 
-// ─── Not Linked View ─────────────────────────────────────────────────
-
-interface NotLinkedViewProps {
-  isUnsavedDocument: boolean;
-}
-
-export const NotLinkedView: React.FC<NotLinkedViewProps> = ({
-  isUnsavedDocument,
-}) => {
-  return (
-    <>
-      {isUnsavedDocument ? (
-        <>
-          <div style={styles.enableFeedbackTitle}>
-            Save your document first
-          </div>
-          <div style={styles.enableFeedbackDescription}>
-            Please save your document to get started.
-          </div>
-        </>
-      ) : (
-        <>
-          <div style={styles.enableFeedbackTitle}>
-            Not linked to a project
-          </div>
-          <div style={styles.enableFeedbackDescription}>
-            This document isn't linked to a Writing Agent project yet. Create a project in Writing Agent to start working on this manuscript.
-          </div>
-        </>
-      )}
-    </>
-  );
-};

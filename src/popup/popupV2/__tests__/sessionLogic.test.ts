@@ -194,6 +194,22 @@ describe('isActiveSessionStaleForDoc', () => {
     // tick when we have real data.
     expect(isActiveSessionStaleForDoc('A1', [])).toBe(false);
   });
+
+  it('flags a locally-created session as stale when other sessions exist (raw function behavior)', () => {
+    // isActiveSessionStaleForDoc itself doesn't know about local sessions —
+    // it returns true here because LOCAL_UUID is not in the DB list.
+    // The component-level fix (localSessionIdRef) skips this call for
+    // locally-created sessions. This test documents the raw behavior that
+    // caused the bug: selecting text in Word triggered a poll, the poll
+    // returned workspaceSessions from the DB (which didn't include the
+    // not-yet-persisted local session), and the stale check yanked the
+    // user out of their brand-new chat.
+    expect(
+      isActiveSessionStaleForDoc('LOCAL_UUID', [
+        session('DB_SESSION_1', '2026-05-07T12:00:00Z'),
+      ]),
+    ).toBe(true);
+  });
 });
 
 describe('shouldRefreshOnForeignEvent', () => {
