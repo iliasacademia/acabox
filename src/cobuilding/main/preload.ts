@@ -277,6 +277,39 @@ contextBridge.exposeInMainWorld('googleDocsAPI', {
   disconnect: () => ipcRenderer.invoke('googleDocs:disconnect'),
 });
 
+contextBridge.exposeInMainWorld('googleDriveAPI', {
+  status: () => ipcRenderer.invoke('googleDrive:status'),
+  connect: () => ipcRenderer.invoke('googleDocs:connect'),
+  listFolder: (folderId?: string) => ipcRenderer.invoke('googleDrive:listFolder', folderId),
+  saveSelection: (selection: any) => ipcRenderer.invoke('googleDrive:saveSelection', selection),
+  getSelection: () => ipcRenderer.invoke('googleDrive:getSelection'),
+  getCacheDirectories: () => ipcRenderer.invoke('googleDrive:getCacheDirectories'),
+  listChildren: (parentId: string) => ipcRenderer.invoke('googleDrive:listChildren', parentId),
+  listCacheEntries: () => ipcRenderer.invoke('googleDrive:listCacheEntries'),
+  refreshTree: () => ipcRenderer.invoke('googleDrive:refreshTree'),
+  resetCache: () => ipcRenderer.invoke('googleDrive:resetCache'),
+  openInBrowser: (fileId: string, mimeType: string) => {
+    let url: string;
+    switch (mimeType) {
+      case 'application/vnd.google-apps.folder':
+        url = `https://drive.google.com/drive/folders/${fileId}`;
+        break;
+      case 'application/vnd.google-apps.document':
+        url = `https://docs.google.com/document/d/${fileId}/edit`;
+        break;
+      case 'application/vnd.google-apps.spreadsheet':
+        url = `https://docs.google.com/spreadsheets/d/${fileId}/edit`;
+        break;
+      case 'application/vnd.google-apps.presentation':
+        url = `https://docs.google.com/presentation/d/${fileId}/edit`;
+        break;
+      default:
+        url = `https://drive.google.com/file/d/${fileId}/view`;
+    }
+    return ipcRenderer.invoke('shell:openExternal', url);
+  },
+});
+
 contextBridge.exposeInMainWorld('scheduledTasksAPI', {
   list: () => ipcRenderer.invoke('scheduledTasks:list'),
   get: (id: string) => ipcRenderer.invoke('scheduledTasks:get', id),

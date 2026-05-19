@@ -3226,6 +3226,23 @@ body.cobuild-resizing webview {
   color: #1d4ed8;
 }
 
+.fileTreeRow--hasDriveAction:hover > .fileTreeRowMain {
+  padding-right: 30px;
+}
+
+.fileTreeRowAction--drive {
+  color: #999;
+}
+
+.fileTreeRowAction--drive:hover {
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563eb;
+}
+
+.fileTreeRowAction--spinning svg {
+  animation: spin 1s linear infinite;
+}
+
 .fileTreeRowMain {
   display: flex;
   min-width: 0;

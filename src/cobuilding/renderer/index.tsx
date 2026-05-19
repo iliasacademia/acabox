@@ -583,8 +583,10 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
   const [fileReturnThreadId, setFileReturnThreadId] = useState<string | null>(null);
   const [fileCount, setFileCount] = useState(0);
   const [userDirectories, setUserDirectories] = useState<WorkspaceDirectory[]>([]);
+  const [hasDriveFolders, setHasDriveFolders] = useState(false);
   useEffect(() => {
     window.workspacesAPI.listDirectories().then(setUserDirectories).catch((err) => console.error('[ChatView] listDirectories failed:', err));
+    (window as any).googleDriveAPI?.getCacheDirectories?.().then((result: any) => setHasDriveFolders(!!result)).catch(() => {});
   }, [workspace.id]);
   const [debugSection, setDebugSection] = useState<DebugSection>(() => {
     const saved = localStorage.getItem('debug-section');
@@ -1032,6 +1034,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
                       <FilesTab
                         workspacePath={workspace.directory_path}
                         userDirectories={userDirectories}
+                        hasDriveFolders={hasDriveFolders}
                         onSelectFile={handleSelectFile}
                         onFileCount={setFileCount}
                       />

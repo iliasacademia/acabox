@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import './WorkspaceOnboarding.css';
 import { FolderOpenIcon, CloudIcon, LayoutGridIcon, InfoIcon, ArrowRightIcon, XIcon, PlusIcon } from 'lucide-react';
+import { GoogleDrivePicker } from './GoogleDrivePicker';
 import { MAX_WORKSPACE_DIRECTORIES } from '../../shared/paths';
 
 interface WorkspaceOnboardingProps {
@@ -13,6 +14,9 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete, o
   const [directoryPaths, setDirectoryPaths] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [drivePickerOpen, setDrivePickerOpen] = useState(false);
+  const [driveItemCount, setDriveItemCount] = useState(0);
+  const [pendingDriveItems, setPendingDriveItems] = useState<Array<{ id: string; name: string; mimeType: string; path: string }>>([]);
 
   useEffect(() => {
     window.workspacesAPI.listDirectories().then((dirs) => {
@@ -44,12 +48,20 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete, o
   };
 
   const createWorkspace = async (callback: () => void) => {
-    if (directoryPaths.length === 0 || isCreating) return;
+    if ((directoryPaths.length === 0 && driveItemCount === 0) || isCreating) return;
     setError(null);
     setIsCreating(true);
     try {
-      const name = directoryPaths[0].split('/').filter(Boolean).pop() || 'My Workspace';
+      const name = directoryPaths.length > 0
+        ? directoryPaths[0].split('/').filter(Boolean).pop() || 'My Workspace'
+        : 'My Workspace';
       await window.workspacesAPI.create({ name, directoryPaths });
+      if (pendingDriveItems.length > 0) {
+        await window.googleDriveAPI.saveSelection({
+          selectedItems: pendingDriveItems,
+          connectedAt: new Date().toISOString(),
+        });
+      }
       callback();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create workspace.';
@@ -131,15 +143,42 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete, o
             </div>
           </div>
 
-          {/* Cloud document services — placeholder */}
-          <div className="wsSource wsSource--disabled">
+          {/* Cloud document services — Google Drive */}
+          <div className={`wsSource${driveItemCount > 0 ? ' wsSource--selected' : ''}`}>
             <span className="wsSource__icon"><CloudIcon size={18} /></span>
             <div className="wsSource__body">
-              <h3 className="wsSource__title">Cloud document services</h3>
-              <p className="wsSource__desc">Google Drive, Google Docs, OneDrive, Dropbox.</p>
-              <p className="wsSource__hint">Optional</p>
+              <h3 className="wsSource__title">Google Drive</h3>
+              {driveItemCount > 0 ? (
+                <>
+                  <div className="wsSource__pathList">
+                    {pendingDriveItems.map((item) => (
+                      <div key={item.id} className="wsSource__pathItem">
+                        <span className="wsSource__path">{item.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button type="button" className="wsSource__addMoreBtn" onClick={() => setDrivePickerOpen(true)}>
+                    Manage selection
+                  </button>
+                </>
+              ) : (
+                <div className="wsSource__emptyState">
+                  <p className="wsSource__desc">Connect Google Drive to give your workspace access to cloud files.</p>
+                  <button type="button" className="wsSource__browseBtn" onClick={() => setDrivePickerOpen(true)}>
+                    <CloudIcon size={14} />
+                    Connect Google Drive
+                  </button>
+                  <p className="wsSource__hint">Optional</p>
+                </div>
+              )}
             </div>
           </div>
+          <GoogleDrivePicker
+            open={drivePickerOpen}
+            onOpenChange={setDrivePickerOpen}
+            skipSave
+            onSelectionSaved={(items) => { setPendingDriveItems(items); setDriveItemCount(items.length); }}
+          />
 
           {/* Reference manager — placeholder */}
           <div className="wsSource wsSource--disabled">
@@ -157,13 +196,13 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete, o
         <button
           type="button"
           className="wsSetup__continueBtn"
-          disabled={directoryPaths.length === 0 || isCreating}
+          disabled={(directoryPaths.length === 0 && driveItemCount === 0) || isCreating}
           onClick={handleContinue}
         >
           {isCreating ? 'Setting up...' : <>Continue <ArrowRightIcon className="wsSetup__arrow" /></>}
         </button>
 
-          {directoryPaths.length > 0 && (
+          {(directoryPaths.length > 0 || driveItemCount > 0) && (
             <button
               type="button"
               className="wsSetup__skipBtn"

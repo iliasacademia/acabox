@@ -11,6 +11,7 @@ import {
   addWorkspaceDirectory,
   removeWorkspaceDirectory,
   listWorkspaceDirectories,
+  listWorkspaceDirectoriesBySource,
   type Workspace,
   type WorkspaceDirectory,
 } from '../db/workspaceRepository';
@@ -48,11 +49,15 @@ export class WorkspaceController {
   }
 
   get allAllowedPaths(): string[] {
-    return [this.workspacePath, ...this.userDirectoryPaths];
+    return [this.workspacePath, ...this.userDirectoryPaths, this.driveCacheBaseDir];
   }
 
   get mountMap(): Array<{ hostPath: string; containerPath: string }> {
-    return buildMountMap(this.workspacePath, this.userDirectories);
+    return buildMountMap(this.workspacePath, this.userDirectories, this.driveCacheBaseDir);
+  }
+
+  get driveCacheBaseDir(): string {
+    return path.join(app.getPath('userData'), 'google-drive-cache');
   }
 
   isPathAllowed(filePath: string): string | null {
@@ -88,9 +93,6 @@ export class WorkspaceController {
   }
 
   async create(directoryPaths: string[], apiKey: string): Promise<Workspace | null> {
-    if (directoryPaths.length === 0) {
-      throw new Error('At least one directory is required.');
-    }
     if (directoryPaths.length > MAX_WORKSPACE_DIRECTORIES) {
       throw new Error(`A workspace can have at most ${MAX_WORKSPACE_DIRECTORIES} directories.`);
     }
@@ -163,8 +165,14 @@ function sanitizeMountName(dirPath: string): string {
 // Builds the ordered list of volume mounts for the podman container.
 // The agent-controlled directory is always first, mounted at /data (the container's
 // working directory). User directories follow, each mounted at /data/<sanitized-name>.
-// If two directories produce the same sanitized name, duplicates get a _2, _3 suffix.
-export function buildMountMap(agentDir: string, directories: WorkspaceDirectory[]): Array<{ hostPath: string; containerPath: string }> {
+// The google-drive-cache base directory is always mounted at /data/google-drive/ so
+// that new Drive folders appear inside the container without a restart.
+// If two directories produce the same name, duplicates get a _2, _3 suffix.
+export function buildMountMap(
+  agentDir: string,
+  directories: WorkspaceDirectory[],
+  driveCacheBase?: string,
+): Array<{ hostPath: string; containerPath: string }> {
   const result: Array<{ hostPath: string; containerPath: string }> = [
     { hostPath: agentDir, containerPath: '/data' },
   ];
@@ -176,5 +184,11 @@ export function buildMountMap(agentDir: string, directories: WorkspaceDirectory[
     const name = count > 0 ? `${base}_${count + 1}` : base;
     result.push({ hostPath: dir.directory_path, containerPath: `/data/${name}` });
   }
+
+  if (driveCacheBase) {
+    fs.mkdirSync(driveCacheBase, { recursive: true });
+    result.push({ hostPath: driveCacheBase, containerPath: '/data/google-drive' });
+  }
+
   return result;
 }

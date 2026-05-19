@@ -6,6 +6,7 @@ import { captureError } from '../../shared/telemetry';
 import type { WorkspaceController } from './WorkspaceController';
 import type { NotificationsController } from './NotificationsController';
 import type { ScanParams } from '../directoryScanner/shared';
+import { listWorkspaceDirectoriesBySource } from '../db/workspaceRepository';
 
 const INTERVAL_MS = 60 * 60 * 1000; // 1 hour (beta — reduce later)
 
@@ -127,8 +128,14 @@ export class BriefingsController {
     }
 
     const directoryPaths = this.workspaceController.userDirectoryPaths;
-    if (directoryPaths.length === 0) {
-      log.warn(`${LOG_PREFIX} No user directories — skipping`);
+    const driveDirs = listWorkspaceDirectoriesBySource(workspace.id, 'google-drive')
+      .map(d => {
+        const meta = d.metadata ? JSON.parse(d.metadata) : {};
+        return { driveId: meta.driveId as string, name: d.display_name };
+      })
+      .filter(d => d.driveId);
+    if (directoryPaths.length === 0 && driveDirs.length === 0) {
+      log.warn(`${LOG_PREFIX} No directories to scan — skipping`);
       return null;
     }
 
@@ -146,6 +153,7 @@ export class BriefingsController {
       workspaceId: workspace.id,
       cwd: this.workspaceController.workspacePath,
       directoryPaths,
+      driveDirectories: driveDirs.length > 0 ? driveDirs : undefined,
       memoryDir: path.join(this.workspaceController.workspacePath, AGENT_MEMORY_SUBDIR),
       apiKey,
       baseURL,

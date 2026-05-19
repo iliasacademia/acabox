@@ -3,6 +3,7 @@ import type { Workspace, WorkspaceDirectory } from '../../shared/types';
 import { SOUL_MD, MEMORY_PATH_ABOUT_YOU, MEMORY_PATH_WORKING_ON, MAX_WORKSPACE_DIRECTORIES } from '../../shared/paths';
 import { kernelRegistry } from './notebook/kernelRegistry';
 import { XIcon, PlusIcon } from 'lucide-react';
+import { GoogleDrivePicker } from './GoogleDrivePicker';
 import './WorkspaceSettings.css';
 import './shared-forms.css';
 
@@ -52,6 +53,8 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   const [googleDocsApiHasCreds, setGoogleDocsApiHasCreds] = useState<boolean>(false);
   const [googleDocsApiBusy, setGoogleDocsApiBusy] = useState<boolean>(false);
   const [googleDocsApiError, setGoogleDocsApiError] = useState<string | null>(null);
+  const [drivePickerOpen, setDrivePickerOpen] = useState(false);
+  const [driveFolders, setDriveFolders] = useState<Array<{ id: string; name: string; mimeType: string; path: string }>>([]);
   const [integrationToggling, setIntegrationToggling] = useState<IntegrationId | null>(null);
   const [integrationPermissionPrompt, setIntegrationPermissionPrompt] = useState<{ id: IntegrationId; displayName: string } | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -82,6 +85,9 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
     window.electronAPI.invoke('integration:get-enabled', 'apple-notes').then((v: boolean) => setAppleNotesIntegrationEnabled(!!v)).catch(() => setAppleNotesIntegrationEnabled(false));
     window.electronAPI.invoke('integration:get-enabled', 'google-docs').then((v: boolean) => setGoogleDocsIntegrationEnabled(!!v)).catch(() => setGoogleDocsIntegrationEnabled(false));
     refreshGoogleDocsApiStatus();
+    (window as any).googleDriveAPI?.getSelection?.().then((r: any) => {
+      if (r?.success && r.data?.selectedItems) setDriveFolders(r.data.selectedItems);
+    }).catch(() => {});
   }, []);
 
   const refreshGoogleDocsApiStatus = () => {
@@ -255,6 +261,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
         <section className="wsSettings__section">
           <p className="wsSettings__sectionLabel">Workspace directories</p>
           <div className="wsSettings__sectionCard">
+            <div className="wsSettings__integrationName" style={{ marginBottom: 6 }}>Local folders</div>
             {userDirectories.length > 0 ? (
               <div className="wsSettings__dirList">
                 {userDirectories.map((dir) => (
@@ -275,7 +282,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
               </div>
             ) : (
               <p className="wsSettings__hint" style={{ margin: 0 }}>
-                No directories added to this workspace yet.
+                No local directories added.
               </p>
             )}
             {dirError && <p className="wsSettings__dirError">{dirError}</p>}
@@ -285,6 +292,34 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
                 Add folder
               </button>
             )}
+          </div>
+
+          <div className="wsSettings__sectionCard" style={{ marginTop: 8 }}>
+            <div className="wsSettings__integrationName" style={{ marginBottom: 6 }}>Google Drive</div>
+            {driveFolders.length > 0 ? (
+              <div className="wsSettings__dirList">
+                {driveFolders.map((folder) => (
+                  <div key={folder.id} className="wsSettings__dirRow">
+                    <span className="wsSettings__dirPath" title={folder.name}>
+                      {folder.name}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="wsSettings__hint" style={{ margin: 0 }}>
+                No Google Drive folders connected.
+              </p>
+            )}
+            <button type="button" className="wsSettings__dirAddBtn" onClick={() => setDrivePickerOpen(true)}>
+              <PlusIcon size={14} />
+              {driveFolders.length > 0 ? 'Manage Google Drive folders' : 'Connect Google Drive'}
+            </button>
+            <GoogleDrivePicker
+              open={drivePickerOpen}
+              onOpenChange={setDrivePickerOpen}
+              onSelectionSaved={(items) => setDriveFolders(items)}
+            />
           </div>
         </section>
 

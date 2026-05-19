@@ -23,6 +23,8 @@ import { AGENT_MEMORY_SUBDIR, REFERENCES_SUBDIR, REFERENCES_INDEX } from '../../
 import { queryActivity } from '../activityQuery';
 import { getWordFilePath, getWordText, getWordSelection, saveWordDocument, openWordDocument } from '../../../server/wordActions';
 import { googleDocsGetActiveDoc, googleDocsGetText, googleDocsFindAndReplace } from '../mcpServers/googleDocsMcpServer';
+import { createGoogleDriveHandlers } from '../mcpServers/googleDriveMcpServer';
+import { listWorkspaceDirectoriesBySource } from '../db/workspaceRepository';
 import {
   appleNotesGetActiveNote,
   appleNotesGetText,
@@ -137,6 +139,17 @@ export class AgentInfrastructureController {
         get_text: googleDocsGetText,
         find_and_replace: googleDocsFindAndReplace,
       },
+
+      'google-drive': createGoogleDriveHandlers({
+        getAllowedFolders: () => {
+          const dirs = listWorkspaceDirectoriesBySource(workspace.id, 'google-drive');
+          return dirs.map(d => {
+            const meta = d.metadata ? JSON.parse(d.metadata) : {};
+            return { driveId: meta.driveId as string, name: d.display_name };
+          }).filter(d => d.driveId);
+        },
+        getWorkspaceId: () => workspace.id,
+      }),
 
       'apple-notes': {
         get_active_note: appleNotesGetActiveNote,
@@ -434,6 +447,8 @@ export class AgentInfrastructureController {
         'mcp__citeright__list_citation_reports',
         'mcp__zotero__status', 'mcp__zotero__search_library',
         'mcp__zotero__get_item', 'mcp__zotero__add_doi',
+        'mcp__google-drive__list_files', 'mcp__google-drive__search_files',
+        'mcp__google-drive__get_file_metadata', 'mcp__google-drive__download_file',
         'mcp__grants__save_user_context', 'mcp__grants__create_project',
         'mcp__grants__get_project', 'mcp__grants__list_projects',
         'mcp__grants__favorite_opportunity', 'mcp__grants__hide_opportunity',

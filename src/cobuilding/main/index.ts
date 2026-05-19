@@ -48,9 +48,7 @@ import {
   findSessionForApp,
   findMessageByMessageId,
 } from './db/chatRepository';
-import {
-  listWorkspaceDirectories,
-} from './db/workspaceRepository';
+import { listWorkspaceDirectories } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
 import { createTray, createDockIcon, rebuildTrayMenu, setShowWindowCallback } from './tray';
 import { BriefingsController } from './controllers/BriefingsController';
@@ -88,12 +86,7 @@ import { registerDebugHandlers } from './ipc/debug';
 import { registerReactionsHandlers, getReactionsEnabled, ensureReactionsTask } from './ipc/reactions';
 import { AcademiaHttpServer } from '../../server/httpServer';
 import { setHttpProxyPort, stopHttpsServer, registerOfficeAddinIpcHandlers } from './officeAddin';
-import {
-  isConnected as isGoogleDocsConnected,
-  disconnect as disconnectGoogleDocs,
-  startOAuthFlow as startGoogleDocsOAuth,
-  hasCredentials as googleDocsHasCredentials,
-} from './googleDocsService';
+import { GoogleDriveController } from './controllers/GoogleDriveController';
 import { windowMonitorService } from '../../windowMonitorService';
 import { wordAccessibility } from '../../native/wordAccessibility';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
@@ -372,6 +365,11 @@ const briefingsController = new BriefingsController({
       mainWindow.webContents.send('scanner:event', event);
     }
   },
+});
+
+const googleDriveController = new GoogleDriveController({
+  workspaceController,
+  containerService,
 });
 
 const agentInfrastructure = new AgentInfrastructureController({
@@ -2791,28 +2789,8 @@ ipcMain.handle(IPC_CHANNELS.OVERLAY_ENSURE_READY, async () => {
   return { hasPermission: true, started: true };
 });
 
-// ---- Google Docs IPC handlers ----
-
-ipcMain.handle('googleDocs:status', () => {
-  return {
-    connected: isGoogleDocsConnected(),
-    hasCredentials: googleDocsHasCredentials(),
-  };
-});
-
-ipcMain.handle('googleDocs:connect', async () => {
-  try {
-    await startGoogleDocsOAuth();
-    return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err?.message ?? String(err) };
-  }
-});
-
-ipcMain.handle('googleDocs:disconnect', () => {
-  disconnectGoogleDocs();
-  return { success: true };
-});
+// ---- Google Docs & Drive IPC handlers (see GoogleDriveController) ----
+googleDriveController.registerIpcHandlers();
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
