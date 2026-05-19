@@ -7478,6 +7478,21 @@ button.briefingHistoryRow__status {
   flex-shrink: 0;
 }
 
+@keyframes briefingNewArrival {
+  from {
+    background-color: rgba(214, 179, 119, 0.18);
+    border-left-color: rgb(184, 120, 44);
+  }
+  to {
+    background-color: #fff;
+    border-left-color: rgb(122, 68, 25);
+  }
+}
+
+.homeBriefingCard--newArrival {
+  animation: briefingNewArrival 2.5s ease-out;
+}
+
 /* ── ReactionsToolView ──────────────────────────────────────────────── */
 
 .reactionsView {

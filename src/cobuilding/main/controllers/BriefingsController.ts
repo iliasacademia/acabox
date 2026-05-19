@@ -8,7 +8,6 @@ import type { NotificationsController } from './NotificationsController';
 import type { ScanParams } from '../directoryScanner/shared';
 
 const INTERVAL_MS = 60 * 60 * 1000; // 1 hour (beta — reduce later)
-const INITIAL_DELAY_MS = 10 * 60 * 1000; // 10 minutes after start
 
 const LOG_PREFIX = '[BriefingsController]';
 
@@ -46,8 +45,8 @@ export class BriefingsController {
 
   startScheduledBriefings(): void {
     if (this.scheduledTimer) return;
-    log.info(`${LOG_PREFIX} Starting — first run in ${INITIAL_DELAY_MS / 1000}s, then every ${INTERVAL_MS / 1000}s`);
-    this.scheduledTimer = setTimeout(() => this.runScheduledCycle(), INITIAL_DELAY_MS);
+    log.info(`${LOG_PREFIX} Starting — every ${INTERVAL_MS / 1000}s`);
+    this.scheduledTimer = setTimeout(() => this.runScheduledCycle(), INTERVAL_MS);
   }
 
   stopScheduledBriefings(): void {
