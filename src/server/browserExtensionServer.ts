@@ -27,9 +27,12 @@ interface PendingActiveGoogleDoc {
 
 type PendingRequest = PendingSelection | PendingActiveGoogleDoc;
 
+const KEEPALIVE_INTERVAL_MS = 30_000;
+
 class BrowserExtensionWs {
   private connection: WebSocket | null = null;
   private pendingRequests = new Map<string, PendingRequest>();
+  private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
 
   handleConnection(ws: WebSocket): void {
     log.info('[BrowserExtension] Client connected');
@@ -37,7 +40,13 @@ class BrowserExtensionWs {
     if (this.connection && this.connection.readyState === WebSocket.OPEN) {
       this.connection.close();
     }
+    this.clearKeepalive();
     this.connection = ws;
+    this.keepaliveTimer = setInterval(() => {
+      if (this.connection?.readyState === WebSocket.OPEN) {
+        this.connection.ping();
+      }
+    }, KEEPALIVE_INTERVAL_MS);
 
     ws.on('message', (data) => {
       try {
@@ -71,6 +80,7 @@ class BrowserExtensionWs {
       log.info('[BrowserExtension] Client disconnected');
       if (this.connection === ws) {
         this.connection = null;
+        this.clearKeepalive();
       }
       this.resolveAllPending();
     });
@@ -81,6 +91,7 @@ class BrowserExtensionWs {
   }
 
   stop(): void {
+    this.clearKeepalive();
     this.resolveAllPending();
     if (this.connection && this.connection.readyState === WebSocket.OPEN) {
       this.connection.close();
@@ -135,6 +146,13 @@ class BrowserExtensionWs {
 
       this.connection!.send(JSON.stringify({ type: 'get-active-google-doc', id }));
     });
+  }
+
+  private clearKeepalive(): void {
+    if (this.keepaliveTimer) {
+      clearInterval(this.keepaliveTimer);
+      this.keepaliveTimer = null;
+    }
   }
 
   private resolveAllPending(): void {

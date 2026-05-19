@@ -864,10 +864,14 @@ export class WindowMonitorService {
 
     if (visibilityChanged) {
       const visibleKeys = V4_VISIBILITY_KEYS.filter(k => desiredState[k]?.visible);
+      const hostAppId = windowId ? this.getHostAppIdForWindow(windowId) : null;
+      const docPath = windowId ? this.getDocumentPathForWindow(windowId) : null;
+      const { resolveFileId } = require('./server/services/resolveFileId');
+      const fId = resolveFileId(docPath);
       if (visibleKeys.length > 0) {
-        logger.info(`[WindowMonitorService] Overlay showing: ${visibleKeys.join(', ')} (wid=${windowId})`);
+        logger.info(`[WindowMonitorService] Overlay showing: ${visibleKeys.join(', ')} (wid=${windowId} host=${hostAppId} docPath=${docPath} fileId=${fId})`);
       } else {
-        logger.info(`[WindowMonitorService] Overlay hidden (wid=${windowId})`);
+        logger.info(`[WindowMonitorService] Overlay hidden (wid=${windowId} host=${hostAppId} docPath=${docPath} fileId=${fId})`);
       }
     }
 
@@ -1140,6 +1144,11 @@ export class WindowMonitorService {
     } finally {
       this.googleDocsRefreshInflight = false;
     }
+  }
+
+  /** True when an async extension query is in progress and the cached path may be stale. */
+  isGoogleDocsRefreshInflight(): boolean {
+    return this.googleDocsRefreshInflight;
   }
 
   /** Latest cached display title for the active Google Doc, or null when unknown. */

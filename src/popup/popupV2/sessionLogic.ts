@@ -62,17 +62,17 @@ export function findAutoOpenCandidate(
 /**
  * Should we clear the active session because the user switched docs?
  *
- * Clear only on doc → different-doc transitions. Critically, do NOT
- * clear on doc → null transitions: those happen on every Cmd+Tab away
- * from Word (the WebSocket poll reports `activeDocumentPath = null`
- * when Word isn't the foreground app), and clearing there would lose
- * the user's session every time they briefly switch apps.
+ * Clear only on id → different-id transitions. Critically, do NOT
+ * clear on id → null transitions: those happen on every Cmd+Tab away
+ * from Word (the WebSocket poll reports null when Word isn't the
+ * foreground app), and clearing there would lose the user's session
+ * every time they briefly switch apps.
  */
 export function shouldClearActiveOnDocChange(
-  prevDocPath: string | null,
-  newDocPath: string | null,
+  prevFileId: string | null,
+  newFileId: string | null,
 ): boolean {
-  return prevDocPath !== null && newDocPath !== null && prevDocPath !== newDocPath;
+  return prevFileId !== null && newFileId !== null && prevFileId !== newFileId;
 }
 
 /**
