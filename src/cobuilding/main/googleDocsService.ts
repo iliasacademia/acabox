@@ -212,17 +212,17 @@ function renderParagraphElement(pe: any): string {
   if (pe?.autoText?.content) return pe.autoText.content;
   if (pe?.person?.personProperties) {
     const p = pe.person.personProperties;
-    return p.name || p.email || '@person';
+    return `⟦@${p.name || p.email || 'person'}⟧`;
   }
   if (pe?.richLink?.richLinkProperties) {
     const r = pe.richLink.richLinkProperties;
-    return r.title || r.uri || '[link]';
+    return `⟦${r.title || r.uri || 'link'}⟧`;
   }
-  if (pe?.equation) return '[equation]';
+  if (pe?.equation) return '⟦equation⟧';
   if (pe?.horizontalRule) return '\n---\n';
   if (pe?.pageBreak || pe?.columnBreak) return '\n';
-  if (pe?.footnoteReference) return ''; // footnote bodies live elsewhere
-  if (pe?.inlineObjectElement) return '[image]';
+  if (pe?.footnoteReference) return '';
+  if (pe?.inlineObjectElement) return '⟦image⟧';
   return '';
 }
 
@@ -254,7 +254,7 @@ function extractPlainText(doc: any): string {
 
   function walkTab(tab: any, depth: number): void {
     const title = tab?.tabProperties?.title;
-    if (title) parts.push(`\n${'#'.repeat(Math.min(depth + 1, 6))} ${title}\n`);
+    if (title) parts.push(`\n--- Tab: ${title} ---\n`);
     walkBody(tab?.documentTab?.body);
     for (const child of tab?.childTabs ?? []) walkTab(child, depth + 1);
   }

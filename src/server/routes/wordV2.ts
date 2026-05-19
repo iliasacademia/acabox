@@ -99,7 +99,7 @@ export async function registerWordV2Routes(
       request: FastifyRequest,
       reply: FastifyReply
     ) => {
-      const focusedWid = windowMonitorService.getFocusedWindowId();
+      const focusedWid = windowMonitorService.getFocusedWindowId() ?? windowMonitorService.getLastFocusedWindowId();
       if (!focusedWid) {
         reply.code(404).send({
           error: 'NotFound',

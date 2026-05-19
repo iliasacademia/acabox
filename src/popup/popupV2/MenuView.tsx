@@ -151,11 +151,6 @@ export const WorkspaceSessionsView: React.FC<WorkspaceSessionsViewProps> = ({
 
   const visibleSessions = sessions.slice(0, effectiveCount);
 
-  // Empty workspaces are handled upstream by auto-opening a blank chat, so
-  // this view is only mounted with at least one session. Returning null avoids
-  // a one-frame flash of an empty header before the auto-open effect commits.
-  if (sessions.length === 0) return null;
-
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px' }}>

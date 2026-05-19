@@ -214,7 +214,9 @@ export function createGoogleDocsMcpServer() {
 
 Reads cover the entire saved document — no scrolling required. Very recently typed unsaved characters may lag by ~1–2 seconds (Docs autosave window). Comments are not included in the body. The \`selection_only\` path returns whatever Docs has currently highlighted.
 
-If the response says \`truncated: false\`, you have the entire saved document — any "the doc ends here" claim should be about what the user has actually written, not about your read window.`,
+If the response says \`truncated: false\`, you have the entire saved document — any "the doc ends here" claim should be about what the user has actually written, not about your read window.
+
+Smart chips (people mentions, calendar events, linked files, etc.) appear as \`⟦...⟧\` in the returned text. These are NOT searchable plain text — the Docs API stores them as special inline objects. Never include \`⟦...⟧\` tokens in find_and_replace search_text; they will not match. Lines like "--- Tab: ... ---" are tab separators added by the reader and also do not exist in the doc.`,
         {
           selection_only: z.boolean().optional().describe("If true, return only the user's current selection (not the whole doc). Default: false."),
           offset: z.number().optional().describe('Character offset to start reading from (0-based, default 0). Ignored when selection_only=true.'),
@@ -225,7 +227,13 @@ If the response says \`truncated: false\`, you have the entire saved document �
 
       tool(
         'find_and_replace',
-        `Propose a text edit in the active Google Doc. The edit is NOT applied automatically — the user sees a suggestion card with the diff. In Phase A v1 the user must apply the replacement manually inside Google Docs (the Apply button surfaces the planned Docs-API behavior; until OAuth ships it returns a not-yet error). Call this tool once per edit. Do NOT describe the edits in your text — the UI shows them automatically.`,
+        `Propose a text edit in the active Google Doc. The edit is applied via the Docs API when the user clicks Apply on the suggestion card. Call this tool once per edit. Do NOT describe the edits in your text — the UI shows them automatically.
+
+IMPORTANT: The search_text must match the ACTUAL text in the Google Doc body.
+- Never include \`⟦...⟧\` tokens in search_text — these represent smart chips (people, dates, calendar events, links) that are stored as special objects, not text.
+- Never include "--- Tab: ... ---" lines — these are reader-added separators.
+- Use short, unique snippets (a sentence or paragraph) as search_text, not large blocks.
+- Build search_text only from plain text runs that appear BETWEEN smart chips.`,
         {
           search_text: z.string().describe('The exact text to find in the doc'),
           replacement_text: z.string().describe('The text to replace it with'),

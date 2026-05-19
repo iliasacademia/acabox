@@ -1138,8 +1138,10 @@ app.whenReady().then(async () => {
                 }));
               });
             }
-            // Auto-start the overlay so it appears over Word without
-            // requiring the user to visit the desktop app home tab first.
+
+            // Auto-start the window monitor so overlays appear immediately
+            // for host apps like Google Docs that don't have an explicit
+            // "open" action from the desktop UI.
             if (process.platform === 'darwin' && !windowMonitorService.isRunning()) {
               const hasPermission = wordAccessibility.checkPermission();
               if (hasPermission) {
