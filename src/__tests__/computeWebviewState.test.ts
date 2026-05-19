@@ -293,7 +293,7 @@ describe('applyFocusLossCarryForward', () => {
     expect(result.desiredState).toEqual({});
   });
 
-  test('returns original state when desiredState already has entries', () => {
+  test('force-hides entries when host app not focused even if desiredState has entries', () => {
     const desiredState: DesiredWebviewState = {
       'button-v2': {
         url: 'http://localhost:3000/button',
@@ -303,8 +303,41 @@ describe('applyFocusLossCarryForward', () => {
     };
     const result = applyFocusLossCarryForward(desiredState, lastDesiredState, false, '42');
 
-    expect(result.desiredState).toBe(desiredState);
-    expect(result.windowId).toBeNull();
+    expect(result.desiredState['button-v2'].visible).toBe(false);
+    expect(result.desiredState['button-v2'].background).toBe(true);
+    expect(result.desiredState['button-v2'].frame).toEqual({ x: 50, y: 100, width: 150, height: 50 });
+    expect(result.windowId).toBe('42');
+  });
+
+  test('prefers current desiredState frames over lastDesiredState when both exist', () => {
+    const desiredState: DesiredWebviewState = {
+      'button-v2': {
+        url: 'http://localhost:3000/button',
+        visible: true,
+        frame: { x: 100, y: 200, width: 160, height: 55 },
+      },
+    };
+    const lastState: DesiredWebviewState = {
+      'button-v2': {
+        url: 'http://localhost:3000/button',
+        visible: true,
+        frame: { x: 0, y: 0, width: 150, height: 50 },
+      },
+      'popup-v2': {
+        url: 'http://localhost:3000/popup',
+        visible: true,
+        frame: { x: 0, y: 50, width: 370, height: 280 },
+      },
+    };
+    const result = applyFocusLossCarryForward(desiredState, lastState, false, '42');
+
+    expect(result.desiredState['button-v2'].visible).toBe(false);
+    expect(result.desiredState['button-v2'].background).toBe(true);
+    // Uses current desiredState's frame (100,200), not lastDesiredState's (0,0)
+    expect(result.desiredState['button-v2'].frame).toEqual({ x: 100, y: 200, width: 160, height: 55 });
+    // Only entries from current desiredState — popup-v2 from lastState is not carried
+    expect(result.desiredState['popup-v2']).toBeUndefined();
+    expect(result.windowId).toBe('42');
   });
 
   test('carries forward all entry types including review panels', () => {

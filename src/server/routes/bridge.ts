@@ -8,7 +8,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { defaultLogger as logger } from '../../utils/logger';
 import { windowMonitorService } from '../../windowMonitorService';
-import { enableFeedback } from '../services/enableFeedbackService';
 import { NavigationHandler } from './navigation';
 
 /**
@@ -28,7 +27,7 @@ interface BridgeRequestPayload {
  */
 export async function registerBridgeRoutes(
   fastify: FastifyInstance,
-  navigationHandler?: NavigationHandler | null,
+  _navigationHandler?: NavigationHandler | null,
 ): Promise<void> {
   /**
    * POST /bridge
@@ -93,7 +92,10 @@ export async function registerBridgeRoutes(
 
       // When the overlay is clicked and the host app isn't focused,
       // bring the host app to front so overlay + host move together.
-      if (wid && !windowMonitorService.getFocusedWindowId()) {
+      // Only activate on explicit user interactions — background actions
+      // like closeWindow/setPopupSize must not steal focus.
+      const isUserAction = action === 'buttonClicked' || action === 'openPopup' || action === 'showReviewInputOverlay';
+      if (isUserAction && wid && !windowMonitorService.getFocusedWindowId()) {
         windowMonitorService.activateHostAppForWindow(wid);
       }
 
@@ -134,25 +136,6 @@ export async function registerBridgeRoutes(
             reviewType as 'full-paper' | 'selected-text' | 'review-changes',
             selectedText as string | undefined
           );
-        }
-      } else if (action === 'enableFeedbackClicked' && wid) {
-        logger.info(`[Bridge API] Enable feedback clicked for wid: ${wid}`);
-        windowMonitorService.openPopupForWindow(wid);
-      } else if (action === 'shareToEnableFeedback' && wid) {
-        logger.info(`[Bridge API] Share to enable feedback clicked for wid: ${wid}`);
-        try {
-          const result = await enableFeedback(wid, navigationHandler);
-          if (!result.success) {
-            logger.error(`[Bridge API] Enable feedback failed: ${result.error}`);
-            reply.send({ success: false, error: result.error });
-            return;
-          }
-          reply.send({ success: true, projectId: result.projectId, projectFileId: result.projectFileId });
-          return;
-        } catch (error: any) {
-          logger.error(`[Bridge API] Enable feedback error:`, error);
-          reply.send({ success: false, error: error.message || 'Unknown error' });
-          return;
         }
       } else if (action === 'showReviewError' && wid) {
         const message = payload.message;

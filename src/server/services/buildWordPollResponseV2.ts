@@ -1,22 +1,14 @@
 /**
  * Builds the overlay poll response for a given window ID (wid).
  *
- * Originally Word-specific; now host-agnostic — works for any HostApp whose
- * `documentPath` is normalized into the workspace directory. Word path uses
- * the project-file mapping; non-Word hosts (e.g. Obsidian) skip that lookup.
- *
- * Conversations are fetched directly by the popup via the proxy API.
- *
- * The legacy export name `buildWordPollResponseV2` is kept for back-compat;
- * `buildOverlayPollResponseV2` is the preferred name for new callers.
+ * Host-agnostic — works for any registered HostApp. Only shows the overlay
+ * when a workspace is active (cobuilding mode) and the document is either
+ * inside a workspace directory or uses a synthetic scheme (gdocs://, applenotes://).
  */
 
 import { windowMonitorService } from '../../windowMonitorService';
 import { getRegisteredHostApps } from '../../cobuilding/main/hostApps';
-import { wordIntegrationDataStoreV2 } from '../../wordIntegrationDataStoreV2';
 import { OverlayPollResponse } from '../types';
-import { defaultLogger as logger } from '../../utils/logger';
-import { remoteFeatureFlags, REMOTE_FLAGS } from '../../remoteFeatureFlags';
 
 /**
  * Build a WordPollResponse for the given window ID.
@@ -36,11 +28,6 @@ export function buildWordPollResponseV2(
 
   // 1. Resolve documentPath from window monitor state
   const documentPath = windowMonitorService.getDocumentPathForWindow(wid);
-
-  // 2. Resolve project file from V2 data store
-  const projectFile = documentPath
-    ? wordIntegrationDataStoreV2.getProjectFileForPath(documentPath)
-    : null;
 
   const isDockedActive = windowMonitorService.isDockedActive(wid);
   // Cobuilding mode is active when a workspace has been selected. The check
@@ -98,34 +85,18 @@ export function buildWordPollResponseV2(
         isDockedActive,
       };
     }
-    if (isCobuildingMode) {
-      // Cobuilding mode + unsaved Word doc — hide overlay entirely.
-      return {
-        notificationCount: 0,
-        isActive: false,
-        recentReviewNotifications: [],
-        isReviewingSelectedText: false,
-        activeDocumentPath: documentPath,
-        shouldShowButtonV2: false,
-        shouldShowPopupV2: false,
-        shouldShowReviewButton: false,
-        hasSelectedText: false,
-        isDockedActive: false,
-      };
-    }
+    // No document path — hide overlay entirely.
     return {
-      isEnableFeedback: true,
-      isUnsavedDocument: true,
       notificationCount: 0,
-      isActive: true,
+      isActive: false,
       recentReviewNotifications: [],
       isReviewingSelectedText: false,
       activeDocumentPath: documentPath,
-      shouldShowButtonV2: true,
-      shouldShowPopupV2,
+      shouldShowButtonV2: false,
+      shouldShowPopupV2: false,
       shouldShowReviewButton: false,
       hasSelectedText: false,
-      isDockedActive,
+      isDockedActive: false,
     };
   }
 
@@ -221,40 +192,18 @@ export function buildWordPollResponseV2(
     };
   }
 
-  // If document path exists but no project file mapping
-  if (!projectFile) {
-    if (remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
-      logger.info(`[VERBOSE] [WORD-POLL-V2] No project file found for path: "${documentPath}" (cache size: ${wordIntegrationDataStoreV2.getCacheSize()}, keys: ${wordIntegrationDataStoreV2.getCacheKeys().join(', ')})`);
-    }
-    return {
-      isEnableFeedback: true,
-      notificationCount: 0,
-      isActive: true,
-      recentReviewNotifications: [],
-      isReviewingSelectedText: false,
-      activeDocumentPath: documentPath,
-      shouldShowButtonV2: true,
-      shouldShowPopupV2,
-      shouldShowReviewButton: false,
-      hasSelectedText: false,
-      isDockedActive,
-    };
-  }
-
-  // Document is mapped to a project — return project info for conversation fetching
+  // Document exists but is outside any workspace — hide overlay.
   return {
-    projectId: projectFile.project_id,
-    projectFileId: projectFile.project_file_id,
     notificationCount: 0,
-    isActive: true,
+    isActive: false,
     recentReviewNotifications: [],
     isReviewingSelectedText: false,
     activeDocumentPath: documentPath,
-    shouldShowButtonV2,
-    shouldShowPopupV2,
+    shouldShowButtonV2: false,
+    shouldShowPopupV2: false,
     shouldShowReviewButton: false,
     hasSelectedText: false,
-    isDockedActive,
+    isDockedActive: false,
   };
 }
 
