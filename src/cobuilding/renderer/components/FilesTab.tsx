@@ -11,6 +11,7 @@ import {
   RefreshCwIcon,
   TrashIcon,
   FileTextIcon,
+  ExternalLinkIcon,
 } from 'lucide-react';
 import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
 
@@ -35,6 +36,8 @@ interface TreeNode {
   isDirectory: boolean;
   children?: TreeNode[];
   loaded?: boolean;
+  driveFileId?: string;
+  driveMimeType?: string;
 }
 
 interface ContextMenuState {
@@ -55,11 +58,12 @@ const FILE_TAG_LABEL: Record<FileTagType, string> = {
 interface FilesTabProps {
   workspacePath: string;
   userDirectories?: WorkspaceDirectory[];
+  hasDriveFolders?: boolean;
   onSelectFile: (path: string) => void;
   onFileCount?: (count: number) => void;
 }
 
-export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, onSelectFile, onFileCount }) => {
+export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, hasDriveFolders, onSelectFile, onFileCount }) => {
   const workspaceName = workspacePath.split('/').pop() ?? workspacePath;
   const [rootChildren, setRootChildren] = useState<TreeNode[]>([]);
   const [rootExpanded, setRootExpanded] = useState(true);
@@ -136,7 +140,7 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
   const loadRoot = useCallback(async () => {
     const userDirNames = new Set((userDirectories ?? []).map(ud => ud.directory_path.split('/').pop()));
     const entries = (await window.filesAPI.readDirectory(workspacePath))
-      .filter((e) => !isHiddenWorkspaceEntry(e.name) && !userDirNames.has(e.name));
+      .filter((e) => !isHiddenWorkspaceEntry(e.name) && !userDirNames.has(e.name) && e.name !== 'google-drive');
     const nodes = entries.map((e) => ({
       name: e.name,
       path: e.path,
@@ -163,7 +167,18 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
     loadRoot();
   }, [loadRoot]);
 
-  const loadChildren = useCallback(async (node: TreeNode) => {
+  const loadChildren = useCallback(async (node: TreeNode): Promise<TreeNode[]> => {
+    if (node.driveFileId) {
+      const entries = await (window as any).googleDriveAPI.listChildren(node.driveFileId);
+      return entries.map((e: any) => ({
+        name: e.name,
+        path: `gdrive://${e.fileId}`,
+        isDirectory: e.isDirectory,
+        driveFileId: e.fileId,
+        driveMimeType: e.mimeType,
+        children: e.isDirectory ? [] : undefined,
+      }));
+    }
     const entries = (await window.filesAPI.readDirectory(node.path))
       .filter((e) => !isHiddenWorkspaceEntry(e.name));
     return entries.map((e) => ({
@@ -523,6 +538,38 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
             onCreateCancel={handleCreateCancel}
           />
         ))}
+        {hasDriveFolders && (
+          <FileTreeNode
+            key="gdrive-root"
+            node={{
+              name: 'Google Drive',
+              path: 'gdrive://root',
+              isDirectory: true,
+              children: [],
+              driveFileId: 'root',
+              driveMimeType: 'application/vnd.google-apps.folder',
+            }}
+            depth={0}
+            workspacePath="gdrive://root"
+            fileTagMap={fileTagMap}
+            onSelectFile={onSelectFile}
+            loadChildren={loadChildren}
+            onDropOnDir={handleDropOnDir}
+            onDragOverDir={handleDragOverDir}
+            onDragLeaveDir={handleDragLeaveDir}
+            dropTargetPath={dropTargetPath}
+            refreshKey={refreshKey}
+            onContextMenu={handleContextMenu}
+            renamingPath={renamingPath}
+            onRenameCommit={handleRenameCommit}
+            onRenameCancel={handleRenameCancel}
+            onRenameRequest={handleRenameNodePath}
+            onDeleteRequest={handleDeleteNodePath}
+            creatingIn={creatingIn}
+            onCreateCommit={handleCreateCommit}
+            onCreateCancel={handleCreateCancel}
+          />
+        )}
       </div>
       {copyProgress && (
         <div className="filesTabCopyProgress">
@@ -649,8 +696,9 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
     ? node.path.slice(workspacePath.length + 1)
     : null;
   const fileTag = !node.isDirectory && relPath ? fileTagMap.get(relPath) : undefined;
-  const isDocx = /\.docx$/i.test(node.name) && !node.isDirectory;
-  if (!node.isDirectory && fileTagMap.size > 0 && depth === 1) {
+  const isDriveNode = !!node.driveFileId;
+  const isDocxManuscript = !isDriveNode && fileTag === 'manuscript' && /\.docx$/i.test(node.name);
+  if (!isDriveNode && !node.isDirectory && fileTagMap.size > 0 && depth === 1) {
     console.log('[FilesTab] node relPath:', relPath, '→ tag:', fileTag, '| map keys sample:', [...fileTagMap.keys()].slice(0, 3));
   }
 
@@ -687,6 +735,8 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
         setChildren(kids);
         setLoaded(true);
       }
+    } else if (isDriveNode) {
+      (window as any).googleDriveAPI.openInBrowser(node.driveFileId, node.driveMimeType);
     } else {
       onSelectFile(node.path);
     }
@@ -702,10 +752,10 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
   return (
     <>
       <div
-        className={`fileTreeRow fileTreeRow--node ${isDocx ? 'fileTreeRow--hasWordAction' : ''} ${isDropTarget ? 'fileTreeRow--dropTarget' : ''}`}
+        className={`fileTreeRow fileTreeRow--node ${isDocxManuscript ? 'fileTreeRow--hasWordAction' : ''} ${isDriveNode ? 'fileTreeRow--hasDriveAction' : ''} ${isDropTarget ? 'fileTreeRow--dropTarget' : ''}`}
         style={{ paddingLeft: fileTreeRowPaddingLeft(depth) }}
-        onContextMenu={(e) => onContextMenu(e, node)}
-        {...(node.isDirectory
+        onContextMenu={isDriveNode ? undefined : (e) => onContextMenu(e, node)}
+        {...(!isDriveNode && node.isDirectory
           ? {
               onDragOver: (e: React.DragEvent) => onDragOverDir(e, node.path),
               onDragLeave: onDragLeaveDir,
@@ -716,8 +766,8 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
         <div
           className="fileTreeRowMain"
           onClick={handleClick}
-          draggable={!isRenaming}
-          onDragStart={handleDragStart}
+          draggable={!isRenaming && !isDriveNode}
+          onDragStart={isDriveNode ? undefined : handleDragStart}
         >
           {node.isDirectory ? (
             <>
@@ -753,7 +803,22 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
             </>
           )}
         </div>
-        {!isRenaming && (
+        {!isRenaming && isDriveNode && (
+          <div className="fileTreeRowActions">
+            <button
+              type="button"
+              className="fileTreeRowAction fileTreeRowAction--drive"
+              title="Open in Google Drive"
+              onClick={(e) => {
+                e.stopPropagation();
+                (window as any).googleDriveAPI.openInBrowser(node.driveFileId, node.driveMimeType);
+              }}
+            >
+              <ExternalLinkIcon style={{ width: 14, height: 14 }} />
+            </button>
+          </div>
+        )}
+        {!isRenaming && !isDriveNode && (
           <div className="fileTreeRowActions">
             {isDocx && (
               <button
@@ -796,7 +861,7 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
           </div>
         )}
       </div>
-      {expanded && creatingIn?.dirPath === node.path && (
+      {expanded && !isDriveNode && creatingIn?.dirPath === node.path && (
         <div className="fileTreeRow" style={{ paddingLeft: fileTreeRowPaddingLeft(depth + 1) }}>
           {creatingIn.type === 'folder' ? (
             <FolderIcon className="fileTreeIcon" style={{ marginLeft: 18 }} />

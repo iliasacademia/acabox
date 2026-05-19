@@ -6,13 +6,11 @@ import { OAuth2Client } from 'google-auth-library';
 import { captureError } from '../shared/telemetry';
 
 /**
- * OAuth + Docs API client for Phase C2 Google Docs integration.
+ * OAuth + Google API client for Docs and Drive integration.
  *
  * Loopback OAuth flow with refresh tokens encrypted at rest via Electron
- * `safeStorage` (OS keychain). Deliberately requests the *only* Docs scope
- * — no Drive, no Sheets, no other Google products. The single granted
- * capability is read+write on Google Docs documents the user opens with
- * the Academia overlay.
+ * `safeStorage` (OS keychain). Requests Docs (read+write) and Drive
+ * (read-only) scopes.
  *
  * OAuth client id + secret come from `process.env.GOOGLE_CLIENT_ID` and
  * `process.env.GOOGLE_CLIENT_SECRET`. In production those are baked into
@@ -22,7 +20,10 @@ import { captureError } from '../shared/telemetry';
  * settings JSON.
  */
 
-const SCOPES = ['https://www.googleapis.com/auth/documents'];
+const SCOPES = [
+  'https://www.googleapis.com/auth/documents',
+  'https://www.googleapis.com/auth/drive.readonly',
+];
 
 export interface DocsApiResult<T> {
   success: boolean;
@@ -97,7 +98,16 @@ export function isConnected(): boolean {
   return readTokens() !== null;
 }
 
+export function hasDriveScope(): boolean {
+  const tokens = readTokens();
+  if (!tokens) return false;
+  const scope = tokens.scope as string | undefined;
+  if (!scope) return false;
+  return scope.includes('drive.readonly');
+}
+
 export function disconnect(): void {
+  sharedClient = null;
   deleteTokens();
 }
 
@@ -159,7 +169,7 @@ export async function startOAuthFlow(): Promise<void> {
         try {
           const { tokens } = await oauth2Client.getToken(code);
           writeTokens(tokens as Record<string, unknown>);
-          res.end(html('Connected to Google Docs! You can return to Academia.'));
+          res.end(html('Connected to Google! You can return to Academia.'));
           clearTimeout(timeout);
           server.close();
           resolve();
@@ -177,14 +187,24 @@ export async function startOAuthFlow(): Promise<void> {
   });
 }
 
+let sharedClient: OAuth2Client | null = null;
+let tokenWriteLock: Promise<void> = Promise.resolve();
+
 /**
  * Get an authenticated OAuth2Client for API calls. Auto-refreshes when the
  * access token expires. Returns null when there are no stored tokens (user
  * hasn't connected) or the refresh token has been revoked.
+ *
+ * Returns a shared singleton so concurrent callers reuse the same client and
+ * don't trigger parallel token refreshes.
  */
-async function getAuthedClient(): Promise<OAuth2Client | null> {
+export async function getAuthedClient(): Promise<OAuth2Client | null> {
   const tokens = readTokens();
-  if (!tokens) return null;
+  if (!tokens) {
+    sharedClient = null;
+    return null;
+  }
+  if (sharedClient) return sharedClient;
   let oauth2Client: OAuth2Client;
   try {
     oauth2Client = makeOAuth2Client('http://127.0.0.1');
@@ -192,12 +212,14 @@ async function getAuthedClient(): Promise<OAuth2Client | null> {
     return null;
   }
   oauth2Client.setCredentials(tokens);
-  // Persist refreshed tokens back to disk so we don't re-prompt every restart.
   oauth2Client.on('tokens', (newTokens) => {
-    const current = readTokens() ?? {};
-    writeTokens({ ...current, ...newTokens });
+    tokenWriteLock = tokenWriteLock.then(() => {
+      const current = readTokens() ?? {};
+      writeTokens({ ...current, ...newTokens });
+    });
   });
-  return oauth2Client;
+  sharedClient = oauth2Client;
+  return sharedClient;
 }
 
 /**

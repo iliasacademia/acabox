@@ -11,6 +11,7 @@ import {
   addWorkspaceDirectory,
   removeWorkspaceDirectory,
   listWorkspaceDirectories,
+  listWorkspaceDirectoriesBySource,
   type Workspace,
   type WorkspaceDirectory,
 } from '../db/workspaceRepository';
@@ -48,11 +49,18 @@ export class WorkspaceController {
   }
 
   get allAllowedPaths(): string[] {
-    return [this.workspacePath, ...this.userDirectoryPaths];
+    return [this.workspacePath, ...this.userDirectoryPaths, this.driveCacheBaseDir];
   }
 
   get mountMap(): Array<{ hostPath: string; containerPath: string }> {
-    return buildMountMap(this.workspacePath, this.userDirectories);
+    const driveDirectories = this._activeWorkspace
+      ? listWorkspaceDirectoriesBySource(this._activeWorkspace.id, 'google-drive')
+      : [];
+    return buildMountMap(this.workspacePath, this.userDirectories, driveDirectories);
+  }
+
+  get driveCacheBaseDir(): string {
+    return path.join(app.getPath('userData'), 'google-drive-cache');
   }
 
   isPathAllowed(filePath: string): string | null {
@@ -88,9 +96,6 @@ export class WorkspaceController {
   }
 
   async create(directoryPaths: string[], apiKey: string): Promise<Workspace | null> {
-    if (directoryPaths.length === 0) {
-      throw new Error('At least one directory is required.');
-    }
     if (directoryPaths.length > MAX_WORKSPACE_DIRECTORIES) {
       throw new Error(`A workspace can have at most ${MAX_WORKSPACE_DIRECTORIES} directories.`);
     }
@@ -163,8 +168,14 @@ function sanitizeMountName(dirPath: string): string {
 // Builds the ordered list of volume mounts for the podman container.
 // The agent-controlled directory is always first, mounted at /data (the container's
 // working directory). User directories follow, each mounted at /data/<sanitized-name>.
-// If two directories produce the same sanitized name, duplicates get a _2, _3 suffix.
-export function buildMountMap(agentDir: string, directories: WorkspaceDirectory[]): Array<{ hostPath: string; containerPath: string }> {
+// Google Drive directories are mounted at /data/google-drive/<folder-name> using
+// the original Drive folder name (paths are quoted in the podman script).
+// If two directories produce the same name, duplicates get a _2, _3 suffix.
+export function buildMountMap(
+  agentDir: string,
+  directories: WorkspaceDirectory[],
+  driveDirectories: WorkspaceDirectory[] = [],
+): Array<{ hostPath: string; containerPath: string }> {
   const result: Array<{ hostPath: string; containerPath: string }> = [
     { hostPath: agentDir, containerPath: '/data' },
   ];
@@ -176,5 +187,20 @@ export function buildMountMap(agentDir: string, directories: WorkspaceDirectory[
     const name = count > 0 ? `${base}_${count + 1}` : base;
     result.push({ hostPath: dir.directory_path, containerPath: `/data/${name}` });
   }
+
+  if (driveDirectories.length > 0) {
+    const cacheBase = path.join(app.getPath('userData'), 'google-drive-cache');
+    const driveCounts = new Map<string, number>();
+    for (const dd of driveDirectories) {
+      const base = dd.display_name;
+      const count = driveCounts.get(base) ?? 0;
+      driveCounts.set(base, count + 1);
+      const name = count > 0 ? `${base}_${count + 1}` : base;
+      const hostPath = path.join(cacheBase, name);
+      fs.mkdirSync(hostPath, { recursive: true });
+      result.push({ hostPath, containerPath: `/data/google-drive/${name}` });
+    }
+  }
+
   return result;
 }

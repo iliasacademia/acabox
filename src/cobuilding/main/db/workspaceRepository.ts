@@ -64,12 +64,14 @@ export function addWorkspaceDirectory(
   directoryPath: string,
   displayName: string,
   sortOrder = 0,
+  source: 'local' | 'google-drive' = 'local',
+  metadata?: string | null,
 ): void {
   getDatabase()
     .prepare(
-      'INSERT INTO workspace_directories (id, workspace_id, directory_path, display_name, sort_order) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO workspace_directories (id, workspace_id, directory_path, display_name, sort_order, source, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)',
     )
-    .run(id, workspaceId, directoryPath, displayName, sortOrder);
+    .run(id, workspaceId, directoryPath, displayName, sortOrder, source, metadata ?? null);
 }
 
 export function removeWorkspaceDirectory(id: string): void {
@@ -80,7 +82,19 @@ export function removeWorkspaceDirectory(id: string): void {
 
 export function listWorkspaceDirectories(workspaceId: string): WorkspaceDirectory[] {
   return getDatabase()
-    .prepare('SELECT * FROM workspace_directories WHERE workspace_id = ? ORDER BY sort_order, created_at')
+    .prepare("SELECT * FROM workspace_directories WHERE workspace_id = ? AND source = 'local' ORDER BY sort_order, created_at")
     .all(workspaceId) as WorkspaceDirectory[];
+}
+
+export function listWorkspaceDirectoriesBySource(workspaceId: string, source: 'local' | 'google-drive'): WorkspaceDirectory[] {
+  return getDatabase()
+    .prepare('SELECT * FROM workspace_directories WHERE workspace_id = ? AND source = ? ORDER BY sort_order, created_at')
+    .all(workspaceId, source) as WorkspaceDirectory[];
+}
+
+export function removeWorkspaceDirectoriesBySource(workspaceId: string, source: 'local' | 'google-drive'): void {
+  getDatabase()
+    .prepare('DELETE FROM workspace_directories WHERE workspace_id = ? AND source = ?')
+    .run(workspaceId, source);
 }
 

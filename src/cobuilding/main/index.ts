@@ -50,6 +50,9 @@ import {
 } from './db/chatRepository';
 import {
   listWorkspaceDirectories,
+  listWorkspaceDirectoriesBySource,
+  addWorkspaceDirectory,
+  removeWorkspaceDirectoriesBySource,
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
 import { createTray, createDockIcon, rebuildTrayMenu, setShowWindowCallback } from './tray';
@@ -93,7 +96,9 @@ import {
   disconnect as disconnectGoogleDocs,
   startOAuthFlow as startGoogleDocsOAuth,
   hasCredentials as googleDocsHasCredentials,
+  hasDriveScope as googleDocsHasDriveScope,
 } from './googleDocsService';
+import { listFiles as driveListFiles } from './googleDriveService';
 import { windowMonitorService } from '../../windowMonitorService';
 import { wordAccessibility } from '../../native/wordAccessibility';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
@@ -2812,6 +2817,142 @@ ipcMain.handle('googleDocs:connect', async () => {
 ipcMain.handle('googleDocs:disconnect', () => {
   disconnectGoogleDocs();
   return { success: true };
+});
+
+// ---- Google Drive IPC handlers ----
+
+ipcMain.handle('googleDrive:status', () => {
+  return {
+    connected: isGoogleDocsConnected(),
+    hasCredentials: googleDocsHasCredentials(),
+    hasDriveScope: googleDocsHasDriveScope(),
+  };
+});
+
+ipcMain.handle('googleDrive:listFolder', async (_event: any, folderId?: string) => {
+  try {
+    const result = await driveListFiles({ folderId, pageSize: 100, orderBy: 'folder,name' });
+    return result;
+  } catch (err: any) {
+    return { success: false, error: err?.message ?? String(err) };
+  }
+});
+
+ipcMain.handle('googleDrive:saveSelection', async (_event: any, selection: any) => {
+  try {
+    const wsId = workspaceController.workspaceId;
+    if (!wsId) return { success: false, error: 'No active workspace' };
+    const items: Array<{ id: string; name: string; mimeType: string; path: string }> = selection?.selectedItems ?? [];
+    removeWorkspaceDirectoriesBySource(wsId, 'google-drive');
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      addWorkspaceDirectory(
+        randomUUID(), wsId,
+        `gdrive://${item.id}`,
+        item.name, i,
+        'google-drive',
+        JSON.stringify({ driveId: item.id, mimeType: item.mimeType, path: item.path }),
+      );
+    }
+    workspaceController.loadActiveWorkspace();
+    if (containerService.isRunning()) {
+      await containerService.start(workspaceController.mountMap);
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message ?? String(err) };
+  }
+});
+
+ipcMain.handle('googleDrive:getSelection', () => {
+  try {
+    const wsId = workspaceController.workspaceId;
+    if (!wsId) return { success: true, data: null };
+    const dirs = listWorkspaceDirectoriesBySource(wsId, 'google-drive');
+    const selectedItems = dirs.map(d => {
+      const meta = d.metadata ? JSON.parse(d.metadata) : {};
+      return { id: meta.driveId ?? '', name: d.display_name, mimeType: meta.mimeType ?? '', path: meta.path ?? '' };
+    });
+    return { success: true, data: selectedItems.length > 0 ? { selectedItems } : null };
+  } catch (err: any) {
+    return { success: false, error: err?.message ?? String(err) };
+  }
+});
+
+ipcMain.handle('googleDrive:getCacheDirectories', () => {
+  try {
+    const wsId = workspaceController.workspaceId;
+    if (!wsId) return null;
+    const dirs = listWorkspaceDirectoriesBySource(wsId, 'google-drive');
+    if (dirs.length === 0) return null;
+    const hostPath = workspaceController.driveCacheBaseDir;
+    fs.mkdirSync(hostPath, { recursive: true });
+    return { hostPath };
+  } catch {
+    return null;
+  }
+});
+
+ipcMain.handle('googleDrive:listChildren', (_event: any, parentId: string) => {
+  try {
+    const wsId = workspaceController.workspaceId;
+    if (!wsId) return [];
+
+    if (parentId === 'root') {
+      const dirs = listWorkspaceDirectoriesBySource(wsId, 'google-drive');
+      return dirs.map((d) => {
+        const driveId = d.directory_path.replace('gdrive://', '');
+        return {
+          name: d.display_name,
+          fileId: driveId,
+          mimeType: 'application/vnd.google-apps.folder',
+          isDirectory: true,
+        };
+      });
+    }
+
+    const { listChildEntries } = require('./db/googleDriveCacheRepository');
+    const entries = listChildEntries(wsId, parentId);
+    return entries.map((e: any) => ({
+      name: e.name,
+      fileId: e.file_id,
+      mimeType: e.mime_type,
+      isDirectory: e.mime_type === 'application/vnd.google-apps.folder',
+    }));
+  } catch {
+    return [];
+  }
+});
+
+ipcMain.handle('googleDrive:listCacheEntries', () => {
+  try {
+    const wsId = workspaceController.workspaceId;
+    if (!wsId) return [];
+    const { getDatabase } = require('./db/database');
+    const db = getDatabase();
+    return db.prepare('SELECT * FROM google_drive_cache WHERE workspace_id = ? ORDER BY relative_path').all(wsId);
+  } catch {
+    return [];
+  }
+});
+
+ipcMain.handle('googleDrive:resetCache', async () => {
+  try {
+    const wsId = workspaceController.workspaceId;
+    if (!wsId) return { success: false, error: 'No active workspace' };
+    const { clearWorkspaceCache } = require('./db/googleDriveCacheRepository');
+    clearWorkspaceCache(wsId);
+    removeWorkspaceDirectoriesBySource(wsId, 'google-drive');
+    const cacheDir = workspaceController.driveCacheBaseDir;
+    await fsPromises.rm(cacheDir, { recursive: true, force: true });
+    workspaceController.loadActiveWorkspace();
+    if (containerService.isRunning()) {
+      await containerService.start(workspaceController.mountMap);
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message ?? String(err) };
+  }
 });
 
 app.on('window-all-closed', () => {

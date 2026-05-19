@@ -21,10 +21,16 @@ export type ScannerEvent =
   | { type: "complete"; reportId: string; reportData: string }
   | { type: "error"; error: string };
 
+export interface DriveDirectoryInfo {
+  driveId: string;
+  name: string;
+}
+
 export interface ScanParams {
   workspaceId: string;
   cwd: string;
   directoryPaths: string[];
+  driveDirectories?: DriveDirectoryInfo[];
   memoryDir: string;
   apiKey: string;
   baseURL?: string;
@@ -36,6 +42,7 @@ export interface ScanParams {
 export interface TreeOutput {
   directoryPath: string;
   tree: string;
+  source: 'local' | 'google-drive';
 }
 
 export interface ScanContext {
@@ -82,6 +89,10 @@ Access to paths outside the scan directories is blocked and will fail — do not
 ## File timestamps
 
 The directory tree includes modification dates for each file. Use these to understand what the researcher has been working on recently.
+
+## Google Drive directories
+
+Some directory trees may be labeled "(Google Drive)". These are cloud-hosted files — they are NOT on the local filesystem. **Do not attempt to Read, Glob, or Grep files from Google Drive trees.** Use only the file names, types, and folder structure from the tree output to understand the researcher's cloud-hosted work. Access to these files will fail.
 `;
 
 export const SCAN_SPEED_PREAMBLE = `## Speed is critical — this is your #1 priority
@@ -123,13 +134,19 @@ export function generateDirectoryTree(directoryPath: string): string {
 
 export function formatTreesForPrompt(treeOutputs: TreeOutput[]): string {
   if (treeOutputs.length === 1) {
-    return treeOutputs[0].tree;
+    const t = treeOutputs[0];
+    if (t.source === 'google-drive') {
+      return `### ${t.directoryPath} (Google Drive)\n\`\`\`\n${t.tree}\n\`\`\``;
+    }
+    return t.tree;
   }
   return treeOutputs
-    .map(
-      ({ directoryPath, tree }) =>
-        `### ${path.basename(directoryPath)} (${directoryPath})\n\`\`\`\n${tree}\n\`\`\``,
-    )
+    .map(({ directoryPath, tree, source }) => {
+      const label = source === 'google-drive'
+        ? `${directoryPath} (Google Drive)`
+        : `${path.basename(directoryPath)} (${directoryPath})`;
+      return `### ${label}\n\`\`\`\n${tree}\n\`\`\``;
+    })
     .join("\n\n");
 }
 
