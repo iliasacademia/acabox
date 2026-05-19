@@ -129,7 +129,7 @@ export function buildWordPollResponseV2(
       shouldShowButtonV2,
       shouldShowPopupV2,
       shouldShowReviewButton: false,
-      hasSelectedText: !!selectedTextOut,
+      hasSelectedText: false,
       selectedText: selectedTextOut,
       isDockedActive,
     };

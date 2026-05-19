@@ -733,6 +733,11 @@ export async function getWordText(offset: number = 0, limit: number = DEFAULT_GE
   logger.info(`[WordActions] getWordText called: offset=${offset}, limit=${limit}`);
 
   try {
+    // Extract document text with table structure preserved as markdown.
+    // Word's "content of text object" flattens table cells into a single
+    // string with no delimiters, making table data invisible to the AI.
+    // This script detects tables by their character ranges and replaces
+    // the flat cell text with a markdown-formatted representation.
     const script = `tell application "Microsoft Word"
   if (count of documents) is 0 then
     error "No documents are open"
@@ -741,17 +746,89 @@ export async function getWordText(offset: number = 0, limit: number = DEFAULT_GE
   set docName to name of doc
   set docContent to content of text object of doc
   set totalLen to length of docContent
-  return docName & "||" & (totalLen as text) & "||" & docContent
+  set tableCount to count of tables of doc
+  set tableInfo to ""
+  if tableCount > 0 then
+    repeat with t from 1 to tableCount
+      try
+        set tbl to table t of doc
+        set tblStart to (start of content of text object of tbl)
+        set tblEnd to (end of content of text object of tbl)
+        set rowCount to count of rows of tbl
+        set mdTable to ""
+        repeat with r from 1 to rowCount
+          set rowText to "|"
+          set colCount to count of cells of row r of tbl
+          repeat with c from 1 to colCount
+            try
+              set cellContent to content of text object of cell c of row r of tbl
+              -- Strip trailing paragraph marks Word adds to cell text
+              if cellContent ends with (ASCII character 13) then
+                set cellContent to text 1 thru -2 of cellContent
+              end if
+              if cellContent ends with (ASCII character 7) then
+                set cellContent to text 1 thru -2 of cellContent
+              end if
+              set rowText to rowText & " " & cellContent & " |"
+            on error
+              set rowText to rowText & " |"
+            end try
+          end repeat
+          set mdTable to mdTable & rowText & (ASCII character 10)
+          if r is 1 then
+            set sepRow to "|"
+            repeat colCount times
+              set sepRow to sepRow & " --- |"
+            end repeat
+            set mdTable to mdTable & sepRow & (ASCII character 10)
+          end if
+        end repeat
+        set tableInfo to tableInfo & tblStart & "||" & tblEnd & "||" & mdTable & "<<TABLE_SEP>>"
+      on error errMsg
+        -- Skip tables that can't be read (e.g. nested or corrupted)
+      end try
+    end repeat
+  end if
+  return docName & "||" & (totalLen as text) & "||" & tableInfo & "<<DOC_TEXT>>" & docContent
 end tell`;
 
     const result = await runAppleScriptStdin(script);
 
-    // Parse: name||totalLength||content
+    // Parse: name||totalLength||tableInfo<<DOC_TEXT>>content
     const firstSep = result.indexOf('||');
     const secondSep = result.indexOf('||', firstSep + 2);
     const fileName = result.substring(0, firstSep);
     const totalLength = parseInt(result.substring(firstSep + 2, secondSep), 10);
-    const fullContent = result.substring(secondSep + 2);
+    const remainder = result.substring(secondSep + 2);
+
+    const docTextMarker = '<<DOC_TEXT>>';
+    const docTextIdx = remainder.indexOf(docTextMarker);
+    const tableInfoRaw = remainder.substring(0, docTextIdx);
+    let fullContent = remainder.substring(docTextIdx + docTextMarker.length);
+
+    // Splice markdown tables into the document text, replacing the flat
+    // cell text that Word concatenates at each table's character range.
+    if (tableInfoRaw) {
+      const tableEntries = tableInfoRaw.split('<<TABLE_SEP>>').filter(Boolean);
+      // Process tables in reverse order so earlier character offsets stay valid.
+      const parsed = tableEntries.map(entry => {
+        const sep1 = entry.indexOf('||');
+        const sep2 = entry.indexOf('||', sep1 + 2);
+        return {
+          start: parseInt(entry.substring(0, sep1), 10),
+          end: parseInt(entry.substring(sep1 + 2, sep2), 10),
+          markdown: entry.substring(sep2 + 2),
+        };
+      }).sort((a, b) => b.start - a.start);
+
+      for (const tbl of parsed) {
+        if (!isNaN(tbl.start) && !isNaN(tbl.end) && tbl.markdown) {
+          fullContent = fullContent.substring(0, tbl.start)
+            + '\n' + tbl.markdown + '\n'
+            + fullContent.substring(tbl.end);
+        }
+      }
+    }
 
     // Apply offset/limit
     const sliced = fullContent.substring(offset, offset + limit);
