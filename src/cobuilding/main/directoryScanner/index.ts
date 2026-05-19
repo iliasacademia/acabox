@@ -130,9 +130,10 @@ export async function runInDepthScan(params: ScanParams): Promise<NotificationOu
     return { made_changes: false, title: "", body: "" };
   }
 
-  const treeOutputs = params.directoryPaths.map((dp) => ({
+  const treeOutputs: TreeOutput[] = params.directoryPaths.map((dp) => ({
     directoryPath: dp,
     tree: generateDirectoryTree(dp),
+    source: 'local' as const,
   }));
 
   const ctx: ScanContext = {
