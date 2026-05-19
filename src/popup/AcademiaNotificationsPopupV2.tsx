@@ -93,9 +93,10 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   // Width toggle state
   const [isWide, setIsWide] = useState(false);
 
-  // Dock-to-right state — persisted per document path in localStorage
+  // Dock-to-right state — persisted per document path in localStorage (defaults to docked)
   const DOCK_PREF_KEY = 'academia_popup_docked:';
-  const [isDocked, setIsDocked] = useState(false);
+  const [isDocked, setIsDocked] = useState(true);
+  const isDockedRef = useRef(true);
   const narrowWidthRef = useRef<number>(window.innerWidth);
   const WIDE_WIDTH = 700;
   const sizeAnimRef = useRef<number | null>(null);
@@ -166,6 +167,8 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     sizeAnimRef.current = requestAnimationFrame(step);
   };
 
+  useEffect(() => { isDockedRef.current = isDocked; }, [isDocked]);
+
   // WebSocket-based polling
   const pollData = useWordPollWebSocket(widParam, tokenParam, serverUrl);
   const effectiveWid = getV4FocusedWid();
@@ -189,13 +192,13 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   }, [docPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Restore per-document dock preference whenever the active document changes.
+  // Defaults to docked when no preference has been stored yet.
   useEffect(() => {
     if (!docPath) return;
-    const pref = localStorage.getItem(DOCK_PREF_KEY + docPath) === 'true';
+    const stored = localStorage.getItem(DOCK_PREF_KEY + docPath);
+    const pref = stored === null ? true : stored === 'true';
     setIsDocked(pref);
-    if (pref || prevDocPathRef.current !== null) {
-      postBridge('setDockRight', { docked: pref });
-    }
+    postBridge('setDockRight', { docked: pref });
     prevDocPathRef.current = docPath;
     // Hydrate auto-open tracking for the new doc from localStorage. Fresh
     // sessions for a different doc shouldn't be considered already-handled,
@@ -205,13 +208,13 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   }, [docPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // When Word is maximized the overlay falls back to floating (isDockedActive = false).
-  // Detect the true→false transition and reset isDocked so one click re-docks.
+  // If the user still wants docked mode, re-send the dock command to resize Word.
   useEffect(() => {
     const curr = pollData?.isDockedActive;
     const prev = prevIsDockedActiveRef.current;
     prevIsDockedActiveRef.current = curr;
-    if (prev === true && curr === false) {
-      setIsDocked(false);
+    if (prev === true && curr === false && isDockedRef.current) {
+      postBridge('setDockRight', { docked: true });
     }
   }, [pollData?.isDockedActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
