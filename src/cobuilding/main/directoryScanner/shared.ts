@@ -6,6 +6,7 @@ import {
 import * as path from "path";
 import log from "electron-log";
 import { tree as generateTreeCli } from "tree-node-cli";
+import { createDocumentReaderMcpServer } from "./documentReaderMcpServer";
 
 export interface TaggedFileParsed {
   file_path?: unknown;
@@ -82,6 +83,8 @@ Access to paths outside the scan directories is blocked and will fail — do not
 
 - NEVER read large data files (CSV, JSON data, HDF5, binary files, images, etc.)
 - NEVER read large code files in their entirety — just skim the first 20-30 lines for imports and structure
+- You CAN read .pdf and .docx (Word) files with the \`mcp__document-reader__read_document\` tool, which extracts the text content. Do NOT use the Read tool for .pdf or .docx files — it cannot read them
+- Be selective: only read documents (.pdf, .docx) that appear most relevant based on filename, directory location, and recency — do not read every document
 - DO read small text files like README.md, abstracts, paper titles, config files, and requirements.txt
 - Use file extensions and filenames to infer content types without reading the files
 - Use Grep to search for specific patterns (author names, keywords, abstracts) rather than reading entire files
@@ -177,16 +180,20 @@ export async function consumeAgentStream<T>(
 export function buildCommonQueryOptions(ctx: ScanContext) {
   const { claudeBinaryPath, directoryPaths, apiKey, baseURL, abortController } =
     ctx;
+  const docReaderTool = "mcp__document-reader__read_document";
   return {
     abortController,
     pathToClaudeCodeExecutable: claudeBinaryPath,
-    tools: ["Read", "Glob", "Grep"],
-    allowedTools: ["Read", "Glob", "Grep"],
+    tools: ["Read", "Glob", "Grep", docReaderTool],
+    allowedTools: ["Read", "Glob", "Grep", docReaderTool],
     cwd: ctx.cwd,
     env: {
       ...process.env,
       ANTHROPIC_API_KEY: apiKey,
       ...(baseURL ? { ANTHROPIC_BASE_URL: baseURL } : {}),
+    },
+    mcpServers: {
+      "document-reader": createDocumentReaderMcpServer(directoryPaths),
     },
     persistSession: false as const,
     thinking: { type: "disabled" as const },
@@ -250,7 +257,7 @@ function createHooks(directoryPaths: string[]) {
 
   return {
     PreToolUse: [
-      { matcher: "Read|Glob|Grep", hooks: [blockHiddenPaths, blockOutsideCwd] },
+      { matcher: "Read|Glob|Grep|mcp__document-reader__read_document", hooks: [blockHiddenPaths, blockOutsideCwd] },
     ],
   };
 }
