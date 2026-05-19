@@ -182,6 +182,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   // to lose its active session every time the user briefly switches apps.
   useEffect(() => {
     if (shouldClearActiveOnDocChange(prevDocPathRef.current, docPath)) {
+      localSessionIdRef.current = null;
       setActiveSession(null);
       setShowingList(true);
     }
