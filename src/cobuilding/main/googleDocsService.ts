@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { shell, app, safeStorage } from 'electron';
 import { OAuth2Client } from 'google-auth-library';
+import log from 'electron-log';
 import { captureError } from '../shared/telemetry';
 
 /**
@@ -24,6 +25,33 @@ const SCOPES = [
   'https://www.googleapis.com/auth/documents',
   'https://www.googleapis.com/auth/drive.readonly',
 ];
+
+function isRateLimited(err: any): boolean {
+  const status = err?.response?.status ?? err?.code;
+  if (status === 429) return true;
+  if (status === 403) {
+    const reason = err?.response?.data?.error?.errors?.[0]?.reason;
+    return reason === 'rateLimitExceeded' || reason === 'userRateLimitExceeded';
+  }
+  return false;
+}
+
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      if (isRateLimited(err) && attempt < maxRetries) {
+        const delay = Math.min(1000 * Math.pow(2, attempt), 8000);
+        log.warn(`[GoogleDocs] Rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('withRetry: unreachable');
+}
 
 export interface DocsApiResult<T> {
   success: boolean;
@@ -299,7 +327,7 @@ export async function getDocText(documentId: string): Promise<DocsApiResult<{ te
 
   const url = `https://docs.googleapis.com/v1/documents/${encodeURIComponent(documentId)}?includeTabsContent=true`;
   try {
-    const resp = await client.request<any>({ url, method: 'GET' });
+    const resp = await withRetry(() => client.request<any>({ url, method: 'GET' }));
     const text = extractPlainText(resp.data);
     const title = (resp.data?.title as string | undefined) ?? '';
     return { success: true, data: { text, title } };
@@ -307,6 +335,9 @@ export async function getDocText(documentId: string): Promise<DocsApiResult<{ te
     const status = err?.response?.status ?? err?.code;
     if (status === 401) {
       return { success: false, error: 'Google session expired. Please reconnect in Settings.', authExpired: true };
+    }
+    if (status === 429 || isRateLimited(err)) {
+      return { success: false, error: 'Google Docs rate limit exceeded. Please try again in a moment.' };
     }
     if (status === 403) {
       return { success: false, error: 'Google denied access. Either the doc is restricted or the OAuth scope is missing.' };
@@ -328,7 +359,7 @@ export async function getDocText(documentId: string): Promise<DocsApiResult<{ te
 async function listAllTabIds(client: OAuth2Client, documentId: string): Promise<string[]> {
   try {
     const url = `https://docs.googleapis.com/v1/documents/${encodeURIComponent(documentId)}?includeTabsContent=true&fields=tabs(tabProperties(tabId),childTabs)`;
-    const resp = await client.request<any>({ url, method: 'GET' });
+    const resp = await withRetry(() => client.request<any>({ url, method: 'GET' }));
     const ids: string[] = [];
     function walk(tabs: any[] | undefined): void {
       for (const t of tabs ?? []) {
@@ -378,13 +409,16 @@ export async function findAndReplace(
     ],
   };
   try {
-    const resp = await client.request<any>({ url, method: 'POST', data: body });
+    const resp = await withRetry(() => client.request<any>({ url, method: 'POST', data: body }));
     const occurrences = resp.data?.replies?.[0]?.replaceAllText?.occurrencesChanged ?? 0;
     return { success: true, data: { replacementsCount: occurrences } };
   } catch (err: any) {
     const status = err?.response?.status ?? err?.code;
     if (status === 401) {
       return { success: false, error: 'Google session expired. Please reconnect in Settings.', authExpired: true };
+    }
+    if (status === 429 || isRateLimited(err)) {
+      return { success: false, error: 'Google Docs rate limit exceeded. Please try again in a moment.' };
     }
     if (status === 403) {
       return { success: false, error: 'You do not have edit access to this document.' };

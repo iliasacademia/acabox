@@ -249,6 +249,8 @@ export async function generateDriveDirectoryTree(
 
 // --- File download with cache ---
 
+const MAX_DOWNLOAD_SIZE = 50 * 1024 * 1024; // 50 MB
+
 const GOOGLE_WORKSPACE_EXPORT_MAP: Record<string, { mimeType: string; extension: string }> = {
   'application/vnd.google-apps.document': { mimeType: 'text/plain', extension: '.txt' },
   'application/vnd.google-apps.spreadsheet': { mimeType: 'text/csv', extension: '.csv' },
@@ -274,6 +276,11 @@ export async function downloadFile(
 
   if (isWorkspaceFile && !exportInfo) {
     return { success: false, error: `Cannot download Google Workspace file of type "${fileMeta.mimeType}". Only Docs, Sheets, Slides, and Drawings can be exported.` };
+  }
+
+  if (!isWorkspaceFile && fileMeta.size && parseInt(fileMeta.size, 10) > MAX_DOWNLOAD_SIZE) {
+    const sizeMB = Math.round(parseInt(fileMeta.size, 10) / 1024 / 1024);
+    return { success: false, error: `File is ${sizeMB} MB which exceeds the ${MAX_DOWNLOAD_SIZE / 1024 / 1024} MB download limit.` };
   }
 
   const fileName = isWorkspaceFile && exportInfo
