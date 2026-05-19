@@ -345,6 +345,24 @@ async function refreshCredentialsForSession(): Promise<{ apiKey: string; baseURL
   return { apiKey: result.apiKey, baseURL: result.baseURL };
 }
 
+let inflightCredentialRefresh: Promise<boolean> | null = null;
+
+async function refreshAndPushCredentials(): Promise<boolean> {
+  if (inflightCredentialRefresh) return inflightCredentialRefresh;
+  inflightCredentialRefresh = (async () => {
+    try {
+      const { apiKey, baseURL } = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
+      return await containerService.updateAgentCredentials(apiKey, baseURL);
+    } catch (err) {
+      log.error('[CredentialRefresh] Refresh and push failed:', err);
+      return false;
+    } finally {
+      inflightCredentialRefresh = null;
+    }
+  })();
+  return inflightCredentialRefresh;
+}
+
 const notificationsController = new NotificationsController({
   workspaceController,
   onDesktopNotificationClick: () => handleNotificationNavigation({ type: 'sidebar', tab: 'home' }),
@@ -970,6 +988,7 @@ app.whenReady().then(async () => {
                       return prefix ? `${prefix}\n${userText}` : userText;
                     },
                     ctxDocPath,
+                    refreshAndPushCredentials,
                   );
                   registerSession(sessionId, session);
                 }
@@ -1061,6 +1080,7 @@ app.whenReady().then(async () => {
                   return prefix ? `${prefix}\n${userText}` : userText;
                 },
                 ctxDocPath,
+                refreshAndPushCredentials,
               );
               registerSession(sessionId, session);
             }
@@ -1937,6 +1957,7 @@ ipcMain.handle('chat:send', (event, { threadId, text, attachments, model, docume
         model,
         undefined,
         documentPath,
+        refreshAndPushCredentials,
       );
 
       // Default 'ui': subscriber tracking via ensureForwarding handles
@@ -2524,7 +2545,7 @@ ipcMain.handle('scheduledTasks:runNow', async (_event, id: string) => {
   if (!activeWorkspace) throw new Error('No active workspace');
   const task = getTask(id);
   if (!task) throw new Error('Task not found');
-  await runScheduledTask(task, activeWorkspace, handleNotificationNavigation);
+  await runScheduledTask(task, activeWorkspace, handleNotificationNavigation, refreshAndPushCredentials);
 });
 
 ipcMain.handle('scheduledTasks:listRuns', (_event, taskId: string) => {

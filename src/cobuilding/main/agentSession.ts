@@ -15,6 +15,18 @@ import { IDENTITY_PREAMBLE } from './hostApps/identityPreamble';
 import { ACADEMIA_DIR, SOUL_MD } from '../shared/paths';
 import { windowMonitorService } from '../../windowMonitorService';
 
+class AuthRetryError extends Error {
+  constructor(public originalError: string) {
+    super(`Auth retry: ${originalError}`);
+  }
+}
+
+function isAuthError(msg: string): boolean {
+  if (!msg) return false;
+  const lower = msg.toLowerCase();
+  return lower.includes('401') && (lower.includes('authenticat') || lower.includes('token') || lower.includes('unauthorized'));
+}
+
 /**
  * Resolve which HostApp this session/turn is acting on. Resolution order:
  *
@@ -112,12 +124,14 @@ export function createAgentSession(
   model?: string,
   messagePreprocessor?: (text: string) => string,
   documentPath?: string,
+  refreshAndPushCredentials?: () => Promise<boolean>,
 ): AgentSession {
   const listeners = new Set<Partial<ChatCallbacks>>();
   let running = true;
   let agentSessionId: string | null = null;
   let sseRequest: http.ClientRequest | null = null;
   const pendingMessages: Array<{ text: string; attachments?: IPCAttachment[]; messageId?: string }> = [];
+  let inflightMessage: { text: string; attachments?: IPCAttachment[]; messageId?: string } | null = null;
   // Shared with connectSSE (module-scope) by reference.
   //   currentMessageId — set by sendMessage so the SSE reader can stamp it
   //     on turn-complete for renderer correlation. May be null (overlay,
@@ -263,6 +277,8 @@ export function createAgentSession(
     if (loopPromise) return loopPromise;
     if (sessionState.stopped) return Promise.resolve();
     loopPromise = (async () => {
+      let shouldRestartForAuth = false;
+      let authRetried = false;
       try {
         agentBaseUrl = await waitForAgent();
 
@@ -301,6 +317,7 @@ export function createAgentSession(
         // (or were re-queued by a 404 from a now-evicted server session).
         const toFlush = pendingMessages.splice(0);
         for (const pending of toFlush) {
+          inflightMessage = pending;
           httpPost(
             `${agentBaseUrl}/sessions/${agentSessionId}/messages`,
             JSON.stringify({ text: pending.text, attachments: pending.attachments, messageId: pending.messageId }),
@@ -318,9 +335,29 @@ export function createAgentSession(
           try {
             await connectSSE(eventUrl, state, sessionId, emitEvent, emitDone, emitError, sessionState, (req) => {
               sseRequest = req;
-            }, agentBaseUrl, agentSessionId!, turnState, sseCursor);
+            }, agentBaseUrl, agentSessionId!, turnState, sseCursor, !!refreshAndPushCredentials && !authRetried);
             break; // clean terminal event — done with this turn
           } catch (err) {
+            if (err instanceof AuthRetryError && !authRetried && refreshAndPushCredentials) {
+              authRetried = true;
+              log.info(`[AgentSession] Auth error detected, attempting credential refresh: ${err.originalError}`);
+              try {
+                const refreshed = await refreshAndPushCredentials();
+                if (refreshed) {
+                  log.info('[AgentSession] Credentials refreshed, restarting session loop');
+                  if (inflightMessage) {
+                    pendingMessages.push(inflightMessage);
+                    inflightMessage = null;
+                  }
+                  shouldRestartForAuth = true;
+                  return;
+                }
+              } catch (refreshErr) {
+                log.error('[AgentSession] Credential refresh failed:', refreshErr);
+              }
+              emitError(err.originalError);
+              return;
+            }
             if (sessionState.stopped) break;
             if (attempt >= RETRY_BACKOFFS_MS.length) {
               const msg = err instanceof Error ? err.message : String(err);
@@ -353,16 +390,21 @@ export function createAgentSession(
         // doesn't get reused for a POST against the evicted session.
         agentSessionId = null;
         loopPromise = null;
-        if (running) {
-          // The SSE stream didn't deliver a turn-complete result. If this
-          // was a clean idle eviction the host has nothing to wait on, so
-          // settle the listener side. (Renderer is free to send another
-          // message; sendMessage will restart the loop.)
-          emitDone();
+        if (shouldRestartForAuth) {
+          startLoop();
+        } else {
+          inflightMessage = null;
+          if (running) {
+            // The SSE stream didn't deliver a turn-complete result. If this
+            // was a clean idle eviction the host has nothing to wait on, so
+            // settle the listener side. (Renderer is free to send another
+            // message; sendMessage will restart the loop.)
+            emitDone();
+          }
+          // If messages landed during shutdown, kick another loop so they
+          // don't sit pending forever. startLoop short-circuits if stopped.
+          if (pendingMessages.length > 0) startLoop();
         }
-        // If messages landed during shutdown, kick another loop so they
-        // don't sit pending forever. startLoop short-circuits if stopped.
-        if (pendingMessages.length > 0) startLoop();
       }
     })();
     return loopPromise;
@@ -422,6 +464,7 @@ export function createAgentSession(
       };
 
       if (agentSessionId && loopPromise) {
+        inflightMessage = { text: processedText, attachments: translatedAttachments, messageId };
         const targetSessionId = agentSessionId;
         httpPostWithStatus(
           `${agentBaseUrl}/sessions/${targetSessionId}/messages`,
@@ -568,6 +611,7 @@ async function connectSSE(
   agentSessionId: string,
   turnState: { currentMessageId: string | null; turnInProgress: boolean },
   sseCursor: { lastEventId: number | null },
+  canRetryAuth?: boolean,
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const parsed = new URL(url);
@@ -684,11 +728,17 @@ async function connectSSE(
           } else if (eventType === 'error') {
             try {
               const errData = JSON.parse(data);
-              emitError(errData.error || 'Unknown agent error');
+              const errorMsg = errData.error || 'Unknown agent error';
+              if (canRetryAuth && isAuthError(errorMsg)) {
+                reject(new AuthRetryError(errorMsg));
+              } else {
+                emitError(errorMsg);
+                resolve();
+              }
             } catch {
               emitError('Unknown agent error');
+              resolve();
             }
-            resolve();
           }
         }
       });
