@@ -58,9 +58,9 @@ interface AvailableStub {
   chatPromptTemplate?: (filePath: string) => string;
   /**
    * If set, picking a file opens it in MS Word with the popup-v2 overlay
-   * docked right (~33%) and a manuscript-specific kickoff prompt auto-sent
-   * in the overlay's chat. Picker is filtered to .docx files only — Word's
-   * find_and_replace MCP is the only host we have for live tracked-changes.
+   * docked right (~33%) and a kickoff prompt auto-sent in the overlay's
+   * chat. Picker is filtered to .docx files only — Word's find_and_replace
+   * MCP is the only host we have for live tracked-changes.
    */
   useWordOverlay?: boolean;
 }
@@ -72,11 +72,11 @@ function hoursAgoIso(hours: number): string {
 const AVAILABLE_TOOLS_STUB: AvailableStub[] = [
   {
     name: 'Peer Review',
-    description: 'Review your manuscript and provide structured feedback in MS Word',
+    description: 'Review and provide structured feedback on any document in MS Word',
     tag: 'ON-DEMAND',
     preBuilt: true,
     lastOpened: hoursAgoIso(2),
-    filePickerType: 'manuscript',
+    filePickerType: 'all',
     useWordOverlay: true,
   },
   { name: 'Grant Finder', description: 'Funding opportunities matched to your research', tag: 'ON-DEMAND', preBuilt: true, lastOpened: hoursAgoIso(72) },
@@ -240,9 +240,9 @@ export function ToolsPage({
       // so prune the picker to that subset.
       if (stub.useWordOverlay) {
         files = files.filter((f) => f.file_path.toLowerCase().endsWith('.docx'));
-        // Fall back to every .docx in the workspace when nothing was tagged
-        // as a manuscript yet — only workspace files work here, so we
-        // surface them inline rather than punting to a Browse dialog.
+        // Fall back to every .docx in the workspace when no tagged files
+        // were found — only workspace files work here, so we surface them
+        // inline rather than punting to a Browse dialog.
         if (files.length === 0) {
           const docx = await window.filesAPI.findByExtension(['docx']);
           files = docx.map((f) => {
@@ -599,7 +599,7 @@ export function ToolsPage({
                 <h2 className="filePickerModal__title">{filePicker.stub.name}</h2>
                 <p className="filePickerModal__subtitle">
                   {filePicker.stub.useWordOverlay
-                    ? 'Pick a manuscript to open in Word with the Peer Review Assistant alongside.'
+                    ? 'Pick a .docx file to open in Word with the Peer Review Assistant alongside.'
                     : 'Select a file to work on, or browse to choose one.'}
                 </p>
               </div>
@@ -617,7 +617,7 @@ export function ToolsPage({
               ) : filePicker.files.length === 0 ? (
                 <div className="filePickerModal__empty">
                   {filePicker.stub.useWordOverlay
-                    ? 'No .docx files found in your workspace. Add a manuscript to your workspace folder and try again.'
+                    ? 'No .docx files found in your workspace. Add a .docx file to your workspace folder and try again.'
                     : 'No tagged files found from your last scan. Use "Browse files" to select manually.'}
                 </div>
               ) : (
