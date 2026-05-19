@@ -21,7 +21,6 @@ import { showDownloadManagerIfNeeded, registerDownloadManagerIpc } from './downl
 import { processCpuMonitor } from '../../utils/processCpuMonitor';
 import { getAllPodmanDataPaths } from './podmanBinaries';
 import { ensureClaudeBinaryReady } from './sdkBinarySetup';
-import { scanWorkspaceDirectory } from './directoryScanner';
 import { convertReferenceFile } from './directoryScanner/agents/fileTagging';
 import { fetchPapers, type FetchPapersInput } from './papers/papersService';
 import { persistPapersAsBriefings } from './papers/paperBriefings';
@@ -54,6 +53,7 @@ import {
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
 import { createTray, createDockIcon, rebuildTrayMenu, setShowWindowCallback } from './tray';
+import { BriefingsController } from './controllers/BriefingsController';
 import { startBrowserMonitor, stopBrowserMonitor } from './browserMonitor';
 import { getAllSessions } from './browserMonitor/repository';
 import { initFileMonitor, startFileMonitor, stopFileMonitor, isFileMonitorRunning } from './fileMonitor';
@@ -357,6 +357,23 @@ const notificationsController = new NotificationsController({
   onDesktopNotificationClick: () => handleNotificationNavigation({ type: 'sidebar', tab: 'home' }),
 });
 
+const briefingsController = new BriefingsController({
+  workspaceController,
+  notificationsController,
+  getCredentials,
+  ensureCredentials: () => fetchGatewayCredentials(getApiProvider() === 'cloudflare').then(() => {}),
+  onBriefingsChanged: () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('briefings:changed');
+    }
+  },
+  onScannerEvent: (event) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('scanner:event', event);
+    }
+  },
+});
+
 const agentInfrastructure = new AgentInfrastructureController({
   workspaceController,
   containerService,
@@ -657,6 +674,7 @@ app.whenReady().then(async () => {
     initSessionFiles(() => workspaceController.workspacePath);
     registerCalendarHandlers(() => mainWindow);
     registerDebugHandlers();
+    ipcMain.handle('debug:triggerInDepthSuggestions', () => briefingsController.trigger());
     registerWorkspaceHandlers(workspaceController, () => mainWindow, containerService);
     registerReactionsHandlers(() => workspaceController.activeWorkspace, rebuildTrayMenu);
     setupUpdaterIpcHandlers();
@@ -697,6 +715,7 @@ app.whenReady().then(async () => {
       }
     }
     startScheduledTasks(handleNotificationNavigation);
+    briefingsController.startScheduledBriefings();
 
     // Start HTTP server and window monitor for the Word overlay
     if (FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V2_ENABLED) {
@@ -1393,61 +1412,7 @@ ipcMain.handle('scannedFiles:removeTag', (_event, filePath: string) => {
 
 // ─── Directory Scanner IPC ──────────────────────────────────────
 
-let scannerRunning = false;
-
-ipcMain.handle('scanner:start', async () => {
-  const activeWorkspace = workspaceController.activeWorkspace;
-  if (!activeWorkspace) {
-    throw new Error('No active workspace');
-  }
-  let { apiKey, baseURL } = getCredentials();
-  if (!apiKey) {
-    await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
-    ({ apiKey, baseURL } = getCredentials());
-  }
-  const scanDirs = workspaceController.userDirectoryPaths;
-  if (scanDirs.length === 0) {
-    log.warn('[scanner:start] No user directories to scan');
-    return;
-  }
-  if (scannerRunning) {
-    log.warn('[scanner:start] Scan already in progress — ignoring duplicate request');
-    return;
-  }
-  scannerRunning = true;
-
-  scanWorkspaceDirectory({
-    workspaceId: activeWorkspace.id,
-    cwd: workspaceController.workspacePath,
-    directoryPaths: scanDirs,
-    memoryDir: path.join(workspaceController.workspacePath, AGENT_MEMORY_SUBDIR),
-    apiKey: apiKey ?? '',
-    baseURL,
-    onMessage: (event) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('scanner:event', event);
-      }
-    },
-    onBriefingsChanged: () => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('briefings:changed');
-      }
-    },
-    onNotifyUser: (title: string, body: string) => {
-      notificationsController.notifyUser(title, body);
-    },
-  }).catch((err) => {
-    log.error('[scanner:start] Scan failed:', err);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('scanner:event', {
-        type: 'error',
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }).finally(() => {
-    scannerRunning = false;
-  });
-});
+ipcMain.handle('scanner:start', () => briefingsController.runInitialWorkspaceScan());
 
 
 // Container IPC handlers
@@ -2862,6 +2827,7 @@ app.on('before-quit', () => {
     ['stopFileMonitor', stopFileMonitor],
     ['stopBrowserMonitor', stopBrowserMonitor],
     ['stopScheduledTasks', stopScheduledTasks],
+    ['stopBriefingsController', () => briefingsController.stopScheduledBriefings()],
     ['backgroundBuilder.dispose', () => backgroundBuilder.dispose()],
     ['destroyTokenManager', destroyTokenManager],
     ['destroyAllSessions', destroyAllSessions],

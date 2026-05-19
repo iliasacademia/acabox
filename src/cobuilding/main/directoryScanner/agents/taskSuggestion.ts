@@ -46,7 +46,7 @@ const ALL_SUGGESTED_TASKS_TOOLS = [
   "mcp__suggested-tasks__delete_suggestion",
 ];
 
-interface NotificationOutput {
+export interface NotificationOutput {
   made_changes: boolean;
   title: string;
   body: string;

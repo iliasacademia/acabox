@@ -224,6 +224,7 @@ contextBridge.exposeInMainWorld('debugAPI', {
   log: (msg: string) => ipcRenderer.invoke('debug:log', msg),
   telemetryTest: (kind: string, subsystem?: string) =>
     ipcRenderer.invoke('debug:telemetry-test', kind, subsystem),
+  triggerInDepthSuggestions: () => ipcRenderer.invoke('debug:triggerInDepthSuggestions'),
 });
 
 contextBridge.exposeInMainWorld('calendarAPI', {

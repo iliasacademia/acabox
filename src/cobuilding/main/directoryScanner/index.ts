@@ -10,11 +10,11 @@ import {
   type ScanContext,
 } from "./shared";
 import { runResearchProfileAgent } from "./agents/researchProfile";
-import { runQuickTaskSuggestionAgent, runInDepthTaskSuggestionAgent } from "./agents/taskSuggestion";
+import { runQuickTaskSuggestionAgent, runInDepthTaskSuggestionAgent, type NotificationOutput } from "./agents/taskSuggestion";
 import { runFileTaggingAgent } from "./agents/fileTagging";
 import { captureError } from "../../shared/telemetry";
 
-export type { ScannerEvent, ScanParams };
+export type { ScannerEvent, ScanParams, NotificationOutput };
 
 export async function scanWorkspaceDirectory(
   params: ScanParams,
@@ -105,6 +105,37 @@ export async function scanWorkspaceDirectory(
     updateReportStatus(reportId, "failed", undefined, errorMessage);
     onMessage({ type: "error", error: errorMessage });
   }
+}
+
+export async function runInDepthScan(params: ScanParams): Promise<NotificationOutput> {
+  const claudeBinaryPath = resolveClaudeBinary();
+  if (!claudeBinaryPath) {
+    log.error("[DirectoryScanner] Claude binary not found — skipping in-depth scan");
+    return { made_changes: false, title: "", body: "" };
+  }
+
+  const treeOutputs = params.directoryPaths.map((dp) => ({
+    directoryPath: dp,
+    tree: generateDirectoryTree(dp),
+  }));
+
+  const ctx: ScanContext = {
+    claudeBinaryPath,
+    cwd: params.cwd,
+    directoryPaths: params.directoryPaths,
+    apiKey: params.apiKey,
+    baseURL: params.baseURL,
+    abortController: new AbortController(),
+    treeOutputs,
+    workspaceId: params.workspaceId,
+    reportId: randomUUID(),
+    memoryDir: params.memoryDir,
+    onMessage: params.onMessage,
+    onBriefingsChanged: params.onBriefingsChanged,
+    onNotifyUser: params.onNotifyUser,
+  };
+
+  return runInDepthTaskSuggestionAgent(ctx);
 }
 
 async function completeBackgroundWork(
