@@ -88,13 +88,39 @@ export function createGoogleDriveHandlers(deps: GoogleDriveMcpDeps) {
       const authErr = checkAuth();
       if (authErr) return authErr;
 
+      const allowed = getAllowedItems();
+      if (allowed.length === 0) {
+        return ok(JSON.stringify({ success: true, data: { files: [] } }));
+      }
+
       try {
-        const result = await searchFiles({
-          query: args.query,
-          pageSize: args.page_size,
-          pageToken: args.page_token,
-        });
-        return ok(JSON.stringify(result));
+        const cap = args.page_size ?? 20;
+        const filtered: any[] = [];
+        let pageToken = args.page_token;
+
+        while (filtered.length < cap) {
+          const result = await searchFiles({
+            query: args.query,
+            pageSize: 100,
+            pageToken,
+          });
+          if (!result.success || !result.data || result.data.files.length === 0) break;
+
+          for (const file of result.data.files) {
+            if (await isDownloadAllowed(file.id, allowed)) {
+              filtered.push(file);
+              if (filtered.length >= cap) break;
+            }
+          }
+
+          pageToken = result.data.nextPageToken;
+          if (!pageToken) break;
+        }
+
+        return ok(JSON.stringify({
+          success: true,
+          data: { files: filtered, hasMore: !!pageToken },
+        }));
       } catch (err) {
         return fail(String(err));
       }

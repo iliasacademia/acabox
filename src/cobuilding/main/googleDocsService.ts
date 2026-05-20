@@ -144,6 +144,23 @@ export function hasNativeApiScopes(): boolean {
   return scope.includes('spreadsheets.readonly') && scope.includes('presentations.readonly');
 }
 
+export function hasScopeFor(mimeType: string): boolean {
+  const tokens = readTokens();
+  if (!tokens) return false;
+  const scope = tokens.scope as string | undefined;
+  if (!scope) return false;
+  switch (mimeType) {
+    case 'application/vnd.google-apps.document':
+      return scope.includes('auth/documents');
+    case 'application/vnd.google-apps.spreadsheet':
+      return scope.includes('spreadsheets.readonly');
+    case 'application/vnd.google-apps.presentation':
+      return scope.includes('presentations.readonly');
+    default:
+      return false;
+  }
+}
+
 export function disconnect(): void {
   sharedClient = null;
   deleteTokens();
