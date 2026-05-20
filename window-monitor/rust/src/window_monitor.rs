@@ -1,4 +1,5 @@
 use crate::accessibility::{self, SafeAXObserver, SafeAXUIElement};
+use crate::applescript;
 use crate::document_text::DocumentTextTracker;
 use crate::event_models::{self, AppInfoOutput, DocumentTextInfo, SelectionBounds, TextSelectionInfo, WindowBounds, WindowInfoOutput};
 use crate::event_types::EventType;
@@ -18,6 +19,24 @@ const BOUNDS_TOLERANCE: f64 = 2.0;
 const RESIZE_DEBOUNCE_MS: u128 = 150;
 const SELECTION_BOUNDS_DEBOUNCE_MS: u128 = 150;
 const DEFERRED_CHECK_DELAY_MS: u128 = 100;
+fn is_browser_bundle_id(id: &str) -> bool {
+    matches!(id, "com.google.Chrome" | "com.apple.Safari")
+}
+
+fn google_docs_url_to_path(url: &str) -> Option<String> {
+    let prefix = "docs.google.com/document/d/";
+    let start = url.find(prefix)? + prefix.len();
+    if start >= url.len() {
+        return None;
+    }
+    let rest = &url[start..];
+    let end = rest.find(|c: char| c == '/' || c == '?' || c == '#').unwrap_or(rest.len());
+    let doc_id = &rest[..end];
+    if doc_id.is_empty() {
+        return None;
+    }
+    Some(format!("gdocs://{}", doc_id))
+}
 
 // --- SendPtr: makes a raw pointer Send+Sync for the workspace callback ---
 
@@ -865,7 +884,18 @@ impl WindowMonitor {
             None => return,
         };
 
-        let current_doc_path = accessibility::get_document(&focused);
+        let is_browser = is_browser_bundle_id(&self.current_bundle_id);
+
+        // For browsers, skip AXDocument — Chrome returns the raw page URL which
+        // is not a usable document path. Instead, use AppleScript to read the
+        // active tab URL and convert Google Docs URLs to gdocs:// synthetic paths.
+        let current_doc_path = if is_browser {
+            applescript::get_browser_tab_url(&self.current_bundle_id)
+                .ok()
+                .and_then(|url| google_docs_url_to_path(&url))
+        } else {
+            accessibility::get_document(&focused)
+        };
 
         let tracked = match self.windows.get_mut(&window_id) {
             Some(tw) => tw,
@@ -873,9 +903,10 @@ impl WindowMonitor {
         };
 
         if tracked.document_path != current_doc_path {
-            // Suppress Some→None transitions: the AX API can transiently return null
-            // during saves or title changes. The next poll cycle will re-check.
-            if tracked.document_path.is_some() && current_doc_path.is_none() {
+            // For native apps: suppress Some→None transitions (AX API can transiently
+            // return null during saves or title changes). For browsers: Some→None is a
+            // legitimate tab switch away from a Google Doc — allow it through.
+            if !is_browser && tracked.document_path.is_some() && current_doc_path.is_none() {
                 return;
             }
 
@@ -1318,7 +1349,15 @@ impl WindowMonitor {
         let mut content_bounds = None;
 
         if let Some(ax_window) = self.find_ax_window_for_id(entry.window_id) {
-            document_path = accessibility::get_document(&ax_window);
+            // For browsers, skip AXDocument (returns raw page URL) and use
+            // AppleScript to detect Google Docs URLs instead.
+            document_path = if is_browser_bundle_id(&self.current_bundle_id) {
+                applescript::get_browser_tab_url(&self.current_bundle_id)
+                    .ok()
+                    .and_then(|url| google_docs_url_to_path(&url))
+            } else {
+                accessibility::get_document(&ax_window)
+            };
 
             if include_content_bounds {
                 if let Some(content_area) = accessibility::find_content_area_child(&ax_window, self.content_area_role.as_deref()) {

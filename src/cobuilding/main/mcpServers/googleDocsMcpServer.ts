@@ -1,6 +1,5 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import { browserExtensionServer } from '../../../server/browserExtensionServer';
 import { resolveActiveGoogleDocInfo, documentPathToGoogleDocId } from '../hostApps/googleDocsHostApp';
 import { isConnected as isGoogleDocsApiConnected, getDocText as getDocTextViaApi } from '../googleDocsService';
 
@@ -11,23 +10,18 @@ import { isConnected as isGoogleDocsApiConnected, getDocText as getDocTextViaApi
 const DEFAULT_GET_TEXT_LIMIT = 200_000;
 
 /**
- * MCP server exposing Google Docs operations to the agent. Read parity with
- * the Word host:
+ * MCP server exposing Google Docs operations to the agent.
  *
- * - `get_active_doc` — returns the active doc's synthetic path, URL, and
- *   display title via the browser extension's WebSocket bridge.
- * - `get_text` — reads the full doc body (canvas-interception bridge in the
- *   extension forces a fresh extract before returning) with offset/limit
- *   pagination, or just the user's current selection when `selection_only` is
- *   true. Mirrors the Word `get_text` shape.
- * - `find_and_replace` — proposal-only edit suggestion. The renderer surfaces
- *   it as an Approve/Deny card, but Apply is gated by `googleDocsHostApp.applyEdit`
- *   which returns a Phase-C2 not-yet error until the OAuth + Docs API
- *   integration ships.
+ * - `get_active_doc` — returns the active doc's synthetic path and display
+ *   title. The Rust window monitor detects the active browser tab URL natively.
+ * - `get_text` — reads the full doc body via the Google Docs API with
+ *   offset/limit pagination. Requires Google OAuth connection.
+ * - `find_and_replace` — proposal-only edit suggestion. Apply is through the
+ *   Docs API when the user has connected Google.
  */
 export async function googleDocsGetActiveDoc(_args: any = {}) {
   try {
-    const info = await resolveActiveGoogleDocInfo();
+    const info = resolveActiveGoogleDocInfo();
     if (!info) {
       return {
         content: [
@@ -35,7 +29,7 @@ export async function googleDocsGetActiveDoc(_args: any = {}) {
             type: 'text' as const,
             text: JSON.stringify({
               success: false,
-              error: 'No active Google Doc — either the browser extension is not connected, or the focused Chrome tab is not a Google Doc.',
+              error: 'No active Google Doc — the focused browser tab is not a Google Doc. Ask the user to switch to a Google Doc tab in Chrome or Safari.',
             }),
           },
         ],
@@ -62,23 +56,15 @@ export async function googleDocsGetActiveDoc(_args: any = {}) {
 export async function googleDocsGetText(args: { selection_only?: boolean; offset?: number; limit?: number } = {}) {
   try {
     if (args.selection_only) {
-      const text = await browserExtensionServer.getSelection(1500);
-      if (!text) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({
-                success: false,
-                error: 'No text selected in the active tab. Ask the user to highlight the passage they want you to work on.',
-              }),
-            },
-          ],
-        };
-      }
       return {
         content: [
-          { type: 'text' as const, text: JSON.stringify({ success: true, text, selection: true }) },
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              success: false,
+              error: 'Selection reading is not currently available for Google Docs. Read the full document instead by calling get_text without selection_only.',
+            }),
+          },
         ],
       };
     }
@@ -90,14 +76,14 @@ export async function googleDocsGetText(args: { selection_only?: boolean; offset
             type: 'text' as const,
             text: JSON.stringify({
               success: false,
-              error: 'Full-document reads require connecting Google in Settings → Google Docs Integration. Until then, ask the user to highlight the passage they want you to work on and call get_text with selection_only=true — selection still works without OAuth.',
+              error: 'Full-document reads require connecting Google in Settings → Google Docs Integration.',
               reason: 'oauth-required',
             }),
           },
         ],
       };
     }
-    const info = await resolveActiveGoogleDocInfo();
+    const info = resolveActiveGoogleDocInfo();
     const docId = info ? documentPathToGoogleDocId(info.documentPath) : null;
     if (!docId) {
       return {
@@ -106,7 +92,7 @@ export async function googleDocsGetText(args: { selection_only?: boolean; offset
             type: 'text' as const,
             text: JSON.stringify({
               success: false,
-              error: 'No active Google Doc — either the browser extension is not connected, or the focused Chrome tab is not a Google Doc. Ask the user to focus the Doc tab and try again.',
+              error: 'No active Google Doc — the focused browser tab is not a Google Doc. Ask the user to focus the Doc tab and try again.',
             }),
           },
         ],
@@ -165,7 +151,7 @@ export async function googleDocsGetText(args: { selection_only?: boolean; offset
 }
 
 export async function googleDocsFindAndReplace(args: { search_text: string; replacement_text: string; replace_scope?: 'first' | 'all'; match_case?: boolean }) {
-  const info = await resolveActiveGoogleDocInfo();
+  const info = resolveActiveGoogleDocInfo();
   if (!info) {
     return {
       isError: true,
@@ -203,16 +189,16 @@ export function createGoogleDocsMcpServer() {
     tools: [
       tool(
         'get_active_doc',
-        "Get the document path, URL, and display title of the Google Doc currently open in the user's focused Chrome tab. Returns success=false when no Google Doc is active or the Academia browser extension is not connected.",
+        "Get the document path and display title of the Google Doc currently open in the user's focused browser tab (Chrome or Safari). Returns success=false when no Google Doc is active.",
         {},
         googleDocsGetActiveDoc,
       ),
 
       tool(
         'get_text',
-        `Read the active Google Doc. By default returns the full doc body in a single call (up to 200,000 characters) via Google Docs' own plain-text export endpoint, using the user's existing browser session. Optional offset/limit are available for paginating very long docs, but you should NOT need to paginate unless the response sets truncated=true. Pass \`selection_only: true\` to get just the user's current text selection instead.
+        `Read the active Google Doc via the Google Docs API. Returns the full doc body in a single call (up to 200,000 characters). Optional offset/limit are available for paginating very long docs, but you should NOT need to paginate unless the response sets truncated=true. Documents with multiple tabs include all tab content.
 
-Reads cover the entire saved document — no scrolling required. Very recently typed unsaved characters may lag by ~1–2 seconds (Docs autosave window). Comments are not included in the body. The \`selection_only\` path returns whatever Docs has currently highlighted.
+Reads cover the entire saved document — no scrolling required. Very recently typed unsaved characters may lag by ~1–2 seconds (Docs autosave window). Comments are not included in the body.
 
 If the response says \`truncated: false\`, you have the entire saved document — any "the doc ends here" claim should be about what the user has actually written, not about your read window.
 

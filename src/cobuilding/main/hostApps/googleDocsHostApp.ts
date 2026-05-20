@@ -1,5 +1,4 @@
 import { defaultLogger as logger } from '../../../utils/logger';
-import { browserExtensionServer, type ActiveGoogleDocResult } from '../../../server/browserExtensionServer';
 import { createGoogleDocsMcpServer } from '../mcpServers/googleDocsMcpServer';
 import { isConnected as isGoogleDocsApiConnected, findAndReplace as findAndReplaceViaApi } from '../googleDocsService';
 import type { HostApp, ApplyEditParams, ApplyEditResult } from './types';
@@ -16,15 +15,15 @@ const GOOGLE_DOCS_SYSTEM_PROMPT_APPEND = `You can read and propose edits in the 
 
 When the user wants to chat about or edit their active Google Doc:
 1. Call mcp__google-docs__get_active_doc to confirm a Google Doc is in front of the user and learn its title.
-2. Call mcp__google-docs__get_text to read the doc body. By default this returns the full document; pass selection_only=true when the user has highlighted a passage and wants you to act on just that.
-3. To suggest an edit, call mcp__google-docs__find_and_replace once per edit. Use a short, unique snippet (a sentence or short paragraph) as the search_text — never use large blocks. Lines like "--- Tab: ... ---" are reader separators and do NOT exist in the doc. Smart chips (dates, people) may not match plain text — stick to runs you're sure exist verbatim. The overlay renders a styled suggestion card with an Apply button. Tell the user "I've proposed N edit(s) — click Apply on the card above" — do NOT describe the edits in your text.
+2. Call mcp__google-docs__get_text to read the doc body. The full document is returned in a single call. Google Docs with multiple tabs will include all tab content separated by "--- Tab: ... ---" markers — these markers do NOT exist in the actual document and must never be used in find_and_replace search_text.
+3. To suggest an edit, call mcp__google-docs__find_and_replace once per edit. Use a short, unique snippet (a sentence or short paragraph) as the search_text — never use large blocks. Smart chips (dates, people) may not match plain text — stick to runs you're sure exist verbatim. The overlay renders a styled suggestion card with an Apply button. Tell the user "I've proposed N edit(s) — click Apply on the card above" — do NOT describe the edits in your text.
 
 Important caveats:
-- Body text is sourced from the official Google Docs API once the user has connected their Google account (Settings → Connect Google). Without that connection, full-doc reads are not available — selection reads (selection_only=true) still work because they come from the browser extension. If get_text returns reason="oauth-required", tell the user to connect Google in Settings.
+- Full-document reads require the user to have connected their Google account (Settings → Connect Google). If get_text returns reason="oauth-required", tell the user to connect Google in Settings.
 - Smart chips (people mentions, calendar events, linked files) appear as ⟦...⟧ in the returned text. These are NOT searchable — they are stored as special inline objects in Google Docs. NEVER include ⟦...⟧ tokens in find_and_replace search_text. Build search strings only from the plain text that appears between chips.
 - Apply on find_and_replace works through the Docs API once the user has connected Google. When not connected, Apply is disabled and the user has to copy the suggested replacement into the doc manually.
-- Comments are NOT included in the body read. Selection is always live and reflects the user's current highlight.
-- This integration only supports Google Chrome with the Academia browser extension connected. If get_active_doc returns no document, tell the user to switch to a Google Doc tab in Chrome.`;
+- Comments are NOT included in the body read.
+- If get_active_doc returns no document, tell the user to switch to a Google Doc tab in Chrome or Safari.`;
 
 const GOOGLE_DOCS_URL_PATTERN = /^https?:\/\/docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]+)(?:\/|$|\?)/i;
 
@@ -91,29 +90,16 @@ async function googleDocsApplyEdit(params: ApplyEditParams): Promise<ApplyEditRe
 
 export const googleDocsHostApp: HostApp = {
   id: 'google-docs',
-  // Phase A binds to Chrome only — the only browser the Academia extension
-  // ships in today. Multi-browser support is a follow-up; the protocol on the
-  // wire is browser-agnostic.
   bundleId: CHROME_BUNDLE_ID,
   displayName: 'Google Docs',
-  // Synthetic `gdocs://` paths only — no real file extensions.
   fileExtensions: [],
 
   windowMonitorArgs() {
-    // Track Chrome windows so the overlay knows when a browser window is
-    // focused. Selection text comes from the extension WebSocket, not AX, so
-    // we don't pass --track-text-selection.
     return ['--bundle-id', CHROME_BUNDLE_ID];
   },
 
-  /**
-   * The native window-monitor doesn't see Chrome's URL — only the bundle id
-   * and window title. Synchronous resolution returns null; the active doc id
-   * is fetched async by `resolveActiveGoogleDocPath()` (called from
-   * windowMonitorService) and surfaced via its own cache.
-   */
-  resolveDocumentPath() {
-    return null;
+  resolveDocumentPath(window) {
+    return window.documentPath ?? null;
   },
 
   mcpServerKey: 'google-docs',
@@ -153,25 +139,30 @@ export interface ActiveGoogleDocInfo {
 }
 
 /**
- * Ask the browser extension for the active Google Doc and surface its full
- * context (path + title + current selection). Returns null when no Google Doc
- * is focused or the extension is disconnected.
- *
- * windowMonitorService calls this on every poll-driven refresh and caches the
- * result so the overlay can display title and selection without extra IPC on
- * every render.
+ * Resolve the active Google Doc from the window monitor's native state.
+ * The Rust window monitor reads the browser's active tab URL via AppleScript
+ * and emits WINDOW_DOCUMENT_PATH_CHANGED with a gdocs:// synthetic path.
+ * The title is derived from the browser window title.
  */
-export async function resolveActiveGoogleDocInfo(): Promise<ActiveGoogleDocInfo | null> {
+export function resolveActiveGoogleDocInfo(): ActiveGoogleDocInfo | null {
   try {
-    const result: ActiveGoogleDocResult | null = await browserExtensionServer.getActiveGoogleDoc(1500);
-    if (!result) return null;
-    const documentPath = result.documentPath ?? googleDocsUrlToDocumentPath(result.url);
-    if (!documentPath) return null;
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { windowMonitorService } = require('../../../windowMonitorService');
+
+    // Try focused window first, then fall back to any Chrome/Safari window
+    // with a gdocs:// path. The overlay steals focus from the browser when
+    // the user types a message, so the browser may not be focused when
+    // MCP tools execute.
+    const docPath = windowMonitorService.findGoogleDocsPath();
+    if (!docPath) return null;
+
+    const title = windowMonitorService.getGoogleDocsTitle();
+
     return {
-      documentPath,
-      title: result.title ?? null,
-      selectedText: result.selectedText ?? null,
-      url: result.url ?? null,
+      documentPath: docPath,
+      title,
+      selectedText: null,
+      url: null,
     };
   } catch (err) {
     logger.warn('[GoogleDocsHostApp] resolveActiveGoogleDocInfo failed:', (err as Error).message);
@@ -179,8 +170,8 @@ export async function resolveActiveGoogleDocInfo(): Promise<ActiveGoogleDocInfo 
   }
 }
 
-/** Path-only convenience kept for back-compat with code that doesn't need title/selection. */
-export async function resolveActiveGoogleDocPath(): Promise<string | null> {
-  const info = await resolveActiveGoogleDocInfo();
+/** Path-only convenience. */
+export function resolveActiveGoogleDocPath(): string | null {
+  const info = resolveActiveGoogleDocInfo();
   return info?.documentPath ?? null;
 }
