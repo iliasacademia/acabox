@@ -381,7 +381,7 @@ const briefingsController = new BriefingsController({
   workspaceController,
   notificationsController,
   getCredentials,
-  ensureCredentials: () => fetchGatewayCredentials(getApiProvider() === 'cloudflare').then(() => {}),
+  ensureCredentials: () => fetchGatewayCredentials(getApiProvider() === 'cloudflare').then(() => { }),
   onBriefingsChanged: () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('briefings:changed');
@@ -705,7 +705,7 @@ app.whenReady().then(async () => {
     registerCalendarHandlers(() => mainWindow);
     registerDebugHandlers();
     ipcMain.handle('debug:triggerInDepthSuggestions', () => briefingsController.trigger());
-    registerWorkspaceHandlers(workspaceController, () => mainWindow, containerService);
+    registerWorkspaceHandlers(workspaceController, () => mainWindow, containerService, agentInfrastructure);
     registerReactionsHandlers(() => workspaceController.activeWorkspace, rebuildTrayMenu);
     setupUpdaterIpcHandlers();
     setupUpdater(rebuildTrayMenu);
@@ -1048,111 +1048,111 @@ app.whenReady().then(async () => {
 
             // Register overlay chat-send handler for the unified WebSocket
             const { setOverlayChatSendHandler, setOverlayBridgeHandler } = require('./overlayHandlers');
-          setOverlayChatSendHandler((params: { sessionId: string; text: string; documentPath?: string; selectedText?: string; onEvent: (msg: any) => void; onDone: () => void; onError: (err: string) => void; onCleanup?: () => void }) => {
-            const { sessionId, text, documentPath: ctxDocPath, selectedText: ctxSelectedText, onEvent, onDone, onError } = params;
-            const activeWorkspace = workspaceController.activeWorkspace;
-            if (!activeWorkspace) {
-              onError('No active workspace');
-              return;
-            }
-            const displayMessage = ctxSelectedText ? `"${ctxSelectedText}"\n\n${text}` : text;
-            if (ctxDocPath || ctxSelectedText) {
-              pendingContext.set(sessionId, { documentPath: ctxDocPath, selectedText: ctxSelectedText });
-            }
+            setOverlayChatSendHandler((params: { sessionId: string; text: string; documentPath?: string; selectedText?: string; onEvent: (msg: any) => void; onDone: () => void; onError: (err: string) => void; onCleanup?: () => void }) => {
+              const { sessionId, text, documentPath: ctxDocPath, selectedText: ctxSelectedText, onEvent, onDone, onError } = params;
+              const activeWorkspace = workspaceController.activeWorkspace;
+              if (!activeWorkspace) {
+                onError('No active workspace');
+                return;
+              }
+              const displayMessage = ctxSelectedText ? `"${ctxSelectedText}"\n\n${text}` : text;
+              if (ctxDocPath || ctxSelectedText) {
+                pendingContext.set(sessionId, { documentPath: ctxDocPath, selectedText: ctxSelectedText });
+              }
 
-            const existingRunning = getRegisteredSession(sessionId);
-            if (existingRunning?.isRunning) {
+              const existingRunning = getRegisteredSession(sessionId);
+              if (existingRunning?.isRunning) {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                  ensureForwarding(sessionId, mainWindow.webContents);
+                }
+                ensureSseFanout(sessionId);
+                const unsubscribe = existingRunning.addListener({
+                  onEvent: (msg: any) => onEvent(msg),
+                  onDone: () => { onDone(); unsubscribe(); notifySessionsChanged(); },
+                  onError: (err: any) => { onError(String(err)); unsubscribe(); },
+                });
+                existingRunning.sendMessage(displayMessage);
+                return;
+              }
+
+              const isNewSession = !hasSession(sessionId) && !getSession(sessionId);
+              if (!hasSession(sessionId)) {
+                const existingDbSession = getSession(sessionId);
+                const session = createAgentSession(
+                  sessionId,
+                  { onEvent: () => { }, onDone: () => { }, onError: () => { unregisterSession(sessionId); } },
+                  activeWorkspace,
+                  existingDbSession?.sdk_session_id ?? undefined,
+                  undefined, undefined, undefined,
+                  (userText: string) => {
+                    const ctx = pendingContext.get(sessionId);
+                    pendingContext.delete(sessionId);
+                    if (!ctx) return userText;
+                    const { resolveSessionHostApp } = require('./agentSession');
+                    const { hostApp: host } = resolveSessionHostApp(ctx.documentPath);
+                    const prefix = host.messagePrefix({ documentPath: ctx.documentPath, selectedText: ctx.selectedText });
+                    return prefix ? `${prefix}\n${userText}` : userText;
+                  },
+                  ctxDocPath,
+                  refreshAndPushCredentials,
+                );
+                registerSession(sessionId, session);
+              }
+              if (isNewSession) notifySessionsChanged();
+              if (isNewSession) {
+                generateSessionTitle(sessionId, text);
+              }
+
+              const session = getRegisteredSession(sessionId)!;
               if (mainWindow && !mainWindow.isDestroyed()) {
                 ensureForwarding(sessionId, mainWindow.webContents);
               }
               ensureSseFanout(sessionId);
-              const unsubscribe = existingRunning.addListener({
+
+              const unsubscribe = session.addListener({
                 onEvent: (msg: any) => onEvent(msg),
                 onDone: () => { onDone(); unsubscribe(); notifySessionsChanged(); },
                 onError: (err: any) => { onError(String(err)); unsubscribe(); },
               });
-              existingRunning.sendMessage(displayMessage);
-              return;
-            }
+              if (params.onCleanup) {
+                // Allow caller to register a cleanup callback (e.g., on WebSocket close)
+                const origCleanup = params.onCleanup;
+                params.onCleanup = () => { unsubscribe(); origCleanup(); };
+              }
 
-            const isNewSession = !hasSession(sessionId) && !getSession(sessionId);
-            if (!hasSession(sessionId)) {
-              const existingDbSession = getSession(sessionId);
-              const session = createAgentSession(
-                sessionId,
-                { onEvent: () => { }, onDone: () => { }, onError: () => { unregisterSession(sessionId); } },
-                activeWorkspace,
-                existingDbSession?.sdk_session_id ?? undefined,
-                undefined, undefined, undefined,
-                (userText: string) => {
-                  const ctx = pendingContext.get(sessionId);
-                  pendingContext.delete(sessionId);
-                  if (!ctx) return userText;
-                  const { resolveSessionHostApp } = require('./agentSession');
-                  const { hostApp: host } = resolveSessionHostApp(ctx.documentPath);
-                  const prefix = host.messagePrefix({ documentPath: ctx.documentPath, selectedText: ctx.selectedText });
-                  return prefix ? `${prefix}\n${userText}` : userText;
-                },
-                ctxDocPath,
-                refreshAndPushCredentials,
-              );
-              registerSession(sessionId, session);
-            }
-            if (isNewSession) notifySessionsChanged();
-            if (isNewSession) {
-              generateSessionTitle(sessionId, text);
-            }
-
-            const session = getRegisteredSession(sessionId)!;
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              ensureForwarding(sessionId, mainWindow.webContents);
-            }
-            ensureSseFanout(sessionId);
-
-            const unsubscribe = session.addListener({
-              onEvent: (msg: any) => onEvent(msg),
-              onDone: () => { onDone(); unsubscribe(); notifySessionsChanged(); },
-              onError: (err: any) => { onError(String(err)); unsubscribe(); },
+              session.sendMessage(displayMessage);
             });
-            if (params.onCleanup) {
-              // Allow caller to register a cleanup callback (e.g., on WebSocket close)
-              const origCleanup = params.onCleanup;
-              params.onCleanup = () => { unsubscribe(); origCleanup(); };
-            }
 
-            session.sendMessage(displayMessage);
-          });
-
-          setOverlayBridgeHandler(async (params: { action: string; payload: Record<string, unknown>; wid: string | null }) => {
-            const { windowMonitorService } = require('../../windowMonitorService');
-            const { action, payload, wid } = params;
-            if (action === 'buttonClicked' && wid) {
-              windowMonitorService.togglePopupForWindow(wid);
-            } else if (action === 'closeWindow' && wid) {
-              windowMonitorService.closePopupForWindow(wid, payload.clearReviewState !== false);
-            } else if (action === 'setPopupSize' && wid) {
-              const { width, height } = payload;
-              if (typeof width === 'number' && typeof height === 'number') {
-                windowMonitorService.setPopupSize(wid, width, height);
+            setOverlayBridgeHandler(async (params: { action: string; payload: Record<string, unknown>; wid: string | null }) => {
+              const { windowMonitorService } = require('../../windowMonitorService');
+              const { action, payload, wid } = params;
+              if (action === 'buttonClicked' && wid) {
+                windowMonitorService.togglePopupForWindow(wid);
+              } else if (action === 'closeWindow' && wid) {
+                windowMonitorService.closePopupForWindow(wid, payload.clearReviewState !== false);
+              } else if (action === 'setPopupSize' && wid) {
+                const { width, height } = payload;
+                if (typeof width === 'number' && typeof height === 'number') {
+                  windowMonitorService.setPopupSize(wid, width, height);
+                }
+              } else if (action === 'setDockRight' && wid) {
+                windowMonitorService.setDockRight(wid, payload.docked === true);
+              } else if (action === 'setDragOffset' && wid) {
+                const { dx, dy } = payload;
+                if (typeof dx === 'number' && typeof dy === 'number') {
+                  windowMonitorService.setButtonDragOffset(wid, dx, dy);
+                }
+              } else if (action === 'openPopup' && wid) {
+                windowMonitorService.openPopupForWindow(wid);
+              } else if (action === 'clearKickoff') {
+                const kickoffId = typeof payload.kickoffId === 'string' ? payload.kickoffId : '';
+                if (kickoffId) windowMonitorService.clearPendingKickoff(kickoffId);
+              } else if (action === 'clearNavigateSession') {
+                const nonce = typeof payload.nonce === 'string' ? payload.nonce : '';
+                if (nonce) windowMonitorService.clearPendingNavigateSession(nonce);
               }
-            } else if (action === 'setDockRight' && wid) {
-              windowMonitorService.setDockRight(wid, payload.docked === true);
-            } else if (action === 'setDragOffset' && wid) {
-              const { dx, dy } = payload;
-              if (typeof dx === 'number' && typeof dy === 'number') {
-                windowMonitorService.setButtonDragOffset(wid, dx, dy);
-              }
-            } else if (action === 'openPopup' && wid) {
-              windowMonitorService.openPopupForWindow(wid);
-            } else if (action === 'clearKickoff') {
-              const kickoffId = typeof payload.kickoffId === 'string' ? payload.kickoffId : '';
-              if (kickoffId) windowMonitorService.clearPendingKickoff(kickoffId);
-            } else if (action === 'clearNavigateSession') {
-              const nonce = typeof payload.nonce === 'string' ? payload.nonce : '';
-              if (nonce) windowMonitorService.clearPendingNavigateSession(nonce);
-            }
-            return { success: true };
-          });
+              return { success: true };
+            });
           });
 
           const port = await httpServer.start();

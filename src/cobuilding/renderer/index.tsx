@@ -34,7 +34,7 @@ import { reloadThreadHistory } from './reloadThreadHistory';
 import WorkspaceOnboarding from './components/WorkspaceOnboarding';
 import ScanningProgress from './components/ScanningProgress';
 import ScanResultsReview from './components/ScanResultsReview';
-import WorkspaceSettings from './components/WorkspaceSettings';
+import DirectoryPermissions from './components/DirectoryPermissions';
 import AcademiaLogin from './components/AcademiaLogin';
 import WelcomeScreen from './components/WelcomeScreen';
 import { ToolFallback } from './components/assistant-ui/tool-fallback';
@@ -1043,6 +1043,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
                         hasDriveFolders={hasDriveFolders}
                         onSelectFile={handleSelectFile}
                         onFileCount={setFileCount}
+                        onDirectoriesChanged={setUserDirectories}
                       />
                     </div>
                   </div>
@@ -1092,8 +1093,9 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
 
             {/* Settings tab */}
             <div style={{ display: sidebarTab === 'settings' ? 'flex' : 'none', flex: 1 }}>
-              <WorkspaceSettings
+              <DirectoryPermissions
                 workspace={workspace}
+                userDirectories={userDirectories}
                 onClose={() => setSidebarTab('home')}
                 onSaved={(ws) => {
                   onWorkspaceUpdated(ws);
@@ -1101,9 +1103,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
                 }}
                 onLogout={onLogout}
                 onRestartOnboarding={onRestartOnboarding}
-                onDirectoriesChanged={(dirs) => {
-                  setUserDirectories(dirs);
-                }}
+                onDirectoriesChanged={setUserDirectories}
                 inline
               />
             </div>

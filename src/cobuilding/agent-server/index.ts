@@ -650,7 +650,7 @@ function createMessageQueue<T>(): MessageQueue<T> {
 const sessions = new Map<string, SessionState>();
 
 function buildSystemPrompt(config: AgentConfig): unknown {
-  const appendParts = [config.soulMd, config.docxGuidance].filter(Boolean).join('\n\n');
+  const appendParts = [config.soulMd, config.docxGuidance, config.workspaceDirectoriesGuidance].filter(Boolean).join('\n\n');
   if (typeof config.systemPrompt === 'object' && config.systemPrompt !== null) {
     return { ...config.systemPrompt, append: appendParts } as unknown;
   }
@@ -966,6 +966,7 @@ function startServer(initialConfig: AgentConfig): void {
           additionalAllowedTools: body.additionalAllowedTools,
           soulMd: body.soulMd,
           hostGuidance: body.hostGuidance,
+          workspaceDirectoriesGuidance: body.workspaceDirectoriesGuidance,
         };
         createSession(sessionId, currentConfig, resumeSessionId, sessionOverrides);
         sendJSON(res, 201, { sessionId });

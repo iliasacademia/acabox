@@ -12,6 +12,7 @@ import {
   TrashIcon,
   FileTextIcon,
 } from 'lucide-react';
+import DirectoryPermBadge from './DirectoryPermBadge';
 import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
 
 const INTERNAL_DRAG_TYPE = 'application/x-filetree-path';
@@ -60,9 +61,10 @@ interface FilesTabProps {
   hasDriveFolders?: boolean;
   onSelectFile: (path: string) => void;
   onFileCount?: (count: number) => void;
+  onDirectoriesChanged?: (dirs: WorkspaceDirectory[]) => void;
 }
 
-export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, hasDriveFolders, onSelectFile, onFileCount }) => {
+export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, hasDriveFolders, onSelectFile, onFileCount, onDirectoriesChanged }) => {
   const workspaceName = workspacePath.split('/').pop() ?? workspacePath;
   const [rootChildren, setRootChildren] = useState<TreeNode[]>([]);
   const [rootExpanded, setRootExpanded] = useState(true);
@@ -78,6 +80,32 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, ha
   const [driveTreeNodes, setDriveTreeNodes] = useState<TreeNode[] | null>(null);
   const [driveTreeLoading, setDriveTreeLoading] = useState(false);
   const [driveExpanded, setDriveExpanded] = useState(true);
+  const [localDirs, setLocalDirs] = useState<WorkspaceDirectory[]>(userDirectories ?? []);
+  const [togglingDirId, setTogglingDirId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLocalDirs(userDirectories ?? []);
+  }, [userDirectories]);
+
+  const handleTogglePermission = async (dirId: string, currentlyReadOnly: boolean) => {
+    if (togglingDirId) return;
+    setTogglingDirId(dirId);
+    const snapshot = localDirs;
+    const optimistic = snapshot.map(d =>
+      d.id === dirId ? { ...d, read_only: !currentlyReadOnly } : d
+    );
+    setLocalDirs(optimistic);
+    try {
+      const updated = await window.workspacesAPI.updateDirectoryPermission(dirId, !currentlyReadOnly);
+      const confirmed = optimistic.map(d => d.id === dirId ? updated : d);
+      setLocalDirs(confirmed);
+      onDirectoriesChanged?.(confirmed);
+    } catch {
+      setLocalDirs(snapshot);
+    } finally {
+      setTogglingDirId(null);
+    }
+  };
 
   const resolveRelPath = useCallback((filePath: string): string => {
     if (filePath.startsWith(workspacePath + '/')) return filePath.slice(workspacePath.length + 1);
@@ -544,7 +572,7 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, ha
               onCreateCancel={handleCreateCancel}
             />
           ))}
-        {(userDirectories ?? []).map((ud) => (
+        {localDirs.map((ud) => (
           <FileTreeNode
             key={ud.directory_path}
             node={{
@@ -572,6 +600,9 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, ha
             creatingIn={creatingIn}
             onCreateCommit={handleCreateCommit}
             onCreateCancel={handleCreateCancel}
+            readOnly={ud.read_only}
+            isToggling={togglingDirId === ud.id}
+            onTogglePermission={() => handleTogglePermission(ud.id, ud.read_only)}
           />
         ))}
         {hasDriveFolders && (
@@ -725,6 +756,9 @@ interface FileTreeNodeProps {
   creatingIn: { dirPath: string; type: 'file' | 'folder' } | null;
   onCreateCommit: (name: string) => void;
   onCreateCancel: () => void;
+  readOnly?: boolean;
+  isToggling?: boolean;
+  onTogglePermission?: () => void;
 }
 
 const FileTreeNode: FC<FileTreeNodeProps> = ({
@@ -748,6 +782,9 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
   creatingIn,
   onCreateCommit,
   onCreateCancel,
+  readOnly,
+  isToggling,
+  onTogglePermission,
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<TreeNode[]>(node.children ?? []);
@@ -816,10 +853,10 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
         onContextMenu={(e) => onContextMenu(e, node)}
         {...(node.isDirectory
           ? {
-              onDragOver: (e: React.DragEvent) => onDragOverDir(e, node.path),
-              onDragLeave: onDragLeaveDir,
-              onDrop: (e: React.DragEvent) => onDropOnDir(e, node.path),
-            }
+            onDragOver: (e: React.DragEvent) => onDragOverDir(e, node.path),
+            onDragLeave: onDragLeaveDir,
+            onDrop: (e: React.DragEvent) => onDropOnDir(e, node.path),
+          }
           : {})}
       >
         <div
@@ -854,6 +891,13 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
           ) : (
             <>
               <span className="fileTreeName">{node.name}</span>
+              {onTogglePermission !== undefined && (
+                <DirectoryPermBadge
+                  readOnly={!!readOnly}
+                  isToggling={!!isToggling}
+                  onToggle={onTogglePermission}
+                />
+              )}
               {fileTag && (
                 <span className={`fileTreeTag fileTreeTag--${fileTag}`}>
                   {FILE_TAG_LABEL[fileTag]}
