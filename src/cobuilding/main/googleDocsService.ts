@@ -3,15 +3,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { shell, app, safeStorage } from 'electron';
 import { OAuth2Client } from 'google-auth-library';
+import log from 'electron-log';
+import { captureError } from '../shared/telemetry';
 
 /**
- * OAuth + Docs API client for Phase C2 Google Docs integration.
+ * OAuth + Google API client for Docs and Drive integration.
  *
  * Loopback OAuth flow with refresh tokens encrypted at rest via Electron
- * `safeStorage` (OS keychain). Deliberately requests the *only* Docs scope
- * — no Drive, no Sheets, no other Google products. The single granted
- * capability is read+write on Google Docs documents the user opens with
- * the Academia overlay.
+ * `safeStorage` (OS keychain). Requests Docs (read+write) and Drive
+ * (read-only) scopes.
  *
  * OAuth client id + secret come from `process.env.GOOGLE_CLIENT_ID` and
  * `process.env.GOOGLE_CLIENT_SECRET`. In production those are baked into
@@ -21,7 +21,39 @@ import { OAuth2Client } from 'google-auth-library';
  * settings JSON.
  */
 
-const SCOPES = ['https://www.googleapis.com/auth/documents'];
+const SCOPES = [
+  'https://www.googleapis.com/auth/documents',
+  'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/spreadsheets.readonly',
+  'https://www.googleapis.com/auth/presentations.readonly',
+];
+
+function isRateLimited(err: any): boolean {
+  const status = err?.response?.status ?? err?.code;
+  if (status === 429) return true;
+  if (status === 403) {
+    const reason = err?.response?.data?.error?.errors?.[0]?.reason;
+    return reason === 'rateLimitExceeded' || reason === 'userRateLimitExceeded';
+  }
+  return false;
+}
+
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      if (isRateLimited(err) && attempt < maxRetries) {
+        const delay = Math.min(1000 * Math.pow(2, attempt), 8000);
+        log.warn(`[GoogleDocs] Rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('withRetry: unreachable');
+}
 
 export interface DocsApiResult<T> {
   success: boolean;
@@ -96,7 +128,33 @@ export function isConnected(): boolean {
   return readTokens() !== null;
 }
 
+export function hasDriveScope(): boolean {
+  const tokens = readTokens();
+  if (!tokens) return false;
+  const scope = tokens.scope as string | undefined;
+  if (!scope) return false;
+  return scope.includes('drive.readonly');
+}
+
+export function hasScopeFor(mimeType: string): boolean {
+  const tokens = readTokens();
+  if (!tokens) return false;
+  const scope = tokens.scope as string | undefined;
+  if (!scope) return false;
+  switch (mimeType) {
+    case 'application/vnd.google-apps.document':
+      return scope.includes('auth/documents');
+    case 'application/vnd.google-apps.spreadsheet':
+      return scope.includes('spreadsheets.readonly');
+    case 'application/vnd.google-apps.presentation':
+      return scope.includes('presentations.readonly');
+    default:
+      return false;
+  }
+}
+
 export function disconnect(): void {
+  sharedClient = null;
   deleteTokens();
 }
 
@@ -158,7 +216,7 @@ export async function startOAuthFlow(): Promise<void> {
         try {
           const { tokens } = await oauth2Client.getToken(code);
           writeTokens(tokens as Record<string, unknown>);
-          res.end(html('Connected to Google Docs! You can return to Academia.'));
+          res.end(html('Connected to Google! You can return to Academia.'));
           clearTimeout(timeout);
           server.close();
           resolve();
@@ -166,6 +224,7 @@ export async function startOAuthFlow(): Promise<void> {
           res.end(html('Error connecting to Google Docs.'));
           clearTimeout(timeout);
           server.close();
+          captureError(err, { subsystem: 'auth_oauth_google', extra: { phase: 'token_exchange' } });
           reject(err);
         }
       });
@@ -175,14 +234,24 @@ export async function startOAuthFlow(): Promise<void> {
   });
 }
 
+let sharedClient: OAuth2Client | null = null;
+let tokenWriteLock: Promise<void> = Promise.resolve();
+
 /**
  * Get an authenticated OAuth2Client for API calls. Auto-refreshes when the
  * access token expires. Returns null when there are no stored tokens (user
  * hasn't connected) or the refresh token has been revoked.
+ *
+ * Returns a shared singleton so concurrent callers reuse the same client and
+ * don't trigger parallel token refreshes.
  */
-async function getAuthedClient(): Promise<OAuth2Client | null> {
+export async function getAuthedClient(): Promise<OAuth2Client | null> {
   const tokens = readTokens();
-  if (!tokens) return null;
+  if (!tokens) {
+    sharedClient = null;
+    return null;
+  }
+  if (sharedClient) return sharedClient;
   let oauth2Client: OAuth2Client;
   try {
     oauth2Client = makeOAuth2Client('http://127.0.0.1');
@@ -190,12 +259,14 @@ async function getAuthedClient(): Promise<OAuth2Client | null> {
     return null;
   }
   oauth2Client.setCredentials(tokens);
-  // Persist refreshed tokens back to disk so we don't re-prompt every restart.
   oauth2Client.on('tokens', (newTokens) => {
-    const current = readTokens() ?? {};
-    writeTokens({ ...current, ...newTokens });
+    tokenWriteLock = tokenWriteLock.then(() => {
+      const current = readTokens() ?? {};
+      writeTokens({ ...current, ...newTokens });
+    });
   });
-  return oauth2Client;
+  sharedClient = oauth2Client;
+  return sharedClient;
 }
 
 /**
@@ -210,17 +281,17 @@ function renderParagraphElement(pe: any): string {
   if (pe?.autoText?.content) return pe.autoText.content;
   if (pe?.person?.personProperties) {
     const p = pe.person.personProperties;
-    return p.name || p.email || '@person';
+    return `⟦@${p.name || p.email || 'person'}⟧`;
   }
   if (pe?.richLink?.richLinkProperties) {
     const r = pe.richLink.richLinkProperties;
-    return r.title || r.uri || '[link]';
+    return `⟦${r.title || r.uri || 'link'}⟧`;
   }
-  if (pe?.equation) return '[equation]';
+  if (pe?.equation) return '⟦equation⟧';
   if (pe?.horizontalRule) return '\n---\n';
   if (pe?.pageBreak || pe?.columnBreak) return '\n';
-  if (pe?.footnoteReference) return ''; // footnote bodies live elsewhere
-  if (pe?.inlineObjectElement) return '[image]';
+  if (pe?.footnoteReference) return '';
+  if (pe?.inlineObjectElement) return '⟦image⟧';
   return '';
 }
 
@@ -252,7 +323,7 @@ function extractPlainText(doc: any): string {
 
   function walkTab(tab: any, depth: number): void {
     const title = tab?.tabProperties?.title;
-    if (title) parts.push(`\n${'#'.repeat(Math.min(depth + 1, 6))} ${title}\n`);
+    if (title) parts.push(`\n--- Tab: ${title} ---\n`);
     walkBody(tab?.documentTab?.body);
     for (const child of tab?.childTabs ?? []) walkTab(child, depth + 1);
   }
@@ -275,7 +346,7 @@ export async function getDocText(documentId: string): Promise<DocsApiResult<{ te
 
   const url = `https://docs.googleapis.com/v1/documents/${encodeURIComponent(documentId)}?includeTabsContent=true`;
   try {
-    const resp = await client.request<any>({ url, method: 'GET' });
+    const resp = await withRetry(() => client.request<any>({ url, method: 'GET' }));
     const text = extractPlainText(resp.data);
     const title = (resp.data?.title as string | undefined) ?? '';
     return { success: true, data: { text, title } };
@@ -283,6 +354,9 @@ export async function getDocText(documentId: string): Promise<DocsApiResult<{ te
     const status = err?.response?.status ?? err?.code;
     if (status === 401) {
       return { success: false, error: 'Google session expired. Please reconnect in Settings.', authExpired: true };
+    }
+    if (status === 429 || isRateLimited(err)) {
+      return { success: false, error: 'Google Docs rate limit exceeded. Please try again in a moment.' };
     }
     if (status === 403) {
       return { success: false, error: 'Google denied access. Either the doc is restricted or the OAuth scope is missing.' };
@@ -304,7 +378,7 @@ export async function getDocText(documentId: string): Promise<DocsApiResult<{ te
 async function listAllTabIds(client: OAuth2Client, documentId: string): Promise<string[]> {
   try {
     const url = `https://docs.googleapis.com/v1/documents/${encodeURIComponent(documentId)}?includeTabsContent=true&fields=tabs(tabProperties(tabId),childTabs)`;
-    const resp = await client.request<any>({ url, method: 'GET' });
+    const resp = await withRetry(() => client.request<any>({ url, method: 'GET' }));
     const ids: string[] = [];
     function walk(tabs: any[] | undefined): void {
       for (const t of tabs ?? []) {
@@ -354,13 +428,16 @@ export async function findAndReplace(
     ],
   };
   try {
-    const resp = await client.request<any>({ url, method: 'POST', data: body });
+    const resp = await withRetry(() => client.request<any>({ url, method: 'POST', data: body }));
     const occurrences = resp.data?.replies?.[0]?.replaceAllText?.occurrencesChanged ?? 0;
     return { success: true, data: { replacementsCount: occurrences } };
   } catch (err: any) {
     const status = err?.response?.status ?? err?.code;
     if (status === 401) {
       return { success: false, error: 'Google session expired. Please reconnect in Settings.', authExpired: true };
+    }
+    if (status === 429 || isRateLimited(err)) {
+      return { success: false, error: 'Google Docs rate limit exceeded. Please try again in a moment.' };
     }
     if (status === 403) {
       return { success: false, error: 'You do not have edit access to this document.' };

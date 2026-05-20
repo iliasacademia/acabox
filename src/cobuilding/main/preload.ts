@@ -222,6 +222,9 @@ contextBridge.exposeInMainWorld('debugAPI', {
   syncOverlay: () => ipcRenderer.invoke('debug:syncOverlay'),
   isOverlayEnabled: () => ipcRenderer.invoke('debug:isOverlayEnabled'),
   log: (msg: string) => ipcRenderer.invoke('debug:log', msg),
+  telemetryTest: (kind: string, subsystem?: string) =>
+    ipcRenderer.invoke('debug:telemetry-test', kind, subsystem),
+  triggerInDepthSuggestions: () => ipcRenderer.invoke('debug:triggerInDepthSuggestions'),
 });
 
 contextBridge.exposeInMainWorld('calendarAPI', {
@@ -272,6 +275,41 @@ contextBridge.exposeInMainWorld('googleDocsAPI', {
   status: () => ipcRenderer.invoke('googleDocs:status'),
   connect: () => ipcRenderer.invoke('googleDocs:connect'),
   disconnect: () => ipcRenderer.invoke('googleDocs:disconnect'),
+});
+
+contextBridge.exposeInMainWorld('googleDriveAPI', {
+  status: () => ipcRenderer.invoke('googleDrive:status'),
+  connect: () => ipcRenderer.invoke('googleDocs:connect'),
+  listFolder: (folderId?: string, options?: { sharedWithMe?: boolean }) => ipcRenderer.invoke('googleDrive:listFolder', folderId, options),
+  saveSelection: (selection: any) => ipcRenderer.invoke('googleDrive:saveSelection', selection),
+  getSelection: () => ipcRenderer.invoke('googleDrive:getSelection'),
+  getCacheDirectories: () => ipcRenderer.invoke('googleDrive:getCacheDirectories'),
+  listChildren: (parentId: string) => ipcRenderer.invoke('googleDrive:listChildren', parentId),
+  listCacheEntries: () => ipcRenderer.invoke('googleDrive:listCacheEntries'),
+  getContextualTree: () => ipcRenderer.invoke('googleDrive:getContextualTree'),
+  getContextualTreeNodes: () => ipcRenderer.invoke('googleDrive:getContextualTreeNodes'),
+  refreshTree: () => ipcRenderer.invoke('googleDrive:refreshTree'),
+  resetCache: () => ipcRenderer.invoke('googleDrive:resetCache'),
+  openInBrowser: (fileId: string, mimeType: string) => {
+    let url: string;
+    switch (mimeType) {
+      case 'application/vnd.google-apps.folder':
+        url = `https://drive.google.com/drive/folders/${fileId}`;
+        break;
+      case 'application/vnd.google-apps.document':
+        url = `https://docs.google.com/document/d/${fileId}/edit`;
+        break;
+      case 'application/vnd.google-apps.spreadsheet':
+        url = `https://docs.google.com/spreadsheets/d/${fileId}/edit`;
+        break;
+      case 'application/vnd.google-apps.presentation':
+        url = `https://docs.google.com/presentation/d/${fileId}/edit`;
+        break;
+      default:
+        url = `https://drive.google.com/file/d/${fileId}/view`;
+    }
+    return ipcRenderer.invoke('shell:openExternal', url);
+  },
 });
 
 contextBridge.exposeInMainWorld('scheduledTasksAPI', {
@@ -667,6 +705,33 @@ contextBridge.exposeInMainWorld('officeAddinAPI', {
 contextBridge.exposeInMainWorld('academiaAPI', {
   fetch: (method: string, endpoint: string, data?: unknown) =>
     ipcRenderer.invoke('academia:fetch', { method, endpoint, data }),
+});
+
+contextBridge.exposeInMainWorld('telemetryAPI', {
+  getContext: () => ipcRenderer.invoke('telemetry:getContext'),
+  subscribeAuthState: () => ipcRenderer.invoke('telemetry:subscribe-auth-state'),
+  track: (eventName: string, metadata: Record<string, unknown>, surface?: string) =>
+    ipcRenderer.invoke('telemetry:track', { event_name: eventName, metadata, surface }),
+  onAuthStateChanged: (cb: (authenticated: boolean) => void) => {
+    const handler = (_event: unknown, value: boolean) => cb(value);
+    ipcRenderer.on('telemetry:auth-state-changed', handler);
+    return () => ipcRenderer.removeListener('telemetry:auth-state-changed', handler);
+  },
+});
+
+contextBridge.exposeInMainWorld('toolAnalyticsAPI', {
+  opened: (dirName: string) =>
+    ipcRenderer.invoke('tool:opened', dirName) as Promise<{
+      tool_id: string;
+      open_count_so_far: number;
+      days_since_created: number;
+    } | null>,
+  setThreadAttribution: (
+    threadId: string,
+    attribution: { source: 'suggestion'; briefing_id: string },
+  ) => ipcRenderer.invoke('tool:setThreadAttribution', threadId, attribution),
+  setThreadCreationPrompt: (threadId: string, prompt: string) =>
+    ipcRenderer.invoke('tool:setThreadCreationPrompt', threadId, prompt),
 });
 
 contextBridge.exposeInMainWorld('nativeToolsAPI', {

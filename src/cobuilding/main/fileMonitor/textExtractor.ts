@@ -34,7 +34,7 @@ export async function extractText(filePath: string): Promise<string | null> {
 
     if (ext === '.docx') {
       const mammoth = await import('mammoth');
-      const result = await mammoth.extractRawText({ path: filePath });
+      const result = await mammoth.convertToHtml({ path: filePath });
       return result.value;
     }
 

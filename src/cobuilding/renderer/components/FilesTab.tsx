@@ -55,11 +55,12 @@ const FILE_TAG_LABEL: Record<FileTagType, string> = {
 interface FilesTabProps {
   workspacePath: string;
   userDirectories?: WorkspaceDirectory[];
+  hasDriveFolders?: boolean;
   onSelectFile: (path: string) => void;
   onFileCount?: (count: number) => void;
 }
 
-export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, onSelectFile, onFileCount }) => {
+export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, hasDriveFolders, onSelectFile, onFileCount }) => {
   const workspaceName = workspacePath.split('/').pop() ?? workspacePath;
   const [rootChildren, setRootChildren] = useState<TreeNode[]>([]);
   const [rootExpanded, setRootExpanded] = useState(true);
@@ -71,6 +72,10 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [creatingIn, setCreatingIn] = useState<{ dirPath: string; type: 'file' | 'folder' } | null>(null);
   const [fileTagMap, setFileTagMap] = useState<Map<string, FileTagType>>(new Map());
+  const [driveRefreshing, setDriveRefreshing] = useState(false);
+  const [driveTreeNodes, setDriveTreeNodes] = useState<TreeNode[] | null>(null);
+  const [driveTreeLoading, setDriveTreeLoading] = useState(false);
+  const [driveExpanded, setDriveExpanded] = useState(true);
 
   const resolveRelPath = useCallback((filePath: string): string => {
     if (filePath.startsWith(workspacePath + '/')) return filePath.slice(workspacePath.length + 1);
@@ -125,8 +130,12 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
     let fileCount = visible.filter((e) => !e.isDirectory).length;
     const dirCounts = await Promise.all(
       visible.filter((e) => e.isDirectory).map(async (e) => {
-        const children = await window.filesAPI.readDirectory(e.path);
-        return countFilesFromEntries(children);
+        try {
+          const children = await window.filesAPI.readDirectory(e.path);
+          return countFilesFromEntries(children);
+        } catch {
+          return 0;
+        }
       }),
     );
     for (const c of dirCounts) fileCount += c;
@@ -134,9 +143,14 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
   }, []);
 
   const loadRoot = useCallback(async () => {
-    const userDirNames = new Set((userDirectories ?? []).map(ud => ud.directory_path.split('/').pop()));
-    const entries = (await window.filesAPI.readDirectory(workspacePath))
-      .filter((e) => !isHiddenWorkspaceEntry(e.name) && !userDirNames.has(e.name));
+    let entries: { name: string; path: string; isDirectory: boolean }[];
+    try {
+      const userDirNames = new Set((userDirectories ?? []).map(ud => ud.directory_path.split('/').pop()));
+      entries = (await window.filesAPI.readDirectory(workspacePath))
+        .filter((e) => !isHiddenWorkspaceEntry(e.name) && !userDirNames.has(e.name) && e.name !== 'google-drive');
+    } catch {
+      return;
+    }
     const nodes = entries.map((e) => ({
       name: e.name,
       path: e.path,
@@ -151,9 +165,13 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
       Promise.all([
         countFilesFromEntries(entries),
         ...dirs.map(async (ud) => {
-          const udEntries = (await window.filesAPI.readDirectory(ud.directory_path))
-            .filter((e) => !isHiddenWorkspaceEntry(e.name));
-          return countFilesFromEntries(udEntries);
+          try {
+            const udEntries = (await window.filesAPI.readDirectory(ud.directory_path))
+              .filter((e) => !isHiddenWorkspaceEntry(e.name));
+            return countFilesFromEntries(udEntries);
+          } catch {
+            return 0;
+          }
         }),
       ]).then((counts) => onFileCount(counts.reduce((a, b) => a + b, 0)));
     }
@@ -163,21 +181,52 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
     loadRoot();
   }, [loadRoot]);
 
-  const loadChildren = useCallback(async (node: TreeNode) => {
-    const entries = (await window.filesAPI.readDirectory(node.path))
-      .filter((e) => !isHiddenWorkspaceEntry(e.name));
-    return entries.map((e) => ({
-      name: e.name,
-      path: e.path,
-      isDirectory: e.isDirectory,
-      children: e.isDirectory ? [] : undefined,
-    }));
+  const loadChildren = useCallback(async (node: TreeNode): Promise<TreeNode[]> => {
+    try {
+      const entries = (await window.filesAPI.readDirectory(node.path))
+        .filter((e) => !isHiddenWorkspaceEntry(e.name));
+      return entries.map((e) => ({
+        name: e.name,
+        path: e.path,
+        isDirectory: e.isDirectory,
+        children: e.isDirectory ? [] : undefined,
+      }));
+    } catch {
+      return [];
+    }
   }, []);
 
   const refreshTree = useCallback(async () => {
     await loadRoot();
     setRefreshKey((k) => k + 1);
   }, [loadRoot]);
+
+  const loadDriveTree = useCallback(async () => {
+    setDriveTreeLoading(true);
+    try {
+      const result = await (window as any).googleDriveAPI.getContextualTreeNodes();
+      if (result?.success && result.data) {
+        setDriveTreeNodes(result.data);
+      }
+    } finally {
+      setDriveTreeLoading(false);
+    }
+  }, []);
+
+  const refreshDriveTree = useCallback(async () => {
+    setDriveRefreshing(true);
+    try {
+      await loadDriveTree();
+    } finally {
+      setDriveRefreshing(false);
+    }
+  }, [loadDriveTree]);
+
+  useEffect(() => {
+    if (hasDriveFolders && !driveTreeNodes && !driveTreeLoading) {
+      loadDriveTree();
+    }
+  }, [hasDriveFolders, driveTreeNodes, driveTreeLoading, loadDriveTree]);
 
   // Auto-refresh when files change on disk (e.g., created by container commands)
   useEffect(() => {
@@ -523,6 +572,64 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
             onCreateCancel={handleCreateCancel}
           />
         ))}
+        {hasDriveFolders && (
+          <div className="filesTabDriveSection">
+            <div
+              className="fileTreeRow fileTreeRow--root"
+              onClick={() => setDriveExpanded(v => !v)}
+            >
+              <ChevronRightIcon
+                className={`fileTreeChevron ${driveExpanded ? 'fileTreeChevron--open' : ''}`}
+              />
+              <span className="filesTabDriveIcon">☁️</span>
+              <span className="fileTreeName fileTreeName--root">Google Drive</span>
+              <div className="fileTreeRowActions">
+                <button
+                  className={`fileTreeRefresh ${driveRefreshing ? 'fileTreeRowAction--spinning' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    refreshDriveTree();
+                  }}
+                  title="Refresh Google Drive"
+                >
+                  <RefreshCwIcon style={{ width: 14, height: 14 }} />
+                </button>
+              </div>
+            </div>
+            {driveExpanded && (
+              <>
+                {driveTreeLoading && !driveTreeNodes && (
+                  <div className="filesTabDriveLoading">Loading Drive tree...</div>
+                )}
+                {driveTreeNodes && driveTreeNodes.map((rootNode) => (
+                  <FileTreeNode
+                    key={rootNode.path}
+                    node={rootNode}
+                    depth={1}
+                    workspacePath={workspacePath}
+                    fileTagMap={fileTagMap}
+                    onSelectFile={onSelectFile}
+                    loadChildren={loadChildren}
+                    onDropOnDir={handleDropOnDir}
+                    onDragOverDir={handleDragOverDir}
+                    onDragLeaveDir={handleDragLeaveDir}
+                    dropTargetPath={dropTargetPath}
+                    refreshKey={refreshKey}
+                    onContextMenu={handleContextMenu}
+                    renamingPath={renamingPath}
+                    onRenameCommit={handleRenameCommit}
+                    onRenameCancel={handleRenameCancel}
+                    onRenameRequest={handleRenameNodePath}
+                    onDeleteRequest={handleDeleteNodePath}
+                    creatingIn={creatingIn}
+                    onCreateCommit={handleCreateCommit}
+                    onCreateCancel={handleCreateCancel}
+                  />
+                ))}
+              </>
+            )}
+          </div>
+        )}
       </div>
       {copyProgress && (
         <div className="filesTabCopyProgress">
@@ -642,17 +749,14 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<TreeNode[]>(node.children ?? []);
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(node.loaded ?? false);
   const isRenaming = renamingPath === node.path;
 
   const relPath = node.path.startsWith(workspacePath + '/')
     ? node.path.slice(workspacePath.length + 1)
     : null;
   const fileTag = !node.isDirectory && relPath ? fileTagMap.get(relPath) : undefined;
-  const isDocxManuscript = fileTag === 'manuscript' && /\.docx$/i.test(node.name);
-  if (!node.isDirectory && fileTagMap.size > 0 && depth === 1) {
-    console.log('[FilesTab] node relPath:', relPath, '→ tag:', fileTag, '| map keys sample:', [...fileTagMap.keys()].slice(0, 3));
-  }
+  const isDocx = /\.docx$/i.test(node.name) && !node.isDirectory;
 
   // Expand (and load) so "New file/folder" is visible when the row toolbar or context menu targets this dir or a descendant.
   useEffect(() => {
@@ -670,7 +774,8 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
     }
   }, [creatingIn?.dirPath, creatingIn?.type, node.path, node.isDirectory, loadChildren, loaded]);
 
-  // Re-fetch children when refreshKey changes (after copy/move operations)
+  // Re-fetch children when refreshKey changes (after copy/move operations) — skip Drive nodes
+  // since their children come from the Drive API tree, not the local cache.
   useEffect(() => {
     if (loaded && expanded && node.isDirectory) {
       loadChildren(node).then(setChildren);
@@ -702,7 +807,7 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
   return (
     <>
       <div
-        className={`fileTreeRow fileTreeRow--node ${isDocxManuscript ? 'fileTreeRow--hasWordAction' : ''} ${isDropTarget ? 'fileTreeRow--dropTarget' : ''}`}
+        className={`fileTreeRow fileTreeRow--node ${isDocx ? 'fileTreeRow--hasWordAction' : ''} ${isDropTarget ? 'fileTreeRow--dropTarget' : ''}`}
         style={{ paddingLeft: fileTreeRowPaddingLeft(depth) }}
         onContextMenu={(e) => onContextMenu(e, node)}
         {...(node.isDirectory
@@ -755,7 +860,7 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
         </div>
         {!isRenaming && (
           <div className="fileTreeRowActions">
-            {isDocxManuscript && (
+            {isDocx && (
               <button
                 type="button"
                 className="fileTreeRowAction fileTreeRowAction--word"

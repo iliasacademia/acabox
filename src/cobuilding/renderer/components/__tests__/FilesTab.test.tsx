@@ -106,7 +106,7 @@ describe('FilesTab – Open in Word button', () => {
     expect(container.querySelector('[title="Open in Word"]')).toBeNull();
   });
 
-  it('does not show "Open in Word" for .docx files not tagged as manuscript', async () => {
+  it('shows "Open in Word" for .docx files not tagged as manuscript', async () => {
     mockReadDirectory.mockResolvedValueOnce([
       { name: 'Notes.docx', path: '/workspace/Notes.docx', isDirectory: false },
     ]);
@@ -117,10 +117,10 @@ describe('FilesTab – Open in Word button', () => {
     });
     await flushPromises();
 
-    expect(container.querySelector('[title="Open in Word"]')).toBeNull();
+    expect(container.querySelector('[title="Open in Word"]')).not.toBeNull();
   });
 
-  it('does not show "Open in Word" for .docx files tagged as grant', async () => {
+  it('shows "Open in Word" for .docx files tagged as grant', async () => {
     mockReadDirectory.mockResolvedValueOnce([
       { name: 'Proposal.docx', path: '/workspace/Proposal.docx', isDirectory: false },
     ]);
@@ -133,6 +133,6 @@ describe('FilesTab – Open in Word button', () => {
     });
     await flushPromises();
 
-    expect(container.querySelector('[title="Open in Word"]')).toBeNull();
+    expect(container.querySelector('[title="Open in Word"]')).not.toBeNull();
   });
 });

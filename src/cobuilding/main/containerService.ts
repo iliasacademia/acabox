@@ -15,6 +15,7 @@ import {
 } from './podmanBinaries';
 import { commandLogger, parseAppDirFromArgs, type CommandSource } from './commandLogger';
 import { ensureImageTarDownloaded, writeLoadedImageVersion, readLoadedImageVersion } from './imageTarManager';
+import { captureError } from '../shared/telemetry';
 
 import * as net from 'net';
 import * as http from 'http';
@@ -740,6 +741,45 @@ class CobuildingContainerService {
     });
   }
 
+  async updateAgentCredentials(apiKey: string, baseURL?: string): Promise<boolean> {
+    const port = this.agentPort;
+    if (!port) return false;
+
+    const ok = await new Promise<boolean>((resolve) => {
+      const payload = JSON.stringify({ anthropicApiKey: apiKey, anthropicBaseURL: baseURL ?? '' });
+      const req = http.request({
+        hostname: 'localhost',
+        port,
+        path: '/credentials',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+        timeout: 5000,
+      }, (res) => {
+        res.resume();
+        resolve(res.statusCode === 200);
+      });
+      req.on('error', () => resolve(false));
+      req.on('timeout', () => { req.destroy(); resolve(false); });
+      req.write(payload);
+      req.end();
+    });
+
+    if (ok && this.lastAgentServerConfig) {
+      try {
+        const parsed = JSON.parse(this.lastAgentServerConfig);
+        parsed.anthropicApiKey = apiKey;
+        if (baseURL) {
+          parsed.anthropicBaseURL = baseURL;
+        } else {
+          delete parsed.anthropicBaseURL;
+        }
+        this.lastAgentServerConfig = JSON.stringify(parsed, null, 2);
+      } catch { /* best-effort cache update */ }
+    }
+
+    return ok;
+  }
+
   /**
    * Stop the agent server process inside the container.
    *
@@ -1022,6 +1062,7 @@ class CobuildingContainerService {
       await this.ensureBaseImage(podmanBin, onProgress);
     } catch (error) {
       log.error('[ContainerService] ensureSetup error:', (error as Error).message);
+      captureError(error, { subsystem: 'container' });
       throw error;
     }
 
@@ -2237,6 +2278,7 @@ class CobuildingContainerService {
           log.info('[ContainerService] Container restarted successfully');
         } catch (err) {
           log.error('[ContainerService] Auto-restart failed:', (err as Error).message);
+          captureError(err, { subsystem: 'container', extra: { phase: 'auto_restart' } });
         } finally {
           this.isStarting = false;
         }

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 import { ChevronLeftIcon, SparklesIcon, ArrowUpRightIcon } from 'lucide-react';
 import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
+import { pushPendingAttribution } from '../coscientistAnalytics';
 
 interface ParsedRow {
   briefing: Briefing;
@@ -181,6 +182,7 @@ export function BriefingHistory({
       if (typeof d.chat_prompt === 'string') sendChatPrompt(d.chat_prompt);
     } else if (row.briefing.type === 'suggested_tool') {
       if (typeof d.details_on_what_to_build === 'string') {
+        pushPendingAttribution(row.briefing.id);
         sendChatPrompt(`Please build the following mini-app for me:\n\n${d.details_on_what_to_build}`);
       }
     } else if (row.briefing.type === 'writing_agent') {

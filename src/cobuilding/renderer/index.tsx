@@ -45,7 +45,19 @@ import type { TabDescriptor } from './tabs/types';
 import { kernelRegistry } from './components/notebook/kernelRegistry';
 import type { Workspace, WorkspaceDirectory } from '../shared/types';
 import { initFullStory, identifyUser, trackEvent } from './utils/fullstory';
+import { initSentryRenderer } from './sentry';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { initAnalytics as initCoScientistAnalytics } from './coscientistAnalytics';
 import './App.css';
+
+// Initialize Sentry before any other code runs so unhandled errors during
+// React tree construction are captured. No-op when SENTRY_DSN is empty.
+initSentryRenderer();
+
+// Bootstrap CoScientist analytics — fetches telemetry context from main
+// and subscribes to auth-state changes. Fire-and-forget; track() calls
+// before init resolves are no-ops, which is correct (we're pre-login anyway).
+initCoScientistAnalytics();
 
 /** Listens for quick-chat:inject IPC and creates a new thread with the message + context. */
 function QuickChatInjector({ onSwitchToChat }: { onSwitchToChat: () => void }) {
@@ -577,8 +589,10 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
   const [fileReturnThreadId, setFileReturnThreadId] = useState<string | null>(null);
   const [fileCount, setFileCount] = useState(0);
   const [userDirectories, setUserDirectories] = useState<WorkspaceDirectory[]>([]);
+  const [hasDriveFolders, setHasDriveFolders] = useState(false);
   useEffect(() => {
     window.workspacesAPI.listDirectories().then(setUserDirectories).catch((err) => console.error('[ChatView] listDirectories failed:', err));
+    (window as any).googleDriveAPI?.getCacheDirectories?.().then((result: any) => setHasDriveFolders(!!result)).catch(() => {});
   }, [workspace.id]);
   const [debugSection, setDebugSection] = useState<DebugSection>(() => {
     const saved = localStorage.getItem('debug-section');
@@ -1026,6 +1040,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
                       <FilesTab
                         workspacePath={workspace.directory_path}
                         userDirectories={userDirectories}
+                        hasDriveFolders={hasDriveFolders}
                         onSelectFile={handleSelectFile}
                         onFileCount={setFileCount}
                       />
@@ -1237,5 +1252,9 @@ if (NativeResizeObserver) {
 const container = document.getElementById('root');
 if (container) {
   const root = createRoot(container);
-  root.render(<App />);
+  root.render(
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
 }

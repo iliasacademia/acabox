@@ -266,10 +266,6 @@ async function handleBridge(ws: WebSocket, msg: any): Promise<void> {
 
   const wid = windowMonitorService.getFocusedWindowId() ?? windowMonitorService.getDockedWindowId();
 
-  if (wid && !windowMonitorService.getFocusedWindowId()) {
-    windowMonitorService.activateHostAppForWindow(wid);
-  }
-
   try {
     const result = await handler({
       action: msg.action,
@@ -322,7 +318,7 @@ function sendPollToV4Client(
   fullStoryStaticConfig?: FullStoryStaticConfig
 ): void {
   if (ws.readyState !== 1) return;
-  const focusedWid = windowMonitorService.getFocusedWindowId();
+  const focusedWid = windowMonitorService.getFocusedWindowId() ?? windowMonitorService.getLastFocusedWindowId();
   if (!focusedWid) return;
   try {
     const response = buildWordPollResponseV2(focusedWid, notificationManager, currentUserId);

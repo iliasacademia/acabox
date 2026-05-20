@@ -158,6 +158,24 @@ describe('shouldClearActiveOnDocChange', () => {
   it('does NOT clear when the path is unchanged', () => {
     expect(shouldClearActiveOnDocChange('/a.docx', '/a.docx')).toBe(false);
   });
+
+  // File-ID-based scenarios (inode strings, Google Doc IDs)
+
+  it('does NOT clear when inode is the same (file was renamed/moved)', () => {
+    expect(shouldClearActiveOnDocChange('97045348', '97045348')).toBe(false);
+  });
+
+  it('clears on inode change (different file)', () => {
+    expect(shouldClearActiveOnDocChange('97045348', '12345678')).toBe(true);
+  });
+
+  it('clears on Google Doc ID change', () => {
+    expect(shouldClearActiveOnDocChange('1Eh17RmtEp', 'xYz456_abc')).toBe(true);
+  });
+
+  it('does NOT clear when Google Doc ID is the same', () => {
+    expect(shouldClearActiveOnDocChange('1Eh17RmtEp', '1Eh17RmtEp')).toBe(false);
+  });
 });
 
 describe('isActiveSessionStaleForDoc', () => {
@@ -193,6 +211,22 @@ describe('isActiveSessionStaleForDoc', () => {
     // (latter). Returning false here defers the decision to a later
     // tick when we have real data.
     expect(isActiveSessionStaleForDoc('A1', [])).toBe(false);
+  });
+
+  it('flags a locally-created session as stale when other sessions exist (raw function behavior)', () => {
+    // isActiveSessionStaleForDoc itself doesn't know about local sessions —
+    // it returns true here because LOCAL_UUID is not in the DB list.
+    // The component-level fix (localSessionIdRef) skips this call for
+    // locally-created sessions. This test documents the raw behavior that
+    // caused the bug: selecting text in Word triggered a poll, the poll
+    // returned workspaceSessions from the DB (which didn't include the
+    // not-yet-persisted local session), and the stale check yanked the
+    // user out of their brand-new chat.
+    expect(
+      isActiveSessionStaleForDoc('LOCAL_UUID', [
+        session('DB_SESSION_1', '2026-05-07T12:00:00Z'),
+      ]),
+    ).toBe(true);
   });
 });
 

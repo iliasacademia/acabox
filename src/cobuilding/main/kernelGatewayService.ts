@@ -1,6 +1,7 @@
 import http from 'http';
 import log from 'electron-log';
 import { containerService } from './containerService';
+import { captureError } from '../shared/telemetry';
 
 /**
  * Thin HTTP client over the Jupyter kernel gateway that runs inside the
@@ -28,6 +29,7 @@ class KernelGatewayService {
     } catch (err) {
       const message = (err as Error).message;
       log.error('[KernelGateway] start failed:', message);
+      captureError(err, { subsystem: 'kernel', extra: { phase: 'start' } });
       return { error: message };
     }
     const url = containerService.getKernelGatewayUrl();

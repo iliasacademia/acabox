@@ -440,7 +440,7 @@ const migrations = [
   {
     version: 26,
     sql: `
-      CREATE TABLE notifications (
+      CREATE TABLE IF NOT EXISTS notifications (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL,
         type TEXT NOT NULL,
@@ -449,7 +449,44 @@ const migrations = [
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
         read_at TEXT
       );
-      CREATE INDEX idx_notifications_workspace_unread ON notifications(workspace_id, read_at);
+      CREATE INDEX IF NOT EXISTS idx_notifications_workspace_unread ON notifications(workspace_id, read_at);
+    `,
+  },
+  {
+    version: 27,
+    fn: (database: Database.Database) => {
+      const columns = database.pragma('table_info(workspace_directories)') as { name: string }[];
+      const colNames = new Set(columns.map((c) => c.name));
+      if (!colNames.has('source')) {
+        database.exec("ALTER TABLE workspace_directories ADD COLUMN source TEXT NOT NULL DEFAULT 'local';");
+      }
+      if (!colNames.has('metadata')) {
+        database.exec('ALTER TABLE workspace_directories ADD COLUMN metadata TEXT;');
+      }
+    },
+  },
+  {
+    version: 28,
+    sql: `
+      CREATE TABLE IF NOT EXISTS google_drive_cache (
+        file_id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        relative_path TEXT NOT NULL,
+        parent_id TEXT,
+        name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        modified_time TEXT,
+        md5_checksum TEXT,
+        downloaded_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_gdrive_cache_workspace ON google_drive_cache(workspace_id);
+    `,
+  },
+  {
+    version: 29,
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_gdrive_cache_parent ON google_drive_cache(workspace_id, parent_id);
     `,
   },
 ];

@@ -418,6 +418,13 @@ declare global {
     isOverlayEnabled(): Promise<boolean>;
     /** Pipes a renderer-side log line into electron-log on the main process. */
     log(msg: string): Promise<void>;
+    /**
+     * Triggers a test error on the main process to verify Sentry wiring.
+     * kind: 'uncaught' | 'rejection' | 'capture'
+     * subsystem: optional tag applied when kind === 'capture'
+     */
+    telemetryTest(kind: string, subsystem?: string): Promise<{ ok: boolean; error?: string }>;
+    triggerInDepthSuggestions(): Promise<void>;
   }
 
   interface SettingsAPI {
@@ -779,6 +786,18 @@ declare global {
     nativeToolsAPI: { getUrl(toolId: string): Promise<string | null> };
     academiaAPI: {
       fetch(method: string, endpoint: string, data?: unknown): Promise<unknown>;
+    };
+    toolAnalyticsAPI: {
+      opened(dirName: string): Promise<{
+        tool_id: string;
+        open_count_so_far: number;
+        days_since_created: number;
+      } | null>;
+      setThreadAttribution(
+        threadId: string,
+        attribution: { source: 'suggestion'; briefing_id: string },
+      ): Promise<void>;
+      setThreadCreationPrompt(threadId: string, prompt: string): Promise<void>;
     };
   }
 }

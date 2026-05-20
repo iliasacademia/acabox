@@ -336,6 +336,16 @@ jobs:
           DATADOG_APPLICATION_ID: ${{ vars.DATADOG_APPLICATION_ID }}
           DATADOG_CLIENT_TOKEN: ${{ vars.DATADOG_CLIENT_TOKEN }}
           DATADOG_SITE: ${{ vars.DATADOG_SITE }}
+          # Sentry DSN — public, safe to bundle. Webpack DefinePlugin bakes it
+          # into the renderer + main bundles at build time. Empty → Sentry no-ops.
+          SENTRY_DSN: ${{ vars.SENTRY_DSN }}
+          # Source map upload to Sentry. AUTH_TOKEN is a real secret (read/write
+          # scope on the Sentry project). ORG and PROJECT are slugs, not sensitive.
+          # When any of these is unset, @sentry/webpack-plugin skips upload —
+          # the build still succeeds, you just get minified stack traces in Sentry.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
           ENTRY_POINT: ${{ steps.artifact-name.outputs.entry_point }}
           # Google Docs OAuth credentials (Phase C2). Baked into the main bundle
           # at build time by webpack.DefinePlugin. When unset the build still

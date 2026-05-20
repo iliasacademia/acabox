@@ -121,6 +121,8 @@ export interface WorkspaceDirectory {
   display_name: string;
   sort_order: number;
   created_at: string;
+  source: 'local' | 'google-drive';
+  metadata?: string | null;
 }
 
 export interface ScheduledTask {

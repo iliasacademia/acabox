@@ -12,6 +12,7 @@ export function runScheduledTask(
   task: ScheduledTask,
   workspace: Workspace,
   onNotificationClick?: (action: NotificationNavigationAction | null) => void,
+  refreshAndPushCredentials?: () => Promise<boolean>,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const now = new Date();
@@ -43,6 +44,8 @@ export function runScheduledTask(
       undefined,
       task.session_source ?? undefined,
       onNotificationClick,
+      undefined, undefined, undefined,
+      refreshAndPushCredentials,
     );
 
     // Headless: no chat UI, so visibility-based eviction must not apply.

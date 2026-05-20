@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import log from 'electron-log';
 import { containerService } from './containerService';
+import { captureError } from '../shared/telemetry';
 
 /**
  * Package-level install coordinator.
@@ -215,6 +216,10 @@ class PackageInstaller extends EventEmitter {
     } catch (err) {
       waveError = err instanceof Error ? err : new Error(String(err));
       log.warn(`[PackageInstaller] ${registry} wave failed: ${waveError.message}`);
+      captureError(err, {
+        subsystem: 'package_install',
+        extra: { registry, package_count: packages.length },
+      });
     } finally {
       this.currentWaves[registry].delete(packages);
 

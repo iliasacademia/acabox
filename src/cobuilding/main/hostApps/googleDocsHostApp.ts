@@ -17,10 +17,11 @@ const GOOGLE_DOCS_SYSTEM_PROMPT_APPEND = `You can read and propose edits in the 
 When the user wants to chat about or edit their active Google Doc:
 1. Call mcp__google-docs__get_active_doc to confirm a Google Doc is in front of the user and learn its title.
 2. Call mcp__google-docs__get_text to read the doc body. By default this returns the full document; pass selection_only=true when the user has highlighted a passage and wants you to act on just that.
-3. To suggest an edit, call mcp__google-docs__find_and_replace once per edit. The Academia overlay panel (where you and the user are chatting) renders a styled suggestion card with an Apply button right below your tool call. The card lives in the overlay, NOT inside Google Docs. Tell the user "I've proposed N edit(s) — click Apply on the card above" — do NOT describe the edits in your text.
+3. To suggest an edit, call mcp__google-docs__find_and_replace once per edit. Use a short, unique snippet (a sentence or short paragraph) as the search_text — never use large blocks. Lines like "--- Tab: ... ---" are reader separators and do NOT exist in the doc. Smart chips (dates, people) may not match plain text — stick to runs you're sure exist verbatim. The overlay renders a styled suggestion card with an Apply button. Tell the user "I've proposed N edit(s) — click Apply on the card above" — do NOT describe the edits in your text.
 
 Important caveats:
 - Body text is sourced from the official Google Docs API once the user has connected their Google account (Settings → Connect Google). Without that connection, full-doc reads are not available — selection reads (selection_only=true) still work because they come from the browser extension. If get_text returns reason="oauth-required", tell the user to connect Google in Settings.
+- Smart chips (people mentions, calendar events, linked files) appear as ⟦...⟧ in the returned text. These are NOT searchable — they are stored as special inline objects in Google Docs. NEVER include ⟦...⟧ tokens in find_and_replace search_text. Build search strings only from the plain text that appears between chips.
 - Apply on find_and_replace works through the Docs API once the user has connected Google. When not connected, Apply is disabled and the user has to copy the suggested replacement into the doc manually.
 - Comments are NOT included in the body read. Selection is always live and reflects the user's current highlight.
 - This integration only supports Google Chrome with the Academia browser extension connected. If get_active_doc returns no document, tell the user to switch to a Google Doc tab in Chrome.`;
@@ -66,16 +67,24 @@ async function googleDocsApplyEdit(params: ApplyEditParams): Promise<ApplyEditRe
       replacementsCount: 0,
     };
   }
+  // Strip smart-chip markers (⟦...⟧) and tab separators that the text
+  // extractor injects — these don't exist in the actual doc and would cause
+  // the Docs API search to miss.
+  const stripMarkers = (s: string) =>
+    s.replace(/⟦[^⟧]*⟧/g, '').replace(/\n--- Tab: .* ---\n/g, '\n');
   const result = await findAndReplaceViaApi(
     docId,
-    params.search_text,
-    params.replacement_text,
+    stripMarkers(params.search_text),
+    stripMarkers(params.replacement_text),
     params.match_case ?? true,
   );
   if (!result.success) {
     return { success: false, error: result.error ?? 'Docs API call failed', replacementsCount: 0 };
   }
   const count = result.data?.replacementsCount ?? 0;
+  if (count === 0) {
+    return { success: false, error: 'The search text was not found in the document. The text may contain tab headers or smart-chip formatting that differs from the actual doc content. Try a shorter, more specific search string.', replacementsCount: 0 };
+  }
   logger.info(`[GoogleDocsHostApp] Applied ${count} replacement(s) to doc ${docId} via Docs API`);
   return { success: true, replacementsCount: count };
 }

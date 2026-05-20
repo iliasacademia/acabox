@@ -1,6 +1,5 @@
 /**
  * Service to refresh manuscript paths cache.
- * Extracted from main.ts for reuse by enableFeedbackService.
  */
 
 import { APIclient, checkLogin } from '../../apiClient';

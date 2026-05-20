@@ -33,6 +33,15 @@ export const LOGGING_CONFIG = {
     site: process.env.DATADOG_SITE || 'datadoghq.com',
     service: 'academia-electron',
     env: app.isPackaged ? 'production' : 'development',
+    // RUM application id — required for Datadog RUM browser SDK. Public, safe to bundle.
+    rumApplicationId: process.env.DATADOG_APPLICATION_ID || '',
+  },
+
+  // Sentry configuration (DSN is public, safe to bundle)
+  sentry: {
+    dsn: process.env.SENTRY_DSN || '',
+    enabled: (process.env.SENTRY_DSN || '').length > 0,
+    env: app.isPackaged ? 'production' : 'development',
   },
 
   // electron-log file configuration

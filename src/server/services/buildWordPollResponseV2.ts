@@ -1,22 +1,15 @@
 /**
  * Builds the overlay poll response for a given window ID (wid).
  *
- * Originally Word-specific; now host-agnostic — works for any HostApp whose
- * `documentPath` is normalized into the workspace directory. Word path uses
- * the project-file mapping; non-Word hosts (e.g. Obsidian) skip that lookup.
- *
- * Conversations are fetched directly by the popup via the proxy API.
- *
- * The legacy export name `buildWordPollResponseV2` is kept for back-compat;
- * `buildOverlayPollResponseV2` is the preferred name for new callers.
+ * Host-agnostic — works for any registered HostApp. Only shows the overlay
+ * when a workspace is active (cobuilding mode) and the document is either
+ * inside a workspace directory or uses a synthetic scheme (gdocs://, applenotes://).
  */
 
 import { windowMonitorService } from '../../windowMonitorService';
 import { getRegisteredHostApps } from '../../cobuilding/main/hostApps';
-import { wordIntegrationDataStoreV2 } from '../../wordIntegrationDataStoreV2';
 import { OverlayPollResponse } from '../types';
-import { defaultLogger as logger } from '../../utils/logger';
-import { remoteFeatureFlags, REMOTE_FLAGS } from '../../remoteFeatureFlags';
+import { resolveFileId } from './resolveFileId';
 
 /**
  * Build a WordPollResponse for the given window ID.
@@ -34,13 +27,9 @@ export function buildWordPollResponseV2(
   const shouldShowButtonV2 = windowMonitorService.getDesiredWebviewVisibility('button-v2', wid);
   const shouldShowPopupV2 = windowMonitorService.getDesiredWebviewVisibility('popup-v2', wid);
 
-  // 1. Resolve documentPath from window monitor state
+  // 1. Resolve documentPath and stable file identifier from window monitor state
   const documentPath = windowMonitorService.getDocumentPathForWindow(wid);
-
-  // 2. Resolve project file from V2 data store
-  const projectFile = documentPath
-    ? wordIntegrationDataStoreV2.getProjectFileForPath(documentPath)
-    : null;
+  const fileId = resolveFileId(documentPath);
 
   const isDockedActive = windowMonitorService.isDockedActive(wid);
   // Cobuilding mode is active when a workspace has been selected. The check
@@ -58,11 +47,13 @@ export function buildWordPollResponseV2(
     // listing every chat tied to that host so the user can pick from previous
     // conversations even before the active document resolves.
     const hostAppId = windowMonitorService.getHostAppIdForWindow(wid);
-    // Google Docs is doc-rooted — we explicitly do NOT show the overlay over a
-    // Chrome window that isn't on a Google Doc tab. The host has no
-    // `sessionDocumentPathLikePattern` for that reason; without an active
-    // gdocs:// path resolved by the extension, hide the overlay entirely so
-    // the user doesn't see Academia floating over Twitter / Reddit / Github.
+    // Google Docs is doc-rooted — only show the overlay when the browser
+    // extension has confirmed a Google Doc is the active tab (gdocs:// path
+    // resolved). The extension query is async (~1.5s), so on the first poll
+    // after Chrome focuses the path is still null. The button stays hidden
+    // during that window; once the path resolves a change-event fires, a new
+    // poll broadcasts, and the button appears. The 30s keepalive ping on the
+    // extension WebSocket prevents Chrome from killing the connection.
     if (hostAppId === 'google-docs') {
       return {
         notificationCount: 0,
@@ -70,6 +61,7 @@ export function buildWordPollResponseV2(
         recentReviewNotifications: [],
         isReviewingSelectedText: false,
         activeDocumentPath: documentPath,
+        activeDocumentFileId: fileId,
         shouldShowButtonV2: false,
         shouldShowPopupV2: false,
         shouldShowReviewButton: false,
@@ -91,6 +83,7 @@ export function buildWordPollResponseV2(
         recentReviewNotifications: [],
         isReviewingSelectedText: false,
         activeDocumentPath: documentPath,
+        activeDocumentFileId: fileId,
         shouldShowButtonV2,
         shouldShowPopupV2,
         shouldShowReviewButton: false,
@@ -98,46 +91,29 @@ export function buildWordPollResponseV2(
         isDockedActive,
       };
     }
-    if (isCobuildingMode) {
-      // Cobuilding mode + unsaved Word doc — hide overlay entirely.
-      return {
-        notificationCount: 0,
-        isActive: false,
-        recentReviewNotifications: [],
-        isReviewingSelectedText: false,
-        activeDocumentPath: documentPath,
-        shouldShowButtonV2: false,
-        shouldShowPopupV2: false,
-        shouldShowReviewButton: false,
-        hasSelectedText: false,
-        isDockedActive: false,
-      };
-    }
+    // No document path — hide overlay entirely.
     return {
-      isEnableFeedback: true,
-      isUnsavedDocument: true,
       notificationCount: 0,
-      isActive: true,
+      isActive: false,
       recentReviewNotifications: [],
       isReviewingSelectedText: false,
       activeDocumentPath: documentPath,
-      shouldShowButtonV2: true,
-      shouldShowPopupV2,
+      shouldShowButtonV2: false,
+      shouldShowPopupV2: false,
       shouldShowReviewButton: false,
       hasSelectedText: false,
-      isDockedActive,
+      isDockedActive: false,
     };
   }
 
   // Synthetic-scheme document paths (e.g. `applenotes://<id>`, `gdocs://<id>`)
   // come from hosts whose documents don't live in the workspace folder (Apple
   // Notes is in the OS database, Google Docs is in the cloud). Treat them like
-  // an in-workspace doc for overlay purposes: show the overlay, scope sessions
-  // to the synthetic id, surface the host-supplied display title and any
-  // selection text the host has captured (canvas-interception for Docs, AX for
-  // Apple Notes when applicable).
+  // an in-workspace doc for overlay purposes regardless of whether local
+  // workspace directories are configured — the document identity was already
+  // resolved by the host integration (browser extension, AppleScript, etc.).
   const isSyntheticDocPath = /^[a-z][a-z0-9+.-]*:\/\//i.test(documentPath) && !documentPath.startsWith('file://');
-  if (isCobuildingMode && isSyntheticDocPath) {
+  if (isSyntheticDocPath) {
     const sessions = windowMonitorService.getWorkspaceSessions(documentPath);
     let displayName: string | null = null;
     let selectedTextOut: string | undefined;
@@ -154,11 +130,12 @@ export function buildWordPollResponseV2(
       recentReviewNotifications: [],
       isReviewingSelectedText: false,
       activeDocumentPath: documentPath,
+      activeDocumentFileId: fileId,
       activeDocumentDisplayName: displayName,
       shouldShowButtonV2,
       shouldShowPopupV2,
       shouldShowReviewButton: false,
-      hasSelectedText: !!selectedTextOut,
+      hasSelectedText: false,
       selectedText: selectedTextOut,
       isDockedActive,
     };
@@ -184,6 +161,7 @@ export function buildWordPollResponseV2(
         recentReviewNotifications: [],
         isReviewingSelectedText: false,
         activeDocumentPath: documentPath,
+        activeDocumentFileId: fileId,
         shouldShowButtonV2,
         shouldShowPopupV2,
         shouldShowReviewButton: false,
@@ -221,40 +199,18 @@ export function buildWordPollResponseV2(
     };
   }
 
-  // If document path exists but no project file mapping
-  if (!projectFile) {
-    if (remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
-      logger.info(`[VERBOSE] [WORD-POLL-V2] No project file found for path: "${documentPath}" (cache size: ${wordIntegrationDataStoreV2.getCacheSize()}, keys: ${wordIntegrationDataStoreV2.getCacheKeys().join(', ')})`);
-    }
-    return {
-      isEnableFeedback: true,
-      notificationCount: 0,
-      isActive: true,
-      recentReviewNotifications: [],
-      isReviewingSelectedText: false,
-      activeDocumentPath: documentPath,
-      shouldShowButtonV2: true,
-      shouldShowPopupV2,
-      shouldShowReviewButton: false,
-      hasSelectedText: false,
-      isDockedActive,
-    };
-  }
-
-  // Document is mapped to a project — return project info for conversation fetching
+  // Document exists but is outside any workspace — hide overlay.
   return {
-    projectId: projectFile.project_id,
-    projectFileId: projectFile.project_file_id,
     notificationCount: 0,
-    isActive: true,
+    isActive: false,
     recentReviewNotifications: [],
     isReviewingSelectedText: false,
     activeDocumentPath: documentPath,
-    shouldShowButtonV2,
-    shouldShowPopupV2,
+    shouldShowButtonV2: false,
+    shouldShowPopupV2: false,
     shouldShowReviewButton: false,
     hasSelectedText: false,
-    isDockedActive,
+    isDockedActive: false,
   };
 }
 

@@ -1,4 +1,5 @@
 import log from 'electron-log';
+import { captureError } from '../shared/telemetry';
 import type { AgentSession } from './agentSession';
 
 /**
@@ -172,5 +173,6 @@ function destroyEntry(id: string): void {
     entry.session.destroy();
   } catch (err) {
     log.error(`[SessionRegistry] destroy(${id}) threw:`, err);
+    captureError(err, { subsystem: 'agent', extra: { phase: 'session_destroy', session_id: id } });
   }
 }

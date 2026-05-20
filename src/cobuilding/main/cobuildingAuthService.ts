@@ -1,6 +1,7 @@
 import QRCode from 'qrcode';
 import { APIclient } from '../../apiClient';
 import { defaultLogger as logger } from '../../utils/logger';
+import { captureError } from '../shared/telemetry';
 import { generateDeviceId } from '../../auth/qrAuthService';
 import type { QRAuthResult, QRAuthSession } from '../../auth/qrAuthService';
 
@@ -33,6 +34,7 @@ export async function createCobuildingAuthSession(apiBaseUrl: string): Promise<Q
     return { deviceId, qrCodeDataURL, authorizationURL };
   } catch (error) {
     logger.error('Error creating cobuilding auth session:', error);
+    captureError(error, { subsystem: 'auth_device', extra: { phase: 'session_create' } });
     throw new Error('Failed to create cobuilding auth session');
   }
 }

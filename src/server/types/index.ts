@@ -126,10 +126,6 @@ export interface WordProjectFileResponse {
  * back-compat. Prefer `OverlayPollResponse` in new code.
  */
 export interface OverlayPollResponse {
-  /** Whether this is an "Enable feedback" button (document exists but no project) */
-  isEnableFeedback?: boolean;
-  /** Whether the document is unsaved (no file path from accessibility API) */
-  isUnsavedDocument?: boolean;
   /** Project ID (if valid manuscript) */
   projectId?: number;
   /** Project File ID (if valid manuscript) */
@@ -164,6 +160,8 @@ export interface OverlayPollResponse {
   reviewErrorMessage?: string;
   /** Active document path (if available) */
   activeDocumentPath?: string | null;
+  /** Stable file identifier — inode for local files, extracted ID for synthetic schemes (gdocs, applenotes). Resilient to file rename/move. */
+  activeDocumentFileId?: string | null;
   /**
    * Human-readable name for the active document. For file-based hosts the
    * renderer can derive this from `activeDocumentPath` (basename), but for

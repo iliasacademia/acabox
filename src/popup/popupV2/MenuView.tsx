@@ -151,11 +151,6 @@ export const WorkspaceSessionsView: React.FC<WorkspaceSessionsViewProps> = ({
 
   const visibleSessions = sessions.slice(0, effectiveCount);
 
-  // Empty workspaces are handled upstream by auto-opening a blank chat, so
-  // this view is only mounted with at least one session. Returning null avoids
-  // a one-frame flash of an empty header before the auto-open effect commits.
-  if (sessions.length === 0) return null;
-
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px' }}>
@@ -395,36 +390,3 @@ const ForeignTurnWatcher: React.FC<{ sessionId: string; onForeignDone: () => voi
   return null;
 };
 
-// ─── Not Linked View ─────────────────────────────────────────────────
-
-interface NotLinkedViewProps {
-  isUnsavedDocument: boolean;
-}
-
-export const NotLinkedView: React.FC<NotLinkedViewProps> = ({
-  isUnsavedDocument,
-}) => {
-  return (
-    <>
-      {isUnsavedDocument ? (
-        <>
-          <div style={styles.enableFeedbackTitle}>
-            Save your document first
-          </div>
-          <div style={styles.enableFeedbackDescription}>
-            Please save your document to get started.
-          </div>
-        </>
-      ) : (
-        <>
-          <div style={styles.enableFeedbackTitle}>
-            Not linked to a project
-          </div>
-          <div style={styles.enableFeedbackDescription}>
-            This document isn't linked to a Writing Agent project yet. Create a project in Writing Agent to start working on this manuscript.
-          </div>
-        </>
-      )}
-    </>
-  );
-};

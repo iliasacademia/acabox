@@ -1,5 +1,4 @@
 import { randomUUID } from "crypto";
-import * as path from "path";
 import log from "electron-log";
 import { resolveClaudeBinary } from "../sdkBinarySetup";
 import { createReport, updateReportStatus } from "../db/reportRepository";
@@ -8,12 +7,15 @@ import {
   type ScanParams,
   type ScannerEvent,
   type ScanContext,
+  type TreeOutput,
 } from "./shared";
 import { runResearchProfileAgent } from "./agents/researchProfile";
-import { runQuickTaskSuggestionAgent, runInDepthTaskSuggestionAgent } from "./agents/taskSuggestion";
+import { runQuickTaskSuggestionAgent, runInDepthTaskSuggestionAgent, type NotificationOutput } from "./agents/taskSuggestion";
 import { runFileTaggingAgent } from "./agents/fileTagging";
+import { captureError } from "../../shared/telemetry";
+import { generateDriveDirectoryTree } from "../googleDriveService";
 
-export type { ScannerEvent, ScanParams };
+export type { ScannerEvent, ScanParams, NotificationOutput };
 
 export async function scanWorkspaceDirectory(
   params: ScanParams,
@@ -21,6 +23,7 @@ export async function scanWorkspaceDirectory(
   const {
     workspaceId,
     directoryPaths,
+    driveDirectories,
     memoryDir,
     apiKey,
     baseURL,
@@ -30,7 +33,8 @@ export async function scanWorkspaceDirectory(
   const reportId = randomUUID();
 
   log.info(
-    `[DirectoryScanner] Starting scan for workspace ${workspaceId} at [${directoryPaths.join(', ')}]`,
+    `[DirectoryScanner] Starting scan for workspace ${workspaceId} at [${directoryPaths.join(', ')}]` +
+    (driveDirectories?.length ? ` + ${driveDirectories.length} Drive folder(s)` : ''),
   );
 
   const claudeBinaryPath = resolveClaudeBinary();
@@ -43,10 +47,23 @@ export async function scanWorkspaceDirectory(
   createReport(reportId, workspaceId, "directory_scan");
   updateReportStatus(reportId, "running");
 
-  const treeOutputs = directoryPaths.map((dp) => ({
+  const treeOutputs: TreeOutput[] = directoryPaths.map((dp) => ({
     directoryPath: dp,
     tree: generateDirectoryTree(dp),
+    source: 'local' as const,
   }));
+
+  if (driveDirectories && driveDirectories.length > 0) {
+    onMessage({ type: "progress", text: "Listing Google Drive folders" });
+    for (const dd of driveDirectories) {
+      try {
+        const { tree } = await generateDriveDirectoryTree(dd.driveId, dd.name, params.workspaceId, dd.mimeType);
+        treeOutputs.push({ directoryPath: dd.name, tree, source: 'google-drive' });
+      } catch (err) {
+        log.error(`[DirectoryScanner] Failed to generate Drive tree for ${dd.name}:`, err);
+      }
+    }
+  }
 
   const ctx: ScanContext = {
     claudeBinaryPath,
@@ -97,9 +114,45 @@ export async function scanWorkspaceDirectory(
       `[DirectoryScanner] Scan error for workspace ${workspaceId}:`,
       err,
     );
+    captureError(err, {
+      subsystem: 'workspace_scan',
+      extra: { workspace_id: workspaceId, report_id: reportId },
+    });
     updateReportStatus(reportId, "failed", undefined, errorMessage);
     onMessage({ type: "error", error: errorMessage });
   }
+}
+
+export async function runInDepthScan(params: ScanParams): Promise<NotificationOutput> {
+  const claudeBinaryPath = resolveClaudeBinary();
+  if (!claudeBinaryPath) {
+    log.error("[DirectoryScanner] Claude binary not found — skipping in-depth scan");
+    return { made_changes: false, title: "", body: "" };
+  }
+
+  const treeOutputs: TreeOutput[] = params.directoryPaths.map((dp) => ({
+    directoryPath: dp,
+    tree: generateDirectoryTree(dp),
+    source: 'local' as const,
+  }));
+
+  const ctx: ScanContext = {
+    claudeBinaryPath,
+    cwd: params.cwd,
+    directoryPaths: params.directoryPaths,
+    apiKey: params.apiKey,
+    baseURL: params.baseURL,
+    abortController: new AbortController(),
+    treeOutputs,
+    workspaceId: params.workspaceId,
+    reportId: randomUUID(),
+    memoryDir: params.memoryDir,
+    onMessage: params.onMessage,
+    onBriefingsChanged: params.onBriefingsChanged,
+    onNotifyUser: params.onNotifyUser,
+  };
+
+  return runInDepthTaskSuggestionAgent(ctx);
 }
 
 async function completeBackgroundWork(

@@ -3139,6 +3139,23 @@ body.cobuild-resizing webview {
   white-space: nowrap;
 }
 
+.filesTabDriveSection {
+  border-top: 1px solid #e5e2dd;
+  margin-top: 4px;
+}
+
+.filesTabDriveIcon {
+  font-size: 14px;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+.filesTabDriveLoading {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #9c958b;
+}
+
 .fileTreeRow {
   display: flex;
   align-items: center;
@@ -3224,6 +3241,10 @@ body.cobuild-resizing webview {
 .fileTreeRowAction--word:hover {
   background: rgba(37, 99, 235, 0.1);
   color: #1d4ed8;
+}
+
+.fileTreeRowAction--spinning svg {
+  animation: spin 1s linear infinite;
 }
 
 .fileTreeRowMain {
@@ -7476,6 +7497,21 @@ button.briefingHistoryRow__status {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
+}
+
+@keyframes briefingNewArrival {
+  from {
+    background-color: rgba(214, 179, 119, 0.18);
+    border-left-color: rgb(184, 120, 44);
+  }
+  to {
+    background-color: #fff;
+    border-left-color: rgb(122, 68, 25);
+  }
+}
+
+.homeBriefingCard--newArrival {
+  animation: briefingNewArrival 2.5s ease-out;
 }
 
 /* ── ReactionsToolView ──────────────────────────────────────────────── */

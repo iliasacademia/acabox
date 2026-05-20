@@ -15,12 +15,10 @@ import {
   WidthToggleIcon,
   DockRightIcon,
   UndockIcon,
-  POPUP_HEIGHT_ENABLE_FEEDBACK,
-  POPUP_HEIGHT_UNSAVED_DOCUMENT,
   POPUP_HEIGHT_PER_CONVERSATION,
 } from './popupV2/shared';
 import { useWordPollWebSocket } from './popupV2/useWordPollWebSocket';
-import { ConversationListView, NotLinkedView, WorkspaceSessionsView, WorkspaceConversationView, effectiveDocDisplayName } from './popupV2/MenuView';
+import { ConversationListView, WorkspaceSessionsView, WorkspaceConversationView, effectiveDocDisplayName } from './popupV2/MenuView';
 import {
   findAutoOpenCandidate,
   shouldAutoOpenFreshSession,
@@ -44,8 +42,6 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   // State for project file info
   const [projectId, setProjectId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isEnableFeedback, setIsEnableFeedback] = useState(false);
-  const [isUnsavedDocument, setIsUnsavedDocument] = useState(false);
   // Cobuilding workspace state
   const [isInWorkspace, setIsInWorkspace] = useState(false);
   const [workspaceSessions, setWorkspaceSessions] = useState<Array<{ id: string; title: string; created_at: string; is_running?: boolean }>>([]);
@@ -97,15 +93,16 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   // Width toggle state
   const [isWide, setIsWide] = useState(false);
 
-  // Dock-to-right state — persisted per document path in localStorage
+  // Dock-to-right state — persisted per file ID in localStorage (defaults to docked)
   const DOCK_PREF_KEY = 'academia_popup_docked:';
-  const [isDocked, setIsDocked] = useState(false);
+  const [isDocked, setIsDocked] = useState(true);
+  const isDockedRef = useRef(true);
   const narrowWidthRef = useRef<number>(window.innerWidth);
   const WIDE_WIDTH = 700;
   const sizeAnimRef = useRef<number | null>(null);
-  const prevDocPathRef = useRef<string | null>(null);
+  const prevFileIdRef = useRef<string | null>(null);
   const prevIsDockedActiveRef = useRef<boolean | undefined>(undefined);
-  // Session IDs we've already auto-opened for the current docPath. Stops us
+  // Session IDs we've already auto-opened for the current file. Stops us
   // re-yanking the user back into a session if they explicitly went back to
   // the list view while the session is still inside our freshness window.
   // Persisted in localStorage so that hide/show cycles of the overlay
@@ -170,51 +167,55 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     sizeAnimRef.current = requestAnimationFrame(step);
   };
 
+  useEffect(() => { isDockedRef.current = isDocked; }, [isDocked]);
+
   // WebSocket-based polling
   const pollData = useWordPollWebSocket(widParam, tokenParam, serverUrl);
   const effectiveWid = getV4FocusedWid();
   const docPath = pollData?.activeDocumentPath ?? null;
+  const fileId = pollData?.activeDocumentFileId ?? null;
 
-  // When the active document changes from one doc to a DIFFERENT doc, close
-  // any open conversation and return to the session list. The previous chat
-  // is scoped to its original document and shouldn't keep accepting messages
-  // in the context of a different file.
+  // When the active document changes (by stable file ID), close any open
+  // conversation and return to the session list. The previous chat is scoped
+  // to its original document and shouldn't keep accepting messages in the
+  // context of a different file.
   //
-  // Critical: do NOT clear when docPath transitions to null. That happens on
+  // Critical: do NOT clear when fileId transitions to null. That happens on
   // every Cmd+Tab away from Word (focus moves to a non-doc app, polling
-  // reports activeDocumentPath=null) and clearing here causes the overlay
-  // to lose its active session every time the user briefly switches apps.
+  // reports null) and clearing here causes the overlay to lose its active
+  // session every time the user briefly switches apps.
   useEffect(() => {
-    if (shouldClearActiveOnDocChange(prevDocPathRef.current, docPath)) {
+    if (shouldClearActiveOnDocChange(prevFileIdRef.current, fileId)) {
+      localSessionIdRef.current = null;
       setActiveSession(null);
       setShowingList(true);
     }
-  }, [docPath]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fileId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Restore per-document dock preference whenever the active document changes.
+  // Restore per-document dock preference whenever the active file changes.
+  // Defaults to docked when no preference has been stored yet.
   useEffect(() => {
-    if (!docPath) return;
-    const pref = localStorage.getItem(DOCK_PREF_KEY + docPath) === 'true';
+    if (!fileId) return;
+    const stored = localStorage.getItem(DOCK_PREF_KEY + fileId);
+    const pref = stored === null ? true : stored === 'true';
     setIsDocked(pref);
-    if (pref || prevDocPathRef.current !== null) {
-      postBridge('setDockRight', { docked: pref });
-    }
-    prevDocPathRef.current = docPath;
-    // Hydrate auto-open tracking for the new doc from localStorage. Fresh
-    // sessions for a different doc shouldn't be considered already-handled,
-    // but sessions we already auto-opened for THIS doc on a prior render
+    postBridge('setDockRight', { docked: pref });
+    prevFileIdRef.current = fileId;
+    // Hydrate auto-open tracking for the new file from localStorage. Fresh
+    // sessions for a different file shouldn't be considered already-handled,
+    // but sessions we already auto-opened for THIS file on a prior render
     // (e.g. before a popup hide/show cycle) must stay deduped.
-    autoOpenedSessionIdsRef.current = loadAutoOpenedFromStorage(docPath);
-  }, [docPath]); // eslint-disable-line react-hooks/exhaustive-deps
+    autoOpenedSessionIdsRef.current = loadAutoOpenedFromStorage(fileId);
+  }, [fileId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // When Word is maximized the overlay falls back to floating (isDockedActive = false).
-  // Detect the true→false transition and reset isDocked so one click re-docks.
+  // If the user still wants docked mode, re-send the dock command to resize Word.
   useEffect(() => {
     const curr = pollData?.isDockedActive;
     const prev = prevIsDockedActiveRef.current;
     prevIsDockedActiveRef.current = curr;
-    if (prev === true && curr === false) {
-      setIsDocked(false);
+    if (prev === true && curr === false && isDockedRef.current) {
+      postBridge('setDockRight', { docked: true });
     }
   }, [pollData?.isDockedActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -226,8 +227,6 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     if (pollData.fullStoryConfig) cacheFullStoryConfig(pollData.fullStoryConfig);
     onVisibilityChanged('popup', pollData.shouldShowPopupV2 ?? false);
 
-    setIsEnableFeedback(pollData.isEnableFeedback ?? false);
-    setIsUnsavedDocument(pollData.isUnsavedDocument ?? false);
     setIsInWorkspace(pollData.isInWorkspace ?? false);
     setWorkspaceSessions(pollData.workspaceSessions ?? []);
     setActiveDocumentDisplayName(pollData.activeDocumentDisplayName ?? null);
@@ -238,7 +237,11 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       setActiveSession({ id: activeSession!.id, title: newTitle });
     }
 
-    if (isActiveSessionStaleForDoc(activeSession?.id ?? null, pollData.workspaceSessions ?? [])) {
+    // Clear the local-session ref once the session appears in the DB.
+    if (localSessionIdRef.current && (pollData.workspaceSessions ?? []).some(s => s.id === localSessionIdRef.current)) {
+      localSessionIdRef.current = null;
+    }
+    if (activeSession?.id !== localSessionIdRef.current && isActiveSessionStaleForDoc(activeSession?.id ?? null, pollData.workspaceSessions ?? [])) {
       setActiveSession(null);
       setShowingList(true);
     }
@@ -295,17 +298,17 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       setActiveSession({ id: fresh!.id, title: fresh!.title });
       setShowingList(false);
       alreadyAutoOpened.add(fresh!.id);
-      persistAutoOpened(docPath, alreadyAutoOpened);
+      persistAutoOpened(fileId, alreadyAutoOpened);
     } else if (fresh) {
       // Mark fresh sessions as "seen" even when we don't open them (because
       // the user already has an active session) — so when they later go
       // back to the list and a still-fresh session is sitting there,
       // returning to the list doesn't immediately yank them into it.
       alreadyAutoOpened.add(fresh.id);
-      persistAutoOpened(docPath, alreadyAutoOpened);
+      persistAutoOpened(fileId, alreadyAutoOpened);
     }
 
-    if (!pollData.shouldShowPopupV2 && !pollData.isEnableFeedback && !pollData.isInWorkspace) {
+    if (!pollData.shouldShowPopupV2 && !pollData.isInWorkspace) {
       console.log(`[AcademiaNotificationsPopupV2] Hiding popup. Active path: ${pollData.activeDocumentPath || 'none'}`);
       if (sizeAnimRef.current !== null) {
         cancelAnimationFrame(sizeAnimRef.current);
@@ -351,10 +354,6 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       // Cobuilding overlay: always use a fixed height regardless of content.
       // The list / conversation scrolls internally; the launcher stays visible below.
       height = 460;
-    } else if (isEnableFeedback && isUnsavedDocument) {
-      height = POPUP_HEIGHT_UNSAVED_DOCUMENT;
-    } else if (isEnableFeedback) {
-      height = POPUP_HEIGHT_ENABLE_FEEDBACK;
     } else {
       height = POPUP_HEIGHT_CONVERSATIONS_BASE;
       height += Math.min(conversations.length, 5) * POPUP_HEIGHT_PER_CONVERSATION;
@@ -376,7 +375,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
         });
       }
     }
-  }, [isEnableFeedback, isUnsavedDocument, conversations, isWide, isInWorkspace, workspaceSessions, activeSession]);
+  }, [conversations, isWide, isInWorkspace, workspaceSessions, activeSession]);
 
   // Handle clicking a conversation — navigate to it in the main window
   const handleContinueConversation = async (conversation: ConversationItem) => {
@@ -406,6 +405,11 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   };
 
   const [showingList, setShowingList] = useState(!activeSession);
+  // Tracks a locally-created session ID that hasn't been persisted to the
+  // DB yet. The stale check skips this ID so poll broadcasts (triggered by
+  // text selection, window repositioning, etc.) don't yank the user out of
+  // a brand-new chat before the first message is sent.
+  const localSessionIdRef = useRef<string | null>(null);
 
   const handleBackToSessions = () => {
     setShowingList(true);
@@ -414,6 +418,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const handleNewConversation = () => {
     const id = crypto.randomUUID();
     console.log('[AcademiaNotificationsPopupV2] New conversation:', id);
+    localSessionIdRef.current = id;
     setActiveSession({ id, title: 'New Conversation' });
     setShowingList(false);
   };
@@ -426,6 +431,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     if (shouldAutoOpenBlankChat(isInWorkspace, workspaceSessions.length, activeSession?.id ?? null)) {
       const id = crypto.randomUUID();
       console.log('[AcademiaNotificationsPopupV2] Empty workspace — auto-opening blank chat:', id);
+      localSessionIdRef.current = id;
       setActiveSession({ id, title: 'New Conversation' });
       setShowingList(false);
     }
@@ -445,8 +451,8 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const handleToggleDock = () => {
     const newDocked = !isDocked;
     setIsDocked(newDocked);
-    if (docPath) {
-      localStorage.setItem(DOCK_PREF_KEY + docPath, String(newDocked));
+    if (fileId) {
+      localStorage.setItem(DOCK_PREF_KEY + fileId, String(newDocked));
     }
     postBridge('setDockRight', { docked: newDocked });
   };
@@ -657,7 +663,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
                 documentDisplayName={activeDocumentDisplayName}
                 selectedText={pollData?.selectedText}
                 onBack={handleBackToSessions}
-                canGoBack={workspaceSessions.length > 0}
+                canGoBack={true}
                 initialPrompt={pendingKickoffPrompt ?? undefined}
                 onInitialPromptSent={() => setPendingKickoffPrompt(null)}
               />
@@ -672,8 +678,6 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
                 onOpenSession={handleOpenSession}
                 onNewConversation={handleNewConversation}
               />
-            : isEnableFeedback
-            ? <NotLinkedView isUnsavedDocument={isUnsavedDocument} />
             : <ConversationListView
                 conversations={conversations}
                 isLoading={isLoading}

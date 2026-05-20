@@ -60,10 +60,14 @@ export function applyFocusLossCarryForward(
   lastWindowId: string | null,
 ): { desiredState: DesiredWebviewState; windowId: string | null } {
   if (!hostAppFocused && lastWindowId) {
-    const hasOverlay = Object.keys(desiredState).length > 0;
-    if (!hasOverlay && Object.keys(lastDesiredState).length > 0) {
+    // Force-hide all entries when the host app is not the system-level
+    // focused app. Use current entries if available, fall back to last
+    // known entries so the webview-manager keeps (hidden) panels alive
+    // instead of destroying them.
+    const source = Object.keys(desiredState).length > 0 ? desiredState : lastDesiredState;
+    if (Object.keys(source).length > 0) {
       const carried: DesiredWebviewState = {};
-      for (const [key, entry] of Object.entries(lastDesiredState)) {
+      for (const [key, entry] of Object.entries(source)) {
         carried[key] = { ...entry, visible: false, background: true };
       }
       return { desiredState: carried, windowId: lastWindowId };
