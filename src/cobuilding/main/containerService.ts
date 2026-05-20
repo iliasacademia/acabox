@@ -144,7 +144,7 @@ class CobuildingContainerService {
   private containerStarted = false;
   private isStarting = false;
   private currentAgentDir: string | null = null;
-  private currentMountMap: Array<{ hostPath: string; containerPath: string }> = [];
+  private currentMountMap: Array<{ hostPath: string; containerPath: string; readOnly?: boolean }> = [];
   private logTailInterval: ReturnType<typeof setInterval> | null = null;
   private lastLogTime: string = new Date().toISOString();
   private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
@@ -189,7 +189,7 @@ class CobuildingContainerService {
   // ─── Public API ─────────────────────────────────────────────────
 
   async start(
-    mountMap: Array<{ hostPath: string; containerPath: string }>,
+    mountMap: Array<{ hostPath: string; containerPath: string; readOnly?: boolean }>,
     onProgress?: ProgressCallback,
   ): Promise<void> {
     const mountMapChanged = JSON.stringify(mountMap) !== JSON.stringify(this.currentMountMap);
@@ -959,7 +959,7 @@ class CobuildingContainerService {
     log.debug('[ContainerService] Kernel gateway stopped');
   }
 
-  writeStartContainerScript(mountMap: Array<{ hostPath: string; containerPath: string }>): void {
+  writeStartContainerScript(mountMap: Array<{ hostPath: string; containerPath: string; readOnly?: boolean }>): void {
     const agentDir = mountMap[0]?.hostPath;
     if (!agentDir) return;
     const academiaDir = path.join(agentDir, '.academia');
@@ -991,7 +991,10 @@ class CobuildingContainerService {
     }
 
     const volumeFlags = mountMap
-      .map(m => `  -v "${toMountPath(m.hostPath)}:${m.containerPath}" \\`)
+      .map(m => {
+        const suffix = m.readOnly ? ':ro' : '';
+        return `  -v "${toMountPath(m.hostPath)}:${m.containerPath}${suffix}" \\`;
+      })
       .join('\n');
 
     const script = [
@@ -1687,10 +1690,13 @@ class CobuildingContainerService {
     return this.hostGatewayIp;
   }
 
-  private async runContainer(podmanBin: string, mountMap: Array<{ hostPath: string; containerPath: string }>, imageName?: string): Promise<void> {
+  private async runContainer(podmanBin: string, mountMap: Array<{ hostPath: string; containerPath: string; readOnly?: boolean }>, imageName?: string): Promise<void> {
     const env = this.getExecEnv();
     const agentDir = mountMap[0]?.hostPath;
-    const volumeArgs = mountMap.flatMap(m => ['-v', `${toMountPath(m.hostPath)}:${m.containerPath}`]);
+    const volumeArgs = mountMap.flatMap(m => {
+      const suffix = m.readOnly ? ':ro' : '';
+      return ['-v', `${toMountPath(m.hostPath)}:${m.containerPath}${suffix}`];
+    });
 
     // Find free host ports for the agent server (8080) and Jupyter kernel
     // gateway (8888) — both are eagerly started inside the same container.
@@ -1731,7 +1737,9 @@ class CobuildingContainerService {
     // immediately.
     const overlayVolumeArgs = mountMap.map((m, i) => {
       const containerPath = i === 0 ? '/data-host' : m.containerPath;
-      return ['-v', `${toMountPath(m.hostPath)}:${containerPath}`];
+      // Never apply :ro to index 0 (the overlay lower-dir must be writable for the overlay setup)
+      const suffix = (i > 0 && m.readOnly) ? ':ro' : '';
+      return ['-v', `${toMountPath(m.hostPath)}:${containerPath}${suffix}`];
     }).flat();
 
     const args = useOverlay ? [
