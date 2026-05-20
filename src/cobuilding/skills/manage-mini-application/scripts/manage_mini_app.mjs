@@ -3,6 +3,7 @@
 import { parseArgs } from "util";
 import { join } from "path";
 import { mkdirSync, writeFileSync, readFileSync, existsSync, cpSync, readdirSync } from "fs";
+import { randomUUID } from "crypto";
 
 const { values } = parseArgs({
   options: {
@@ -195,7 +196,11 @@ writeFileSync(
 
 // Scaffold manifest.json. The Tools page reads this to render each app's title,
 // icon, and description, and orders apps by lastOpened (most recent first).
+// creation_pending=true is the signal the main process's tool:opened handler
+// uses to fire tool.created exactly once per genuinely new tool.
 const manifest = {
+  tool_id: randomUUID(),
+  creation_pending: true,
   name: values.name,
   description: values.description,
   icon: values.icon,

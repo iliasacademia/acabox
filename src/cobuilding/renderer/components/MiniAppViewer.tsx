@@ -6,6 +6,8 @@ import { useKernel } from './notebook/useKernel';
 import { NotebookViewer } from './notebook/NotebookViewer';
 import type { CellOutput } from './notebook/types';
 import { useSetupState } from '../setupStore';
+import { track as trackAnalytics } from '../coscientistAnalytics';
+import { captureError } from '../../shared/telemetry';
 
 interface RequestFixError {
   kind: string;
@@ -54,6 +56,26 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
   const [rebuildState, setRebuildState] = useState<RebuildState>({ kind: 'idle' });
   const appDir = `${workspacePath}/.applications/${dirName}`;
 
+  // Telemetry: register the open with main (which mints tool_id if missing,
+  // increments open_count, and fires tool.created / tool.opened events).
+  // Stash the resolved tool_id in a ref so subsequent build events can attach it.
+  const toolIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    window.toolAnalyticsAPI
+      .opened(dirName)
+      .then((info) => {
+        if (cancelled) return;
+        if (info?.tool_id) toolIdRef.current = info.tool_id;
+      })
+      .catch(() => {
+        // Analytics failures are non-blocking — silently ignore.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dirName]);
+
   // For pre-built apps, resolve the webpack-served URL
   const [nativeToolUrl, setNativeToolUrl] = useState<string | null>(null);
   useEffect(() => {
@@ -66,6 +88,14 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
 
   const handleRebuild = useCallback(async () => {
     setRebuildState({ kind: 'building' });
+    const buildStartMs = Date.now();
+    const toolIdForBuild = toolIdRef.current;
+    if (toolIdForBuild) {
+      trackAnalytics({
+        name: 'tool.build_started',
+        metadata: { tool_id: toolIdForBuild },
+      });
+    }
     try {
       const result = await window.containerAPI.exec([
         'esbuild',
@@ -79,21 +109,68 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
         '--alias:@reusable=/data/.applications/_reusable',
       ]);
       if (result.exitCode !== 0) {
-        setRebuildState({
-          kind: 'error',
-          message: result.stderr.trim() || result.stdout.trim() || `esbuild exited with code ${result.exitCode}`,
+        const errorMsg = result.stderr.trim() || result.stdout.trim() || `esbuild exited with code ${result.exitCode}`;
+        if (toolIdForBuild) {
+          trackAnalytics({
+            name: 'tool.build_failed',
+            metadata: {
+              tool_id: toolIdForBuild,
+              duration_ms: Date.now() - buildStartMs,
+              error_class: 'esbuild_exit_nonzero',
+              error_message: errorMsg.slice(0, 500),
+            },
+          });
+        }
+        captureError(new Error(`tool build failed: ${errorMsg}`), {
+          subsystem: 'tool_build',
+          extra: {
+            tool_id: toolIdForBuild,
+            dirName,
+            error_class: 'esbuild_exit_nonzero',
+            exit_code: result.exitCode,
+            duration_ms: Date.now() - buildStartMs,
+          },
         });
+        setRebuildState({ kind: 'error', message: errorMsg });
         return;
       }
       await window.containerAPI.syncOverlay().catch(() => {});
+      if (toolIdForBuild) {
+        trackAnalytics({
+          name: 'tool.build_completed',
+          metadata: {
+            tool_id: toolIdForBuild,
+            duration_ms: Date.now() - buildStartMs,
+          },
+        });
+      }
       setRebuildState({ kind: 'idle' });
       setRebuildKey((k) => k + 1);
       setViewingSource(false);
     } catch (err) {
-      setRebuildState({
-        kind: 'error',
-        message: err instanceof Error ? err.message : String(err),
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const errorClass = err instanceof Error ? err.constructor.name : 'unknown';
+      if (toolIdForBuild) {
+        trackAnalytics({
+          name: 'tool.build_failed',
+          metadata: {
+            tool_id: toolIdForBuild,
+            duration_ms: Date.now() - buildStartMs,
+            error_class: errorClass,
+            error_message: errorMessage.slice(0, 500),
+          },
+        });
+      }
+      captureError(err, {
+        subsystem: 'tool_build',
+        extra: {
+          tool_id: toolIdForBuild,
+          dirName,
+          error_class: errorClass,
+          duration_ms: Date.now() - buildStartMs,
+        },
       });
+      setRebuildState({ kind: 'error', message: errorMessage });
     }
   }, [dirName]);
 

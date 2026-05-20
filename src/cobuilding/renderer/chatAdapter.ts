@@ -7,6 +7,7 @@ import type {
 import { useAui } from '@assistant-ui/react';
 import type { ChatStreamMessage, ChatMessageStream, IPCAttachment } from '../shared/types';
 import { setToolProgress, clearToolProgress, resetProgress, setSubagentStarted, updateSubagentProgress, setSubagentDone, setProcessingLabel } from './progressStore';
+import { track as trackAnalytics, shiftPendingAttribution } from './coscientistAnalytics';
 
 export function toAsyncIterable(
   stream: ChatMessageStream,
@@ -70,12 +71,77 @@ function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefObject<(
       const messageId = crypto.randomUUID();
       console.log(`[ChatAdapter] send messageId=${messageId} threadId=${threadId} textLen=${userText.length}`);
 
+      // Telemetry: fire chat.thread_created when this send is the FIRST
+      // message of the thread (no prior history) — assistant-ui hydrates
+      // `messages` from persisted history before calling run(), so
+      // length === 1 with a single user message is the deterministic
+      // "brand-new thread, first send" signal across renderer reloads.
+      const attachments = extractAttachments(lastUserMessage);
+      const modelForTelemetry = model ?? 'unknown';
+      const isBrandNewThread =
+        messages.length === 1 && messages[0].role === 'user';
+      if (isBrandNewThread) {
+        trackAnalytics({
+          name: 'chat.thread_created',
+          metadata: { thread_id: threadId },
+        });
+        // Bind any pending suggestion-attribution (from a Build-it click that
+        // initiated this thread) to threadId. Main process indexes attributions
+        // by thread_id; tool:opened resolves the tool's creating thread via
+        // manifest.chatSessionId at first-open time.
+        const pendingAttr = shiftPendingAttribution();
+        if (pendingAttr) {
+          window.toolAnalyticsAPI
+            .setThreadAttribution(threadId, {
+              source: pendingAttr.source,
+              briefing_id: pendingAttr.briefing_id,
+            })
+            .catch(() => {});
+        }
+      }
+      trackAnalytics({
+        name: 'chat.message_sent',
+        metadata: {
+          thread_id: threadId,
+          message_length: userText.length,
+          attachment_count: attachments?.length ?? 0,
+          model: modelForTelemetry,
+        },
+      });
+
+      const turnStartMs = Date.now();
+      let responseTextLength = 0;
+      let toolCallCount = 0;
+
+      // Detect agent creating a new tool by watching for an invocation of
+      // .claude/skills/manage-mini-application/scripts/manage_mini_app.mjs.
+      // When seen, register the current turn's userText as the creation_prompt
+      // for this thread. Main keys prompts by thread_id; tool:opened looks them
+      // up via manifest.chatSessionId.
+      //
+      // Accumulate streamed argsText per toolCallId (Bash args arrive via
+      // tool-call-args-delta), and also handle the non-streamed `tool-call`
+      // shape. Fire at most once per turn.
+      const CREATION_TRIGGER = 'manage_mini_app.mjs';
+      const argsByToolCallId = new Map<string, string>();
+      let creationPromptFired = false;
+      const maybeFireCreationPrompt = (argsText: string) => {
+        if (creationPromptFired) return;
+        if (!argsText.includes(CREATION_TRIGGER)) return;
+        creationPromptFired = true;
+        window.toolAnalyticsAPI
+          .setThreadCreationPrompt(threadId, userText)
+          .catch(() => {
+            // Analytics IPC failure is non-blocking — swallow.
+          });
+      };
+
       // sendMessage returns the stream synchronously; failures from main are
       // surfaced via the chat:error channel that the stream iterator already
       // listens on. Awaiting across contextBridge would break the stream's
       // `next()` proxying — see preload's sendMessage comment.
       const { stream, release } = window.chatAPI.sendMessage(
-        threadId, userText, extractAttachments(lastUserMessage), model, pendingDocPath, messageId,
+        threadId, userText, attachments, model, pendingDocPath, messageId,
       );
       const responseStream = toAsyncIterable(stream);
 
@@ -92,12 +158,44 @@ function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefObject<(
           if (msg.type !== 'text-delta' && msg.type !== 'thinking-delta' && msg.type !== 'tool-call-args-delta' && msg.type !== 'heartbeat') {
             console.log(`[ChatAdapter] event #${eventCount} type=${msg.type} for ${threadId}`);
           }
+          // Telemetry counters — sum across streamed and non-streamed shapes.
+          if (msg.type === 'text-delta') {
+            responseTextLength += msg.text.length;
+          } else if (msg.type === 'text') {
+            responseTextLength += msg.text.length;
+          } else if (msg.type === 'tool-call-start' || msg.type === 'tool-call') {
+            toolCallCount += 1;
+          }
+
+          // Creation-prompt detection: watch tool-call args as they stream.
+          if (msg.type === 'tool-call-start') {
+            argsByToolCallId.set(msg.toolCallId, '');
+          } else if (msg.type === 'tool-call-args-delta') {
+            const prev = argsByToolCallId.get(msg.toolCallId) ?? '';
+            const next = prev + msg.argsText;
+            argsByToolCallId.set(msg.toolCallId, next);
+            maybeFireCreationPrompt(next);
+          } else if (msg.type === 'tool-call') {
+            // Non-streamed shape: full argsText present at once.
+            const fullArgs = msg.argsText ?? JSON.stringify(msg.args ?? {});
+            maybeFireCreationPrompt(fullArgs);
+          }
           if (abortSignal.aborted) {
             console.log(`[ChatAdapter] Stream loop aborted for ${threadId} after ${eventCount} events`);
             break;
           }
           if (msg.type === 'turn-complete') {
             console.log(`[ChatAdapter] Turn complete for ${threadId} after ${eventCount} events`);
+            trackAnalytics({
+              name: 'chat.message_received',
+              metadata: {
+                thread_id: threadId,
+                response_length: responseTextLength,
+                model: modelForTelemetry,
+                turn_duration_ms: Date.now() - turnStartMs,
+                tool_call_count: toolCallCount,
+              },
+            });
             break;
           }
           response.onMessage(msg);

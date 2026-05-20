@@ -187,13 +187,19 @@ export function findSessionForApp(workspaceId: string, dirName: string): string 
   // The marker text is stored inside JSON.stringify output, so quotes around
   // the dirName are escaped as \" in the stored content. Match accordingly.
   const marker = `connected to the application \\"${dirName}\\"`;
+  // Matching `manage_mini_app.mjs` in addition to `open_mini_application` lets
+  // us recover the creating thread for a tool whose agent hasn't yet called
+  // open_mini_application — needed for tool.created attribution at the
+  // first-open moment, before the agent has gotten around to opening it.
   const row = db.prepare(`
     SELECT m.session_id, m.id as message_id
     FROM messages m
     JOIN sessions s ON s.id = m.session_id
     WHERE s.workspace_id = ?
       AND (
-        (m.type = 'assistant' AND m.content LIKE '%open_mini_application%' AND m.content LIKE ?)
+        (m.type = 'assistant'
+          AND (m.content LIKE '%open_mini_application%' OR m.content LIKE '%manage_mini_app.mjs%')
+          AND m.content LIKE ?)
         OR (m.type = 'user' AND m.content LIKE ?)
       )
     ORDER BY m.id DESC

@@ -17,9 +17,15 @@ import { setCaptureImpl } from '../shared/telemetry';
  * in the right directory. Native crash reporting is set up automatically by
  * @sentry/electron — no separate `crashReporter.start()` is required.
  *
+ * The user-identity on Sentry's scope is `installationId` (the per-device
+ * UUID from `getDeviceId()`). Without this, Sentry shows "Users: 0" on every
+ * issue because it has no identity to count against. @sentry/electron
+ * propagates scope from main to renderer via IPC, so setting once here
+ * covers both processes.
+ *
  * No-op if `SENTRY_DSN` is empty.
  */
-export function initSentryMain(): void {
+export function initSentryMain(installationId: string): void {
   if (!process.env.SENTRY_DSN) return;
 
   Sentry.init({
@@ -38,6 +44,8 @@ export function initSentryMain(): void {
           i.name !== 'OnUnhandledRejection'
       ),
   });
+
+  Sentry.setUser({ id: installationId });
 
   setCaptureImpl((error, options) => {
     Sentry.captureException(error, {
