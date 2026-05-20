@@ -133,8 +133,12 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, ha
     let fileCount = visible.filter((e) => !e.isDirectory).length;
     const dirCounts = await Promise.all(
       visible.filter((e) => e.isDirectory).map(async (e) => {
-        const children = await window.filesAPI.readDirectory(e.path);
-        return countFilesFromEntries(children);
+        try {
+          const children = await window.filesAPI.readDirectory(e.path);
+          return countFilesFromEntries(children);
+        } catch {
+          return 0;
+        }
       }),
     );
     for (const c of dirCounts) fileCount += c;
@@ -142,9 +146,14 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, ha
   }, []);
 
   const loadRoot = useCallback(async () => {
-    const userDirNames = new Set((userDirectories ?? []).map(ud => ud.directory_path.split('/').pop()));
-    const entries = (await window.filesAPI.readDirectory(workspacePath))
-      .filter((e) => !isHiddenWorkspaceEntry(e.name) && !userDirNames.has(e.name) && e.name !== 'google-drive');
+    let entries: { name: string; path: string; isDirectory: boolean }[];
+    try {
+      const userDirNames = new Set((userDirectories ?? []).map(ud => ud.directory_path.split('/').pop()));
+      entries = (await window.filesAPI.readDirectory(workspacePath))
+        .filter((e) => !isHiddenWorkspaceEntry(e.name) && !userDirNames.has(e.name) && e.name !== 'google-drive');
+    } catch {
+      return;
+    }
     const nodes = entries.map((e) => ({
       name: e.name,
       path: e.path,
@@ -159,9 +168,13 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, ha
       Promise.all([
         countFilesFromEntries(entries),
         ...dirs.map(async (ud) => {
-          const udEntries = (await window.filesAPI.readDirectory(ud.directory_path))
-            .filter((e) => !isHiddenWorkspaceEntry(e.name));
-          return countFilesFromEntries(udEntries);
+          try {
+            const udEntries = (await window.filesAPI.readDirectory(ud.directory_path))
+              .filter((e) => !isHiddenWorkspaceEntry(e.name));
+            return countFilesFromEntries(udEntries);
+          } catch {
+            return 0;
+          }
         }),
       ]).then((counts) => onFileCount(counts.reduce((a, b) => a + b, 0)));
     }
@@ -183,14 +196,18 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, ha
         children: e.isDirectory ? [] : undefined,
       }));
     }
-    const entries = (await window.filesAPI.readDirectory(node.path))
-      .filter((e) => !isHiddenWorkspaceEntry(e.name));
-    return entries.map((e) => ({
-      name: e.name,
-      path: e.path,
-      isDirectory: e.isDirectory,
-      children: e.isDirectory ? [] : undefined,
-    }));
+    try {
+      const entries = (await window.filesAPI.readDirectory(node.path))
+        .filter((e) => !isHiddenWorkspaceEntry(e.name));
+      return entries.map((e) => ({
+        name: e.name,
+        path: e.path,
+        isDirectory: e.isDirectory,
+        children: e.isDirectory ? [] : undefined,
+      }));
+    } catch {
+      return [];
+    }
   }, []);
 
   const refreshTree = useCallback(async () => {
