@@ -93,16 +93,16 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   // Width toggle state
   const [isWide, setIsWide] = useState(false);
 
-  // Dock-to-right state — persisted per document path in localStorage (defaults to docked)
+  // Dock-to-right state — persisted per file ID in localStorage (defaults to docked)
   const DOCK_PREF_KEY = 'academia_popup_docked:';
   const [isDocked, setIsDocked] = useState(true);
   const isDockedRef = useRef(true);
   const narrowWidthRef = useRef<number>(window.innerWidth);
   const WIDE_WIDTH = 700;
   const sizeAnimRef = useRef<number | null>(null);
-  const prevDocPathRef = useRef<string | null>(null);
+  const prevFileIdRef = useRef<string | null>(null);
   const prevIsDockedActiveRef = useRef<boolean | undefined>(undefined);
-  // Session IDs we've already auto-opened for the current docPath. Stops us
+  // Session IDs we've already auto-opened for the current file. Stops us
   // re-yanking the user back into a session if they explicitly went back to
   // the list view while the session is still inside our freshness window.
   // Persisted in localStorage so that hide/show cycles of the overlay
@@ -173,39 +173,40 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const pollData = useWordPollWebSocket(widParam, tokenParam, serverUrl);
   const effectiveWid = getV4FocusedWid();
   const docPath = pollData?.activeDocumentPath ?? null;
+  const fileId = pollData?.activeDocumentFileId ?? null;
 
-  // When the active document changes from one doc to a DIFFERENT doc, close
-  // any open conversation and return to the session list. The previous chat
-  // is scoped to its original document and shouldn't keep accepting messages
-  // in the context of a different file.
+  // When the active document changes (by stable file ID), close any open
+  // conversation and return to the session list. The previous chat is scoped
+  // to its original document and shouldn't keep accepting messages in the
+  // context of a different file.
   //
-  // Critical: do NOT clear when docPath transitions to null. That happens on
+  // Critical: do NOT clear when fileId transitions to null. That happens on
   // every Cmd+Tab away from Word (focus moves to a non-doc app, polling
-  // reports activeDocumentPath=null) and clearing here causes the overlay
-  // to lose its active session every time the user briefly switches apps.
+  // reports null) and clearing here causes the overlay to lose its active
+  // session every time the user briefly switches apps.
   useEffect(() => {
-    if (shouldClearActiveOnDocChange(prevDocPathRef.current, docPath)) {
+    if (shouldClearActiveOnDocChange(prevFileIdRef.current, fileId)) {
       localSessionIdRef.current = null;
       setActiveSession(null);
       setShowingList(true);
     }
-  }, [docPath]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fileId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Restore per-document dock preference whenever the active document changes.
+  // Restore per-document dock preference whenever the active file changes.
   // Defaults to docked when no preference has been stored yet.
   useEffect(() => {
-    if (!docPath) return;
-    const stored = localStorage.getItem(DOCK_PREF_KEY + docPath);
+    if (!fileId) return;
+    const stored = localStorage.getItem(DOCK_PREF_KEY + fileId);
     const pref = stored === null ? true : stored === 'true';
     setIsDocked(pref);
     postBridge('setDockRight', { docked: pref });
-    prevDocPathRef.current = docPath;
-    // Hydrate auto-open tracking for the new doc from localStorage. Fresh
-    // sessions for a different doc shouldn't be considered already-handled,
-    // but sessions we already auto-opened for THIS doc on a prior render
+    prevFileIdRef.current = fileId;
+    // Hydrate auto-open tracking for the new file from localStorage. Fresh
+    // sessions for a different file shouldn't be considered already-handled,
+    // but sessions we already auto-opened for THIS file on a prior render
     // (e.g. before a popup hide/show cycle) must stay deduped.
-    autoOpenedSessionIdsRef.current = loadAutoOpenedFromStorage(docPath);
-  }, [docPath]); // eslint-disable-line react-hooks/exhaustive-deps
+    autoOpenedSessionIdsRef.current = loadAutoOpenedFromStorage(fileId);
+  }, [fileId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // When Word is maximized the overlay falls back to floating (isDockedActive = false).
   // If the user still wants docked mode, re-send the dock command to resize Word.
@@ -297,14 +298,14 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       setActiveSession({ id: fresh!.id, title: fresh!.title });
       setShowingList(false);
       alreadyAutoOpened.add(fresh!.id);
-      persistAutoOpened(docPath, alreadyAutoOpened);
+      persistAutoOpened(fileId, alreadyAutoOpened);
     } else if (fresh) {
       // Mark fresh sessions as "seen" even when we don't open them (because
       // the user already has an active session) — so when they later go
       // back to the list and a still-fresh session is sitting there,
       // returning to the list doesn't immediately yank them into it.
       alreadyAutoOpened.add(fresh.id);
-      persistAutoOpened(docPath, alreadyAutoOpened);
+      persistAutoOpened(fileId, alreadyAutoOpened);
     }
 
     if (!pollData.shouldShowPopupV2 && !pollData.isInWorkspace) {
@@ -450,8 +451,8 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const handleToggleDock = () => {
     const newDocked = !isDocked;
     setIsDocked(newDocked);
-    if (docPath) {
-      localStorage.setItem(DOCK_PREF_KEY + docPath, String(newDocked));
+    if (fileId) {
+      localStorage.setItem(DOCK_PREF_KEY + fileId, String(newDocked));
     }
     postBridge('setDockRight', { docked: newDocked });
   };

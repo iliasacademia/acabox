@@ -864,10 +864,14 @@ export class WindowMonitorService {
 
     if (visibilityChanged) {
       const visibleKeys = V4_VISIBILITY_KEYS.filter(k => desiredState[k]?.visible);
+      const hostAppId = windowId ? this.getHostAppIdForWindow(windowId) : null;
+      const docPath = windowId ? this.getDocumentPathForWindow(windowId) : null;
+      const { resolveFileId } = require('./server/services/resolveFileId');
+      const fId = resolveFileId(docPath);
       if (visibleKeys.length > 0) {
-        logger.info(`[WindowMonitorService] Overlay showing: ${visibleKeys.join(', ')} (wid=${windowId})`);
+        logger.info(`[WindowMonitorService] Overlay showing: ${visibleKeys.join(', ')} (wid=${windowId} host=${hostAppId} docPath=${docPath} fileId=${fId})`);
       } else {
-        logger.info(`[WindowMonitorService] Overlay hidden (wid=${windowId})`);
+        logger.info(`[WindowMonitorService] Overlay hidden (wid=${windowId} host=${hostAppId} docPath=${docPath} fileId=${fId})`);
       }
     }
 
@@ -1048,20 +1052,22 @@ export class WindowMonitorService {
 
   getDocumentPathForWindow(windowId: string): string | null {
     const isFocusedWindow = this.getFocusedWindowId() === windowId;
+    // Also trigger refreshes when the overlay is on top of the host app and
+    // the host lost focus. The WebSocket poll falls back to the last-focused
+    // window, so we should still refresh for it.
+    const isLastFocusedWindow = this.lastV4FocusedWindowId === windowId;
+    const shouldRefresh = isFocusedWindow || isLastFocusedWindow;
     for (const app of this.state.apps) {
       for (const window of app.windows) {
         if (window.id === windowId) {
           const host = findHostAppByBundleId(app.identifier);
           if (host) {
             if (host.id === 'apple-notes') {
-              if (isFocusedWindow) void this.refreshAppleNotesPath();
+              if (shouldRefresh) void this.refreshAppleNotesPath();
               return this.lastAppleNotesPath;
             }
             if (host.id === 'google-docs') {
-              // Only poll the browser extension when Chrome is actually
-              // focused — prevents focus-stealing when the user switches
-              // to another app while a Google Docs tab is open.
-              if (isFocusedWindow) void this.refreshGoogleDocsPath();
+              if (shouldRefresh) void this.refreshGoogleDocsPath();
               return this.lastGoogleDocsPath;
             }
             const resolved = host.resolveDocumentPath(window, this.workspaceDirectories);
@@ -1140,6 +1146,11 @@ export class WindowMonitorService {
     } finally {
       this.googleDocsRefreshInflight = false;
     }
+  }
+
+  /** True when an async extension query is in progress and the cached path may be stale. */
+  isGoogleDocsRefreshInflight(): boolean {
+    return this.googleDocsRefreshInflight;
   }
 
   /** Latest cached display title for the active Google Doc, or null when unknown. */
@@ -1263,28 +1274,12 @@ export class WindowMonitorService {
    * back to the floating overlay position.
    */
   isDockedActive(windowId: string): boolean {
-    if (!this.dockedRightWindows.has(windowId)) return false;
-    // Find the window bounds by ID (the window may not be focused)
-    let windowBounds: WindowBounds | null = null;
-    for (const app of this.state.apps) {
-      for (const window of app.windows) {
-        if (window.id === windowId) {
-          windowBounds = window.bounds;
-          break;
-        }
-      }
-      if (windowBounds) break;
-    }
-    if (!windowBounds) return false;
-    const { width: screenWidth } = screen.getPrimaryDisplay().bounds;
-    const remainingWidth = screenWidth - (windowBounds.x + windowBounds.width);
-    return remainingWidth >= MIN_DOCKED_WIDTH;
+    return this.dockedRightWindows.has(windowId);
   }
 
   setDockRight(windowId: string, docked: boolean): void {
     if (docked) {
       this.dockedRightWindows.add(windowId);
-      this.popupToggledOpen.add(windowId);
       this.lastV4FocusedWindowId = windowId;
       logger.info(`[WindowMonitor] setDockRight: docked wid=${windowId}`);
 

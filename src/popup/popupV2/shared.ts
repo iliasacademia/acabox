@@ -81,6 +81,8 @@ export interface WordPollResponse {
   isActive: boolean;
   recentReviewNotifications?: NotificationData[];
   activeDocumentPath?: string | null;
+  /** Stable file identifier — inode for local files, extracted ID for synthetic schemes. Resilient to file rename/move. */
+  activeDocumentFileId?: string | null;
   /**
    * Server-supplied human-readable name for the active document. For
    * synthetic-scheme hosts (`gdocs://<id>`, `applenotes://<id>`) the path is

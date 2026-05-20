@@ -158,6 +158,24 @@ describe('shouldClearActiveOnDocChange', () => {
   it('does NOT clear when the path is unchanged', () => {
     expect(shouldClearActiveOnDocChange('/a.docx', '/a.docx')).toBe(false);
   });
+
+  // File-ID-based scenarios (inode strings, Google Doc IDs)
+
+  it('does NOT clear when inode is the same (file was renamed/moved)', () => {
+    expect(shouldClearActiveOnDocChange('97045348', '97045348')).toBe(false);
+  });
+
+  it('clears on inode change (different file)', () => {
+    expect(shouldClearActiveOnDocChange('97045348', '12345678')).toBe(true);
+  });
+
+  it('clears on Google Doc ID change', () => {
+    expect(shouldClearActiveOnDocChange('1Eh17RmtEp', 'xYz456_abc')).toBe(true);
+  });
+
+  it('does NOT clear when Google Doc ID is the same', () => {
+    expect(shouldClearActiveOnDocChange('1Eh17RmtEp', '1Eh17RmtEp')).toBe(false);
+  });
 });
 
 describe('isActiveSessionStaleForDoc', () => {

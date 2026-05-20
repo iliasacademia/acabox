@@ -48,11 +48,6 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   const [obsidianIntegrationEnabled, setObsidianIntegrationEnabled] = useState<boolean | null>(null);
   const [appleNotesIntegrationEnabled, setAppleNotesIntegrationEnabled] = useState<boolean | null>(null);
   const [googleDocsIntegrationEnabled, setGoogleDocsIntegrationEnabled] = useState<boolean | null>(null);
-  // Google Docs OAuth (Phase C2) — separate from the host-app integration toggle.
-  const [googleDocsApiConnected, setGoogleDocsApiConnected] = useState<boolean | null>(null);
-  const [googleDocsApiHasCreds, setGoogleDocsApiHasCreds] = useState<boolean>(false);
-  const [googleDocsApiBusy, setGoogleDocsApiBusy] = useState<boolean>(false);
-  const [googleDocsApiError, setGoogleDocsApiError] = useState<string | null>(null);
   const [drivePickerOpen, setDrivePickerOpen] = useState(false);
   const [driveFolders, setDriveFolders] = useState<Array<{ id: string; name: string; mimeType: string; path: string }>>([]);
   const [integrationToggling, setIntegrationToggling] = useState<IntegrationId | null>(null);
@@ -84,47 +79,10 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
     window.electronAPI.invoke('integration:get-enabled', 'obsidian').then((v: boolean) => setObsidianIntegrationEnabled(!!v)).catch(() => setObsidianIntegrationEnabled(false));
     window.electronAPI.invoke('integration:get-enabled', 'apple-notes').then((v: boolean) => setAppleNotesIntegrationEnabled(!!v)).catch(() => setAppleNotesIntegrationEnabled(false));
     window.electronAPI.invoke('integration:get-enabled', 'google-docs').then((v: boolean) => setGoogleDocsIntegrationEnabled(!!v)).catch(() => setGoogleDocsIntegrationEnabled(false));
-    refreshGoogleDocsApiStatus();
     (window as any).googleDriveAPI?.getSelection?.().then((r: any) => {
       if (r?.success && r.data?.selectedItems) setDriveFolders(r.data.selectedItems);
     }).catch(() => {});
   }, []);
-
-  const refreshGoogleDocsApiStatus = () => {
-    const api = (window as any).googleDocsAPI;
-    if (!api?.status) { setGoogleDocsApiConnected(false); setGoogleDocsApiHasCreds(false); return; }
-    api.status().then((r: { connected: boolean; hasCredentials: boolean }) => {
-      setGoogleDocsApiConnected(!!r?.connected);
-      setGoogleDocsApiHasCreds(!!r?.hasCredentials);
-    }).catch(() => { setGoogleDocsApiConnected(false); });
-  };
-
-  const handleConnectGoogleDocs = async () => {
-    setGoogleDocsApiBusy(true);
-    setGoogleDocsApiError(null);
-    try {
-      const result: any = await (window as any).googleDocsAPI.connect();
-      if (result?.success === false) {
-        setGoogleDocsApiError(result.error ?? 'Could not connect to Google Docs.');
-      }
-    } catch (err: any) {
-      setGoogleDocsApiError(err?.message ?? 'Could not connect to Google Docs.');
-    } finally {
-      setGoogleDocsApiBusy(false);
-      refreshGoogleDocsApiStatus();
-    }
-  };
-
-  const handleDisconnectGoogleDocs = async () => {
-    setGoogleDocsApiBusy(true);
-    try {
-      await (window as any).googleDocsAPI.disconnect();
-    } finally {
-      setGoogleDocsApiBusy(false);
-      setGoogleDocsApiError(null);
-      refreshGoogleDocsApiStatus();
-    }
-  };
 
   // --- System Prompt card save/cancel ---
   const soulDirty = soulContent !== savedSoulContent;
@@ -556,32 +514,6 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
                       : 'Enable and Restart'}
               </button>
             </div>
-
-            {googleDocsIntegrationEnabled && (
-              <div className="wsSettings__dirRow" style={{ marginBottom: 8, marginLeft: 16, paddingLeft: 12, borderLeft: '2px solid rgb(232, 226, 214)' }}>
-                <div style={{ flex: 1 }}>
-                  <div className="wsSettings__integrationName" style={{ fontSize: 13 }}>Connect Google account (full doc reads + apply edits)</div>
-                  <div className="wsSettings__integrationDesc">
-                    {googleDocsApiConnected
-                      ? 'Connected. Academia can read multi-tab Google Docs (including download-restricted ones) via the official Docs API, and Apply on suggestion cards now writes the edit directly. Scope: google-docs only — no Drive, Sheets, Gmail, or Calendar access.'
-                      : googleDocsApiHasCreds
-                        ? 'Sign in with Google to grant access to your Docs only. The requested scope is google-docs only — no Drive, Sheets, Gmail, or Calendar access.'
-                        : 'Google Docs API isn\'t configured in this build. Production builds bake the OAuth client at compile time; for dev, set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your shell before launching the app.'}
-                  </div>
-                  {googleDocsApiError && (
-                    <div style={{ fontSize: 12, color: '#7a1f29', marginTop: 4 }}>{googleDocsApiError}</div>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  className={`gsStep__btn ${googleDocsApiConnected ? 'gsStep__btn--secondary' : 'gsStep__btn--primary'}`}
-                  disabled={googleDocsApiBusy || googleDocsApiConnected === null || (!googleDocsApiHasCreds && !googleDocsApiConnected)}
-                  onClick={googleDocsApiConnected ? handleDisconnectGoogleDocs : handleConnectGoogleDocs}
-                >
-                  {googleDocsApiBusy ? 'Working...' : googleDocsApiConnected ? 'Disconnect' : 'Connect Google'}
-                </button>
-              </div>
-            )}
 
             {integrationPermissionPrompt && (
               <div style={{ marginTop: 8, padding: 10, background: 'rgba(204, 41, 54, 0.08)', borderRadius: 2, fontSize: 12, color: '#7a1f29' }}>

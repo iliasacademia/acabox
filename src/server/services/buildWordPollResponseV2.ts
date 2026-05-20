@@ -9,6 +9,7 @@
 import { windowMonitorService } from '../../windowMonitorService';
 import { getRegisteredHostApps } from '../../cobuilding/main/hostApps';
 import { OverlayPollResponse } from '../types';
+import { resolveFileId } from './resolveFileId';
 
 /**
  * Build a WordPollResponse for the given window ID.
@@ -26,8 +27,9 @@ export function buildWordPollResponseV2(
   const shouldShowButtonV2 = windowMonitorService.getDesiredWebviewVisibility('button-v2', wid);
   const shouldShowPopupV2 = windowMonitorService.getDesiredWebviewVisibility('popup-v2', wid);
 
-  // 1. Resolve documentPath from window monitor state
+  // 1. Resolve documentPath and stable file identifier from window monitor state
   const documentPath = windowMonitorService.getDocumentPathForWindow(wid);
+  const fileId = resolveFileId(documentPath);
 
   const isDockedActive = windowMonitorService.isDockedActive(wid);
   // Cobuilding mode is active when a workspace has been selected. The check
@@ -45,11 +47,13 @@ export function buildWordPollResponseV2(
     // listing every chat tied to that host so the user can pick from previous
     // conversations even before the active document resolves.
     const hostAppId = windowMonitorService.getHostAppIdForWindow(wid);
-    // Google Docs is doc-rooted — we explicitly do NOT show the overlay over a
-    // Chrome window that isn't on a Google Doc tab. The host has no
-    // `sessionDocumentPathLikePattern` for that reason; without an active
-    // gdocs:// path resolved by the extension, hide the overlay entirely so
-    // the user doesn't see Academia floating over Twitter / Reddit / Github.
+    // Google Docs is doc-rooted — only show the overlay when the browser
+    // extension has confirmed a Google Doc is the active tab (gdocs:// path
+    // resolved). The extension query is async (~1.5s), so on the first poll
+    // after Chrome focuses the path is still null. The button stays hidden
+    // during that window; once the path resolves a change-event fires, a new
+    // poll broadcasts, and the button appears. The 30s keepalive ping on the
+    // extension WebSocket prevents Chrome from killing the connection.
     if (hostAppId === 'google-docs') {
       return {
         notificationCount: 0,
@@ -57,6 +61,7 @@ export function buildWordPollResponseV2(
         recentReviewNotifications: [],
         isReviewingSelectedText: false,
         activeDocumentPath: documentPath,
+        activeDocumentFileId: fileId,
         shouldShowButtonV2: false,
         shouldShowPopupV2: false,
         shouldShowReviewButton: false,
@@ -78,6 +83,7 @@ export function buildWordPollResponseV2(
         recentReviewNotifications: [],
         isReviewingSelectedText: false,
         activeDocumentPath: documentPath,
+        activeDocumentFileId: fileId,
         shouldShowButtonV2,
         shouldShowPopupV2,
         shouldShowReviewButton: false,
@@ -103,12 +109,11 @@ export function buildWordPollResponseV2(
   // Synthetic-scheme document paths (e.g. `applenotes://<id>`, `gdocs://<id>`)
   // come from hosts whose documents don't live in the workspace folder (Apple
   // Notes is in the OS database, Google Docs is in the cloud). Treat them like
-  // an in-workspace doc for overlay purposes: show the overlay, scope sessions
-  // to the synthetic id, surface the host-supplied display title and any
-  // selection text the host has captured (canvas-interception for Docs, AX for
-  // Apple Notes when applicable).
+  // an in-workspace doc for overlay purposes regardless of whether local
+  // workspace directories are configured — the document identity was already
+  // resolved by the host integration (browser extension, AppleScript, etc.).
   const isSyntheticDocPath = /^[a-z][a-z0-9+.-]*:\/\//i.test(documentPath) && !documentPath.startsWith('file://');
-  if (isCobuildingMode && isSyntheticDocPath) {
+  if (isSyntheticDocPath) {
     const sessions = windowMonitorService.getWorkspaceSessions(documentPath);
     let displayName: string | null = null;
     let selectedTextOut: string | undefined;
@@ -125,6 +130,7 @@ export function buildWordPollResponseV2(
       recentReviewNotifications: [],
       isReviewingSelectedText: false,
       activeDocumentPath: documentPath,
+      activeDocumentFileId: fileId,
       activeDocumentDisplayName: displayName,
       shouldShowButtonV2,
       shouldShowPopupV2,
@@ -155,6 +161,7 @@ export function buildWordPollResponseV2(
         recentReviewNotifications: [],
         isReviewingSelectedText: false,
         activeDocumentPath: documentPath,
+        activeDocumentFileId: fileId,
         shouldShowButtonV2,
         shouldShowPopupV2,
         shouldShowReviewButton: false,
