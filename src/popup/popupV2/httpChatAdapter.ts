@@ -115,14 +115,17 @@ async function* parseSSEStream(
       buffer = parts.pop() || '';
 
       for (const part of parts) {
-        const match = part.match(/^event: (\w+)\ndata: (.+)$/s);
-        if (!match) continue;
-        const [, eventType, dataStr] = match;
+        const eventMatch = part.match(/^event: (\w+)/);
+        if (!eventMatch) continue;
+        const eventType = eventMatch[1];
+
+        if (eventType === 'done' || eventType === 'error') return;
+
+        const dataMatch = part.match(/\ndata: (.+)$/s);
+        if (!dataMatch) continue;
         try {
-          const data = JSON.parse(dataStr);
+          const data = JSON.parse(dataMatch[1]);
           if (eventType === 'event') yield data as ChatStreamMessage;
-          else if (eventType === 'done') return;
-          else if (eventType === 'error') return;
         } catch { /* skip malformed */ }
       }
     }
@@ -284,6 +287,7 @@ function createHttpChatAdapter(opts: HttpChatAdapterOptions): ChatModelAdapter {
 
       for await (const msg of parseSSEStream(res, abortSignal)) {
         if (abortSignal.aborted) break;
+        if (msg.type === 'turn-complete') break;
         response.onMessage(msg);
         yield { content: response.getContent() };
       }
