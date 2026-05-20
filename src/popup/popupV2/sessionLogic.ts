@@ -86,19 +86,17 @@ export function shouldClearActiveOnDocChange(
  *
  * Returns true ONLY when we're confident the active session doesn't
  * belong to the focused doc — callers should NOT clear when:
+ *   - workspaceSessions is empty (could be a brand-new doc, or pollData
+ *     hasn't fully populated yet)
  *   - activeSession is null (nothing to clear)
  *   - workspaceSessions includes the active id (legitimately belongs)
- *
- * An empty `workspaceSessions` list is authoritative: the server checked
- * the DB and found no sessions for this document. The caller already
- * excludes locally-created sessions (via `localSessionIdRef`), so a
- * non-local active session absent from an empty list is genuinely stale.
  */
 export function isActiveSessionStaleForDoc(
   activeSessionId: string | null,
   workspaceSessions: ReadonlyArray<WorkspaceSession>,
 ): boolean {
   if (activeSessionId === null) return false;
+  if (workspaceSessions.length === 0) return false;
   return !workspaceSessions.some((s) => s.id === activeSessionId);
 }
 
