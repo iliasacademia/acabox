@@ -171,7 +171,7 @@ export function createGoogleDriveHandlers(deps: GoogleDriveMcpDeps) {
           fileId: args.file_id,
           workspaceId: wsId,
           name: result.data.name,
-          mimeType: (await getFileMetadata(args.file_id)).data?.mimeType ?? '',
+          mimeType: result.data.mimeType,
           modifiedTime: result.data.modifiedTime,
           md5Checksum: result.data.md5Checksum,
           downloadedAt: result.data.cached ? getCacheEntry(args.file_id)?.downloaded_at : new Date().toISOString(),

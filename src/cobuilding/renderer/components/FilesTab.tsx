@@ -11,7 +11,6 @@ import {
   RefreshCwIcon,
   TrashIcon,
   FileTextIcon,
-  ExternalLinkIcon,
 } from 'lucide-react';
 import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
 
@@ -36,8 +35,6 @@ interface TreeNode {
   isDirectory: boolean;
   children?: TreeNode[];
   loaded?: boolean;
-  driveFileId?: string;
-  driveMimeType?: string;
 }
 
 interface ContextMenuState {
@@ -185,17 +182,6 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, ha
   }, [loadRoot]);
 
   const loadChildren = useCallback(async (node: TreeNode): Promise<TreeNode[]> => {
-    if (node.driveFileId) {
-      const entries = await (window as any).googleDriveAPI.listChildren(node.driveFileId);
-      return entries.map((e: any) => ({
-        name: e.name,
-        path: `gdrive://${e.fileId}`,
-        isDirectory: e.isDirectory,
-        driveFileId: e.fileId,
-        driveMimeType: e.mimeType,
-        children: e.isDirectory ? [] : undefined,
-      }));
-    }
     try {
       const entries = (await window.filesAPI.readDirectory(node.path))
         .filter((e) => !isHiddenWorkspaceEntry(e.name));
@@ -737,8 +723,6 @@ interface FileTreeNodeProps {
   creatingIn: { dirPath: string; type: 'file' | 'folder' } | null;
   onCreateCommit: (name: string) => void;
   onCreateCancel: () => void;
-  onRefreshDrive?: () => Promise<void>;
-  driveRefreshing?: boolean;
 }
 
 const FileTreeNode: FC<FileTreeNodeProps> = ({
@@ -762,8 +746,6 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
   creatingIn,
   onCreateCommit,
   onCreateCancel,
-  onRefreshDrive,
-  driveRefreshing,
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<TreeNode[]>(node.children ?? []);
@@ -774,11 +756,7 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
     ? node.path.slice(workspacePath.length + 1)
     : null;
   const fileTag = !node.isDirectory && relPath ? fileTagMap.get(relPath) : undefined;
-  const isDriveNode = !!node.driveFileId;
-  const isDocx = !isDriveNode && /\.docx$/i.test(node.name) && !node.isDirectory;
-  if (!isDriveNode && !node.isDirectory && fileTagMap.size > 0 && depth === 1) {
-    console.log('[FilesTab] node relPath:', relPath, '→ tag:', fileTag, '| map keys sample:', [...fileTagMap.keys()].slice(0, 3));
-  }
+  const isDocx = /\.docx$/i.test(node.name) && !node.isDirectory;
 
   // Expand (and load) so "New file/folder" is visible when the row toolbar or context menu targets this dir or a descendant.
   useEffect(() => {
@@ -799,7 +777,7 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
   // Re-fetch children when refreshKey changes (after copy/move operations) — skip Drive nodes
   // since their children come from the Drive API tree, not the local cache.
   useEffect(() => {
-    if (loaded && expanded && node.isDirectory && !node.driveFileId) {
+    if (loaded && expanded && node.isDirectory) {
       loadChildren(node).then(setChildren);
     }
   }, [refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -814,8 +792,6 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
         setChildren(kids);
         setLoaded(true);
       }
-    } else if (isDriveNode) {
-      (window as any).googleDriveAPI.openInBrowser(node.driveFileId, node.driveMimeType);
     } else {
       onSelectFile(node.path);
     }
@@ -831,10 +807,10 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
   return (
     <>
       <div
-        className={`fileTreeRow fileTreeRow--node ${isDocx ? 'fileTreeRow--hasWordAction' : ''} ${isDriveNode ? 'fileTreeRow--hasDriveAction' : ''} ${isDropTarget ? 'fileTreeRow--dropTarget' : ''}`}
+        className={`fileTreeRow fileTreeRow--node ${isDocx ? 'fileTreeRow--hasWordAction' : ''} ${isDropTarget ? 'fileTreeRow--dropTarget' : ''}`}
         style={{ paddingLeft: fileTreeRowPaddingLeft(depth) }}
-        onContextMenu={isDriveNode ? undefined : (e) => onContextMenu(e, node)}
-        {...(!isDriveNode && node.isDirectory
+        onContextMenu={(e) => onContextMenu(e, node)}
+        {...(node.isDirectory
           ? {
               onDragOver: (e: React.DragEvent) => onDragOverDir(e, node.path),
               onDragLeave: onDragLeaveDir,
@@ -845,8 +821,8 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
         <div
           className="fileTreeRowMain"
           onClick={handleClick}
-          draggable={!isRenaming && !isDriveNode}
-          onDragStart={isDriveNode ? undefined : handleDragStart}
+          draggable={!isRenaming}
+          onDragStart={handleDragStart}
         >
           {node.isDirectory ? (
             <>
@@ -882,36 +858,7 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
             </>
           )}
         </div>
-        {!isRenaming && isDriveNode && (
-          <div className="fileTreeRowActions">
-            {onRefreshDrive && (
-              <button
-                type="button"
-                className={`fileTreeRowAction fileTreeRowAction--drive${driveRefreshing ? ' fileTreeRowAction--spinning' : ''}`}
-                title="Refresh Google Drive"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRefreshDrive();
-                }}
-                disabled={driveRefreshing}
-              >
-                <RefreshCwIcon style={{ width: 14, height: 14 }} />
-              </button>
-            )}
-            <button
-              type="button"
-              className="fileTreeRowAction fileTreeRowAction--drive"
-              title="Open in Google Drive"
-              onClick={(e) => {
-                e.stopPropagation();
-                (window as any).googleDriveAPI.openInBrowser(node.driveFileId, node.driveMimeType);
-              }}
-            >
-              <ExternalLinkIcon style={{ width: 14, height: 14 }} />
-            </button>
-          </div>
-        )}
-        {!isRenaming && !isDriveNode && (
+        {!isRenaming && (
           <div className="fileTreeRowActions">
             {isDocx && (
               <button
@@ -954,7 +901,7 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
           </div>
         )}
       </div>
-      {expanded && !isDriveNode && creatingIn?.dirPath === node.path && (
+      {expanded && creatingIn?.dirPath === node.path && (
         <div className="fileTreeRow" style={{ paddingLeft: fileTreeRowPaddingLeft(depth + 1) }}>
           {creatingIn.type === 'folder' ? (
             <FolderIcon className="fileTreeIcon" style={{ marginLeft: 18 }} />

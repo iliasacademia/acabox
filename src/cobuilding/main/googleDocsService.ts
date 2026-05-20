@@ -136,14 +136,6 @@ export function hasDriveScope(): boolean {
   return scope.includes('drive.readonly');
 }
 
-export function hasNativeApiScopes(): boolean {
-  const tokens = readTokens();
-  if (!tokens) return false;
-  const scope = tokens.scope as string | undefined;
-  if (!scope) return false;
-  return scope.includes('spreadsheets.readonly') && scope.includes('presentations.readonly');
-}
-
 export function hasScopeFor(mimeType: string): boolean {
   const tokens = readTokens();
   if (!tokens) return false;

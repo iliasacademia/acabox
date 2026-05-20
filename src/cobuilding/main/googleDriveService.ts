@@ -537,7 +537,7 @@ const EXPORT_FALLBACK_MAP: Partial<Record<string, { mimeType: string; extension:
 export async function downloadFile(
   fileId: string,
   cacheBaseDir: string,
-): Promise<DocsApiResult<{ filePath: string; cached: boolean; name: string; modifiedTime?: string; md5Checksum?: string }>> {
+): Promise<DocsApiResult<{ filePath: string; cached: boolean; name: string; mimeType: string; modifiedTime?: string; md5Checksum?: string }>> {
   const client = await getAuthedClient();
   if (!client) return { success: false, error: 'Not connected to Google' };
 
@@ -579,7 +579,7 @@ export async function downloadFile(
     const stale = cached.modified_time !== fileMeta.modifiedTime
       || (fileMeta.md5Checksum && cached.md5_checksum && cached.md5_checksum !== fileMeta.md5Checksum);
     if (!stale) {
-      return { success: true, data: { filePath, cached: true, name: fileName } };
+      return { success: true, data: { filePath, cached: true, name: fileName, mimeType: fileMeta.mimeType } };
     }
   }
 
@@ -608,7 +608,7 @@ export async function downloadFile(
     return {
       success: true,
       data: {
-        filePath, cached: false, name: fileName,
+        filePath, cached: false, name: fileName, mimeType: fileMeta.mimeType,
         modifiedTime: fileMeta.modifiedTime,
         md5Checksum: fileMeta.md5Checksum,
       },
