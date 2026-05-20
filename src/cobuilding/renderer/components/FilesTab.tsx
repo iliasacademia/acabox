@@ -35,6 +35,8 @@ interface TreeNode {
   isDirectory: boolean;
   children?: TreeNode[];
   loaded?: boolean;
+  driveFileId?: string;
+  driveMimeType?: string;
 }
 
 interface ContextMenuState {
@@ -792,6 +794,8 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
         setChildren(kids);
         setLoaded(true);
       }
+    } else if (node.driveFileId) {
+      (window as any).googleDriveAPI.openInBrowser(node.driveFileId, node.driveMimeType ?? '');
     } else {
       onSelectFile(node.path);
     }
