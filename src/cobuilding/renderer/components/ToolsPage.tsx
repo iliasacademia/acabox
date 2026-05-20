@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import * as LucideIcons from 'lucide-react';
-import { LayoutGridIcon, UploadIcon, ChevronRightIcon, PlayIcon, TrashIcon, SparklesIcon, ArrowRightIcon, FileTextIcon, FolderOpenIcon, XIcon } from 'lucide-react';
+import { LayoutGridIcon, UploadIcon, ChevronRightIcon, PlayIcon, TrashIcon, SparklesIcon, ArrowRightIcon, FileTextIcon, FolderOpenIcon, XIcon, CircleHelpIcon } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
 import { pushPendingAttribution, clearPendingAttribution } from '../coscientistAnalytics';
+import { buildSuggestedToolPrompt } from '../../shared/suggestedTasksTools';
 
 type ToolsPageMiniApp = MiniAppEntry;
 
@@ -205,7 +207,7 @@ export function ToolsPage({
     pushPendingAttribution(briefing.id);
     assistantRuntime.switchToNewThread();
     setTimeout(() => {
-      composerRuntime.setText(`Build me a tool called "${data.name}". ${data.details_on_what_to_build}`);
+      composerRuntime.setText(buildSuggestedToolPrompt(data.name, data.details_on_what_to_build));
       onSwitchToChat();
       setTimeout(() => {
         const input = document.querySelector<HTMLTextAreaElement>('.composerInput');
@@ -391,7 +393,21 @@ export function ToolsPage({
                           {data.name}
                         </button>
                       </div>
-                      <div className="toolRow__description">{briefing.why_im_suggesting_this}</div>
+                      <div className="toolRow__description">
+                        {briefing.why_im_suggesting_this}
+                        {briefing.why_im_suggesting_this && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button type="button" className="homeBriefingCard__infoBtn">
+                                <CircleHelpIcon style={{ width: 14, height: 14 }} />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent className="tooltipContent--wide" side="top">
+                              {data.details_on_what_to_build}
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                     </div>
                     <div className="toolRow__actions">
                       <button className="toolRow__secondaryBtn" onClick={() => handleDismissSuggested(briefing)}>

@@ -2,10 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
 import { resolveWorkspacePath } from '../utils/resolveWorkspacePath';
 import { pushPendingAttribution } from '../coscientistAnalytics';
+import { buildSuggestedToolPrompt } from '../../shared/suggestedTasksTools';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 import {
   ArrowUpRightIcon,
   CalendarIcon,
+  CircleHelpIcon,
   FileTextIcon,
   HistoryIcon,
   LayoutGridIcon,
@@ -13,6 +15,7 @@ import {
   QuoteIcon,
   SparklesIcon,
 } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { BriefingHistory } from './BriefingHistory';
 
 /** A briefing with its `briefing_data` JSON parsed into a typed payload. */
@@ -215,9 +218,7 @@ export function HomePage({
       sendChatPrompt(parsed.data.chat_prompt);
     } else if (parsed.type === 'suggested_tool') {
       pushPendingAttribution(parsed.briefing.id);
-      sendChatPrompt(
-        `Please build the following mini-app for me:\n\n${parsed.data.details_on_what_to_build}`,
-      );
+      sendChatPrompt(buildSuggestedToolPrompt(parsed.data.name, parsed.data.details_on_what_to_build));
     } else if (parsed.type === 'writing_agent') {
       if (!(await ensureAccessibilityPermission())) return;
       const absolutePath = resolveWorkspacePath(parsed.data.file_path, workspacePath, userDirectoryPaths ?? []);
@@ -290,6 +291,18 @@ export function HomePage({
                       {parsed.type === 'writing_agent'
                         ? card.fallbackDescription
                         : (parsed.briefing.why_im_suggesting_this ?? card.fallbackDescription)}
+                      {parsed.type === 'suggested_tool' && parsed.briefing.why_im_suggesting_this && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button type="button" className="homeBriefingCard__infoBtn">
+                              <CircleHelpIcon style={{ width: 14, height: 14 }} />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent className="tooltipContent--wide" side="top">
+                            {parsed.data.details_on_what_to_build}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
                     </p>
                     <div className="homeBriefingCard__actions">
                       <button

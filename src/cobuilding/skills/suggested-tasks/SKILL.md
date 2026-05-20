@@ -90,7 +90,7 @@ Each suggestion has four fields:
 | `name` | Short display title shown to the user. |
 | `type` | Either `one_time_task` or `mini_app`. |
 | `why_im_suggesting_this` | 1-2 sentences tying the suggestion to specific files or patterns you found. Shown to the user as context. |
-| `description` | A clear, actionable description of what you would do. Reference specific files or file patterns. 2-4 sentences — enough to act on without ambiguity. |
+| `description` | Instructions for what the agent will build or do. Reference specific files or file patterns. Be as detailed as needed — there is no sentence limit. |
 
 **User-facing language:** "Mini-app" and "mini_app" are internal names. Never use them in `name`, `description`, or `why_im_suggesting_this` — those are shown directly to users. Instead, say "custom tool," "interactive tool," or just describe what it does ("Build an interactive dashboard that..."). Similarly, don't use jargon like "React app" or "Plotly" — describe the end result, not the implementation.
 
@@ -130,7 +130,7 @@ Create a new suggestion.
 |-------|------|----------|-------------|
 | `name` | string | Yes | Short display title. |
 | `type` | string | Yes | `one_time_task` or `mini_app`. |
-| `description` | string | Yes | Actionable description (2-4 sentences). |
+| `description` | string | Yes | Instructions for what the agent will build or do. |
 | `why_im_suggesting_this` | string | No | 1-2 sentences tying to specific files/patterns. |
 
 ### `mcp__suggested-tasks__update_suggestion`

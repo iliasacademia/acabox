@@ -6,7 +6,7 @@ export const SUGGESTED_TASKS_TOOL_DEFS = {
     schema: {
       name: z.string().describe('Short display title.'),
       type: z.enum(['one_time_task', 'mini_app']).describe('Whether this is a one-time task or an interactive mini-app to build.'),
-      description: z.string().describe('Clear, actionable description of what to do. Reference specific files or patterns. 2-4 sentences.'),
+      description: z.string().describe('Instructions for what the agent will build or do. Reference specific files or patterns. Be as detailed as needed.'),
       why_im_suggesting_this: z.string().optional().describe('1-2 sentences tying this suggestion to specific files or patterns found in the workspace.'),
     },
   },
@@ -40,3 +40,7 @@ export const SUGGESTED_TASKS_TOOL_DEFS = {
     },
   },
 } as const;
+
+export function buildSuggestedToolPrompt(toolName: string, detailsOnWhatToBuild: string): string {
+  return `Please build the following mini-app for me called "${toolName}":\n\n${detailsOnWhatToBuild}\n\nYou must present me with a plan of what you will build before you build anything.`;
+}

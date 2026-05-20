@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
-import { ChevronLeftIcon, SparklesIcon, ArrowUpRightIcon } from 'lucide-react';
+import { ChevronLeftIcon, SparklesIcon, ArrowUpRightIcon, CircleHelpIcon } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
 import { pushPendingAttribution } from '../coscientistAnalytics';
+import { buildSuggestedToolPrompt } from '../../shared/suggestedTasksTools';
 
 interface ParsedRow {
   briefing: Briefing;
@@ -183,7 +185,7 @@ export function BriefingHistory({
     } else if (row.briefing.type === 'suggested_tool') {
       if (typeof d.details_on_what_to_build === 'string') {
         pushPendingAttribution(row.briefing.id);
-        sendChatPrompt(`Please build the following mini-app for me:\n\n${d.details_on_what_to_build}`);
+        sendChatPrompt(buildSuggestedToolPrompt(typeof d.name === 'string' ? d.name : '', d.details_on_what_to_build));
       }
     } else if (row.briefing.type === 'writing_agent') {
       if (typeof d.file_path !== 'string') return;
@@ -243,7 +245,21 @@ export function BriefingHistory({
                       <span>{rowEyebrow(row.briefing.type)}</span>
                     </div>
                     <h3 className="homeBriefingCard__title">{rowTitle(row)}</h3>
-                    <p className="homeBriefingCard__description">{rowDescription(row)}</p>
+                    <p className="homeBriefingCard__description">
+                      {rowDescription(row)}
+                      {row.briefing.type === 'suggested_tool' && row.briefing.why_im_suggesting_this && typeof row.data.details_on_what_to_build === 'string' && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button type="button" className="homeBriefingCard__infoBtn">
+                              <CircleHelpIcon style={{ width: 14, height: 14 }} />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent className="tooltipContent--wide" side="top">
+                            {row.data.details_on_what_to_build}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </p>
                     <div className="homeBriefingCard__actions">
                       <button
                         type="button"
