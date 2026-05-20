@@ -208,7 +208,7 @@ async function buildTreeLines(
     const isLast = i === files.length - 1;
     const connector = isLast ? '└── ' : '├── ';
     const date = file.modifiedTime ? `[${file.modifiedTime.slice(0, 10)}]` : '';
-    lines.push(`${prefix}${connector}${date} ${file.name}`);
+    lines.push(`${prefix}${connector}${date} ${file.name} (id:${file.id})`);
     const fileRelPath = relativePath ? `${relativePath}/${file.name}` : file.name;
     pathIndex[file.id] = {
       relativePath: fileRelPath,
@@ -234,8 +234,8 @@ export async function generateDriveDirectoryTree(
   const pathIndex: PathIndex = {};
 
   if (mimeType && mimeType !== FOLDER_MIME) {
-    const tree = folderName;
-    log.info(`[GoogleDrive] Non-folder item: ${folderName}`);
+    const tree = `${folderName} (id:${folderId})`;
+    log.info(`[GoogleDrive] Non-folder item: ${folderName} (id:${folderId})`);
     return { tree, pathIndex };
   }
 
@@ -612,6 +612,73 @@ export async function downloadFile(
         modifiedTime: fileMeta.modifiedTime,
         md5Checksum: fileMeta.md5Checksum,
       },
+    };
+  } catch (err: any) {
+    return handleDriveError(err);
+  }
+}
+
+// --- In-memory download for document reader (scanner agents) ---
+
+const GOOGLE_DOC_MIME = 'application/vnd.google-apps.document';
+const DOCX_EXPORT_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const PDF_MIME = 'application/pdf';
+
+const SCANNER_READABLE_MIMES = new Set([
+  GOOGLE_DOC_MIME,
+  DOCX_EXPORT_MIME,
+  PDF_MIME,
+]);
+
+export interface DocumentReaderDownload {
+  buffer: Buffer;
+  name: string;
+  effectiveExtension: '.docx' | '.pdf';
+}
+
+export async function downloadFileForDocumentReader(
+  fileId: string,
+): Promise<DocsApiResult<DocumentReaderDownload>> {
+  const client = await getAuthedClient();
+  if (!client) return { success: false, error: 'Not connected to Google' };
+
+  const metaResult = await getFileMetadata(fileId);
+  if (!metaResult.success || !metaResult.data) {
+    return { success: false, error: metaResult.error ?? 'Failed to get file metadata' };
+  }
+  const fileMeta = metaResult.data;
+
+  if (!SCANNER_READABLE_MIMES.has(fileMeta.mimeType)) {
+    return {
+      success: false,
+      error: `Unsupported file type "${fileMeta.mimeType}". Only Google Docs, .pdf, and .docx files can be read.`,
+    };
+  }
+
+  if (!fileMeta.mimeType.startsWith('application/vnd.google-apps.') && fileMeta.size && parseInt(fileMeta.size, 10) > MAX_DOWNLOAD_SIZE) {
+    const sizeMB = Math.round(parseInt(fileMeta.size, 10) / 1024 / 1024);
+    return { success: false, error: `File is ${sizeMB} MB which exceeds the ${MAX_DOWNLOAD_SIZE / 1024 / 1024} MB download limit.` };
+  }
+
+  try {
+    let buffer: Buffer;
+    let effectiveExtension: '.docx' | '.pdf';
+
+    if (fileMeta.mimeType === GOOGLE_DOC_MIME) {
+      const url = `${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}/export?mimeType=${encodeURIComponent(DOCX_EXPORT_MIME)}`;
+      const resp = await withRetry(() => client.request<any>({ url, method: 'GET', responseType: 'arraybuffer' }));
+      buffer = Buffer.from(resp.data);
+      effectiveExtension = '.docx';
+    } else {
+      const url = `${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`;
+      const resp = await withRetry(() => client.request<any>({ url, method: 'GET', responseType: 'arraybuffer' }));
+      buffer = Buffer.from(resp.data);
+      effectiveExtension = fileMeta.mimeType === PDF_MIME ? '.pdf' : '.docx';
+    }
+
+    return {
+      success: true,
+      data: { buffer, name: fileMeta.name, effectiveExtension },
     };
   } catch (err: any) {
     return handleDriveError(err);
