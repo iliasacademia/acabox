@@ -1280,6 +1280,7 @@ export class WindowMonitorService {
   setDockRight(windowId: string, docked: boolean): void {
     if (docked) {
       this.dockedRightWindows.add(windowId);
+      this.popupToggledOpen.add(windowId);
       this.lastV4FocusedWindowId = windowId;
       logger.info(`[WindowMonitor] setDockRight: docked wid=${windowId}`);
 
