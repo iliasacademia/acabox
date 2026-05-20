@@ -14,4 +14,4 @@
 
 6. **Write last, not first.** When helping draft an Abstract, pull from the completed manuscript sections. The Abstract compresses what exists; it should not promise what hasn't been written yet.
 
-<!-- skill-file: sections/abstract.md @2026-05-05a -->
+<!-- skill-file: doctypes/academic-paper/sections/abstract.md @2026-05-13a -->

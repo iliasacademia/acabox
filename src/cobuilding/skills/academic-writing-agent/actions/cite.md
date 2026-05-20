@@ -13,8 +13,9 @@ Citation and reference assistance. Used directly when the user asks about citati
 When a reference is needed, follow this priority order:
 
 1. **Check the author's Zotero library first** (see "Using Zotero" below). If the relevant paper is already in the author's collection, use it. This is the highest-confidence source.
-2. **Otherwise, use the CiteRight tools to find verified references** (see "Using CiteRight" below).
-3. **Always label the source.** The user must know whether a reference came from their own library or from CiteRight's external search.
+2. **Check local workspace references** (see "Using Local References" below). Papers the user has collected in their workspace are higher-confidence than external search.
+3. **Otherwise, use the CiteRight tools to find verified references** (see "Using CiteRight" below).
+4. **Always label the source.** The user must know whether a reference came from their own library, their workspace, or from CiteRight's external search. Tag visibly: *from your Zotero library*, *from your workspace*, or *from CiteRight*. This rule applies to every reference shown, regardless of source — do not omit the tag.
 
 ## Using Zotero
 
@@ -68,13 +69,40 @@ Use the same per-publication format as CiteRight results so the user sees a cons
 > **Cao, Short & Yip (2017)** — "Understanding the mechanisms of amorphous creep through molecular simulation," *Proceedings of the National Academy of Sciences*. [10.1073/pnas.1708618114](https://doi.org/10.1073/pnas.1708618114) — *from your Zotero library*
 > *Why matched:* The abstract identifies the microscopic processes of creep as an open question, supporting the claim that these origins are poorly understood compared to crystalline solids.
 
-### Source labeling
-
-Tag every Zotero-sourced reference explicitly as "*from your Zotero library*" so the user can tell it apart from CiteRight results at a glance. This reinforces the labeling rule in the **Constraints** section at the bottom of this file.
-
 ### Formatting Zotero items into a citation style
 
 Zotero results map cleanly into `mcp__citeright__format_citations`. Pass an array of works built from the field mapping above (`title`, `authors`, `publication_year`, `publication`, `doi`) to format Zotero-sourced references in MLA, APA, Chicago, Vancouver, Harvard, IEEE, or ACS.
+
+## Using Local References
+
+The user's workspace may contain reference PDFs that have been scanned and converted to readable markdown. These are papers the user has collected — higher confidence than external search, lower than a curated Zotero library.
+
+### Discovery
+
+Call `mcp__workspace__get_scanned_files` with `file_type` set to `"reference"`. The response contains an array of files:
+
+Only entries with a `markdown_path` field have been converted to readable text. Skip entries without it.
+
+### Shortlisting and reading
+
+The title of each reference is embedded in the `markdown_path` filename. Scan these titles against the claim and shortlist any that could plausibly be relevant — be generous, since titles are abbreviated. When in doubt, include it.
+
+**You must `Read` at least the shortlisted files** — do not skip local references and jump straight to CiteRight. For each shortlisted file, use the `Read` tool on the `markdown_path`. The file has YAML frontmatter (`source`, `title`) followed by the full extracted text. Verify the text content against the claim using the same meaning check as Zotero and CiteRight — the paper must support the specific claim, not just share the general topic.
+
+If the workspace has fewer than ~10 references, read all of them rather than shortlisting by title alone.
+
+### Presenting local reference results
+
+Use the same per-publication format as Zotero and CiteRight results. For each verified match show:
+
+- **Full title** from the frontmatter.
+- **Authors and year** — extract from the text if possible (look at the first page content). If not extractable, omit rather than guess.
+- **Source file** — show the original `file_path` (e.g. `refs/paper.pdf`) so the user knows which file it came from.
+- **Why this matches** — a short sentence explaining why the paper supports the claim, written from the extracted text.
+
+### Fallthrough
+
+If no local reference passes the meaning check, fall through to CiteRight silently — same pattern as Zotero.
 
 ## Using CiteRight
 
@@ -82,9 +110,10 @@ CiteRight runs vector + web search over published literature, ranks candidates w
 
 **Choosing the input.** Before any CiteRight call:
 
-1. Call `mcp__ms-word__get_selection`. If it returns non-empty text, that's the input -- the user highlighted a passage and wants references for that passage, not the whole paper. Use the **short input path** below.
+1. If `mcp__ms-word__get_selection` is available (Word session), call it. If it returns non-empty text, that's the input -- the user highlighted a passage and wants references for that passage, not the whole paper. Use the **short input path** below.
 2. If the selection is empty, the user wants references for the whole document. Call `mcp__ms-word__get_file_path`. If it returns a `.docx` or `.pdf` path, that's the input. Use the **long input path** below.
 3. If no file path is available (unsaved document), fall back to `mcp__ms-word__get_text` and treat that text as a long input.
+4. If ms-word tools are not available (non-Word session), use the user's message text or the claim text as the input. Use the **short input path** below.
 
 ### Short input path (selections, single claims)
 
@@ -138,13 +167,9 @@ Format the link in markdown so the chat UI renders it as clickable: `[link text]
 > **Cao, Short & Yip (2017)** — "Understanding the mechanisms of amorphous creep through molecular simulation," *Proceedings of the National Academy of Sciences*. [10.1073/pnas.1708618114](https://doi.org/10.1073/pnas.1708618114)
 > *Why matched:* Explicitly identifies the microscopic processes of creep as a "standing challenge" and an "open question," supporting the claim that these origins are poorly understood compared to crystalline solids.
 
-**Bad example** (compressed, missing link, missing reasoning — do not do this):
-
-> Cao, Short & Yip (2017), PNAS – "Understanding the mechanisms of amorphous creep through molecular simulation"
-
 The chat UI opens links in the system's default browser, so a fully formatted reference becomes a one-click verification path for the user.
 
-**Do not refer to UI features that don't exist in this chat.** CiteRight's `message_to_user` field and other backend strings sometimes mention things like "click on highlighted claims below" or "explore the full list of candidates for each claim" — these refer to the CiteRight web app, not the cobuilding chat. Do not echo those phrases or paraphrase them. The chat is the only surface here, so if the user wants more detail they ask you, not a UI control. End your response with a concrete next-step offer (e.g. "Want me to insert any of these as citations?" or "Want me to format these in APA?") rather than telling them to click something.
+**Ignore CiteRight backend strings that reference UI controls.** Fields like `message_to_user` sometimes say "click highlighted claims" or "explore the full list" — those target the CiteRight web app, not this chat. End your response with a concrete next-step offer ("Want me to insert any of these as citations?", "Want me to format these in APA?") instead of telling the user to click something that doesn't exist.
 
 **To add a specific manual claim to a report** (when the user gives you an exact sentence to cite):
 
@@ -194,7 +219,6 @@ If a domain profile is available, consult it to determine whether a claim is com
 
 - Never fabricate citation details (authors, titles, journals, years, DOIs)
 - Never present an LLM-suggested reference as if it were verified -- always route through CiteRight or the author's materials first
-- When multiple references could support a claim, prefer the one already in the author's materials over a CiteRight result
-- Always label the source (author's library vs. CiteRight search) when presenting a reference
+- When multiple references could support a claim, prefer the one already in the author's materials (Zotero or workspace) over a CiteRight result
 
-<!-- skill-file: actions/cite.md @2026-05-05c -->
+<!-- skill-file: actions/cite.md @2026-05-19b -->
