@@ -2,18 +2,18 @@ export type ChatStreamMessage =
   // Completed messages
   | { type: 'text'; text: string }
   | {
-    type: 'tool-call';
-    toolCallId: string;
-    toolName: string;
-    args: Record<string, unknown>;
-    argsText: string;
-  }
+      type: 'tool-call';
+      toolCallId: string;
+      toolName: string;
+      args: Record<string, unknown>;
+      argsText: string;
+    }
   | {
-    type: 'tool-result';
-    toolCallId: string;
-    result: unknown;
-    isError?: boolean;
-  }
+      type: 'tool-result';
+      toolCallId: string;
+      result: unknown;
+      isError?: boolean;
+    }
   // Streaming deltas
   | { type: 'text-delta'; text: string }
   | { type: 'tool-call-start'; toolCallId: string; toolName: string }
@@ -123,7 +123,6 @@ export interface WorkspaceDirectory {
   created_at: string;
   source: 'local' | 'google-drive';
   metadata?: string | null;
-  read_only: boolean;
 }
 
 export interface ScheduledTask {

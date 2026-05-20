@@ -12,7 +12,6 @@ import {
   removeWorkspaceDirectory,
   listWorkspaceDirectories,
   listWorkspaceDirectoriesBySource,
-  updateWorkspaceDirectoryPermission,
   type Workspace,
   type WorkspaceDirectory,
 } from '../db/workspaceRepository';
@@ -53,7 +52,7 @@ export class WorkspaceController {
     return [this.workspacePath, ...this.userDirectoryPaths, this.driveCacheBaseDir];
   }
 
-  get mountMap(): Array<{ hostPath: string; containerPath: string; readOnly?: boolean }> {
+  get mountMap(): Array<{ hostPath: string; containerPath: string }> {
     return buildMountMap(this.workspacePath, this.userDirectories, this.driveCacheBaseDir);
   }
 
@@ -137,13 +136,6 @@ export class WorkspaceController {
     this._userDirectories = listWorkspaceDirectories(this._activeWorkspace.id);
   }
 
-  updateDirectoryPermission(directoryId: string, readOnly: boolean): WorkspaceDirectory {
-    if (!this._activeWorkspace) throw new Error('No active workspace.');
-    updateWorkspaceDirectoryPermission(directoryId, readOnly);
-    this._userDirectories = listWorkspaceDirectories(this._activeWorkspace.id);
-    return this._userDirectories.find(d => d.id === directoryId)!;
-  }
-
   deactivateAll(): void {
     deactivateAllWorkspaces();
     this._activeWorkspace = null;
@@ -180,8 +172,8 @@ export function buildMountMap(
   agentDir: string,
   directories: WorkspaceDirectory[],
   driveCacheBase?: string,
-): Array<{ hostPath: string; containerPath: string; readOnly?: boolean }> {
-  const result: Array<{ hostPath: string; containerPath: string; readOnly?: boolean }> = [
+): Array<{ hostPath: string; containerPath: string }> {
+  const result: Array<{ hostPath: string; containerPath: string }> = [
     { hostPath: agentDir, containerPath: '/data' },
   ];
   const counts = new Map<string, number>();
@@ -190,7 +182,7 @@ export function buildMountMap(
     const count = counts.get(base) ?? 0;
     counts.set(base, count + 1);
     const name = count > 0 ? `${base}_${count + 1}` : base;
-    result.push({ hostPath: dir.directory_path, containerPath: `/data/${name}`, readOnly: dir.read_only });
+    result.push({ hostPath: dir.directory_path, containerPath: `/data/${name}` });
   }
 
   if (driveCacheBase) {

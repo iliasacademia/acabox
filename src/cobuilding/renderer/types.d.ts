@@ -218,7 +218,6 @@ declare global {
     listDirectories(): Promise<WorkspaceDirectory[]>;
     addDirectory(directoryPath: string): Promise<WorkspaceDirectory>;
     removeDirectory(directoryId: string): Promise<void>;
-    updateDirectoryPermission(directoryId: string, readOnly: boolean): Promise<WorkspaceDirectory>;
   }
 
   interface SessionData {

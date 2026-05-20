@@ -489,10 +489,6 @@ const migrations = [
       CREATE INDEX IF NOT EXISTS idx_gdrive_cache_parent ON google_drive_cache(workspace_id, parent_id);
     `,
   },
-  {
-    version: 27,
-    sql: `ALTER TABLE workspace_directories ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0;`,
-  },
 ];
 
 function runMigrations(database: Database.Database, userDataPath: string) {

@@ -10,14 +10,12 @@ export interface AgentConfig {
   settingSources: string[];
   soulMd?: string;
   docxGuidance?: string;
-  workspaceDirectoriesGuidance?: string;
 }
 
 export interface SessionOverrides {
   additionalAllowedTools?: string[];
   soulMd?: string;
   hostGuidance?: string;
-  workspaceDirectoriesGuidance?: string;
 }
 
 export function filterMcpServers(
@@ -41,6 +39,5 @@ export function mergeSessionConfig(config: AgentConfig, overrides?: SessionOverr
     allowedTools: sessionAllowedTools,
     soulMd: overrides?.soulMd ?? config.soulMd,
     docxGuidance: overrides?.hostGuidance ?? config.docxGuidance,
-    workspaceDirectoriesGuidance: overrides?.workspaceDirectoriesGuidance ?? config.workspaceDirectoriesGuidance,
   };
 }
