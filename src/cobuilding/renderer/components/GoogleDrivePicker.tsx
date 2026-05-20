@@ -7,7 +7,7 @@ declare global {
     googleDriveAPI: {
       status: () => Promise<{ connected: boolean; hasCredentials: boolean; hasDriveScope: boolean }>;
       connect: () => Promise<{ success: boolean; error?: string }>;
-      listFolder: (folderId?: string) => Promise<any>;
+      listFolder: (folderId?: string, options?: { sharedWithMe?: boolean }) => Promise<any>;
       saveSelection: (selection: any) => Promise<{ success: boolean; error?: string }>;
       getSelection: () => Promise<{ success: boolean; data: any }>;
     };
@@ -21,6 +21,8 @@ interface DriveItem {
   modifiedTime?: string;
   size?: string;
   webViewLink?: string;
+  owners?: Array<{ displayName?: string; emailAddress?: string }>;
+  shared?: boolean;
 }
 
 interface SelectedItem {
@@ -44,14 +46,17 @@ export function GoogleDrivePicker({ open, onOpenChange, onSelectionSaved, skipSa
   const [authError, setAuthError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
 
-  const [rootItems, setRootItems] = useState<DriveItem[]>([]);
+  const [myDriveItems, setMyDriveItems] = useState<DriveItem[]>([]);
+  const [sharedItems, setSharedItems] = useState<DriveItem[]>([]);
   const [folderChildren, setFolderChildren] = useState<Map<string, DriveItem[]>>(new Map());
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [loadingFolders, setLoadingFolders] = useState<Set<string>>(new Set());
   const [selectedItems, setSelectedItems] = useState<Map<string, SelectedItem>>(new Map());
-  const [rootLoading, setRootLoading] = useState(false);
+  const [myDriveLoading, setMyDriveLoading] = useState(false);
+  const [sharedLoading, setSharedLoading] = useState(false);
+  const [myDriveExpanded, setMyDriveExpanded] = useState(true);
+  const [sharedExpanded, setSharedExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
-
 
   const checkAuth = useCallback(async () => {
     setAuthState('loading');
@@ -69,28 +74,39 @@ export function GoogleDrivePicker({ open, onOpenChange, onSelectionSaved, skipSa
     }
   }, []);
 
-  const loadFolder = useCallback(async (folderId?: string) => {
-    if (folderId) {
-      setLoadingFolders(prev => new Set(prev).add(folderId));
-    } else {
-      setRootLoading(true);
+  const loadMyDrive = useCallback(async () => {
+    setMyDriveLoading(true);
+    try {
+      const result = await window.googleDriveAPI.listFolder();
+      if (result.success && result.data) {
+        setMyDriveItems(result.data.files ?? []);
+      }
+    } finally {
+      setMyDriveLoading(false);
     }
+  }, []);
+
+  const loadSharedWithMe = useCallback(async () => {
+    setSharedLoading(true);
+    try {
+      const result = await window.googleDriveAPI.listFolder(undefined, { sharedWithMe: true });
+      if (result.success && result.data) {
+        setSharedItems(result.data.files ?? []);
+      }
+    } finally {
+      setSharedLoading(false);
+    }
+  }, []);
+
+  const loadFolder = useCallback(async (folderId: string) => {
+    setLoadingFolders(prev => new Set(prev).add(folderId));
     try {
       const result = await window.googleDriveAPI.listFolder(folderId);
       if (result.success && result.data) {
-        const items: DriveItem[] = result.data.files ?? [];
-        if (folderId) {
-          setFolderChildren(prev => new Map(prev).set(folderId, items));
-        } else {
-          setRootItems(items);
-        }
+        setFolderChildren(prev => new Map(prev).set(folderId, result.data.files ?? []));
       }
     } finally {
-      if (folderId) {
-        setLoadingFolders(prev => { const n = new Set(prev); n.delete(folderId); return n; });
-      } else {
-        setRootLoading(false);
-      }
+      setLoadingFolders(prev => { const n = new Set(prev); n.delete(folderId); return n; });
     }
   }, []);
 
@@ -101,8 +117,8 @@ export function GoogleDrivePicker({ open, onOpenChange, onSelectionSaved, skipSa
   }, [open, checkAuth]);
 
   useEffect(() => {
-    if (open && authState === 'ready' && rootItems.length === 0) {
-      loadFolder();
+    if (open && authState === 'ready' && myDriveItems.length === 0) {
+      loadMyDrive();
       window.googleDriveAPI.getSelection().then(result => {
         if (result.success && result.data?.selectedItems) {
           const map = new Map<string, SelectedItem>();
@@ -113,7 +129,13 @@ export function GoogleDrivePicker({ open, onOpenChange, onSelectionSaved, skipSa
         }
       });
     }
-  }, [open, authState, rootItems.length, loadFolder]);
+  }, [open, authState, myDriveItems.length, loadMyDrive]);
+
+  useEffect(() => {
+    if (sharedExpanded && sharedItems.length === 0 && !sharedLoading) {
+      loadSharedWithMe();
+    }
+  }, [sharedExpanded, sharedItems.length, sharedLoading, loadSharedWithMe]);
 
   const handleConnect = async () => {
     setConnecting(true);
@@ -132,7 +154,7 @@ export function GoogleDrivePicker({ open, onOpenChange, onSelectionSaved, skipSa
     }
   };
 
-  const toggleFolder = async (item: DriveItem, _parentPath: string) => {
+  const toggleFolder = async (item: DriveItem) => {
     const folderId = item.id;
     if (expandedFolders.has(folderId)) {
       setExpandedFolders(prev => { const n = new Set(prev); n.delete(folderId); return n; });
@@ -211,7 +233,7 @@ export function GoogleDrivePicker({ open, onOpenChange, onSelectionSaved, skipSa
           {folder ? (
             <button
               className="gdp-item__expand"
-              onClick={() => toggleFolder(item, parentPath)}
+              onClick={() => toggleFolder(item)}
               aria-label={expanded ? 'Collapse' : 'Expand'}
             >
               {loading ? '...' : expanded ? '▾' : '▸'}
@@ -221,6 +243,11 @@ export function GoogleDrivePicker({ open, onOpenChange, onSelectionSaved, skipSa
           )}
           <span className="gdp-item__icon">{folder ? '📁' : '📄'}</span>
           <span className="gdp-item__name" title={item.name}>{item.name}</span>
+          {item.shared && item.owners?.[0]?.displayName && (
+            <span className="gdp-item__owner" title={item.owners[0].emailAddress}>
+              {item.owners[0].displayName}
+            </span>
+          )}
         </div>
         {folder && expanded && (
           <div className="gdp-children">
@@ -280,10 +307,45 @@ export function GoogleDrivePicker({ open, onOpenChange, onSelectionSaved, skipSa
           {authState === 'ready' && (
             <>
               <div className="gdp-tree">
-                {rootLoading && rootItems.length === 0 && (
-                  <div className="gdp-loading">Loading your Drive...</div>
-                )}
-                {rootItems.map(item => renderItem(item, 0, ''))}
+                {/* My Drive section */}
+                <div className="gdp-section">
+                  <button
+                    className="gdp-section-header"
+                    onClick={() => setMyDriveExpanded(prev => !prev)}
+                  >
+                    <span className="gdp-section-header__arrow">{myDriveExpanded ? '▾' : '▸'}</span>
+                    <span className="gdp-section-header__icon">💾</span>
+                    My Drive
+                  </button>
+                  {myDriveExpanded && (
+                    <div className="gdp-section-body">
+                      {myDriveLoading && myDriveItems.length === 0 && (
+                        <div className="gdp-loading" style={{ paddingLeft: '28px' }}>Loading...</div>
+                      )}
+                      {myDriveItems.map(item => renderItem(item, 1, ''))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Shared with me section */}
+                <div className="gdp-section">
+                  <button
+                    className="gdp-section-header"
+                    onClick={() => setSharedExpanded(prev => !prev)}
+                  >
+                    <span className="gdp-section-header__arrow">{sharedExpanded ? '▾' : '▸'}</span>
+                    <span className="gdp-section-header__icon">👥</span>
+                    Shared with me
+                  </button>
+                  {sharedExpanded && (
+                    <div className="gdp-section-body">
+                      {sharedLoading && sharedItems.length === 0 && (
+                        <div className="gdp-loading" style={{ paddingLeft: '28px' }}>Loading...</div>
+                      )}
+                      {sharedItems.map(item => renderItem(item, 1, 'Shared'))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {selectedCount > 0 && (

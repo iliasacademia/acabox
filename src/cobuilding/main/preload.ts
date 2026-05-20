@@ -280,12 +280,14 @@ contextBridge.exposeInMainWorld('googleDocsAPI', {
 contextBridge.exposeInMainWorld('googleDriveAPI', {
   status: () => ipcRenderer.invoke('googleDrive:status'),
   connect: () => ipcRenderer.invoke('googleDocs:connect'),
-  listFolder: (folderId?: string) => ipcRenderer.invoke('googleDrive:listFolder', folderId),
+  listFolder: (folderId?: string, options?: { sharedWithMe?: boolean }) => ipcRenderer.invoke('googleDrive:listFolder', folderId, options),
   saveSelection: (selection: any) => ipcRenderer.invoke('googleDrive:saveSelection', selection),
   getSelection: () => ipcRenderer.invoke('googleDrive:getSelection'),
   getCacheDirectories: () => ipcRenderer.invoke('googleDrive:getCacheDirectories'),
   listChildren: (parentId: string) => ipcRenderer.invoke('googleDrive:listChildren', parentId),
   listCacheEntries: () => ipcRenderer.invoke('googleDrive:listCacheEntries'),
+  getContextualTree: () => ipcRenderer.invoke('googleDrive:getContextualTree'),
+  getContextualTreeNodes: () => ipcRenderer.invoke('googleDrive:getContextualTreeNodes'),
   refreshTree: () => ipcRenderer.invoke('googleDrive:refreshTree'),
   resetCache: () => ipcRenderer.invoke('googleDrive:resetCache'),
   openInBrowser: (fileId: string, mimeType: string) => {

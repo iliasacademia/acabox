@@ -483,6 +483,12 @@ const migrations = [
       CREATE INDEX IF NOT EXISTS idx_gdrive_cache_workspace ON google_drive_cache(workspace_id);
     `,
   },
+  {
+    version: 29,
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_gdrive_cache_parent ON google_drive_cache(workspace_id, parent_id);
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database, userDataPath: string) {

@@ -21,7 +21,7 @@ export function getCacheEntry(fileId: string): GoogleDriveCacheEntry | undefined
 export function upsertCacheEntry(entry: {
   fileId: string;
   workspaceId: string;
-  relativePath: string;
+  relativePath?: string;
   parentId?: string | null;
   name: string;
   mimeType: string;
@@ -43,7 +43,7 @@ export function upsertCacheEntry(entry: {
         downloaded_at = excluded.downloaded_at
     `)
     .run(
-      entry.fileId, entry.workspaceId, entry.relativePath,
+      entry.fileId, entry.workspaceId, entry.relativePath ?? '',
       entry.parentId ?? null, entry.name, entry.mimeType,
       entry.modifiedTime ?? null, entry.md5Checksum ?? null, entry.downloadedAt ?? null,
     );
@@ -65,6 +65,23 @@ export function upsertPathIndexEntries(workspaceId: string, entries: Record<stri
     }
   });
   tx();
+}
+
+export function upsertSingleFileEntry(
+  workspaceId: string,
+  fileId: string,
+  name: string,
+  mimeType: string,
+  parentId?: string | null,
+): void {
+  upsertCacheEntry({
+    fileId,
+    workspaceId,
+    relativePath: '',
+    parentId: parentId ?? null,
+    name,
+    mimeType,
+  });
 }
 
 export function deleteCacheEntry(fileId: string): void {

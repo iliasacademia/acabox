@@ -131,7 +131,7 @@ export class BriefingsController {
     const driveDirs = listWorkspaceDirectoriesBySource(workspace.id, 'google-drive')
       .map(d => {
         const meta = d.metadata ? JSON.parse(d.metadata) : {};
-        return { driveId: meta.driveId as string, name: d.display_name };
+        return { driveId: meta.driveId as string, name: d.display_name, mimeType: meta.mimeType as string | undefined };
       })
       .filter(d => d.driveId);
     if (directoryPaths.length === 0 && driveDirs.length === 0) {

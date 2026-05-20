@@ -10,15 +10,17 @@ import {
   hasCredentials as googleDocsHasCredentials,
   hasDriveScope as googleDocsHasDriveScope,
 } from '../googleDocsService';
-import { listFiles as driveListFiles, generateDriveDirectoryTree } from '../googleDriveService';
+import { listFiles as driveListFiles, generateDriveDirectoryTree, generateContextualDriveTree, generateContextualDriveTreeNodes } from '../googleDriveService';
 import {
   listWorkspaceDirectoriesBySource,
   removeWorkspaceDirectoriesBySource,
   addWorkspaceDirectory,
 } from '../db/workspaceRepository';
-import { listChildEntries, clearWorkspaceCache } from '../db/googleDriveCacheRepository';
+import { listChildEntries, clearWorkspaceCache, upsertSingleFileEntry } from '../db/googleDriveCacheRepository';
 import { getDatabase } from '../db/database';
 import type { WorkspaceController } from './WorkspaceController';
+
+const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
 export interface GoogleDriveControllerDeps {
   workspaceController: WorkspaceController;
@@ -62,9 +64,9 @@ export class GoogleDriveController {
       hasDriveScope: googleDocsHasDriveScope(),
     }));
 
-    ipcMain.handle('googleDrive:listFolder', async (_event: any, folderId?: string) => {
+    ipcMain.handle('googleDrive:listFolder', async (_event: any, folderId?: string, options?: { sharedWithMe?: boolean }) => {
       try {
-        return await driveListFiles({ folderId, pageSize: 100, orderBy: 'folder,name' });
+        return await driveListFiles({ folderId, pageSize: 100, orderBy: 'folder,name', sharedWithMe: options?.sharedWithMe });
       } catch (err: any) {
         return { success: false, error: err?.message ?? String(err) };
       }
@@ -86,16 +88,18 @@ export class GoogleDriveController {
             JSON.stringify({ driveId: item.id, mimeType: item.mimeType, path: item.path }),
           );
         }
-        // Create cache subdirectories and generate the Drive tree for each
-        // selected folder so children are immediately available in the file view.
         const cacheBase = path.resolve(this.workspaceController.driveCacheBaseDir);
         for (const item of items) {
-          const subDir = path.resolve(cacheBase, item.name);
-          if (!subDir.startsWith(cacheBase + path.sep)) {
-            throw new Error('Invalid folder name');
+          if (item.mimeType === FOLDER_MIME) {
+            const subDir = path.resolve(cacheBase, item.name);
+            if (!subDir.startsWith(cacheBase + path.sep)) {
+              throw new Error('Invalid folder name');
+            }
+            fs.mkdirSync(subDir, { recursive: true });
+            await generateDriveDirectoryTree(item.id, item.name, wsId, item.mimeType);
+          } else {
+            upsertSingleFileEntry(wsId, item.id, item.name, item.mimeType);
           }
-          fs.mkdirSync(subDir, { recursive: true });
-          await generateDriveDirectoryTree(item.id, item.name, wsId);
         }
         this.workspaceController.loadActiveWorkspace();
         return { success: true };
@@ -141,12 +145,14 @@ export class GoogleDriveController {
         if (parentId === 'root') {
           const dirs = listWorkspaceDirectoriesBySource(wsId, 'google-drive');
           return dirs.map((d) => {
+            const meta = d.metadata ? JSON.parse(d.metadata) : {};
             const driveId = d.directory_path.replace('gdrive://', '');
+            const mimeType = (meta.mimeType as string) ?? FOLDER_MIME;
             return {
               name: d.display_name,
               fileId: driveId,
-              mimeType: 'application/vnd.google-apps.folder',
-              isDirectory: true,
+              mimeType,
+              isDirectory: mimeType === FOLDER_MIME,
             };
           });
         }
@@ -174,15 +180,60 @@ export class GoogleDriveController {
       }
     });
 
+    ipcMain.handle('googleDrive:getContextualTree', async () => {
+      try {
+        const wsId = this.workspaceController.workspaceId;
+        if (!wsId) return { success: false, error: 'No active workspace' };
+        const dirs = listWorkspaceDirectoriesBySource(wsId, 'google-drive');
+        if (dirs.length === 0) return { success: true, data: null };
+        const items = dirs.map(d => {
+          const meta = d.metadata ? JSON.parse(d.metadata) : {};
+          return {
+            driveId: (meta.driveId as string) ?? d.directory_path.replace('gdrive://', ''),
+            name: d.display_name,
+            mimeType: (meta.mimeType as string) ?? FOLDER_MIME,
+          };
+        }).filter(d => d.driveId);
+        const tree = await generateContextualDriveTree(items);
+        return { success: true, data: tree };
+      } catch (err: any) {
+        return { success: false, error: err?.message ?? String(err) };
+      }
+    });
+
+    ipcMain.handle('googleDrive:getContextualTreeNodes', async () => {
+      try {
+        const wsId = this.workspaceController.workspaceId;
+        if (!wsId) return { success: false, error: 'No active workspace' };
+        const dirs = listWorkspaceDirectoriesBySource(wsId, 'google-drive');
+        if (dirs.length === 0) return { success: true, data: [] };
+        const items = dirs.map(d => {
+          const meta = d.metadata ? JSON.parse(d.metadata) : {};
+          return {
+            driveId: (meta.driveId as string) ?? d.directory_path.replace('gdrive://', ''),
+            name: d.display_name,
+            mimeType: (meta.mimeType as string) ?? FOLDER_MIME,
+          };
+        }).filter(d => d.driveId);
+        const nodes = await generateContextualDriveTreeNodes(items);
+        return { success: true, data: nodes };
+      } catch (err: any) {
+        return { success: false, error: err?.message ?? String(err) };
+      }
+    });
+
     ipcMain.handle('googleDrive:refreshTree', async () => {
       try {
         const wsId = this.workspaceController.workspaceId;
         if (!wsId) return { success: false, error: 'No active workspace' };
         const dirs = listWorkspaceDirectoriesBySource(wsId, 'google-drive');
-        if (dirs.length === 0) return { success: false, error: 'No Google Drive folders connected' };
+        if (dirs.length === 0) return { success: false, error: 'No Google Drive items connected' };
         for (const d of dirs) {
           const driveId = d.directory_path.replace('gdrive://', '');
-          await generateDriveDirectoryTree(driveId, d.display_name, wsId);
+          const meta = d.metadata ? JSON.parse(d.metadata) : {};
+          const mimeType = meta.mimeType as string | undefined;
+          if (mimeType && mimeType !== FOLDER_MIME) continue;
+          await generateDriveDirectoryTree(driveId, d.display_name, wsId, mimeType);
         }
         return { success: true };
       } catch (err: any) {
