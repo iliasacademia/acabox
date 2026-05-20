@@ -161,6 +161,22 @@ pub fn close_word_document(app_element: &SafeAXUIElement, window_id: u32, save: 
     Ok(())
 }
 
+/// Get the active tab URL from a browser via AppleScript.
+/// Supports Google Chrome and Safari. Uses a shorter timeout (2s) since this
+/// runs on every poll cycle (~200ms). Returns the raw URL string.
+pub fn get_browser_tab_url(bundle_id: &str) -> Result<String, String> {
+    let script = match bundle_id {
+        "com.google.Chrome" => {
+            "tell application \"Google Chrome\" to get URL of active tab of front window"
+        }
+        "com.apple.Safari" => {
+            "tell application \"Safari\" to get URL of front document"
+        }
+        _ => return Err(format!("Unsupported browser bundle ID: {}", bundle_id)),
+    };
+    run_applescript_with_timeout(script, std::time::Duration::from_secs(2))
+}
+
 /// Open a file in Microsoft Word and activate it.
 pub fn open_word_document(file_path: &str) -> Result<(), String> {
     // Validate the file path to prevent AppleScript injection

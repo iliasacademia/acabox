@@ -10,6 +10,24 @@ import { windowMonitorService } from '../../windowMonitorService';
 import { getRegisteredHostApps } from '../../cobuilding/main/hostApps';
 import { OverlayPollResponse } from '../types';
 import { resolveFileId } from './resolveFileId';
+import { getCacheEntry as getGoogleDriveCacheEntry } from '../../cobuilding/main/db/googleDriveCacheRepository';
+
+/**
+ * Check if a document is in the active workspace.
+ * - Local files: path must be within a workspace directory
+ * - Google Docs (gdocs://): doc ID must be in the Google Drive cache
+ * - Other synthetic schemes (applenotes://): always considered in-workspace
+ */
+function isDocumentInWorkspace(documentPath: string, activeWorkspaceDirs: string[]): boolean {
+  if (documentPath.startsWith('gdocs://')) {
+    const docId = documentPath.slice('gdocs://'.length);
+    return !!getGoogleDriveCacheEntry(docId);
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(documentPath) && !documentPath.startsWith('file://')) {
+    return true;
+  }
+  return activeWorkspaceDirs.some(dir => documentPath.startsWith(dir + '/'));
+}
 
 /**
  * Build a WordPollResponse for the given window ID.
@@ -47,13 +65,9 @@ export function buildWordPollResponseV2(
     // listing every chat tied to that host so the user can pick from previous
     // conversations even before the active document resolves.
     const hostAppId = windowMonitorService.getHostAppIdForWindow(wid);
-    // Google Docs is doc-rooted — only show the overlay when the browser
-    // extension has confirmed a Google Doc is the active tab (gdocs:// path
-    // resolved). The extension query is async (~1.5s), so on the first poll
-    // after Chrome focuses the path is still null. The button stays hidden
-    // during that window; once the path resolves a change-event fires, a new
-    // poll broadcasts, and the button appears. The 30s keepalive ping on the
-    // extension WebSocket prevents Chrome from killing the connection.
+    // Google Docs is doc-rooted — only show the overlay when the active
+    // browser tab is a Google Doc (gdocs:// path detected by the native
+    // window monitor). When the tab is not a Docs page, hide everything.
     if (hostAppId === 'google-docs') {
       return {
         notificationCount: 0,
@@ -67,6 +81,7 @@ export function buildWordPollResponseV2(
         shouldShowReviewButton: false,
         hasSelectedText: false,
         isDockedActive: false,
+        isInWorkspace: false,
       };
     }
     if (isCobuildingMode && hostAppId && hostAppId !== 'word') {
@@ -106,21 +121,19 @@ export function buildWordPollResponseV2(
     };
   }
 
-  // Synthetic-scheme document paths (e.g. `applenotes://<id>`, `gdocs://<id>`)
-  // come from hosts whose documents don't live in the workspace folder (Apple
-  // Notes is in the OS database, Google Docs is in the cloud). Treat them like
-  // an in-workspace doc for overlay purposes regardless of whether local
-  // workspace directories are configured — the document identity was already
-  // resolved by the host integration (browser extension, AppleScript, etc.).
-  const isSyntheticDocPath = /^[a-z][a-z0-9+.-]*:\/\//i.test(documentPath) && !documentPath.startsWith('file://');
-  if (isSyntheticDocPath) {
+  // Unified workspace membership check: local files must be in a workspace
+  // directory, Google Docs must be in the Drive cache, other synthetic schemes
+  // (Apple Notes) are always in-workspace.
+  if (isCobuildingMode && isDocumentInWorkspace(documentPath, activeWorkspaceDirs)) {
     const sessions = windowMonitorService.getWorkspaceSessions(documentPath);
+    const selectedTextContent = wid
+      ? windowMonitorService.getSelectedTextContent(wid)
+      : windowMonitorService.getLastSelectedText();
+    const pendingKickoff = windowMonitorService.consumePendingKickoffForDocument(documentPath);
+    const pendingNavigate = windowMonitorService.consumePendingNavigateSession();
     let displayName: string | null = null;
-    let selectedTextOut: string | undefined;
     if (documentPath.startsWith('gdocs://')) {
       displayName = windowMonitorService.getGoogleDocsTitle();
-      const sel = windowMonitorService.getGoogleDocsSelectedText();
-      if (sel) selectedTextOut = sel;
     }
     return {
       isInWorkspace: true,
@@ -136,70 +149,26 @@ export function buildWordPollResponseV2(
       shouldShowPopupV2,
       shouldShowReviewButton: false,
       hasSelectedText: false,
-      selectedText: selectedTextOut,
+      selectedText: selectedTextContent ?? undefined,
       isDockedActive,
+      ...(pendingKickoff
+        ? {
+            pendingKickoffId: pendingKickoff.kickoffId,
+            ...(pendingKickoff.prompt !== null
+              ? { pendingKickoffPrompt: pendingKickoff.prompt }
+              : {}),
+          }
+        : {}),
+      ...(pendingNavigate
+        ? {
+            pendingNavigateSessionId: pendingNavigate.sessionId,
+            pendingNavigateNonce: pendingNavigate.nonce,
+          }
+        : {}),
     };
   }
 
-  // Check if the document is within any active cobuilding workspace directory
-  const matchedWorkspaceDir = activeWorkspaceDirs.find(dir => documentPath.startsWith(dir + '/'));
-  if (activeWorkspaceDirs.length > 0) {
-    if (matchedWorkspaceDir) {
-      const sessions = windowMonitorService.getWorkspaceSessions(documentPath);
-      const selectedTextContent = wid
-        ? windowMonitorService.getSelectedTextContent(wid)
-        : windowMonitorService.getLastSelectedText();
-      // Consume any pending kickoff prompt set by the desktop side; included
-      // exactly once so the popup can start a chat with this text pre-sent.
-      const pendingKickoff = windowMonitorService.consumePendingKickoffForDocument(documentPath);
-      const pendingNavigate = windowMonitorService.consumePendingNavigateSession();
-      return {
-        isInWorkspace: true,
-        workspaceSessions: sessions,
-        notificationCount: 0,
-        isActive: true,
-        recentReviewNotifications: [],
-        isReviewingSelectedText: false,
-        activeDocumentPath: documentPath,
-        activeDocumentFileId: fileId,
-        shouldShowButtonV2,
-        shouldShowPopupV2,
-        shouldShowReviewButton: false,
-        hasSelectedText: false,
-        selectedText: selectedTextContent ?? undefined,
-        isDockedActive,
-        ...(pendingKickoff
-          ? {
-              pendingKickoffId: pendingKickoff.kickoffId,
-              ...(pendingKickoff.prompt !== null
-                ? { pendingKickoffPrompt: pendingKickoff.prompt }
-                : {}),
-            }
-          : {}),
-        ...(pendingNavigate
-          ? {
-              pendingNavigateSessionId: pendingNavigate.sessionId,
-              pendingNavigateNonce: pendingNavigate.nonce,
-            }
-          : {}),
-      };
-    }
-    // Cobuilding mode: document is outside the workspace — hide overlay entirely
-    return {
-      notificationCount: 0,
-      isActive: false,
-      recentReviewNotifications: [],
-      isReviewingSelectedText: false,
-      activeDocumentPath: documentPath,
-      shouldShowButtonV2: false,
-      shouldShowPopupV2: false,
-      shouldShowReviewButton: false,
-      hasSelectedText: false,
-      isDockedActive: false,
-    };
-  }
-
-  // Document exists but is outside any workspace — hide overlay.
+  // Document is outside the workspace — hide overlay.
   return {
     notificationCount: 0,
     isActive: false,
