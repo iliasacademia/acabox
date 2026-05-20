@@ -47,11 +47,17 @@ import type { Workspace, WorkspaceDirectory } from '../shared/types';
 import { initFullStory, identifyUser, trackEvent } from './utils/fullstory';
 import { initSentryRenderer } from './sentry';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { initAnalytics as initCoScientistAnalytics } from './coscientistAnalytics';
 import './App.css';
 
 // Initialize Sentry before any other code runs so unhandled errors during
 // React tree construction are captured. No-op when SENTRY_DSN is empty.
 initSentryRenderer();
+
+// Bootstrap CoScientist analytics — fetches telemetry context from main
+// and subscribes to auth-state changes. Fire-and-forget; track() calls
+// before init resolves are no-ops, which is correct (we're pre-login anyway).
+initCoScientistAnalytics();
 
 /** Listens for quick-chat:inject IPC and creates a new thread with the message + context. */
 function QuickChatInjector({ onSwitchToChat }: { onSwitchToChat: () => void }) {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
 import { resolveWorkspacePath } from '../utils/resolveWorkspacePath';
+import { pushPendingAttribution } from '../coscientistAnalytics';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 import {
   ArrowUpRightIcon,
@@ -169,6 +170,7 @@ export function HomePage({
     if (parsed.type === 'suggested_action') {
       sendChatPrompt(parsed.data.chat_prompt);
     } else if (parsed.type === 'suggested_tool') {
+      pushPendingAttribution(parsed.briefing.id);
       sendChatPrompt(
         `Please build the following mini-app for me:\n\n${parsed.data.details_on_what_to_build}`,
       );

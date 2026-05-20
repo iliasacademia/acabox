@@ -786,5 +786,17 @@ declare global {
     academiaAPI: {
       fetch(method: string, endpoint: string, data?: unknown): Promise<unknown>;
     };
+    toolAnalyticsAPI: {
+      opened(dirName: string): Promise<{
+        tool_id: string;
+        open_count_so_far: number;
+        days_since_created: number;
+      } | null>;
+      setThreadAttribution(
+        threadId: string,
+        attribution: { source: 'suggestion'; briefing_id: string },
+      ): Promise<void>;
+      setThreadCreationPrompt(threadId: string, prompt: string): Promise<void>;
+    };
   }
 }

@@ -671,6 +671,33 @@ contextBridge.exposeInMainWorld('academiaAPI', {
     ipcRenderer.invoke('academia:fetch', { method, endpoint, data }),
 });
 
+contextBridge.exposeInMainWorld('telemetryAPI', {
+  getContext: () => ipcRenderer.invoke('telemetry:getContext'),
+  subscribeAuthState: () => ipcRenderer.invoke('telemetry:subscribe-auth-state'),
+  track: (eventName: string, metadata: Record<string, unknown>, surface?: string) =>
+    ipcRenderer.invoke('telemetry:track', { event_name: eventName, metadata, surface }),
+  onAuthStateChanged: (cb: (authenticated: boolean) => void) => {
+    const handler = (_event: unknown, value: boolean) => cb(value);
+    ipcRenderer.on('telemetry:auth-state-changed', handler);
+    return () => ipcRenderer.removeListener('telemetry:auth-state-changed', handler);
+  },
+});
+
+contextBridge.exposeInMainWorld('toolAnalyticsAPI', {
+  opened: (dirName: string) =>
+    ipcRenderer.invoke('tool:opened', dirName) as Promise<{
+      tool_id: string;
+      open_count_so_far: number;
+      days_since_created: number;
+    } | null>,
+  setThreadAttribution: (
+    threadId: string,
+    attribution: { source: 'suggestion'; briefing_id: string },
+  ) => ipcRenderer.invoke('tool:setThreadAttribution', threadId, attribution),
+  setThreadCreationPrompt: (threadId: string, prompt: string) =>
+    ipcRenderer.invoke('tool:setThreadCreationPrompt', threadId, prompt),
+});
+
 contextBridge.exposeInMainWorld('nativeToolsAPI', {
   getUrl: (toolId: string) => ipcRenderer.invoke('nativeTools:getUrl', toolId),
 });

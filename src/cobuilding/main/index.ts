@@ -101,6 +101,14 @@ import { validateExternalUrl } from '../../utils/urlValidation';
 import { ACADEMIA_DIR, AGENT_MEMORY_SUBDIR, REFERENCES_SUBDIR, REFERENCES_INDEX } from '../shared/paths';
 import { initSentryMain } from './sentry';
 import { captureError } from '../shared/telemetry';
+import {
+  initAnalytics,
+  markAuthenticated as markAnalyticsAuthenticated,
+  registerAnalyticsIpc,
+  startHeartbeat as startAnalyticsHeartbeat,
+  setAuthenticated as setAnalyticsAuthenticated,
+  track as trackAnalyticsEvent,
+} from './coscientistAnalytics';
 const isSmokeTest = process.argv.includes('--smoke-test');
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
@@ -223,8 +231,9 @@ app.setName('Academia Coscientist');
 app.setPath('userData', path.join(app.getPath('appData'), 'academia-electron', app.isPackaged ? 'production' : 'development'));
 
 // Initialize Sentry after userData path is set so native minidumps land in the right directory.
-// No-op if SENTRY_DSN is empty (e.g. local dev without DSN configured).
-initSentryMain();
+// Passing the installation_id puts a stable identity on Sentry's scope so "Users" counts
+// are non-zero on every issue. No-op if SENTRY_DSN is empty (e.g. local dev without DSN).
+initSentryMain(getDeviceId());
 
 // Electron-level process-gone events. These cover renderer / utility / GPU processes —
 // not Podman or the kernel gateway, which are tracked separately at their spawn sites.
@@ -599,6 +608,11 @@ app.whenReady().then(async () => {
   if (process.platform === 'darwin') {
     systemPreferences.setUserDefault('NSNavPanelExpandedStateForSaveMode2', 'boolean', true as any);
   }
+
+  // track() is a no-op until markAnalyticsAuthenticated() runs in the auth flow.
+  initAnalytics();
+  registerAnalyticsIpc();
+  startAnalyticsHeartbeat();
 
   await ensureClaudeBinaryReady();
 
@@ -1863,6 +1877,187 @@ ipcMain.handle('sessions:findForApp', async (_event, dirName: string) => {
   return sessionId;
 });
 
+// Per-thread attribution and creation_prompt slots. Indexed by chat thread_id
+// (== sessionId in this codebase, see chat:send). Populated by the renderer:
+//   - tool:setThreadAttribution at the brand-new-thread first send if a
+//     Build-it click pushed an attribution onto the renderer-side queue.
+//   - tool:setThreadCreationPrompt when chatAdapter detects manage_mini_app.mjs
+//     in the agent's tool-call args, with the user message that triggered it.
+// Consumed by tool:opened when creation_pending=true: it resolves the tool's
+// creating thread via manifest.chatSessionId (using findSessionForApp as a
+// fallback if the manifest doesn't have it yet) and looks up both maps by
+// that id. Per-thread keying is what makes concurrent background builds work
+// — each thread carries its own attribution.
+//
+// 30-min freshness window covers the click → chat → agent → manifest →
+// user-opens-tool path. Stale entries are dropped lazily on read.
+const PENDING_TIMEOUT_MS = 30 * 60 * 1000;
+type CreationSource = 'chat' | 'suggestion';
+interface ThreadAttribution {
+  source: 'suggestion';
+  briefing_id: string;
+  set_at: number;
+}
+interface ThreadPrompt {
+  prompt: string;
+  set_at: number;
+}
+const attributionByThread = new Map<string, ThreadAttribution>();
+const promptByThread = new Map<string, ThreadPrompt>();
+
+function takeFresh<T extends { set_at: number }>(
+  map: Map<string, T>,
+  key: string,
+): T | null {
+  const entry = map.get(key);
+  if (!entry) return null;
+  map.delete(key);
+  return Date.now() - entry.set_at <= PENDING_TIMEOUT_MS ? entry : null;
+}
+
+ipcMain.handle(
+  'tool:setThreadAttribution',
+  (_event, threadId: string, attribution: { source: 'suggestion'; briefing_id: string }) => {
+    if (typeof threadId !== 'string' || !threadId) return;
+    if (attribution?.source !== 'suggestion' || typeof attribution.briefing_id !== 'string') {
+      log.warn('[tool:setThreadAttribution] ignoring invalid attribution', attribution);
+      return;
+    }
+    attributionByThread.set(threadId, {
+      source: 'suggestion',
+      briefing_id: attribution.briefing_id,
+      set_at: Date.now(),
+    });
+  },
+);
+
+const MAX_PROMPT_BYTES = 16 * 1024;
+ipcMain.handle('tool:setThreadCreationPrompt', (_event, threadId: string, prompt: string) => {
+  if (typeof threadId !== 'string' || !threadId) return;
+  if (typeof prompt !== 'string' || prompt.length === 0) return;
+  // truncatePayload in analytics trims further if the envelope is still
+  // over budget after wrapping. NOTE: slice() counts UTF-16 code units, not
+  // bytes — multi-byte chars may yield a slightly larger byte length, but
+  // the downstream truncator handles the final 5KB cap.
+  const trimmed =
+    Buffer.byteLength(prompt, 'utf8') > MAX_PROMPT_BYTES
+      ? prompt.slice(0, MAX_PROMPT_BYTES)
+      : prompt;
+  promptByThread.set(threadId, { prompt: trimmed, set_at: Date.now() });
+});
+
+// Fires tool.created exactly once per tool (gated on the creation_pending
+// flag that manage_mini_app.mjs writes at scaffold time) and tool.opened on
+// every open. The flag — not "manifest lacks tool_id" — is the positive
+// creation signal; the latter conflates fresh tools with tools predating
+// instrumentation, which produced spurious tool.created events for old tools
+// on their first post-upgrade open. Pre-existing tools now get a lazy-minted
+// tool_id silently, no tool.created fired.
+//
+// Attribution is keyed by the creating chat thread_id: tool:opened resolves
+// the tool's chatSessionId (== thread_id) by reading the manifest, falling
+// back to findSessionForApp (which searches messages for the dirName) if
+// the link hasn't been written yet. attributionByThread/promptByThread are
+// looked up by that id and consumed.
+ipcMain.handle('tool:opened', async (_event, dirName: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
+  if (!activeWorkspace || !dirName) return null;
+  if (dirName.includes('/') || dirName.includes('\\') || dirName.startsWith('.')) return null;
+  if (!workspaceController.workspacePath) return null;
+
+  const manifestPath = path.join(workspaceController.workspacePath, '.applications', dirName, 'manifest.json');
+
+  let manifest: Record<string, unknown> = {};
+  try {
+    const raw = await fsPromises.readFile(manifestPath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') manifest = parsed as Record<string, unknown>;
+  } catch {
+    // Missing or unreadable — treat as a fresh tool and mint everything.
+  }
+
+  const existingToolId = typeof manifest.tool_id === 'string' ? manifest.tool_id : null;
+  const tool_id = existingToolId ?? randomUUID();
+  if (!existingToolId) manifest.tool_id = tool_id;
+
+  // Strip creation_pending synchronously so a race-y second open can't double-fire.
+  const creationPending = manifest.creation_pending === true;
+  if (creationPending) delete manifest.creation_pending;
+
+  const existingCreatedAt = typeof manifest.created_at === 'string' ? manifest.created_at : null;
+  const createdAtMs = existingCreatedAt ? new Date(existingCreatedAt).getTime() : Date.now();
+  if (!existingCreatedAt) manifest.created_at = new Date(createdAtMs).toISOString();
+
+  const priorOpenCount = typeof manifest.open_count === 'number' ? manifest.open_count : 0;
+  const openCountSoFar = priorOpenCount + 1;
+  manifest.open_count = openCountSoFar;
+
+  // Resolve chatSessionId for attribution lookup. Prefer manifest, fall back
+  // to findSessionForApp (matches assistant open_mini_application messages or
+  // synthetic user "connected to the application" markers). Persist the
+  // resolved id back to the manifest so future opens skip the search.
+  let chatSessionId = typeof manifest.chatSessionId === 'string' ? manifest.chatSessionId : null;
+  if (!chatSessionId) {
+    const found = findSessionForApp(activeWorkspace.id, dirName);
+    if (found) {
+      chatSessionId = found;
+      manifest.chatSessionId = found;
+    }
+  }
+
+  // If the write fails, mint/flag/counter mutations don't persist; emitting
+  // analytics anyway would mean the next open re-fires tool.created with a
+  // fresh UUID, duplicating the event.
+  try {
+    await fsPromises.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+  } catch (err) {
+    log.warn('[tool:opened] Failed to write manifest, suppressing analytics:', err);
+    return null;
+  }
+
+  const daysSinceCreated = Math.max(
+    0,
+    Math.floor((Date.now() - createdAtMs) / (1000 * 60 * 60 * 24)),
+  );
+
+  if (creationPending) {
+    const attribution = chatSessionId ? takeFresh(attributionByThread, chatSessionId) : null;
+    const promptEntry = chatSessionId ? takeFresh(promptByThread, chatSessionId) : null;
+
+    const toolType = manifest.preBuilt === true
+      ? 'prebuilt'
+      : (typeof manifest.tool_type === 'string' ? manifest.tool_type : 'user');
+
+    const creationSource: CreationSource = attribution?.source ?? 'chat';
+    const sourceBriefingId = attribution?.briefing_id;
+    const creationPrompt = promptEntry?.prompt ?? '';
+
+    trackAnalyticsEvent({
+      name: 'tool.created',
+      metadata: {
+        tool_id,
+        creation_source: creationSource,
+        ...(sourceBriefingId ? { source_briefing_id: sourceBriefingId } : {}),
+        name: typeof manifest.name === 'string' ? manifest.name : '',
+        description: typeof manifest.description === 'string' ? manifest.description : '',
+        creation_prompt: creationPrompt,
+        tool_type: toolType,
+      },
+    });
+  }
+
+  trackAnalyticsEvent({
+    name: 'tool.opened',
+    metadata: {
+      tool_id,
+      days_since_created: daysSinceCreated,
+      open_count_so_far: openCountSoFar,
+    },
+  });
+
+  return { tool_id, open_count_so_far: openCountSoFar, days_since_created: daysSinceCreated };
+});
+
 async function generateSessionTitle(sessionId: string, firstMessage: string): Promise<void> {
   try {
     const { apiKey, baseURL } = getCredentials();
@@ -2375,6 +2570,7 @@ ipcMain.handle('auth:checkLogin', async () => {
     };
     if (!loggedIn) return { loggedIn: false, appInfo };
     const user = await getCurrentUser().catch(() => null);
+    markAnalyticsAuthenticated();
     return { loggedIn: true, user, appInfo };
   } catch (error) {
     log.error('[Auth] checkLogin error:', error);
@@ -2409,6 +2605,7 @@ ipcMain.handle('auth:verifyQRCode', async (_event, deviceId: string, code: strin
     if (result.authorized) {
       await fetchGatewayCredentials(getApiProvider() === 'cloudflare')
         .catch((err) => log.warn('[Auth] fetchGatewayCredentials after verify error:', err));
+      markAnalyticsAuthenticated();
     }
     return { success: true, authorized: result.authorized, userId: result.user_id };
   } catch (error: any) {
@@ -2473,6 +2670,7 @@ ipcMain.handle('auth:logout', async () => {
     getTaskScheduler()?.stop();
     workspaceController.deactivateAll();
     destroyTokenManager();
+    setAnalyticsAuthenticated(false);
     const result = await logout();
     return result;
   } catch (error: any) {

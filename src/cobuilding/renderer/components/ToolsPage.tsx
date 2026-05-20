@@ -3,6 +3,7 @@ import * as LucideIcons from 'lucide-react';
 import { LayoutGridIcon, UploadIcon, ChevronRightIcon, PlayIcon, TrashIcon, SparklesIcon, ArrowRightIcon, FileTextIcon, FolderOpenIcon, XIcon } from 'lucide-react';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
+import { pushPendingAttribution, clearPendingAttribution } from '../coscientistAnalytics';
 
 type ToolsPageMiniApp = MiniAppEntry;
 
@@ -167,6 +168,10 @@ export function ToolsPage({
     if (!text) return;
     setShowCreateModal(false);
     setCreateToolText('');
+    // Explicit user-initiated chat creation. Drain any stale suggestion
+    // attribution (e.g. a Build-it click that never produced a tool) so it
+    // can't leak onto this chat.
+    clearPendingAttribution();
     assistantRuntime.switchToNewThread();
     setTimeout(() => {
       composerRuntime.setText(`Create a tool for me that does the following:\n\n${text}`);
@@ -193,6 +198,11 @@ export function ToolsPage({
 
   const handleBuildSuggested = useCallback((briefing: Briefing) => {
     const data: BriefingDataSuggestedTool = JSON.parse(briefing.briefing_data);
+    // Mark the next brand-new chat thread as suggestion-sourced. chatAdapter
+    // consumes the queue on the new thread's first send, binds the attribution
+    // to that thread_id, and sends it to main. tool:opened then looks up
+    // attribution by manifest.chatSessionId.
+    pushPendingAttribution(briefing.id);
     assistantRuntime.switchToNewThread();
     setTimeout(() => {
       composerRuntime.setText(`Build me a tool called "${data.name}". ${data.details_on_what_to_build}`);
