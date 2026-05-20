@@ -234,8 +234,8 @@ export async function generateDriveDirectoryTree(
   const pathIndex: PathIndex = {};
 
   if (mimeType && mimeType !== FOLDER_MIME) {
-    const tree = folderName;
-    log.info(`[GoogleDrive] Non-folder item: ${folderName}`);
+    const tree = `${folderName} (id:${folderId})`;
+    log.info(`[GoogleDrive] Non-folder item: ${folderName} (id:${folderId})`);
     return { tree, pathIndex };
   }
 

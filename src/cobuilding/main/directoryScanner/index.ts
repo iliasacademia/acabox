@@ -58,6 +58,7 @@ export async function scanWorkspaceDirectory(
     for (const dd of driveDirectories) {
       try {
         const { tree } = await generateDriveDirectoryTree(dd.driveId, dd.name, params.workspaceId, dd.mimeType);
+        log.info(`[DirectoryScanner] Drive tree for "${dd.name}":\n${tree}`);
         treeOutputs.push({ directoryPath: dd.name, tree, source: 'google-drive' });
       } catch (err) {
         log.error(`[DirectoryScanner] Failed to generate Drive tree for ${dd.name}:`, err);
@@ -140,6 +141,7 @@ export async function runInDepthScan(params: ScanParams): Promise<NotificationOu
     for (const dd of params.driveDirectories) {
       try {
         const { tree } = await generateDriveDirectoryTree(dd.driveId, dd.name, params.workspaceId, dd.mimeType);
+        log.info(`[DirectoryScanner] Drive tree for "${dd.name}":\n${tree}`);
         treeOutputs.push({ directoryPath: dd.name, tree, source: 'google-drive' });
       } catch (err) {
         log.error(`[DirectoryScanner] Failed to generate Drive tree for ${dd.name}:`, err);
