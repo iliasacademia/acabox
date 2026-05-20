@@ -96,7 +96,11 @@ The directory tree includes modification dates for each file. Use these to under
 
 ## Google Drive directories
 
-Some directory trees may be labeled "(Google Drive)". These are cloud-hosted files — they are NOT on the local filesystem. **Do not attempt to Read, Glob, or Grep files from Google Drive trees.** Use only the file names, types, and folder structure from the tree output to understand the researcher's cloud-hosted work. Access to these files will fail.
+Some directory trees may be labeled "(Google Drive)". These are cloud-hosted files — they are NOT on the local filesystem. **Do not attempt to Read, Glob, or Grep files from Google Drive trees.** Those tools only work on local files.
+
+However, you **CAN read Google Drive documents** using \`mcp__document-reader__read_document\` with the \`drive_file_id\` parameter. Pass the file ID shown in the tree (e.g. for \`paper.pdf (id:abc123)\`, use \`drive_file_id: "abc123"\`). Only Google Docs, .pdf, and .docx files can be read this way — other file types will return an error.
+
+Be selective — downloading files from Google Drive is slower than reading local files, so only read the most relevant documents based on their names and location in the tree.
 `;
 
 export const SCAN_SPEED_PREAMBLE = `## Speed is critical — this is your #1 priority
@@ -181,6 +185,7 @@ export async function consumeAgentStream<T>(
 export function buildCommonQueryOptions(ctx: ScanContext) {
   const { claudeBinaryPath, directoryPaths, apiKey, baseURL, abortController } =
     ctx;
+  const hasDriveItems = ctx.treeOutputs.some(t => t.source === 'google-drive');
   const docReaderTool = "mcp__document-reader__read_document";
   return {
     abortController,
@@ -194,7 +199,7 @@ export function buildCommonQueryOptions(ctx: ScanContext) {
       ...(baseURL ? { ANTHROPIC_BASE_URL: baseURL } : {}),
     },
     mcpServers: {
-      "document-reader": createDocumentReaderMcpServer(directoryPaths),
+      "document-reader": createDocumentReaderMcpServer(directoryPaths, hasDriveItems),
     },
     persistSession: false as const,
     thinking: { type: "disabled" as const },
