@@ -203,14 +203,12 @@ describe('isActiveSessionStaleForDoc', () => {
     expect(isActiveSessionStaleForDoc(null, [session('A1', '2026-05-07T12:00:00Z')])).toBe(false);
   });
 
-  it('does NOT flag when workspaceSessions is empty (could be brand-new doc OR pre-pollData)', () => {
-    // Critical: an empty list might mean the doc has no sessions yet,
-    // OR it might mean pollData hasn't populated yet. Clearing in
-    // either case would either prevent legitimate cold-start auto-open
-    // (former) or destroy the active session during a connect race
-    // (latter). Returning false here defers the decision to a later
-    // tick when we have real data.
-    expect(isActiveSessionStaleForDoc('A1', [])).toBe(false);
+  it('flags stale when workspaceSessions is empty (server confirmed no sessions for this doc)', () => {
+    // An empty list from pollData is authoritative: the server checked
+    // the DB and found no sessions for this document in this workspace.
+    // The caller excludes locally-created sessions via localSessionIdRef,
+    // so any other active session absent from an empty list is stale.
+    expect(isActiveSessionStaleForDoc('A1', [])).toBe(true);
   });
 
   it('flags a locally-created session as stale when other sessions exist (raw function behavior)', () => {

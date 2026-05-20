@@ -133,7 +133,7 @@ export const googleDocsHostApp: HostApp = {
     let prefix = '';
     if (documentPath) prefix += `Active Google Doc: ${documentPath}\n`;
     if (selectedText) {
-      prefix += `The user has selected the following text in the doc. Act ONLY on this selected text, not the entire doc.\n"""\n${selectedText}\n"""\n`;
+      prefix += `The user has selected the following text in the doc. Their request applies ONLY to this selected passage — do NOT read or edit the full document. Propose edits targeting sentences within this selection.\n"""\n${selectedText}\n"""\n`;
     }
     return prefix;
   },
