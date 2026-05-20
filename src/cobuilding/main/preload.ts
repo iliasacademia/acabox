@@ -50,6 +50,7 @@ contextBridge.exposeInMainWorld('workspacesAPI', {
   listDirectories: () => ipcRenderer.invoke('workspaces:listDirectories'),
   addDirectory: (directoryPath: string) => ipcRenderer.invoke('workspaces:addDirectory', directoryPath),
   removeDirectory: (directoryId: string) => ipcRenderer.invoke('workspaces:removeDirectory', directoryId),
+  updateDirectoryPermission: (directoryId: string, readOnly: boolean) => ipcRenderer.invoke('workspaces:updateDirectoryPermission', directoryId, readOnly),
 });
 
 contextBridge.exposeInMainWorld('filesAPI', {
