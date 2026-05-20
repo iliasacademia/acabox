@@ -490,7 +490,7 @@ const migrations = [
     `,
   },
   {
-    version: 27,
+    version: 30,
     sql: `ALTER TABLE workspace_directories ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0;`,
   },
 ];
