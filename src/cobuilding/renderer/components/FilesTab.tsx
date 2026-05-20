@@ -76,6 +76,9 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, ha
   const [creatingIn, setCreatingIn] = useState<{ dirPath: string; type: 'file' | 'folder' } | null>(null);
   const [fileTagMap, setFileTagMap] = useState<Map<string, FileTagType>>(new Map());
   const [driveRefreshing, setDriveRefreshing] = useState(false);
+  const [driveTree, setDriveTree] = useState<string | null>(null);
+  const [driveTreeLoading, setDriveTreeLoading] = useState(false);
+  const [driveExpanded, setDriveExpanded] = useState(true);
 
   const resolveRelPath = useCallback((filePath: string): string => {
     if (filePath.startsWith(workspacePath + '/')) return filePath.slice(workspacePath.length + 1);
@@ -195,15 +198,32 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, ha
     setRefreshKey((k) => k + 1);
   }, [loadRoot]);
 
+  const loadDriveTree = useCallback(async () => {
+    setDriveTreeLoading(true);
+    try {
+      const result = await (window as any).googleDriveAPI.getContextualTree();
+      if (result?.success && result.data) {
+        setDriveTree(result.data);
+      }
+    } finally {
+      setDriveTreeLoading(false);
+    }
+  }, []);
+
   const refreshDriveTree = useCallback(async () => {
     setDriveRefreshing(true);
     try {
-      await (window as any).googleDriveAPI.refreshTree();
-      setRefreshKey((k) => k + 1);
+      await loadDriveTree();
     } finally {
       setDriveRefreshing(false);
     }
-  }, []);
+  }, [loadDriveTree]);
+
+  useEffect(() => {
+    if (hasDriveFolders && !driveTree && !driveTreeLoading) {
+      loadDriveTree();
+    }
+  }, [hasDriveFolders, driveTree, driveTreeLoading, loadDriveTree]);
 
   // Auto-refresh when files change on disk (e.g., created by container commands)
   useEffect(() => {
@@ -550,38 +570,40 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, ha
           />
         ))}
         {hasDriveFolders && (
-          <FileTreeNode
-            key="gdrive-root"
-            node={{
-              name: 'Google Drive',
-              path: 'gdrive://root',
-              isDirectory: true,
-              children: [],
-              driveFileId: 'root',
-              driveMimeType: 'application/vnd.google-apps.folder',
-            }}
-            depth={0}
-            workspacePath="gdrive://root"
-            fileTagMap={fileTagMap}
-            onSelectFile={onSelectFile}
-            loadChildren={loadChildren}
-            onDropOnDir={handleDropOnDir}
-            onDragOverDir={handleDragOverDir}
-            onDragLeaveDir={handleDragLeaveDir}
-            dropTargetPath={dropTargetPath}
-            refreshKey={refreshKey}
-            onContextMenu={handleContextMenu}
-            renamingPath={renamingPath}
-            onRenameCommit={handleRenameCommit}
-            onRenameCancel={handleRenameCancel}
-            onRenameRequest={handleRenameNodePath}
-            onDeleteRequest={handleDeleteNodePath}
-            creatingIn={creatingIn}
-            onCreateCommit={handleCreateCommit}
-            onCreateCancel={handleCreateCancel}
-            onRefreshDrive={refreshDriveTree}
-            driveRefreshing={driveRefreshing}
-          />
+          <div className="filesTabDriveSection">
+            <div
+              className="fileTreeRow fileTreeRow--root"
+              onClick={() => setDriveExpanded(v => !v)}
+            >
+              <ChevronRightIcon
+                className={`fileTreeChevron ${driveExpanded ? 'fileTreeChevron--open' : ''}`}
+              />
+              <span className="filesTabDriveIcon">☁️</span>
+              <span className="fileTreeName fileTreeName--root">Google Drive</span>
+              <div className="fileTreeRowActions">
+                <button
+                  className={`fileTreeRefresh ${driveRefreshing ? 'fileTreeRowAction--spinning' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    refreshDriveTree();
+                  }}
+                  title="Refresh Google Drive"
+                >
+                  <RefreshCwIcon style={{ width: 14, height: 14 }} />
+                </button>
+              </div>
+            </div>
+            {driveExpanded && (
+              <div className="filesTabDriveTree">
+                {driveTreeLoading && !driveTree && (
+                  <div className="filesTabDriveLoading">Loading Drive tree...</div>
+                )}
+                {driveTree && (
+                  <pre className="filesTabDriveTreePre">{driveTree}</pre>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
       {copyProgress && (

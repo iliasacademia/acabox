@@ -286,6 +286,7 @@ contextBridge.exposeInMainWorld('googleDriveAPI', {
   getCacheDirectories: () => ipcRenderer.invoke('googleDrive:getCacheDirectories'),
   listChildren: (parentId: string) => ipcRenderer.invoke('googleDrive:listChildren', parentId),
   listCacheEntries: () => ipcRenderer.invoke('googleDrive:listCacheEntries'),
+  getContextualTree: () => ipcRenderer.invoke('googleDrive:getContextualTree'),
   refreshTree: () => ipcRenderer.invoke('googleDrive:refreshTree'),
   resetCache: () => ipcRenderer.invoke('googleDrive:resetCache'),
   openInBrowser: (fileId: string, mimeType: string) => {

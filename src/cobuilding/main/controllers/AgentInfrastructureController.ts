@@ -451,6 +451,7 @@ export class AgentInfrastructureController {
         'mcp__citeright__list_citation_reports',
         'mcp__zotero__status', 'mcp__zotero__search_library',
         'mcp__zotero__get_item', 'mcp__zotero__add_doi',
+        'mcp__google-drive__get_drive_tree',
         'mcp__google-drive__list_files', 'mcp__google-drive__search_files',
         'mcp__google-drive__get_file_metadata', 'mcp__google-drive__download_file',
         'mcp__grants__save_user_context', 'mcp__grants__create_project',

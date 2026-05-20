@@ -10,7 +10,7 @@ import {
   hasCredentials as googleDocsHasCredentials,
   hasDriveScope as googleDocsHasDriveScope,
 } from '../googleDocsService';
-import { listFiles as driveListFiles, generateDriveDirectoryTree } from '../googleDriveService';
+import { listFiles as driveListFiles, generateDriveDirectoryTree, generateContextualDriveTree } from '../googleDriveService';
 import {
   listWorkspaceDirectoriesBySource,
   removeWorkspaceDirectoriesBySource,
@@ -177,6 +177,27 @@ export class GoogleDriveController {
         return db.prepare('SELECT * FROM google_drive_cache WHERE workspace_id = ? ORDER BY relative_path').all(wsId);
       } catch {
         return [];
+      }
+    });
+
+    ipcMain.handle('googleDrive:getContextualTree', async () => {
+      try {
+        const wsId = this.workspaceController.workspaceId;
+        if (!wsId) return { success: false, error: 'No active workspace' };
+        const dirs = listWorkspaceDirectoriesBySource(wsId, 'google-drive');
+        if (dirs.length === 0) return { success: true, data: null };
+        const items = dirs.map(d => {
+          const meta = d.metadata ? JSON.parse(d.metadata) : {};
+          return {
+            driveId: (meta.driveId as string) ?? d.directory_path.replace('gdrive://', ''),
+            name: d.display_name,
+            mimeType: (meta.mimeType as string) ?? FOLDER_MIME,
+          };
+        }).filter(d => d.driveId);
+        const tree = await generateContextualDriveTree(items);
+        return { success: true, data: tree };
+      } catch (err: any) {
+        return { success: false, error: err?.message ?? String(err) };
       }
     });
 
