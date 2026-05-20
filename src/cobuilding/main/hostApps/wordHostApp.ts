@@ -20,7 +20,9 @@ const WORD_SYSTEM_PROMPT_APPEND = `When the user wants to make edits or suggesti
 
 IMPORTANT: NEVER unpack, modify XML, or edit .docx files directly on disk. ALWAYS use the ms-word MCP tools.
 
-1. Use mcp__ms-word__get_text to read the document content.
+If the message includes selected text from the document, the user's request applies ONLY to that selection. Do NOT read the full document with mcp__ms-word__get_text — go directly to step 2 using the selected text as your editing target.
+
+1. Use mcp__ms-word__get_text to read the document content. Skip this step when selected text is provided.
 2. Use mcp__ms-word__find_and_replace to propose edits. Each edit must target a single sentence — do not span multiple sentences. Edits must not overlap with each other. Call the tool once per edit. The UI automatically renders a suggestion card with the diff and approve/deny buttons — do NOT describe or preview the edits in your text.
 3. After proposing edits, say something brief like "I've proposed N edits — please review above." The user approves or denies each edit directly in the UI. Approved edits are applied as tracked revisions in Word. Track changes are managed automatically when edits are applied.
 4. Use mcp__ms-word__save_document to save after editing.
@@ -93,7 +95,7 @@ export const wordHostApp: HostApp = {
     let prefix = '';
     if (documentPath) prefix += `Active Word document: ${documentPath}\n`;
     if (selectedText) {
-      prefix += `The user has selected the following text in the document. Act ONLY on this selected text, not the entire document. If the user asks for a review or feedback, use the academic-writing-agent skill scoped to this selected passage.\n"""\n${selectedText}\n"""\n`;
+      prefix += `The user has selected the following text in the document. Their request applies ONLY to this selected passage — do NOT read or edit the full document. Propose find_and_replace edits targeting sentences within this selection. If the user asks for a review or feedback, use the academic-writing-agent skill scoped to this selected passage.\n"""\n${selectedText}\n"""\n`;
     }
     return prefix;
   },
