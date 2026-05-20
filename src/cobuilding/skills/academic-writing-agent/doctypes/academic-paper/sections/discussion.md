@@ -14,4 +14,4 @@
 
 6. **Broad-to-narrow-to-broad structure.** Open by contextualizing the main finding, work through specific interpretations, then close with broader implications or future directions. Mirror the Introduction's funnel in reverse.
 
-<!-- skill-file: sections/discussion.md @2026-05-05a -->
+<!-- skill-file: doctypes/academic-paper/sections/discussion.md @2026-05-13a -->

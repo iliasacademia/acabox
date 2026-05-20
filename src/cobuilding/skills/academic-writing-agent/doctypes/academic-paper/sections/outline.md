@@ -1,6 +1,8 @@
-# Outline Section Conventions
+# Outline Maturity Overlay
 
-The user is working on a structural plan, not prose. Adjust all actions accordingly.
+Applied when the target section's maturity is Outline — bullets, headers, TODOs, no prose. Layer these conventions **on top of** whichever section file resolved from the doctype's section table. This is not a section — it is a how-to-treat-this-section flag, set in `<span class="maturity">` of the skill-trace.
+
+The overlay applies across all doctypes (academic paper, thesis, grant); the file lives here for historical reasons.
 
 ## Principles
 
@@ -16,4 +18,4 @@ The user is working on a structural plan, not prose. Adjust all actions accordin
 
 6. **When drafting from an outline:** Generate text that follows the bullet structure as a scaffold but produces real paragraph prose. Maintain the argument sequence the author planned.
 
-<!-- skill-file: sections/outline.md @2026-05-05a -->
+<!-- skill-file: doctypes/academic-paper/sections/outline.md @2026-05-19a -->

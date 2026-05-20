@@ -16,7 +16,7 @@ The user wants new text created. Signals: "write", "draft", "generate a paragrap
 
 ## Source Constraint
 
-Follow the base-layer source constraints (Tier 1/2/3). When drafting text that requires claims about prior work or the state of the field, route those claims through Cite for verification before including them. Mark any content sourced from outside the author's materials so the user knows its origin.
+Follow the base-layer source constraints (Tier 1/2/3 in `SKILL.md`). When drafting text that requires claims about prior work or the state of the field, route those claims through Cite for verification before including them.
 
 ## Output Format
 
@@ -38,47 +38,22 @@ If the drafted prose replaces an existing anchor in the document — a placehold
 ms-word tools are deferred — schemas must be loaded via `ToolSearch`:
 
 ```
-ToolSearch query: "select:mcp__ms-word__track_changes_status,mcp__ms-word__find_and_replace,mcp__ms-word__get_selection"
+ToolSearch query: "select:mcp__ms-word__find_and_replace,mcp__ms-word__get_selection"
 ```
 
 Then:
 
-1. **Verify Track Changes is enabled** with `mcp__ms-word__track_changes_status`. If disabled, stop and ask the user to enable it (Review tab → Track Changes) before retrying. Do not silently enable it.
+1. **Emit the chat HTML response** as commentary only — a brief note about scope, assumptions, and any `[PLACEHOLDER: ...]` markers in the draft. Do not restate the drafted prose. Run the pre-send check from `format.md` before emitting. The HTML must precede the `find_and_replace` call (see `format.md` "Turn shapes" and "HTML before a final tool call is allowed").
 
-2. **Emit the chat HTML response** as commentary only — a brief note about scope, assumptions, and any `[PLACEHOLDER: ...]` markers in the draft. Do not restate the drafted prose. This is the **only** text block in the assistant turn, and it must precede the `find_and_replace` call so the suggestion card renders below the chat bubble.
-
-   The text block must be **pure HTML end-to-end**: first character `<`, last character `>`, no prose outside HTML tags anywhere in the block. Run the pre-send check from `format.md`:
-   - First character is `<`? (no leading "Here's the draft" prose, no "I'll check the document state" pre-tool narration)
-   - Last character is `>`? (no trailing "Draft placed in the document", "Ready for review", or any meta-narration)
-   - Only one text block in the turn? (no separate narration block before the first tool call or after `find_and_replace`)
-
-   If you fail any of these, the chat bubble renders as raw text and the user sees every HTML tag literally. Anything you would have said outside the HTML belongs inside `<div class="summary">`.
-
-3. **Propose the insertion** with `mcp__ms-word__find_and_replace` as the final action of this turn:
+2. **Propose the insertion** with `mcp__ms-word__find_and_replace` as the final action of this turn:
    - `search_text`: the verbatim anchor text being replaced (placeholder, outline bullet, or selected passage).
    - `replacement_text`: the drafted prose.
    - `replace_scope`: `"first"`.
    - `match_case`: `true`.
-
-### Why HTML-before-tool-call
-
-The card renders at the position of its tool call in the message stream. Putting the HTML text block first and `find_and_replace` last means the user reads the framing, then sees the diff card directly underneath. Reversing the order forces them to scroll up after reviewing the diff. Do not regress to the old ordering.
-
-### No narration text blocks anywhere in the turn
-
-The intended turn shape (anchor mode):
-
-```
-[ToolSearch]
-[track_changes_status]
-[text block: <details>...</details><br><article>...</article>]
-[find_and_replace]
-```
-
-No text blocks before, between, or after the tool calls — only the HTML text block in the middle. Do not announce your plan ("I'll check the document state before drafting"); do not announce the result ("Draft placed in the document for review"). Both have been observed breaking chat rendering.
+   - Track Changes is handled inside `find_and_replace` automatically — the MCP enables Track Changes for the edit and restores the prior state after. The agent does not call any separate track-changes tools (`track_changes_status` and `set_track_changes` were removed from the MCP on 2026-05-11).
 
 ### Fallback: no anchor exists
 
 If there is no anchor (the user is asking for prose to be drafted in the chat for them to place themselves, or `find_and_replace` cannot be called), include the drafted prose as a `<blockquote source="assistant">` in the chat. Note in the chat that the draft was provided inline because no anchor was available to target a suggestion card.
 
-<!-- skill-file: actions/draft.md @2026-05-06c -->
+<!-- skill-file: actions/draft.md @2026-05-19a -->

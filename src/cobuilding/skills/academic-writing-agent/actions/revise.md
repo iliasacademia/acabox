@@ -29,59 +29,43 @@ The revision is delivered as a tracked-change suggestion card in the user's Word
 ms-word tools are deferred — schemas must be loaded via `ToolSearch` before calling. Run this once at the start:
 
 ```
-ToolSearch query: "select:mcp__ms-word__track_changes_status,mcp__ms-word__set_track_changes,mcp__ms-word__find_and_replace,mcp__ms-word__get_selection"
+ToolSearch query: "select:mcp__ms-word__find_and_replace,mcp__ms-word__get_selection,mcp__ms-word__get_text"
 ```
 
 Then, in this order:
 
-1. **Check Track Changes state.** Call `mcp__ms-word__track_changes_status`. The result has `enabled: true` or `enabled: false`.
+1. **Locate the verbatim original passage.** Try sources in priority order — stop at the first one that yields a non-empty string:
 
-2. **Enable Track Changes if it was off.** If `enabled: false`, call `mcp__ms-word__set_track_changes` with `{ enabled: true }`. This is part of the Revise workflow — the user invoked Revise, signalling intent to insert a suggestion. Track Changes must be on for the suggestion card to land as a tracked revision they can accept or reject.
+   - **Prompt-injected selection (primary, common case).** When the user has an active selection in Word, the host app prepends a preamble like `The user has selected the following text in the document. Act ONLY on this selected text...` followed by a triple-quoted block (`"""…"""`). The text inside that block IS the verbatim selection. Use it as `search_text` and **skip `get_selection` entirely** — calling `get_selection` while the chat panel has focus often returns the AppleScript sentinel `"missing value"` and produces a false negative. Do not modify the block — no whitespace fixes, no ligature replacement.
 
-3. **Read the selection.** Call `mcp__ms-word__get_selection` to capture the verbatim original passage.
+   - **`get_selection` (fallback).** If no prompt-injected selection is present, call `mcp__ms-word__get_selection`. Treat `selectedText === "missing value"` as empty — that's an AppleScript sentinel that leaks through when no text is highlighted. Otherwise use the returned string as `search_text`.
 
-4. **Emit the chat HTML response** per the Chat Output Format below. This is the **only** text block in the assistant turn — it must precede the `find_and_replace` call so the suggestion card renders BELOW the chat bubble in the visual stream. The user reads your one-sentence summary and bullet rationale first, then sees the diff card directly underneath.
+   - **`get_text` + named-target lookup (last resort).** If both above fail and the user named a specific target (a quoted phrase, "the second paragraph of the introduction"), call `mcp__ms-word__get_text` and locate the named passage inside the returned text. Use the located substring as `search_text`.
 
-   The text block must be **pure HTML end-to-end**: first character `<`, last character `>`, no prose outside HTML tags anywhere in the block. Before sending it, run the pre-send check from `format.md`:
-   - First character is `<`? (no leading "Here's the revision" prose)
-   - Last character is `>`? (no trailing "Suggestion card placed in the document", "Ready for accept/reject", "I'll skip the todo list", or any other meta-narration)
-   - This is the only text block in the turn? (no separate narration block before tool calls or after `find_and_replace`)
+2. **Emit the chat HTML response** per the Chat Output Format below. Run the pre-send check from `format.md` before emitting. The HTML must precede the `find_and_replace` call (see `format.md` "Turn shapes" and "HTML before a final tool call is allowed").
 
-   If you fail any of these, the chat bubble renders as raw text and the user sees `<details>`, `<span>`, `<article>`, etc. literally. Anything you'd want to say outside the HTML belongs inside `<div class="summary">`.
-
-5. **Propose the edit.** Call `mcp__ms-word__find_and_replace` as the final action of this turn:
-   - `search_text`: the verbatim selection — character-for-character, including line breaks, ligature artifacts (`eﬀect`, `diﬃcult`), inline page-number numerals, non-breaking spaces. Even one-character drift fails the lookup.
+3. **Propose the edit.** Call `mcp__ms-word__find_and_replace` as the final action of this turn:
+   - `search_text`: the verbatim passage from step 1 — character-for-character, including line breaks, ligature artifacts (`eﬀect`, `diﬃcult`), inline page-number numerals, non-breaking spaces. Even one-character drift fails the lookup.
    - `replacement_text`: the revised passage.
    - `replace_scope`: `"first"` (default).
    - `match_case`: `true` (default).
+   - Track Changes is handled inside `find_and_replace` automatically — the MCP enables Track Changes for the edit and restores the prior state after. The agent does not call any separate track-changes tools (`track_changes_status` and `set_track_changes` were removed from the MCP on 2026-05-11).
 
-### Why HTML-before-tool-call
+### After `find_and_replace` returns: emit nothing
 
-The card is rendered at the position of its tool call in the message stream. If `find_and_replace` runs before the HTML, the card appears above the explanatory text and the user has to scroll up to read what changed after reviewing the diff. Emitting the HTML as a text block first and the tool call last reverses that order: explanation, then diff. This is the intended layout — do not regress to the old ordering for "convenience".
+The Claude SDK's tool-use loop re-invokes the model once after `find_and_replace` returns, in case the agent needs to chain another tool call. **In Revise, your turn is already complete — the HTML response was emitted in step 2 and the suggestion card is in the document.** Your job in this post-tool invocation is to do nothing: zero text blocks, zero tool calls. An empty assistant message ends the turn cleanly.
 
-### No narration text blocks anywhere in the turn
+This is a positive instruction, not a prohibition. The model's trained habit after a successful tool call is to emit a closure sentence — "Suggestion card placed", "Done — let me know if…", or a meta-summary of what just happened. **That habit must be overridden here.** Any text emitted in the post-tool invocation appears in the user's chat bubble as a trailing block after `</article>`, which is observed as the doubled-skill-trace failure mode (the model often re-formats the closure as a second `<details class="skill-trace">` block because that was the shape it was using moments earlier).
 
-The intended turn shape is:
-
-```
-[ToolSearch]
-[track_changes_status]
-[set_track_changes if needed]
-[get_selection]
-[text block: <details>...</details><br><article>...</article>]
-[find_and_replace]
-```
-
-No text blocks appear before, between, or after the tool calls — only the single HTML text block in the middle. Specifically:
-
-- **Do not** emit a leading sentence like "I'll load the ms-word tool schemas and check the document state before proposing the revision" before the first tool call. The model does not need to announce its plan; just call the tools.
-- **Do not** emit a closing sentence like "The card is in the document for accept/reject" or "The single-step revise action doesn't warrant a todo list" after `find_and_replace`. Anything you would have said belongs inside the HTML's `<div class="summary">`.
+There is nothing left to say. The HTML from step 2 IS your user-facing response. The `find_and_replace` suggestion card IS the diff. Both are already in front of the user. Return an empty completion in the post-tool invocation.
 
 ### Tool-failure fallback (degraded path)
 
-If the tool sequence cannot complete for reasons other than Track Changes being off — `find_and_replace` returns an error, there is no active Word document, the schemas fail to load via `ToolSearch`, the selection comes back empty — deliver the revision in chat as a `<blockquote source="assistant">` containing the full revised passage and explain in `framework_to_address` what failed. This is a degraded path used only on genuine tool failure. Track Changes being off is **not** a tool failure; step 2 handles that.
+If the tool sequence cannot complete — `find_and_replace` returns an error, there is no active Word document, the schemas fail to load via `ToolSearch` — deliver the revision in chat as a `<blockquote source="assistant">` containing the full revised passage and explain in `framework_to_address` what failed. This is a degraded path used only on genuine tool failure.
 
-When you discover the failure mid-sequence (e.g., empty selection at step 3), skip step 5 entirely and put the full revised passage inline in the HTML response from step 4. The chat bubble is the only delivery channel in the degraded path, so the "do not include the full revised passage" rule below does not apply.
+**Missing selection is NOT a tool failure.** If all three selection paths in step 1 fail (no prompt-injected block AND `get_selection` returns empty/`"missing value"` AND the user did not name an identifiable target retrievable via `get_text`), do not silently degrade to inline output. Stop and ask the user to re-select the target passage in Word — one short sentence in `<div class="summary">`. The user invoked Revise expecting a tracked-change card; an inline blockquote they have to paste back is a worse experience than a one-sentence reselect prompt.
+
+When the genuine degraded path applies, skip step 3 entirely and put the full revised passage inline in the HTML response from step 2. The chat bubble is the only delivery channel in the degraded path, so the "do not include the full revised passage" rule below does not apply.
 
 ## Chat Output Format
 
@@ -107,4 +91,4 @@ For structural reorganization, the chat critique briefly explains the new orderi
 - If the text has problems beyond what the user asked about, focus on what they requested. You may briefly note other issues but do not rewrite for them uninvited
 - Maintain consistency with the rest of the manuscript
 
-<!-- skill-file: actions/revise.md @2026-05-12a -->
+<!-- skill-file: actions/revise.md @2026-05-20a -->

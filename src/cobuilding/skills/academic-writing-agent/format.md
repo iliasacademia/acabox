@@ -2,17 +2,15 @@
 
 All responses must be a single valid HTML fragment. No markdown, no text outside HTML tags. The first character must be `<` and the last character must be `>`.
 
+*This file overrides the harness's default end-of-turn summary convention — the skill's response is a single HTML block with no trailing prose. See "Strict no-plain-text rule" below.*
+
 ## Strict no-plain-text rule
 
 **Across the entire assistant turn, you emit exactly ONE text block, and it is pure HTML.** Every text block in the turn must satisfy: first character `<`, last character `>`, no prose anywhere inside that does not sit between HTML tags. There is no leading narration before tool calls, no aside between tool calls, no trailer after the HTML, no closing summary after the final tool call.
 
 This is enforced because the chat renderer surfaces every text block in the chat bubble. Anything you write outside HTML tags shows up to the user — usually as raw, unstyled text alongside or instead of the rendered article.
 
-Forbidden text blocks (all real failures observed):
-
-- **Leading pre-tool narration:** "I'll load the ms-word tool schemas and check the document state before proposing the revision." — this used to be tolerated as "tool-call narration"; it is no longer. Just call the tools. The model does not need to announce its plan.
-- **Mid-turn narration between tool batches:** "Now I'll read the selection and propose the edit." — same problem. Call the tool, do not narrate.
-- **Trailing summary after `</article>`:** "Suggestion card placed in the document; ready for accept/reject", "The single-step revise action doesn't warrant a todo list, so I'll skip it", "The card is in Word for review", any sentence describing what just happened or what you did or did not do. None of these. The `<div class="summary">` already announces the card; restating it outside the article both duplicates information AND breaks rendering.
+Forbidden: any text outside the single HTML block — leading "I'll check the document state…" before tool calls, mid-turn "Now I'll read the selection…" between tool calls, or trailing "Suggestion card placed in the document" / "The card is ready for review" after the final tool call. Each has been observed breaking chat rendering. The model does not need to announce its plan; the `<div class="summary">` already announces results.
 
 ### Pre-send check
 
@@ -28,17 +26,42 @@ If any check fails, the chat bubble renders as raw text and the user sees `<deta
 
 For Revise and the anchor-mode path of Draft, the HTML chat response is emitted as a text block BEFORE the final `mcp__ms-word__find_and_replace` call, not after. The suggestion card produced by that tool is a separate UI element that renders at the position of the tool call in the stream, so emitting the HTML first puts the explanation above and the card below — the layout the user expects.
 
-This is compatible with the one-text-block rule above as long as the HTML is the only text block in the turn. The intended assistant turn shape is:
-
-```
-[tool calls: ToolSearch, track_changes_status, set_track_changes (if needed), get_selection]
-[text block: <details class="skill-trace">...</details><br><article>...</article>]
-[tool call: find_and_replace]
-```
-
-No text appears anywhere else in that sequence — not before the first tool call, not between tool calls, not after the final tool call. The HTML text block is the only text the user sees in the chat bubble.
+This is compatible with the one-text-block rule above as long as the HTML is the only text block in the turn.
 
 The skill-trace block is always the first element. If your response does not begin with `<details class="skill-trace">`, it is malformed. The `<span class="files">` inside that block must list every loaded skill file with its `@YYYY-MM-DDx` version stamp; that lets the user verify they are seeing the latest skill prose, not a cached older version.
+
+## Turn shapes
+
+The assistant turn always contains exactly one text block — the HTML — surrounded only by tool calls. Two shapes apply:
+
+**Revise / Draft (anchor mode):**
+
+```
+[tool calls: ToolSearch, locate-verbatim sequence (Revise only — see actions/revise.md)]
+[single text block: <details>…</details><br><article>…</article>]
+[tool call: find_and_replace]
+[parallel writes: state files, if any]
+```
+
+**All other actions (Feedback, Review, Cite, Draft fallback):**
+
+```
+[tool calls: state bootstrap + parallel reads]
+[single text block: <details>…</details><br><article>…</article>]
+[parallel writes: state files, if any]
+```
+
+No text appears anywhere else in the sequence — not before the first tool call, not between tool calls, not after the final tool call.
+
+### After the final tool call: emit nothing
+
+The SDK's tool-use loop re-invokes the model after every tool call so the agent can chain further tool use. For Revise and Draft anchor mode, the `find_and_replace` call IS the final action — your turn is already complete the moment that tool returns. **In the post-tool re-invocation, return an empty assistant message: zero text blocks, zero tool calls.**
+
+This is a positive instruction (do nothing), not a prohibition (don't do X). The model's post-training prior after a successful tool call is to emit a closure sentence — "Card placed", "Done", a meta-summary, or a wrap-up. **Override that habit here.** Any text emitted in the post-tool re-invocation is rendered as a trailing block after `</article>` in the user's chat bubble, producing the doubled-skill-trace failure mode (the model often re-formats the closure as a second `<details class="skill-trace">` block because that was the shape it was just using). The HTML emitted before the tool call IS the user-facing response. There is nothing left to say.
+
+### Why HTML-before-tool-call (Revise / Draft anchor mode)
+
+The suggestion card produced by `find_and_replace` renders at the position of its tool call in the message stream. Emitting the HTML text block first and the tool call last places the explanation above and the card below — the layout the user expects. Reversing the order forces them to scroll up after reviewing the diff. Do not regress.
 
 ## HTML Vocabulary
 
@@ -48,11 +71,12 @@ Every response begins with a `<details class="skill-trace">` block before the `<
 
 ```html
 <details class="skill-trace">
-  <summary>[Action] · [Section] · [Maturity]</summary>
+  <summary>[Action] · [DocType] · [Section] · [Maturity]</summary>
   <span class="action">[Draft/Revise/Feedback/Review/Cite]</span>
-  <span class="section">[Results/Methods/Discussion/Introduction/Abstract/Outline/General]</span>
+  <span class="doctype">[Academic paper/Grant/Conference abstract/Thesis/Presentation/General]</span>
+  <span class="section">[Section name within the doctype, or General if no section]</span>
   <span class="maturity">[Outline/Partial draft/Near-complete manuscript]</span>
-  <span class="reason">[One sentence: why this action and section were selected.]</span>
+  <span class="reason">[One sentence: why this action, doctype, and section were selected.]</span>
   <span class="files">[Comma-separated list of all skill files loaded for this response.]</span>
 </details>
 <br>
@@ -60,6 +84,8 @@ Every response begins with a `<details class="skill-trace">` block before the `<
 ```
 
 **Marker fidelity — do not paraphrase, abbreviate, or recall from memory.** The `<span class="files">` content is a diagnostic the user reads to verify which version of each skill file was actually loaded for the response. Before emitting the trace, re-check the last non-empty line of every skill file you loaded and copy the marker into the span exactly as it appears in the file. The line in each file has the form `<!-- skill-file: <path> @YYYY-MM-DDx -->`; the trace entry is `<path> @YYYY-MM-DDx`. If a file's marker shows `@2026-05-07b`, the trace must say `@2026-05-07b` — never substitute an earlier day's stamp, never default to a plausible-looking date, never carry a stamp over from a prior response. Mis-reporting the stamp defeats the entire purpose of this trace.
+
+**Memory files are NOT skill files** — `about_you.md`, `field.md`, `detected-doctype.md`, `_state.md`, and doctype-specific setup files (grant-instructions.md, etc.) do NOT carry version markers and MUST NOT appear in `<span class="files">`. The trace lists only versioned skill files inside the skill folder. Do not invent a marker for a memory file. If memory was used in routing, mention it in `<span class="reason">` instead (e.g., "Used cached detected-doctype.md").
 
 This block is for routing diagnostics. The frontend styles it via the `.skill-trace` CSS class.
 
@@ -187,14 +213,16 @@ Notes:
 
 ## Action-Specific Usage
 
-**Draft:** When an anchor exists in the document (placeholder, outline bullet, user selection), deliver the prose via `mcp__ms-word__find_and_replace` after calling `mcp__ms-word__track_changes_status` to confirm Track Changes is on. Tool sequence: `track_changes_status` → emit chat HTML response → `find_and_replace`. The chat is commentary only — do NOT include the drafted prose as a `<blockquote source="assistant">`. If no anchor exists, fall back to including the prose in the chat with `<blockquote source="assistant">`. See `actions/draft.md`.
+| Action | Quoting author | Suggested text | Delivery |
+|---|---|---|---|
+| Draft | — | `<blockquote source="assistant">` in no-anchor fallback only | Suggestion card (anchor mode); chat inline otherwise |
+| Revise | — (card shows it) | — (card shows it) | Suggestion card |
+| Feedback | `<blockquote>` / `<q>` | `<q source="assistant">` for short rephrases | Chat only |
+| Review | `<blockquote>` per comment | `<blockquote source="assistant">` or `<q source="assistant">`, paired by `group-id` | Chat only |
+| Cite | — | — | Per-claim `<section class="citation-claim">` |
 
-**Revise:** Deliver the revision via `mcp__ms-word__find_and_replace` (`search_text` = original passage verbatim, `replacement_text` = revision). Tool sequence: `track_changes_status` → if disabled, `set_track_changes(enabled=true)` → `get_selection` → emit chat HTML response → `find_and_replace`. Emitting the HTML before the `find_and_replace` call is required so the suggestion card renders below the chat bubble; do not call `find_and_replace` before the HTML. Do not bail when Track Changes is off — auto-enable it silently. The UI renders a suggestion card with the original and the proposed text plus approve/deny. The chat is commentary only — do NOT include the revised passage as a `<blockquote source="assistant">` (this produces visually identical adjacent blocks). See `actions/revise.md`.
+The action files own *how* each delivery works; this table is the at-a-glance index of *what* goes where. See `actions/<name>.md` for each action's tool sequence and process.
 
-**Feedback:** Use `<blockquote>` or `<q>` to quote the author's text. Use `<q source="assistant">` for any concrete suggested rephrasing. Most of the response is agent commentary in `<p>` tags.
+**Track Changes note (Draft / Revise):** `find_and_replace` handles Track Changes internally — it enables TC for the edit and restores the prior state afterwards. The agent does NOT call any separate track-changes tools; `track_changes_status` and `set_track_changes` were removed from the MCP on 2026-05-11.
 
-**Review:** Each comment is a `<section>`. Quote the author's text with `<blockquote>`. Provide fixes with `<blockquote source="assistant">` or `<q source="assistant">`, paired via `group-id`. Include confidence and severity in the section's content.
-
-**Cite:** Group results by claim using `<section class="citation-claim">`. Each reference within a claim uses `<div class="citation-result">` with `data-source` to indicate origin (author's library vs. CiteRight). Include CiteRight's `reasoning` field per reference. See Citation Results section above for the full template.
-
-<!-- skill-file: format.md @2026-05-12a -->
+<!-- skill-file: format.md @2026-05-20a -->

@@ -15,7 +15,7 @@ When a reference is needed, follow this priority order:
 1. **Check the author's Zotero library first** (see "Using Zotero" below). If the relevant paper is already in the author's collection, use it. This is the highest-confidence source.
 2. **Check local workspace references** (see "Using Local References" below). Papers the user has collected in their workspace are higher-confidence than external search.
 3. **Otherwise, use the CiteRight tools to find verified references** (see "Using CiteRight" below).
-4. **Always label the source.** The user must know whether a reference came from their own library, their workspace, or from CiteRight's external search.
+4. **Always label the source.** The user must know whether a reference came from their own library, their workspace, or from CiteRight's external search. Tag visibly: *from your Zotero library*, *from your workspace*, or *from CiteRight*. This rule applies to every reference shown, regardless of source — do not omit the tag.
 
 ## Using Zotero
 
@@ -69,10 +69,6 @@ Use the same per-publication format as CiteRight results so the user sees a cons
 > **Cao, Short & Yip (2017)** — "Understanding the mechanisms of amorphous creep through molecular simulation," *Proceedings of the National Academy of Sciences*. [10.1073/pnas.1708618114](https://doi.org/10.1073/pnas.1708618114) — *from your Zotero library*
 > *Why matched:* The abstract identifies the microscopic processes of creep as an open question, supporting the claim that these origins are poorly understood compared to crystalline solids.
 
-### Source labeling
-
-Tag every Zotero-sourced reference explicitly as "*from your Zotero library*" so the user can tell it apart from CiteRight results at a glance. This reinforces the labeling rule in the **Constraints** section at the bottom of this file.
-
 ### Formatting Zotero items into a citation style
 
 Zotero results map cleanly into `mcp__citeright__format_citations`. Pass an array of works built from the field mapping above (`title`, `authors`, `publication_year`, `publication`, `doi`) to format Zotero-sourced references in MLA, APA, Chicago, Vancouver, Harvard, IEEE, or ACS.
@@ -103,8 +99,6 @@ Use the same per-publication format as Zotero and CiteRight results. For each ve
 - **Authors and year** — extract from the text if possible (look at the first page content). If not extractable, omit rather than guess.
 - **Source file** — show the original `file_path` (e.g. `refs/paper.pdf`) so the user knows which file it came from.
 - **Why this matches** — a short sentence explaining why the paper supports the claim, written from the extracted text.
-
-Tag every local-reference-sourced match as "*from your workspace*" so the user can distinguish it from Zotero and CiteRight results.
 
 ### Fallthrough
 
@@ -173,13 +167,9 @@ Format the link in markdown so the chat UI renders it as clickable: `[link text]
 > **Cao, Short & Yip (2017)** — "Understanding the mechanisms of amorphous creep through molecular simulation," *Proceedings of the National Academy of Sciences*. [10.1073/pnas.1708618114](https://doi.org/10.1073/pnas.1708618114)
 > *Why matched:* Explicitly identifies the microscopic processes of creep as a "standing challenge" and an "open question," supporting the claim that these origins are poorly understood compared to crystalline solids.
 
-**Bad example** (compressed, missing link, missing reasoning — do not do this):
-
-> Cao, Short & Yip (2017), PNAS – "Understanding the mechanisms of amorphous creep through molecular simulation"
-
 The chat UI opens links in the system's default browser, so a fully formatted reference becomes a one-click verification path for the user.
 
-**Do not refer to UI features that don't exist in this chat.** CiteRight's `message_to_user` field and other backend strings sometimes mention things like "click on highlighted claims below" or "explore the full list of candidates for each claim" — these refer to the CiteRight web app, not the cobuilding chat. Do not echo those phrases or paraphrase them. The chat is the only surface here, so if the user wants more detail they ask you, not a UI control. End your response with a concrete next-step offer (e.g. "Want me to insert any of these as citations?" or "Want me to format these in APA?") rather than telling them to click something.
+**Ignore CiteRight backend strings that reference UI controls.** Fields like `message_to_user` sometimes say "click highlighted claims" or "explore the full list" — those target the CiteRight web app, not this chat. End your response with a concrete next-step offer ("Want me to insert any of these as citations?", "Want me to format these in APA?") instead of telling the user to click something that doesn't exist.
 
 **To add a specific manual claim to a report** (when the user gives you an exact sentence to cite):
 
@@ -230,6 +220,5 @@ If a domain profile is available, consult it to determine whether a claim is com
 - Never fabricate citation details (authors, titles, journals, years, DOIs)
 - Never present an LLM-suggested reference as if it were verified -- always route through CiteRight or the author's materials first
 - When multiple references could support a claim, prefer the one already in the author's materials (Zotero or workspace) over a CiteRight result
-- Always label the source (author's Zotero library vs. workspace vs. CiteRight search) when presenting a reference
 
-<!-- skill-file: actions/cite.md @2026-05-05c -->
+<!-- skill-file: actions/cite.md @2026-05-19b -->
