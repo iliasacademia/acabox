@@ -356,6 +356,11 @@ function createMcpRelayServers(state: SessionState) {
     'google-drive': createSdkMcpServer({
       name: 'google-drive',
       tools: [
+        tool('get_drive_tree',
+          "Get the user's connected Google Drive tree. Shows the hierarchy from Drive root down to each selected item, with full contents for selected folders. Items marked with ⬇ are downloadable. Call this first to understand what Drive files are available before downloading.",
+          {},
+          relay('google-drive', 'get_drive_tree'),
+        ),
         tool('list_files',
           "List files in the user's Google Drive. Omit folder_id to list top-level contents of My Drive. Pass folder_id to list a specific subfolder. Includes items from shared drives.",
           {

@@ -267,6 +267,173 @@ export async function generateDriveDirectoryTree(
   }
 }
 
+// --- Contextual Drive tree for agent ---
+
+interface AncestorInfo {
+  id: string;
+  name: string;
+  mimeType: string;
+}
+
+interface TreeNode {
+  id: string;
+  name: string;
+  mimeType: string;
+  modifiedTime?: string;
+  size?: string;
+  owners?: Array<{ displayName?: string; emailAddress?: string }>;
+  shared?: boolean;
+  isSelected: boolean;
+  children: Map<string, TreeNode>;
+}
+
+function newTreeNode(id: string, name: string, mimeType: string, extra?: Partial<DriveFile>): TreeNode {
+  return {
+    id, name, mimeType,
+    modifiedTime: extra?.modifiedTime,
+    size: extra?.size,
+    owners: extra?.owners,
+    shared: extra?.shared,
+    isSelected: false,
+    children: new Map(),
+  };
+}
+
+async function resolveAncestry(fileId: string): Promise<{ ancestors: AncestorInfo[]; isShared: boolean }> {
+  const chain: AncestorInfo[] = [];
+  let currentId = fileId;
+
+  for (let i = 0; i < 20; i++) {
+    const result = await getFileMetadata(currentId);
+    if (!result.success || !result.data) break;
+    const parentId = result.data.parents?.[0];
+    if (!parentId) {
+      // No parent at all — this item is shared (not in user's Drive hierarchy)
+      return { ancestors: chain, isShared: true };
+    }
+    // Check if parent is the Drive root (root has no parents itself)
+    const parentResult = await getFileMetadata(parentId);
+    if (!parentResult.success || !parentResult.data) break;
+    if (!parentResult.data.parents || parentResult.data.parents.length === 0) {
+      // Parent is the root — we've reached My Drive. Don't include root in ancestors.
+      return { ancestors: chain, isShared: false };
+    }
+    // Parent is a regular folder — add it and keep walking up
+    chain.unshift({ id: parentId, name: parentResult.data.name, mimeType: parentResult.data.mimeType });
+    currentId = parentId;
+  }
+  return { ancestors: chain, isShared: false };
+}
+
+function insertAncestryPath(root: TreeNode, ancestors: AncestorInfo[]): TreeNode {
+  let current = root;
+  for (const anc of ancestors) {
+    if (!current.children.has(anc.id)) {
+      current.children.set(anc.id, newTreeNode(anc.id, anc.name, anc.mimeType));
+    }
+    current = current.children.get(anc.id)!;
+  }
+  return current;
+}
+
+async function populateDescendants(node: TreeNode, maxDepth: number, depth: number): Promise<void> {
+  if (depth >= maxDepth) return;
+  if (node.mimeType !== FOLDER_MIME) return;
+  const files = await listAllFiles(node.id);
+  for (const file of files) {
+    const child = newTreeNode(file.id, file.name, file.mimeType, file);
+    node.children.set(file.id, child);
+    if (file.mimeType === FOLDER_MIME) {
+      await populateDescendants(child, maxDepth, depth + 1);
+    }
+  }
+}
+
+function formatSize(size?: string): string {
+  if (!size) return '';
+  const bytes = parseInt(size, 10);
+  if (isNaN(bytes)) return '';
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function renderTreeNode(node: TreeNode, prefix: string, isLast: boolean, isRoot: boolean): string[] {
+  const lines: string[] = [];
+  const connector = isRoot ? '' : (isLast ? '└── ' : '├── ');
+  const isFolder = node.mimeType === FOLDER_MIME;
+  const icon = isFolder ? '📁' : '📄';
+  const marker = node.isSelected ? ' ⬇' : '';
+
+  let meta = '';
+  const parts: string[] = [];
+  if (!isRoot) parts.push(`id:${node.id}`);
+  if (node.modifiedTime) parts.push(node.modifiedTime.slice(0, 10));
+  const sz = formatSize(node.size);
+  if (sz) parts.push(sz);
+  if (node.shared && node.owners?.[0]?.displayName) parts.push(`owner: ${node.owners[0].displayName}`);
+  if (parts.length > 0) meta = ` (${parts.join(', ')})`;
+
+  const label = `${prefix}${connector}${icon} ${node.name}${meta}${marker}`;
+  lines.push(label);
+
+  const children = Array.from(node.children.values());
+  const childPrefix = isRoot ? '' : prefix + (isLast ? '    ' : '│   ');
+  for (let i = 0; i < children.length; i++) {
+    lines.push(...renderTreeNode(children[i], childPrefix, i === children.length - 1, false));
+  }
+  return lines;
+}
+
+export async function generateContextualDriveTree(
+  selectedItems: Array<{ driveId: string; name: string; mimeType: string }>,
+): Promise<string> {
+  if (selectedItems.length === 0) return '(No Google Drive items connected)';
+
+  const myDriveRoot = newTreeNode('my-drive', 'My Drive', FOLDER_MIME);
+  const sharedRoot = newTreeNode('shared', 'Shared with me', FOLDER_MIME);
+
+  try {
+    for (const item of selectedItems) {
+      const meta = await getFileMetadata(item.driveId);
+      const fileMeta = meta.success && meta.data ? meta.data : undefined;
+
+      const { ancestors, isShared } = await resolveAncestry(item.driveId);
+      const root = isShared ? sharedRoot : myDriveRoot;
+      const parent = insertAncestryPath(root, ancestors);
+
+      const node = newTreeNode(item.driveId, item.name, item.mimeType, fileMeta);
+      node.isSelected = true;
+      parent.children.set(item.driveId, node);
+
+      if (item.mimeType === FOLDER_MIME) {
+        await populateDescendants(node, 3, 0);
+      }
+    }
+  } catch (err) {
+    log.error('[GoogleDrive] Failed to generate contextual tree:', err);
+  }
+
+  const lines: string[] = [];
+  const hasMyDrive = myDriveRoot.children.size > 0;
+  const hasShared = sharedRoot.children.size > 0;
+
+  if (hasMyDrive) {
+    lines.push(...renderTreeNode(myDriveRoot, '', false, true));
+  }
+  if (hasShared) {
+    if (hasMyDrive) lines.push('');
+    lines.push(...renderTreeNode(sharedRoot, '', false, true));
+  }
+
+  if (lines.length > 500) {
+    return lines.slice(0, 500).join('\n') + `\n... (truncated, ${lines.length - 500} more entries)`;
+  }
+  lines.push('');
+  lines.push('⬇ = selected (downloadable)');
+  return lines.join('\n');
+}
+
 // --- Native Google Workspace API fetchers ---
 
 const DOCS_API_URL = 'https://docs.googleapis.com/v1/documents';

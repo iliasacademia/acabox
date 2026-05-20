@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { app } from 'electron';
 import { isConnected, hasDriveScope } from '../googleDocsService';
-import { listFiles, searchFiles, getFileMetadata, downloadFile } from '../googleDriveService';
+import { listFiles, searchFiles, getFileMetadata, downloadFile, generateContextualDriveTree } from '../googleDriveService';
 import { getCacheEntry, upsertCacheEntry } from '../db/googleDriveCacheRepository';
 
 function ok(text: string) {
@@ -41,6 +41,23 @@ export function createGoogleDriveHandlers(deps: GoogleDriveMcpDeps) {
   const { getAllowedItems, getWorkspaceId } = deps;
 
   return {
+    get_drive_tree: async () => {
+      const authErr = checkAuth();
+      if (authErr) return authErr;
+
+      const allowed = getAllowedItems();
+      if (allowed.length === 0) {
+        return ok('No Google Drive items are connected to this workspace. Add files or folders via Settings.');
+      }
+
+      try {
+        const tree = await generateContextualDriveTree(allowed);
+        return ok(tree);
+      } catch (err) {
+        return fail(String(err));
+      }
+    },
+
     list_files: async (args: {
       folder_id?: string;
       page_size?: number;
