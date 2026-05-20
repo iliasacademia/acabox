@@ -2,7 +2,6 @@
 import { type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatStreamMessage, IPCAttachment, Workspace, NotificationNavigationAction } from '../shared/types';
 import { createSession, setSdkSessionId, insertMessage, cleanupOrphanTurnRows, getSession } from './db/chatRepository';
-import { listWorkspaceDirectories } from './db/workspaceRepository';
 import * as fs from 'fs';
 import path from 'path';
 import log from 'electron-log';
@@ -269,26 +268,6 @@ export function createAgentSession(
     ? [IDENTITY_PREAMBLE, sessionHostApp.systemPromptAppend].filter(Boolean).join('\n\n')
     : IDENTITY_PREAMBLE;
 
-  // Build workspace directories guidance so the agent knows which directories
-  // are read-only and should copy files to /data before editing.
-  let workspaceDirectoriesGuidance: string | undefined;
-  try {
-    const dirs = listWorkspaceDirectories(workspace.id);
-    if (dirs.length > 0) {
-      const lines = dirs.map(dir => {
-        const name = path.basename(dir.directory_path);
-        return dir.read_only
-          ? `- ${name}/ (read only) — copy files to /data before editing; direct edits will fail`
-          : `- ${name}/ (read & write) — edit files directly`;
-      });
-      workspaceDirectoriesGuidance = [
-        '## Workspace Directories',
-        'The following user research directories are mounted in your workspace:',
-        ...lines,
-      ].join('\n');
-    }
-  } catch { /* workspace may not have directories yet */ }
-
   // Non-null while the create-session + SSE-listen loop is running. Drops
   // back to null when the loop ends (idle eviction, /stop). The next
   // sendMessage observes the null and re-runs the loop with resume.
@@ -320,7 +299,6 @@ export function createAgentSession(
           model: model || undefined,
           soulMd: soulMdContent,
           hostGuidance,
-          workspaceDirectoriesGuidance,
           ...(hostAppMatched ? { additionalAllowedTools: sessionHostApp.allowedTools } : {}),
         });
 

@@ -4,13 +4,11 @@ import { SOUL_MD, MEMORY_PATH_ABOUT_YOU, MEMORY_PATH_WORKING_ON, MAX_WORKSPACE_D
 import { kernelRegistry } from './notebook/kernelRegistry';
 import { XIcon, PlusIcon } from 'lucide-react';
 import { GoogleDrivePicker } from './GoogleDrivePicker';
-import DirectoryPermBadge from './DirectoryPermBadge';
-import './DirectoryPermissions.css';
+import './WorkspaceSettings.css';
 import './shared-forms.css';
 
-interface DirectoryPermissionsProps {
+interface WorkspaceSettingsProps {
   workspace: Workspace;
-  userDirectories: WorkspaceDirectory[];
   onClose: () => void;
   onSaved: (ws: Workspace) => void;
   onLogout: () => void;
@@ -19,15 +17,10 @@ interface DirectoryPermissionsProps {
   inline?: boolean;
 }
 
-const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, userDirectories, onClose, onSaved, onLogout, onRestartOnboarding, onDirectoriesChanged, inline }) => {
+const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClose, onSaved, onLogout, onRestartOnboarding, onDirectoriesChanged, inline }) => {
   // --- Workspace directories ---
-  const [localDirs, setLocalDirs] = useState<WorkspaceDirectory[]>(userDirectories);
+  const [userDirectories, setUserDirectories] = useState<WorkspaceDirectory[]>([]);
   const [dirError, setDirError] = useState<string | null>(null);
-  const [togglingDirId, setTogglingDirId] = useState<string | null>(null);
-
-  useEffect(() => {
-    setLocalDirs(userDirectories);
-  }, [userDirectories]);
 
   // --- Researcher Profile card state ---
   const [aboutContent, setAboutContent] = useState('');
@@ -78,6 +71,7 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
       setSavedWorkingOnContent(workingOn.content);
       setProfileLoaded(true);
     });
+    window.workspacesAPI.listDirectories().then(setUserDirectories).catch(() => {});
     window.electronAPI.invoke('check-accessibility-permission').then((result: any) => {
       if (result) setAccessibilityGranted(result.hasPermission ?? false);
     }).catch(() => setAccessibilityGranted(false));
@@ -87,7 +81,7 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
     window.electronAPI.invoke('integration:get-enabled', 'google-docs').then((v: boolean) => setGoogleDocsIntegrationEnabled(!!v)).catch(() => setGoogleDocsIntegrationEnabled(false));
     (window as any).googleDriveAPI?.getSelection?.().then((r: any) => {
       if (r?.success && r.data?.selectedItems) setDriveFolders(r.data.selectedItems);
-    }).catch(() => { });
+    }).catch(() => {});
   }, []);
 
   // --- System Prompt card save/cancel ---
@@ -118,14 +112,14 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
     setDirError(null);
     const selected = await window.workspacesAPI.selectDirectory();
     if (!selected) return;
-    if (localDirs.some(d => d.directory_path === selected)) {
+    if (userDirectories.some(d => d.directory_path === selected)) {
       setDirError('This directory is already in your workspace.');
       return;
     }
     try {
       const added = await window.workspacesAPI.addDirectory(selected);
-      const updated = [...localDirs, added];
-      setLocalDirs(updated);
+      const updated = [...userDirectories, added];
+      setUserDirectories(updated);
       onDirectoriesChanged?.(updated);
     } catch (err) {
       setDirError(err instanceof Error ? err.message : 'Failed to add directory.');
@@ -137,36 +131,11 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
     setDirError(null);
     try {
       await window.workspacesAPI.removeDirectory(dirId);
-      const updated = localDirs.filter(d => d.id !== dirId);
-      setLocalDirs(updated);
+      const updated = userDirectories.filter(d => d.id !== dirId);
+      setUserDirectories(updated);
       onDirectoriesChanged?.(updated);
     } catch (err) {
       setDirError(err instanceof Error ? err.message : 'Failed to remove directory.');
-    }
-  };
-
-  const handleTogglePermission = async (dirId: string, currentlyReadOnly: boolean) => {
-    if (togglingDirId) return;
-    setDirError(null);
-    setTogglingDirId(dirId);
-    // Optimistic update so the icon flips immediately
-    const snapshot = localDirs;
-    const optimistic = snapshot.map(d =>
-      d.id === dirId ? { ...d, read_only: !currentlyReadOnly } : d
-    );
-    setLocalDirs(optimistic);
-    onDirectoriesChanged?.(optimistic);
-    try {
-      const updated = await window.workspacesAPI.updateDirectoryPermission(dirId, !currentlyReadOnly);
-      const confirmed = optimistic.map(d => d.id === dirId ? updated : d);
-      setLocalDirs(confirmed);
-      onDirectoriesChanged?.(confirmed);
-    } catch (err) {
-      setLocalDirs(snapshot);
-      onDirectoriesChanged?.(snapshot);
-      setDirError(err instanceof Error ? err.message : 'Failed to update directory permission.');
-    } finally {
-      setTogglingDirId(null);
     }
   };
 
@@ -212,7 +181,7 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
         setIntegrationPermissionPrompt({ id, displayName });
       }
     } catch (err) {
-      console.error('[DirectoryPermissions] Integration toggle failed:', err);
+      console.error('[WorkspaceSettings] Integration toggle failed:', err);
     } finally {
       setIntegrationToggling(null);
     }
@@ -231,7 +200,7 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
     const recheck = () => {
       window.electronAPI.invoke('check-accessibility-permission').then((result: any) => {
         if (result) setAccessibilityGranted(result.hasPermission ?? false);
-      }).catch(() => { });
+      }).catch(() => {});
     };
     window.addEventListener('focus', recheck);
     return () => window.removeEventListener('focus', recheck);
@@ -251,78 +220,69 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
           <p className="wsSettings__sectionLabel">Workspace directories</p>
           <div className="wsSettings__sectionCard">
             <div className="wsSettings__integrationName" style={{ marginBottom: 6 }}>Local folders</div>
-            {localDirs.length > 0 ? (
-      <div className="wsSettings__dirList">
-        {localDirs.map((dir) => (
-          <div key={dir.id} className="wsSettings__dirRow">
-            <span className="wsSettings__dirPath" title={dir.directory_path}>
-              {dir.directory_path}
-            </span>
-            <DirectoryPermBadge
-              readOnly={dir.read_only}
-              isToggling={togglingDirId === dir.id}
-              disabled={togglingDirId !== null}
-              onToggle={() => handleTogglePermission(dir.id, dir.read_only)}
-            />
-            <button
-              type="button"
-              className="wsSettings__dirRemoveBtn"
-              onClick={() => handleRemoveDirectory(dir.id)}
-              aria-label="Remove directory"
-            >
-              <XIcon size={14} />
+            {userDirectories.length > 0 ? (
+              <div className="wsSettings__dirList">
+                {userDirectories.map((dir) => (
+                  <div key={dir.id} className="wsSettings__dirRow">
+                    <span className="wsSettings__dirPath" title={dir.directory_path}>
+                      {dir.directory_path}
+                    </span>
+                    <button
+                      type="button"
+                      className="wsSettings__dirRemoveBtn"
+                      onClick={() => handleRemoveDirectory(dir.id)}
+                      aria-label="Remove directory"
+                    >
+                      <XIcon size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="wsSettings__hint" style={{ margin: 0 }}>
+                No local directories added.
+              </p>
+            )}
+            {dirError && <p className="wsSettings__dirError">{dirError}</p>}
+            {userDirectories.length < MAX_WORKSPACE_DIRECTORIES && (
+              <button type="button" className="wsSettings__dirAddBtn" onClick={handleAddDirectory}>
+                <PlusIcon size={14} />
+                Add folder
+              </button>
+            )}
+          </div>
+
+          <div className="wsSettings__sectionCard" style={{ marginTop: 8 }}>
+            <div className="wsSettings__integrationName" style={{ marginBottom: 6 }}>Google Drive</div>
+            {driveFolders.length > 0 ? (
+              <div className="wsSettings__dirList">
+                {driveFolders.map((folder) => (
+                  <div key={folder.id} className="wsSettings__dirRow">
+                    <span className="wsSettings__dirPath" title={folder.name}>
+                      {folder.name}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="wsSettings__hint" style={{ margin: 0 }}>
+                No Google Drive folders connected.
+              </p>
+            )}
+            <button type="button" className="wsSettings__dirAddBtn" onClick={() => setDrivePickerOpen(true)}>
+              <PlusIcon size={14} />
+              {driveFolders.length > 0 ? 'Manage Google Drive folders' : 'Connect Google Drive'}
             </button>
+            <GoogleDrivePicker
+              open={drivePickerOpen}
+              onOpenChange={setDrivePickerOpen}
+              onSelectionSaved={(items) => setDriveFolders(items)}
+            />
           </div>
-        ))}
-      </div>
-    ) : (
-    <p className="wsSettings__hint" style={{ margin: 0 }}>
-      No local directories added.
-    </p>
-  )
-  }
-  { dirError && <p className="wsSettings__dirError">{dirError}</p> }
-  {
-    localDirs.length < MAX_WORKSPACE_DIRECTORIES && (
-      <button type="button" className="wsSettings__dirAddBtn" onClick={handleAddDirectory}>
-        <PlusIcon size={14} />
-        Add folder
-      </button>
-    )
-  }
-          </div >
+        </section>
 
-  <div className="wsSettings__sectionCard" style={{ marginTop: 8 }}>
-    <div className="wsSettings__integrationName" style={{ marginBottom: 6 }}>Google Drive</div>
-    {driveFolders.length > 0 ? (
-      <div className="wsSettings__dirList">
-        {driveFolders.map((folder) => (
-          <div key={folder.id} className="wsSettings__dirRow">
-            <span className="wsSettings__dirPath" title={folder.name}>
-              {folder.name}
-            </span>
-          </div>
-        ))}
-      </div>
-    ) : (
-      <p className="wsSettings__hint" style={{ margin: 0 }}>
-        No Google Drive folders connected.
-      </p>
-    )}
-    <button type="button" className="wsSettings__dirAddBtn" onClick={() => setDrivePickerOpen(true)}>
-      <PlusIcon size={14} />
-      {driveFolders.length > 0 ? 'Manage Google Drive folders' : 'Connect Google Drive'}
-    </button>
-    <GoogleDrivePicker
-      open={drivePickerOpen}
-      onOpenChange={setDrivePickerOpen}
-      onSelectionSaved={(items) => setDriveFolders(items)}
-    />
-  </div>
-        </section >
-
-  {/* ───────── System Prompt ───────── */ }
-  < section className = "wsSettings__section" >
+        {/* ───────── System Prompt ───────── */}
+        <section className="wsSettings__section">
           <p className="wsSettings__sectionLabel">System prompt</p>
           <div className="wsSettings__sectionCard">
             <p className="wsSettings__hint">
@@ -358,10 +318,10 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
               </button>
             </div>
           </div>
-        </section >
+        </section>
 
-  {/* ───────── Researcher Profile ───────── */ }
-  < section className = "wsSettings__section" >
+        {/* ───────── Researcher Profile ───────── */}
+        <section className="wsSettings__section">
           <p className="wsSettings__sectionLabel">Researcher profile</p>
           <div className="wsSettings__sectionCard">
             <p className="wsSettings__hint">
@@ -413,10 +373,10 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
               </button>
             </div>
           </div>
-        </section >
+        </section>
 
-  {/* ───────── Integrations ───────── */ }
-  < section className = "wsSettings__section" >
+        {/* ───────── Integrations ───────── */}
+        <section className="wsSettings__section">
           <p className="wsSettings__sectionLabel">Integrations</p>
           <div className="wsSettings__sectionCard">
             <p className="wsSettings__hint">
@@ -562,10 +522,10 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
               </div>
             )}
           </div>
-        </section >
+        </section>
 
-  {/* ───────── Account ───────── */ }
-  < section className = "wsSettings__section" >
+        {/* ───────── Account ───────── */}
+        <section className="wsSettings__section">
           <p className="wsSettings__sectionLabel">Account</p>
           <div className="wsSettings__sectionCard">
             <div className="wsSettings__dirRow" style={{ marginBottom: 12 }}>
@@ -616,10 +576,10 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
               </button>
             </div>
           </div>
-        </section >
-      </div >
-    </div >
+        </section>
+      </div>
+    </div>
   );
 };
 
-export default DirectoryPermissions;
+export default WorkspaceSettings;

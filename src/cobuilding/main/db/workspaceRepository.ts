@@ -66,13 +66,12 @@ export function addWorkspaceDirectory(
   sortOrder = 0,
   source: 'local' | 'google-drive' = 'local',
   metadata?: string | null,
-  readOnly = true,
 ): void {
   getDatabase()
     .prepare(
-      'INSERT INTO workspace_directories (id, workspace_id, directory_path, display_name, sort_order, source, metadata, read_only) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO workspace_directories (id, workspace_id, directory_path, display_name, sort_order, source, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)',
     )
-    .run(id, workspaceId, directoryPath, displayName, sortOrder, source, metadata ?? null, readOnly ? 1 : 0);
+    .run(id, workspaceId, directoryPath, displayName, sortOrder, source, metadata ?? null);
 }
 
 export function removeWorkspaceDirectory(id: string): void {
@@ -82,16 +81,9 @@ export function removeWorkspaceDirectory(id: string): void {
 }
 
 export function listWorkspaceDirectories(workspaceId: string): WorkspaceDirectory[] {
-  const rows = getDatabase()
+  return getDatabase()
     .prepare("SELECT * FROM workspace_directories WHERE workspace_id = ? AND source = 'local' ORDER BY sort_order, created_at")
-    .all(workspaceId) as Array<Omit<WorkspaceDirectory, 'read_only'> & { read_only: number }>;
-  return rows.map(r => ({ ...r, read_only: r.read_only === 1 }));
-}
-
-export function updateWorkspaceDirectoryPermission(id: string, readOnly: boolean): void {
-  getDatabase()
-    .prepare('UPDATE workspace_directories SET read_only = ? WHERE id = ?')
-    .run(readOnly ? 1 : 0, id);
+    .all(workspaceId) as WorkspaceDirectory[];
 }
 
 export function listWorkspaceDirectoriesBySource(workspaceId: string, source: 'local' | 'google-drive'): WorkspaceDirectory[] {
