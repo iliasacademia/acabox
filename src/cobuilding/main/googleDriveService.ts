@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import log from 'electron-log';
-import { getAuthedClient, hasNativeApiScopes, type DocsApiResult } from './googleDocsService';
+import { getAuthedClient, hasScopeFor, type DocsApiResult } from './googleDocsService';
 import { getCacheEntry, upsertPathIndexEntries } from './db/googleDriveCacheRepository';
 
 export interface DriveFile {
@@ -284,7 +284,18 @@ interface TreeNode {
   owners?: Array<{ displayName?: string; emailAddress?: string }>;
   shared?: boolean;
   isSelected: boolean;
+  fullyLoaded: boolean;
   children: Map<string, TreeNode>;
+}
+
+export interface DriveUITreeNode {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  children?: DriveUITreeNode[];
+  loaded?: boolean;
+  driveFileId?: string;
+  driveMimeType?: string;
 }
 
 function newTreeNode(id: string, name: string, mimeType: string, extra?: Partial<DriveFile>): TreeNode {
@@ -295,6 +306,7 @@ function newTreeNode(id: string, name: string, mimeType: string, extra?: Partial
     owners: extra?.owners,
     shared: extra?.shared,
     isSelected: false,
+    fullyLoaded: false,
     children: new Map(),
   };
 }
@@ -340,6 +352,7 @@ async function populateDescendants(node: TreeNode, maxDepth: number, depth: numb
   if (depth >= maxDepth) return;
   if (node.mimeType !== FOLDER_MIME) return;
   const files = await listAllFiles(node.id);
+  node.fullyLoaded = true;
   for (const file of files) {
     const child = newTreeNode(file.id, file.name, file.mimeType, file);
     node.children.set(file.id, child);
@@ -385,13 +398,13 @@ function renderTreeNode(node: TreeNode, prefix: string, isLast: boolean, isRoot:
   return lines;
 }
 
-export async function generateContextualDriveTree(
+async function buildContextualDriveTree(
   selectedItems: Array<{ driveId: string; name: string; mimeType: string }>,
-): Promise<string> {
-  if (selectedItems.length === 0) return '(No Google Drive items connected)';
-
+): Promise<{ myDriveRoot: TreeNode; sharedRoot: TreeNode }> {
   const myDriveRoot = newTreeNode('my-drive', 'My Drive', FOLDER_MIME);
+  myDriveRoot.fullyLoaded = true;
   const sharedRoot = newTreeNode('shared', 'Shared with me', FOLDER_MIME);
+  sharedRoot.fullyLoaded = true;
 
   try {
     for (const item of selectedItems) {
@@ -413,6 +426,47 @@ export async function generateContextualDriveTree(
   } catch (err) {
     log.error('[GoogleDrive] Failed to generate contextual tree:', err);
   }
+
+  return { myDriveRoot, sharedRoot };
+}
+
+function convertTreeNodeToUI(node: TreeNode): DriveUITreeNode {
+  const isFolder = node.mimeType === FOLDER_MIME;
+  const childNodes = Array.from(node.children.values());
+  return {
+    name: node.name,
+    path: `gdrive://${node.id}`,
+    isDirectory: isFolder,
+    children: isFolder ? childNodes.map(convertTreeNodeToUI) : undefined,
+    loaded: isFolder ? node.fullyLoaded : undefined,
+    driveFileId: node.id,
+    driveMimeType: node.mimeType,
+  };
+}
+
+export async function generateContextualDriveTreeNodes(
+  selectedItems: Array<{ driveId: string; name: string; mimeType: string }>,
+): Promise<DriveUITreeNode[]> {
+  if (selectedItems.length === 0) return [];
+
+  const { myDriveRoot, sharedRoot } = await buildContextualDriveTree(selectedItems);
+  const roots: DriveUITreeNode[] = [];
+
+  if (myDriveRoot.children.size > 0) {
+    roots.push(convertTreeNodeToUI(myDriveRoot));
+  }
+  if (sharedRoot.children.size > 0) {
+    roots.push(convertTreeNodeToUI(sharedRoot));
+  }
+  return roots;
+}
+
+export async function generateContextualDriveTree(
+  selectedItems: Array<{ driveId: string; name: string; mimeType: string }>,
+): Promise<string> {
+  if (selectedItems.length === 0) return '(No Google Drive items connected)';
+
+  const { myDriveRoot, sharedRoot } = await buildContextualDriveTree(selectedItems);
 
   const lines: string[] = [];
   const hasMyDrive = myDriveRoot.children.size > 0;
@@ -495,7 +549,7 @@ export async function downloadFile(
   const isWorkspaceFile = fileMeta.mimeType.startsWith('application/vnd.google-apps.');
   const nativeFetcher = NATIVE_API_MAP[fileMeta.mimeType];
   const exportInfo = EXPORT_FALLBACK_MAP[fileMeta.mimeType];
-  const useNativeApi = nativeFetcher && hasNativeApiScopes();
+  const useNativeApi = nativeFetcher && hasScopeFor(fileMeta.mimeType);
 
   if (isWorkspaceFile && !nativeFetcher && !exportInfo) {
     return { success: false, error: `Cannot download Google Workspace file of type "${fileMeta.mimeType}". Only Docs, Sheets, Slides, and Drawings can be exported.` };

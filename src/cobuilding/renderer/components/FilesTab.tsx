@@ -76,7 +76,7 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, ha
   const [creatingIn, setCreatingIn] = useState<{ dirPath: string; type: 'file' | 'folder' } | null>(null);
   const [fileTagMap, setFileTagMap] = useState<Map<string, FileTagType>>(new Map());
   const [driveRefreshing, setDriveRefreshing] = useState(false);
-  const [driveTree, setDriveTree] = useState<string | null>(null);
+  const [driveTreeNodes, setDriveTreeNodes] = useState<TreeNode[] | null>(null);
   const [driveTreeLoading, setDriveTreeLoading] = useState(false);
   const [driveExpanded, setDriveExpanded] = useState(true);
 
@@ -201,9 +201,9 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, ha
   const loadDriveTree = useCallback(async () => {
     setDriveTreeLoading(true);
     try {
-      const result = await (window as any).googleDriveAPI.getContextualTree();
+      const result = await (window as any).googleDriveAPI.getContextualTreeNodes();
       if (result?.success && result.data) {
-        setDriveTree(result.data);
+        setDriveTreeNodes(result.data);
       }
     } finally {
       setDriveTreeLoading(false);
@@ -220,10 +220,10 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, ha
   }, [loadDriveTree]);
 
   useEffect(() => {
-    if (hasDriveFolders && !driveTree && !driveTreeLoading) {
+    if (hasDriveFolders && !driveTreeNodes && !driveTreeLoading) {
       loadDriveTree();
     }
-  }, [hasDriveFolders, driveTree, driveTreeLoading, loadDriveTree]);
+  }, [hasDriveFolders, driveTreeNodes, driveTreeLoading, loadDriveTree]);
 
   // Auto-refresh when files change on disk (e.g., created by container commands)
   useEffect(() => {
@@ -594,14 +594,36 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, ha
               </div>
             </div>
             {driveExpanded && (
-              <div className="filesTabDriveTree">
-                {driveTreeLoading && !driveTree && (
+              <>
+                {driveTreeLoading && !driveTreeNodes && (
                   <div className="filesTabDriveLoading">Loading Drive tree...</div>
                 )}
-                {driveTree && (
-                  <pre className="filesTabDriveTreePre">{driveTree}</pre>
-                )}
-              </div>
+                {driveTreeNodes && driveTreeNodes.map((rootNode) => (
+                  <FileTreeNode
+                    key={rootNode.path}
+                    node={rootNode}
+                    depth={1}
+                    workspacePath={workspacePath}
+                    fileTagMap={fileTagMap}
+                    onSelectFile={onSelectFile}
+                    loadChildren={loadChildren}
+                    onDropOnDir={handleDropOnDir}
+                    onDragOverDir={handleDragOverDir}
+                    onDragLeaveDir={handleDragLeaveDir}
+                    dropTargetPath={dropTargetPath}
+                    refreshKey={refreshKey}
+                    onContextMenu={handleContextMenu}
+                    renamingPath={renamingPath}
+                    onRenameCommit={handleRenameCommit}
+                    onRenameCancel={handleRenameCancel}
+                    onRenameRequest={handleRenameNodePath}
+                    onDeleteRequest={handleDeleteNodePath}
+                    creatingIn={creatingIn}
+                    onCreateCommit={handleCreateCommit}
+                    onCreateCancel={handleCreateCancel}
+                  />
+                ))}
+              </>
             )}
           </div>
         )}
@@ -728,7 +750,7 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<TreeNode[]>(node.children ?? []);
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(node.loaded ?? false);
   const isRenaming = renamingPath === node.path;
 
   const relPath = node.path.startsWith(workspacePath + '/')
@@ -757,9 +779,10 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
     }
   }, [creatingIn?.dirPath, creatingIn?.type, node.path, node.isDirectory, loadChildren, loaded]);
 
-  // Re-fetch children when refreshKey changes (after copy/move operations)
+  // Re-fetch children when refreshKey changes (after copy/move operations) — skip Drive nodes
+  // since their children come from the Drive API tree, not the local cache.
   useEffect(() => {
-    if (loaded && expanded && node.isDirectory) {
+    if (loaded && expanded && node.isDirectory && !node.driveFileId) {
       loadChildren(node).then(setChildren);
     }
   }, [refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
