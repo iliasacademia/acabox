@@ -46,7 +46,7 @@ const ALL_SUGGESTED_TASKS_TOOLS = [
   "mcp__suggested-tasks__delete_suggestion",
 ];
 
-interface NotificationOutput {
+export interface NotificationOutput {
   made_changes: boolean;
   title: string;
   body: string;
@@ -111,7 +111,7 @@ async function runTaskSuggestionAgent<T>(ctx: ScanContext, config: AgentConfig):
       ...(config.outputFormat ? { outputFormat: config.outputFormat } : {}),
       tools: [...commonOptions.tools, ...config.tools],
       allowedTools: [...commonOptions.allowedTools, ...config.tools],
-      mcpServers: { "suggested-tasks": mcpServer },
+      mcpServers: { ...commonOptions.mcpServers, "suggested-tasks": mcpServer },
     },
   });
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
 import { resolveWorkspacePath } from '../utils/resolveWorkspacePath';
 import { pushPendingAttribution } from '../coscientistAnalytics';
@@ -130,12 +130,30 @@ export function HomePage({
   onSwitchToChat: () => void;
 }) {
   const [briefings, setBriefings] = useState<ParsedBriefing[]>([]);
+  const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set());
+  const knownIdsRef = useRef<Set<string> | null>(null);
   const [view, setView] = useState<'home' | 'history'>('home');
   const [freeformInput, setFreeformInput] = useState('');
   const assistantRuntime = useAssistantRuntime();
   const composerRuntime = useComposerRuntime();
 
   useEffect(() => {
+    const storageKey = `academia:seenBriefingIds:${workspacePath}`;
+
+    let hasBaseline: boolean;
+    if (knownIdsRef.current === null) {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        knownIdsRef.current = raw ? new Set(JSON.parse(raw)) : new Set();
+        hasBaseline = !!raw;
+      } catch {
+        knownIdsRef.current = new Set();
+        hasBaseline = false;
+      }
+    } else {
+      hasBaseline = true;
+    }
+
     const refresh = () => {
       window.briefingsAPI
         .list({ status: ['new'], limit: 50 })
@@ -143,13 +161,39 @@ export function HomePage({
           const parsed = rows
             .map(parseBriefing)
             .filter((b): b is ParsedBriefing => b !== null);
+
+          const currentIds = new Set(parsed.map((p) => p.briefing.id));
+          const known = knownIdsRef.current ?? new Set<string>();
+          const newlyArrived = new Set<string>();
+          if (hasBaseline) {
+            for (const id of currentIds) {
+              if (!known.has(id)) newlyArrived.add(id);
+            }
+          } else {
+            hasBaseline = true;
+          }
+
+          knownIdsRef.current = currentIds;
+          try {
+            localStorage.setItem(storageKey, JSON.stringify([...currentIds]));
+          } catch {}
+
           setBriefings(parsed);
+          if (newlyArrived.size > 0) {
+            setHighlightedIds((prev) => new Set([...prev, ...newlyArrived]));
+            setTimeout(() => {
+              setHighlightedIds((prev) => {
+                const next = new Set(prev);
+                for (const id of newlyArrived) next.delete(id);
+                return next;
+              });
+            }, 10000);
+          }
         });
     };
     refresh();
-    // Re-fetch whenever briefings are created, updated, or change status.
     return window.briefingsAPI.onChanged(refresh);
-  }, []);
+  }, [workspacePath]);
 
   const sendChatPrompt = (prompt: string) => {
     assistantRuntime.switchToNewThread();
@@ -227,7 +271,7 @@ export function HomePage({
               return (
                 <div
                   key={parsed.briefing.id}
-                  className="homeBriefingCard homeBriefingCard--action"
+                  className={`homeBriefingCard homeBriefingCard--action${highlightedIds.has(parsed.briefing.id) ? ' homeBriefingCard--newArrival' : ''}`}
                 >
                   <div className="homeBriefingCard__iconBox">
                     <card.Icon className="homeBriefingCard__icon" />

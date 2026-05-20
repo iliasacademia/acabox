@@ -266,10 +266,6 @@ async function handleBridge(ws: WebSocket, msg: any): Promise<void> {
 
   const wid = windowMonitorService.getFocusedWindowId() ?? windowMonitorService.getDockedWindowId();
 
-  if (wid && !windowMonitorService.getFocusedWindowId()) {
-    windowMonitorService.activateHostAppForWindow(wid);
-  }
-
   try {
     const result = await handler({
       action: msg.action,

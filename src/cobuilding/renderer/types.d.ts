@@ -424,6 +424,7 @@ declare global {
      * subsystem: optional tag applied when kind === 'capture'
      */
     telemetryTest(kind: string, subsystem?: string): Promise<{ ok: boolean; error?: string }>;
+    triggerInDepthSuggestions(): Promise<void>;
   }
 
   interface SettingsAPI {

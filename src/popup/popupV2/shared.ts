@@ -27,8 +27,6 @@ export const POPUP_HEIGHT_NO_NOTIFICATIONS = 240 + POPUP_TITLE_BAR_HEIGHT;
 export const POPUP_HEIGHT_ONE_NOTIFICATION = 320 + POPUP_TITLE_BAR_HEIGHT;
 export const POPUP_HEIGHT_TWO_NOTIFICATIONS = 400 + POPUP_TITLE_BAR_HEIGHT;
 export const POPUP_HEIGHT_REVIEW_VIEW = 660 + POPUP_TITLE_BAR_HEIGHT;
-export const POPUP_HEIGHT_ENABLE_FEEDBACK = 250 + POPUP_TITLE_BAR_HEIGHT;
-export const POPUP_HEIGHT_UNSAVED_DOCUMENT = 190 + POPUP_TITLE_BAR_HEIGHT;
 export const REVIEW_STATUS_CARD_HEIGHT = 72;
 export const ERROR_MESSAGE_HEIGHT = 60;
 export const POPUP_HEIGHT_REVIEW_INPUT = 380 + POPUP_TITLE_BAR_HEIGHT;
@@ -98,8 +96,6 @@ export interface WordPollResponse {
   shouldShowButtonV2?: boolean;
   shouldShowPopupV2?: boolean;
   fullStoryConfig?: FullStoryConfig;
-  isEnableFeedback?: boolean;
-  isUnsavedDocument?: boolean;
   reviewErrorMessage?: string;
   projectReviewState?: 'idle' | 'reviewing' | 'completed' | 'failed';
   wid?: string;
@@ -844,48 +840,6 @@ export const styles: { [key: string]: React.CSSProperties } = {
     fontWeight: 400,
     padding: 0,
     marginLeft: '4px',
-  },
-  enableFeedbackTitle: {
-    fontFamily: "'DM Sans', sans-serif",
-    fontSize: '24px',
-    fontWeight: 400,
-    lineHeight: '29px',
-    color: '#141413',
-    paddingBottom: '16px',
-  },
-  enableFeedbackDescription: {
-    fontFamily: "'DM Sans', sans-serif",
-    fontSize: '16px',
-    fontWeight: 400,
-    lineHeight: '20px',
-    color: '#141413',
-    paddingBottom: '16px',
-  },
-  enableFeedbackShareButton: {
-    height: '48px',
-    flexShrink: 0,
-    backgroundColor: '#0645b1',
-    border: 'none',
-    borderRadius: '16px',
-    padding: '0 20px',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-  },
-  enableFeedbackShareButtonText: {
-    fontFamily: "'DM Sans', sans-serif",
-    fontSize: '16px',
-    fontWeight: 600,
-    lineHeight: '20px',
-    color: '#ffffff',
-  },
-  enableFeedbackError: {
-    fontFamily: "'DM Sans', sans-serif",
-    fontSize: '14px',
-    color: '#d32f2f',
-    paddingBottom: '12px',
   },
 };
 

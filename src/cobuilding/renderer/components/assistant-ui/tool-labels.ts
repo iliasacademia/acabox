@@ -139,6 +139,16 @@ export function getToolLabel(
     }
     case 'mcp__google-docs__find_and_replace':
       return 'Proposing edit';
+    case 'mcp__google-drive__list_files':
+      return 'Listing Drive files';
+    case 'mcp__google-drive__search_files': {
+      const q = resolved?.query as string | undefined;
+      return q ? `Searching Drive: ${q.length > 30 ? q.slice(0, 30) + '…' : q}` : 'Searching Drive';
+    }
+    case 'mcp__google-drive__get_file_metadata':
+      return 'Getting file info';
+    case 'mcp__google-drive__download_file':
+      return 'Downloading Drive file';
     case 'mcp__mini-apps__open_mini_application': {
       if (status?.type === 'running') return 'Opening tool';
       if (status?.type === 'incomplete') return 'Failed to open tool';

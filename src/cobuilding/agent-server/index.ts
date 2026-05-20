@@ -353,6 +353,45 @@ function createMcpRelayServers(state: SessionState) {
       ],
     }),
 
+    'google-drive': createSdkMcpServer({
+      name: 'google-drive',
+      tools: [
+        tool('list_files',
+          "List files in the user's connected Google Drive folders. Omit folder_id to list top-level contents of all connected folders (response includes connectedFolders). Pass folder_id to list a specific subfolder within a connected folder. Only folders the user connected during workspace setup are accessible.",
+          {
+            folder_id: z.string().optional().describe('Google Drive folder ID to list contents of. Omit to list all connected folders.'),
+            page_size: z.number().optional().describe('Max files to return (default 100).'),
+            page_token: z.string().optional().describe('Pagination token from a previous response to fetch the next page.'),
+            order_by: z.string().optional().describe('Sort order (default: folder,name).'),
+          },
+          relay('google-drive', 'list_files'),
+        ),
+        tool('search_files',
+          "Search by filename across the user's connected Google Drive folders. Results are filtered to only include files within connected folders.",
+          {
+            query: z.string().describe('Search query — matches file names.'),
+            page_size: z.number().optional().describe('Max results to return (default 100).'),
+            page_token: z.string().optional().describe('Pagination token from a previous response to fetch the next page.'),
+          },
+          relay('google-drive', 'search_files'),
+        ),
+        tool('get_file_metadata',
+          'Get detailed metadata for a specific Google Drive file by its ID, including description, owners, size, and timestamps.',
+          {
+            file_id: z.string().describe('The Google Drive file ID.'),
+          },
+          relay('google-drive', 'get_file_metadata'),
+        ),
+        tool('download_file',
+          'Download a Google Drive file to the local cache so you can read it with Read or process it with scripts. The file must be within a connected folder. Returns the containerPath where the file is available, preserving the original Drive folder structure under /data/google-drive/. Cached — subsequent calls return the cached version unless the Drive file has been modified.',
+          {
+            file_id: z.string().describe('The Google Drive file ID to download.'),
+          },
+          relay('google-drive', 'download_file'),
+        ),
+      ],
+    }),
+
     'apple-notes': createSdkMcpServer({
       name: 'apple-notes',
       tools: [
@@ -730,8 +769,19 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
 
     state.queryInstance = queryInstance;
 
+    let authRetryCount = 0;
     for await (const message of queryInstance) {
       broadcastSSE(state, 'message', message);
+
+      const msg = message as any;
+      if (msg.type === 'system' && msg.subtype === 'api_retry' && (msg.error_status === 401 || msg.error_status === 403)) {
+        authRetryCount++;
+        if (authRetryCount > 1) {
+          console.log(`[AgentServer] Auth error persisted after retry (status=${msg.error_status}), aborting query`);
+          queryInstance.close();
+          throw new Error(`Failed to authenticate. API Error: ${msg.error_status}`);
+        }
+      }
     }
 
     broadcastSSE(state, 'done', {});
@@ -888,6 +938,7 @@ function sendJSON(res: ServerResponse, status: number, body: unknown): void {
 function parseRoute(url: string): { path: string; sessionId?: string; action?: string } {
   const parts = url.split('/').filter(Boolean);
   if (parts[0] === 'health') return { path: 'health' };
+  if (parts[0] === 'credentials') return { path: 'credentials' };
   if (parts[0] === 'sessions') {
     if (parts.length === 1) return { path: 'sessions' };
     if (parts.length === 3) return { path: 'session-action', sessionId: parts[1], action: parts[2] };
@@ -895,13 +946,28 @@ function parseRoute(url: string): { path: string; sessionId?: string; action?: s
   return { path: 'unknown' };
 }
 
-function startServer(config: AgentConfig): void {
+function startServer(initialConfig: AgentConfig): void {
+  let currentConfig = initialConfig;
+
   const server = createServer(async (req, res) => {
     const route = parseRoute(req.url ?? '/');
 
     try {
       if (route.path === 'health' && req.method === 'GET') {
         sendJSON(res, 200, { status: 'ok', sessions: sessions.size });
+        return;
+      }
+
+      if (route.path === 'credentials' && req.method === 'POST') {
+        const body = JSON.parse(await readBody(req));
+        if (body.anthropicApiKey) {
+          currentConfig = { ...currentConfig, anthropicApiKey: body.anthropicApiKey };
+        }
+        if ('anthropicBaseURL' in body) {
+          currentConfig = { ...currentConfig, anthropicBaseURL: body.anthropicBaseURL || undefined };
+        }
+        console.log('[AgentServer] Credentials updated');
+        sendJSON(res, 200, { ok: true });
         return;
       }
 
@@ -914,7 +980,7 @@ function startServer(config: AgentConfig): void {
           soulMd: body.soulMd,
           hostGuidance: body.hostGuidance,
         };
-        createSession(sessionId, config, resumeSessionId, sessionOverrides);
+        createSession(sessionId, currentConfig, resumeSessionId, sessionOverrides);
         sendJSON(res, 201, { sessionId });
         return;
       }
@@ -1023,8 +1089,8 @@ function startServer(config: AgentConfig): void {
     }
   });
 
-  server.listen(config.port, '0.0.0.0', () => {
-    console.log(`[AgentServer] Listening on 0.0.0.0:${config.port}`);
+  server.listen(currentConfig.port, '0.0.0.0', () => {
+    console.log(`[AgentServer] Listening on 0.0.0.0:${currentConfig.port}`);
   });
 
   process.on('SIGTERM', () => {
@@ -1052,5 +1118,4 @@ function startServer(config: AgentConfig): void {
 // The subprocess also receives it via the query() env option.
 process.env.CLAUDE_CONFIG_DIR = '/data/.academia/claude-config';
 
-const config = loadConfig();
-startServer(config);
+startServer(loadConfig());
