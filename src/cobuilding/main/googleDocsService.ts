@@ -24,6 +24,8 @@ import { captureError } from '../shared/telemetry';
 const SCOPES = [
   'https://www.googleapis.com/auth/documents',
   'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/spreadsheets.readonly',
+  'https://www.googleapis.com/auth/presentations.readonly',
 ];
 
 function isRateLimited(err: any): boolean {
@@ -132,6 +134,14 @@ export function hasDriveScope(): boolean {
   const scope = tokens.scope as string | undefined;
   if (!scope) return false;
   return scope.includes('drive.readonly');
+}
+
+export function hasNativeApiScopes(): boolean {
+  const tokens = readTokens();
+  if (!tokens) return false;
+  const scope = tokens.scope as string | undefined;
+  if (!scope) return false;
+  return scope.includes('spreadsheets.readonly') && scope.includes('presentations.readonly');
 }
 
 export function disconnect(): void {

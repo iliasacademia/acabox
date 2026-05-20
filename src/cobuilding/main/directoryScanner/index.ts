@@ -57,7 +57,7 @@ export async function scanWorkspaceDirectory(
     onMessage({ type: "progress", text: "Listing Google Drive folders" });
     for (const dd of driveDirectories) {
       try {
-        const { tree } = await generateDriveDirectoryTree(dd.driveId, dd.name, params.workspaceId);
+        const { tree } = await generateDriveDirectoryTree(dd.driveId, dd.name, params.workspaceId, dd.mimeType);
         treeOutputs.push({ directoryPath: dd.name, tree, source: 'google-drive' });
       } catch (err) {
         log.error(`[DirectoryScanner] Failed to generate Drive tree for ${dd.name}:`, err);

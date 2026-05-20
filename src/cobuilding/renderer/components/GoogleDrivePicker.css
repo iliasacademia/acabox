@@ -124,3 +124,57 @@
   color: #d32f2f;
   margin: 0 0 12px;
 }
+
+.gdp-section {
+  border-bottom: 1px solid #e5e2dd;
+}
+
+.gdp-section:last-child {
+  border-bottom: none;
+}
+
+.gdp-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  text-align: left;
+}
+
+.gdp-section-header:hover {
+  background: #f5f3f0;
+}
+
+.gdp-section-header__arrow {
+  font-size: 12px;
+  color: #9c958b;
+  width: 12px;
+  text-align: center;
+}
+
+.gdp-section-header__icon {
+  font-size: 14px;
+}
+
+.gdp-section-body {
+  /* children render inside */
+}
+
+.gdp-item__owner {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #9c958b;
+  margin-left: auto;
+  padding-left: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 120px;
+}

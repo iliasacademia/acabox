@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import log from 'electron-log';
-import { getAuthedClient, type DocsApiResult } from './googleDocsService';
+import { getAuthedClient, hasNativeApiScopes, type DocsApiResult } from './googleDocsService';
 import { getCacheEntry, upsertPathIndexEntries } from './db/googleDriveCacheRepository';
 
 export interface DriveFile {
@@ -13,6 +13,8 @@ export interface DriveFile {
   size?: string;
   parents?: string[];
   webViewLink?: string;
+  owners?: Array<{ displayName?: string; emailAddress?: string }>;
+  shared?: boolean;
 }
 
 interface DriveListResult {
@@ -21,7 +23,7 @@ interface DriveListResult {
 }
 
 const DRIVE_FILES_URL = 'https://www.googleapis.com/drive/v3/files';
-const STANDARD_FIELDS = 'files(id,name,mimeType,modifiedTime,size,parents,webViewLink),nextPageToken';
+const STANDARD_FIELDS = 'files(id,name,mimeType,modifiedTime,size,parents,webViewLink,owners(displayName,emailAddress),shared),nextPageToken';
 const DETAIL_FIELDS = 'id,name,mimeType,modifiedTime,size,parents,webViewLink,description,createdTime,owners(displayName,emailAddress)';
 
 function isRateLimited(err: any): boolean {
@@ -77,6 +79,7 @@ export async function listFiles(args: {
   pageSize?: number;
   pageToken?: string;
   orderBy?: string;
+  sharedWithMe?: boolean;
 }): Promise<DocsApiResult<DriveListResult>> {
   const client = await getAuthedClient();
   if (!client) return { success: false, error: 'Not connected to Google' };
@@ -85,10 +88,16 @@ export async function listFiles(args: {
   params.set('fields', STANDARD_FIELDS);
   params.set('pageSize', String(Math.min(args.pageSize ?? 50, 100)));
   params.set('orderBy', args.orderBy ?? 'folder,name');
+  params.set('includeItemsFromAllDrives', 'true');
+  params.set('supportsAllDrives', 'true');
   if (args.pageToken) params.set('pageToken', args.pageToken);
 
   const qParts: string[] = ['trashed = false'];
-  qParts.push(`'${args.folderId ?? 'root'}' in parents`);
+  if (args.sharedWithMe) {
+    qParts.push('sharedWithMe = true');
+  } else {
+    qParts.push(`'${args.folderId ?? 'root'}' in parents`);
+  }
   params.set('q', qParts.join(' and '));
 
   try {
@@ -117,6 +126,8 @@ export async function searchFiles(args: {
   const params = new URLSearchParams();
   params.set('fields', STANDARD_FIELDS);
   params.set('pageSize', String(Math.min(args.pageSize ?? 20, 100)));
+  params.set('includeItemsFromAllDrives', 'true');
+  params.set('supportsAllDrives', 'true');
   if (args.pageToken) params.set('pageToken', args.pageToken);
 
   const escaped = args.query.replace(/'/g, "\\'");
@@ -146,6 +157,7 @@ export async function getFileMetadata(fileId: string): Promise<DocsApiResult<Dri
 
   const params = new URLSearchParams();
   params.set('fields', DETAIL_FIELDS + ',md5Checksum');
+  params.set('supportsAllDrives', 'true');
 
   try {
     const resp = await withRetry(() => client.request<any>({ url: `${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}?${params}`, method: 'GET' }));
@@ -217,8 +229,16 @@ export async function generateDriveDirectoryTree(
   folderId: string,
   folderName: string,
   workspaceId?: string,
+  mimeType?: string,
 ): Promise<{ tree: string; pathIndex: PathIndex }> {
   const pathIndex: PathIndex = {};
+
+  if (mimeType && mimeType !== FOLDER_MIME) {
+    const tree = folderName;
+    log.info(`[GoogleDrive] Non-folder item: ${folderName}`);
+    return { tree, pathIndex };
+  }
+
   try {
     const lines = [folderName];
     const children = await buildTreeLines(folderId, '', '', pathIndex, 3, 0);
@@ -247,11 +267,46 @@ export async function generateDriveDirectoryTree(
   }
 }
 
+// --- Native Google Workspace API fetchers ---
+
+const DOCS_API_URL = 'https://docs.googleapis.com/v1/documents';
+const SHEETS_API_URL = 'https://sheets.googleapis.com/v4/spreadsheets';
+const SLIDES_API_URL = 'https://slides.googleapis.com/v1/presentations';
+
+async function fetchNativeJson(url: string): Promise<DocsApiResult<Buffer>> {
+  const client = await getAuthedClient();
+  if (!client) return { success: false, error: 'Not connected to Google' };
+  try {
+    const resp = await withRetry(() => client.request<any>({ url, method: 'GET' }));
+    return { success: true, data: Buffer.from(JSON.stringify(resp.data, null, 2)) };
+  } catch (err: any) {
+    return handleDriveError(err);
+  }
+}
+
+export async function fetchDocJson(fileId: string): Promise<DocsApiResult<Buffer>> {
+  return fetchNativeJson(`${DOCS_API_URL}/${encodeURIComponent(fileId)}?includeTabsContent=true`);
+}
+
+export async function fetchSheetJson(fileId: string): Promise<DocsApiResult<Buffer>> {
+  return fetchNativeJson(`${SHEETS_API_URL}/${encodeURIComponent(fileId)}?includeGridData=true`);
+}
+
+export async function fetchSlideJson(fileId: string): Promise<DocsApiResult<Buffer>> {
+  return fetchNativeJson(`${SLIDES_API_URL}/${encodeURIComponent(fileId)}`);
+}
+
 // --- File download with cache ---
 
 const MAX_DOWNLOAD_SIZE = 50 * 1024 * 1024; // 50 MB
 
-const GOOGLE_WORKSPACE_EXPORT_MAP: Record<string, { mimeType: string; extension: string }> = {
+const NATIVE_API_MAP: Partial<Record<string, (id: string) => Promise<DocsApiResult<Buffer>>>> = {
+  'application/vnd.google-apps.document': fetchDocJson,
+  'application/vnd.google-apps.spreadsheet': fetchSheetJson,
+  'application/vnd.google-apps.presentation': fetchSlideJson,
+};
+
+const EXPORT_FALLBACK_MAP: Partial<Record<string, { mimeType: string; extension: string }>> = {
   'application/vnd.google-apps.document': { mimeType: 'text/plain', extension: '.txt' },
   'application/vnd.google-apps.spreadsheet': { mimeType: 'text/csv', extension: '.csv' },
   'application/vnd.google-apps.presentation': { mimeType: 'text/plain', extension: '.txt' },
@@ -261,7 +316,6 @@ const GOOGLE_WORKSPACE_EXPORT_MAP: Record<string, { mimeType: string; extension:
 export async function downloadFile(
   fileId: string,
   cacheBaseDir: string,
-  relativePath: string,
 ): Promise<DocsApiResult<{ filePath: string; cached: boolean; name: string; modifiedTime?: string; md5Checksum?: string }>> {
   const client = await getAuthedClient();
   if (!client) return { success: false, error: 'Not connected to Google' };
@@ -272,9 +326,11 @@ export async function downloadFile(
   }
   const fileMeta = metaResult.data;
   const isWorkspaceFile = fileMeta.mimeType.startsWith('application/vnd.google-apps.');
-  const exportInfo = GOOGLE_WORKSPACE_EXPORT_MAP[fileMeta.mimeType];
+  const nativeFetcher = NATIVE_API_MAP[fileMeta.mimeType];
+  const exportInfo = EXPORT_FALLBACK_MAP[fileMeta.mimeType];
+  const useNativeApi = nativeFetcher && hasNativeApiScopes();
 
-  if (isWorkspaceFile && !exportInfo) {
+  if (isWorkspaceFile && !nativeFetcher && !exportInfo) {
     return { success: false, error: `Cannot download Google Workspace file of type "${fileMeta.mimeType}". Only Docs, Sheets, Slides, and Drawings can be exported.` };
   }
 
@@ -283,19 +339,20 @@ export async function downloadFile(
     return { success: false, error: `File is ${sizeMB} MB which exceeds the ${MAX_DOWNLOAD_SIZE / 1024 / 1024} MB download limit.` };
   }
 
-  const fileName = isWorkspaceFile && exportInfo
-    ? fileMeta.name + exportInfo.extension
-    : fileMeta.name;
+  let fileName: string;
+  if (isWorkspaceFile) {
+    fileName = useNativeApi
+      ? fileMeta.name + '.json'
+      : fileMeta.name + (exportInfo?.extension ?? '');
+  } else {
+    fileName = fileMeta.name;
+  }
 
-  const adjustedRelPath = isWorkspaceFile && exportInfo && !relativePath.endsWith(exportInfo.extension)
-    ? relativePath + exportInfo.extension
-    : relativePath;
-  const filePath = path.resolve(cacheBaseDir, adjustedRelPath);
+  const filePath = path.resolve(cacheBaseDir, fileId, fileName);
   if (!filePath.startsWith(path.resolve(cacheBaseDir) + path.sep)) {
     return { success: false, error: 'Invalid file path' };
   }
 
-  // Check staleness via DB
   const cached = getCacheEntry(fileId);
   if (cached?.downloaded_at && fs.existsSync(filePath)) {
     const stale = cached.modified_time !== fileMeta.modifiedTime
@@ -308,12 +365,19 @@ export async function downloadFile(
   try {
     await fsPromises.mkdir(path.dirname(filePath), { recursive: true });
     let content: Buffer;
-    if (isWorkspaceFile && exportInfo) {
+
+    if (useNativeApi) {
+      const result = await nativeFetcher(fileId);
+      if (!result.success || !result.data) {
+        return { success: false, error: result.error ?? 'Failed to fetch via native API' };
+      }
+      content = result.data;
+    } else if (isWorkspaceFile && exportInfo) {
       const url = `${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}/export?mimeType=${encodeURIComponent(exportInfo.mimeType)}`;
       const resp = await withRetry(() => client.request<any>({ url, method: 'GET', responseType: 'arraybuffer' }));
       content = Buffer.from(resp.data);
     } else {
-      const url = `${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}?alt=media`;
+      const url = `${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`;
       const resp = await withRetry(() => client.request<any>({ url, method: 'GET', responseType: 'arraybuffer' }));
       content = Buffer.from(resp.data);
     }

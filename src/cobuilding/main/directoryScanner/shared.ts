@@ -25,6 +25,7 @@ export type ScannerEvent =
 export interface DriveDirectoryInfo {
   driveId: string;
   name: string;
+  mimeType?: string;
 }
 
 export interface ScanParams {

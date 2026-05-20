@@ -30,13 +30,15 @@ function checkAuth() {
   return null;
 }
 
+const FOLDER_MIME = 'application/vnd.google-apps.folder';
+
 export interface GoogleDriveMcpDeps {
-  getAllowedFolders: () => Array<{ driveId: string; name: string }>;
+  getAllowedItems: () => Array<{ driveId: string; name: string; mimeType: string }>;
   getWorkspaceId: () => string | null;
 }
 
 export function createGoogleDriveHandlers(deps: GoogleDriveMcpDeps) {
-  const { getAllowedFolders, getWorkspaceId } = deps;
+  const { getAllowedItems, getWorkspaceId } = deps;
 
   return {
     list_files: async (args: {
@@ -48,54 +50,7 @@ export function createGoogleDriveHandlers(deps: GoogleDriveMcpDeps) {
       const authErr = checkAuth();
       if (authErr) return authErr;
 
-      const allowed = getAllowedFolders();
-      if (allowed.length === 0) {
-        return ok(JSON.stringify({
-          success: false,
-          error: 'No Google Drive folders are connected to this workspace. Add folders via Settings or onboarding.',
-        }));
-      }
-
       try {
-        if (!args.folder_id) {
-          const cap = args.page_size ?? 100;
-          const allFiles: any[] = [];
-          const folderTokens: Record<string, string> = {};
-          for (const folder of allowed) {
-            if (allFiles.length >= cap) break;
-            const result = await listFiles({
-              folderId: folder.driveId,
-              pageSize: Math.min(cap - allFiles.length, 100),
-              orderBy: args.order_by,
-            });
-            if (result.success && result.data) {
-              allFiles.push(...result.data.files.map(f => ({ ...f, _folderName: folder.name })));
-              if (result.data.nextPageToken) {
-                folderTokens[folder.driveId] = result.data.nextPageToken;
-              }
-            }
-          }
-          return ok(JSON.stringify({
-            success: true,
-            data: {
-              files: allFiles.slice(0, cap),
-              hasMore: allFiles.length > cap || Object.keys(folderTokens).length > 0,
-            },
-            connectedFolders: allowed.map(f => ({ id: f.driveId, name: f.name })),
-          }));
-        }
-
-        const allowedIds = new Set(allowed.map(f => f.driveId));
-        if (!allowedIds.has(args.folder_id)) {
-          const isChild = await isDescendantOfAllowed(args.folder_id, allowedIds);
-          if (!isChild) {
-            return ok(JSON.stringify({
-              success: false,
-              error: 'This folder is not within any of the Google Drive folders connected to this workspace.',
-            }));
-          }
-        }
-
         const result = await listFiles({
           folderId: args.folder_id,
           pageSize: args.page_size,
@@ -116,59 +71,13 @@ export function createGoogleDriveHandlers(deps: GoogleDriveMcpDeps) {
       const authErr = checkAuth();
       if (authErr) return authErr;
 
-      const allowed = getAllowedFolders();
-      if (allowed.length === 0) {
-        return ok(JSON.stringify({
-          success: false,
-          error: 'No Google Drive folders are connected to this workspace.',
-        }));
-      }
-
       try {
-        const cap = args.page_size ?? 100;
-        const allowedIds = new Set(allowed.map(f => f.driveId));
-        const ancestryCache = new Map<string, boolean>();
-        const filtered: any[] = [];
-        let pageToken = args.page_token;
-
-        while (filtered.length < cap) {
-          const result = await searchFiles({
-            query: args.query,
-            pageSize: 100,
-            pageToken,
-          });
-          if (!result.success || !result.data || result.data.files.length === 0) break;
-
-          for (const file of result.data.files) {
-            const parentId = file.parents?.[0];
-            if (!parentId) continue;
-            let isAllowed: boolean | undefined;
-            if (allowedIds.has(parentId)) {
-              isAllowed = true;
-            } else {
-              isAllowed = ancestryCache.get(parentId);
-              if (isAllowed === undefined) {
-                isAllowed = await isDescendantOfAllowed(parentId, allowedIds);
-                ancestryCache.set(parentId, isAllowed);
-              }
-            }
-            if (isAllowed) {
-              filtered.push(file);
-              if (filtered.length >= cap) break;
-            }
-          }
-
-          pageToken = result.data.nextPageToken;
-          if (!pageToken) break;
-        }
-
-        return ok(JSON.stringify({
-          success: true,
-          data: {
-            files: filtered,
-            hasMore: !!pageToken,
-          },
-        }));
+        const result = await searchFiles({
+          query: args.query,
+          pageSize: args.page_size,
+          pageToken: args.page_token,
+        });
+        return ok(JSON.stringify(result));
       } catch (err) {
         return fail(String(err));
       }
@@ -190,66 +99,42 @@ export function createGoogleDriveHandlers(deps: GoogleDriveMcpDeps) {
       const authErr = checkAuth();
       if (authErr) return authErr;
 
-      const allowed = getAllowedFolders();
+      const allowed = getAllowedItems();
       if (allowed.length === 0) {
         return ok(JSON.stringify({
           success: false,
-          error: 'No Google Drive folders are connected to this workspace.',
+          error: 'No Google Drive items are connected to this workspace. Add files or folders via Settings.',
         }));
       }
 
       try {
+        const isAllowed = await isDownloadAllowed(args.file_id, allowed);
+        if (!isAllowed) {
+          return ok(JSON.stringify({
+            success: false,
+            error: 'This file is not within any of the Google Drive items connected to this workspace.',
+          }));
+        }
+
         const cacheBase = path.join(app.getPath('userData'), 'google-drive-cache');
-        const allowedIds = new Set(allowed.map(f => f.driveId));
-        const allowedIdToName = new Map(allowed.map(f => [f.driveId, f.name]));
         const wsId = getWorkspaceId() ?? '';
 
-        // Try DB cache index first
-        const cached = getCacheEntry(args.file_id);
-        let relativePath: string | null = null;
-        let relativeWithinFolder: string | null = null;
-
-        if (cached) {
-          const rootParent = await findAllowedRoot(cached.parent_id ?? '', allowedIds);
-          if (rootParent) {
-            const folderName = allowedIdToName.get(rootParent) ?? rootParent;
-            relativeWithinFolder = cached.relative_path;
-            relativePath = `${folderName}/${relativeWithinFolder}`;
-          }
-        }
-
-        // Fall back to walking parents
-        if (!relativePath) {
-          const resolved = await resolvePathToAllowedRoot(args.file_id, allowedIds, allowedIdToName);
-          if (!resolved) {
-            return ok(JSON.stringify({
-              success: false,
-              error: 'This file is not within any of the Google Drive folders connected to this workspace.',
-            }));
-          }
-          relativePath = resolved.relativePath;
-          relativeWithinFolder = resolved.relativeWithinFolder;
-        }
-
-        const result = await downloadFile(args.file_id, cacheBase, relativePath);
+        const result = await downloadFile(args.file_id, cacheBase);
         if (!result.success || !result.data) {
           return ok(JSON.stringify(result));
         }
 
-        // Store/update DB entry with the folder-relative path (not the full path)
         upsertCacheEntry({
           fileId: args.file_id,
           workspaceId: wsId,
-          relativePath: relativeWithinFolder ?? relativePath,
-          parentId: (await getFileMetadata(args.file_id)).data?.parents?.[0],
           name: result.data.name,
-          mimeType: cached?.mime_type ?? '',
+          mimeType: (await getFileMetadata(args.file_id)).data?.mimeType ?? '',
           modifiedTime: result.data.modifiedTime,
           md5Checksum: result.data.md5Checksum,
-          downloadedAt: result.data.cached ? cached?.downloaded_at : new Date().toISOString(),
+          downloadedAt: result.data.cached ? getCacheEntry(args.file_id)?.downloaded_at : new Date().toISOString(),
         });
 
-        const containerPath = `/data/google-drive/${relativePath}`;
+        const containerPath = `/data/google-drive/${args.file_id}/${result.data.name}`;
         return ok(JSON.stringify({
           success: true,
           data: {
@@ -265,46 +150,31 @@ export function createGoogleDriveHandlers(deps: GoogleDriveMcpDeps) {
   };
 }
 
-async function isDescendantOfAllowed(folderId: string, allowedIds: Set<string>): Promise<boolean> {
-  return (await findAllowedRoot(folderId, allowedIds)) !== null;
+async function isDownloadAllowed(
+  fileId: string,
+  allowedItems: Array<{ driveId: string; mimeType: string }>,
+): Promise<boolean> {
+  if (allowedItems.some(a => a.driveId === fileId)) return true;
+
+  const allowedFolderIds = new Set(
+    allowedItems
+      .filter(a => a.mimeType === FOLDER_MIME)
+      .map(a => a.driveId),
+  );
+  if (allowedFolderIds.size === 0) return false;
+  return isDescendantOfAllowed(fileId, allowedFolderIds);
 }
 
-async function findAllowedRoot(fileOrFolderId: string, allowedIds: Set<string>): Promise<string | null> {
+async function isDescendantOfAllowed(fileOrFolderId: string, allowedIds: Set<string>): Promise<boolean> {
   let currentId = fileOrFolderId;
   for (let i = 0; i < 20; i++) {
-    if (allowedIds.has(currentId)) return currentId;
+    if (allowedIds.has(currentId)) return true;
     const result = await getFileMetadata(currentId);
-    if (!result.success || !result.data) return null;
+    if (!result.success || !result.data) return false;
     const parentId = result.data.parents?.[0];
-    if (!parentId) return null;
-    if (allowedIds.has(parentId)) return parentId;
+    if (!parentId) return false;
+    if (allowedIds.has(parentId)) return true;
     currentId = parentId;
   }
-  return null;
-}
-
-async function resolvePathToAllowedRoot(
-  fileId: string,
-  allowedIds: Set<string>,
-  allowedIdToName: Map<string, string>,
-): Promise<{ relativePath: string; relativeWithinFolder: string } | null> {
-  const segments: string[] = [];
-  let currentId = fileId;
-  for (let i = 0; i < 20; i++) {
-    const result = await getFileMetadata(currentId);
-    if (!result.success || !result.data) return null;
-    segments.unshift(result.data.name);
-    const parentId = result.data.parents?.[0];
-    if (!parentId) return null;
-    if (allowedIds.has(parentId)) {
-      const folderName = allowedIdToName.get(parentId) ?? parentId;
-      const relativeWithinFolder = segments.join('/');
-      return {
-        relativePath: `${folderName}/${relativeWithinFolder}`,
-        relativeWithinFolder,
-      };
-    }
-    currentId = parentId;
-  }
-  return null;
+  return false;
 }

@@ -280,7 +280,7 @@ contextBridge.exposeInMainWorld('googleDocsAPI', {
 contextBridge.exposeInMainWorld('googleDriveAPI', {
   status: () => ipcRenderer.invoke('googleDrive:status'),
   connect: () => ipcRenderer.invoke('googleDocs:connect'),
-  listFolder: (folderId?: string) => ipcRenderer.invoke('googleDrive:listFolder', folderId),
+  listFolder: (folderId?: string, options?: { sharedWithMe?: boolean }) => ipcRenderer.invoke('googleDrive:listFolder', folderId, options),
   saveSelection: (selection: any) => ipcRenderer.invoke('googleDrive:saveSelection', selection),
   getSelection: () => ipcRenderer.invoke('googleDrive:getSelection'),
   getCacheDirectories: () => ipcRenderer.invoke('googleDrive:getCacheDirectories'),

@@ -141,11 +141,15 @@ export class AgentInfrastructureController {
       },
 
       'google-drive': createGoogleDriveHandlers({
-        getAllowedFolders: () => {
+        getAllowedItems: () => {
           const dirs = listWorkspaceDirectoriesBySource(workspace.id, 'google-drive');
           return dirs.map(d => {
             const meta = d.metadata ? JSON.parse(d.metadata) : {};
-            return { driveId: meta.driveId as string, name: d.display_name };
+            return {
+              driveId: meta.driveId as string,
+              name: d.display_name,
+              mimeType: (meta.mimeType as string) ?? 'application/vnd.google-apps.folder',
+            };
           }).filter(d => d.driveId);
         },
         getWorkspaceId: () => workspace.id,

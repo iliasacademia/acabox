@@ -357,9 +357,9 @@ function createMcpRelayServers(state: SessionState) {
       name: 'google-drive',
       tools: [
         tool('list_files',
-          "List files in the user's connected Google Drive folders. Omit folder_id to list top-level contents of all connected folders (response includes connectedFolders). Pass folder_id to list a specific subfolder within a connected folder. Only folders the user connected during workspace setup are accessible.",
+          "List files in the user's Google Drive. Omit folder_id to list top-level contents of My Drive. Pass folder_id to list a specific subfolder. Includes items from shared drives.",
           {
-            folder_id: z.string().optional().describe('Google Drive folder ID to list contents of. Omit to list all connected folders.'),
+            folder_id: z.string().optional().describe('Google Drive folder ID to list contents of. Omit to list My Drive root.'),
             page_size: z.number().optional().describe('Max files to return (default 100).'),
             page_token: z.string().optional().describe('Pagination token from a previous response to fetch the next page.'),
             order_by: z.string().optional().describe('Sort order (default: folder,name).'),
@@ -367,7 +367,7 @@ function createMcpRelayServers(state: SessionState) {
           relay('google-drive', 'list_files'),
         ),
         tool('search_files',
-          "Search by filename across the user's connected Google Drive folders. Results are filtered to only include files within connected folders.",
+          "Search by filename across the user's entire Google Drive, including shared drives.",
           {
             query: z.string().describe('Search query — matches file names.'),
             page_size: z.number().optional().describe('Max results to return (default 100).'),
@@ -383,7 +383,7 @@ function createMcpRelayServers(state: SessionState) {
           relay('google-drive', 'get_file_metadata'),
         ),
         tool('download_file',
-          'Download a Google Drive file to the local cache so you can read it with Read or process it with scripts. The file must be within a connected folder. Returns the containerPath where the file is available, preserving the original Drive folder structure under /data/google-drive/. Cached — subsequent calls return the cached version unless the Drive file has been modified.',
+          'Download a Google Drive file to the local cache so you can read it. The file must be within a connected folder or be an individually selected file. Returns the containerPath at /data/google-drive/{fileId}/filename. Google Docs, Sheets, and Slides are fetched as structured JSON via their native APIs. Cached — subsequent calls return the cached version unless the file has been modified.',
           {
             file_id: z.string().describe('The Google Drive file ID to download.'),
           },
