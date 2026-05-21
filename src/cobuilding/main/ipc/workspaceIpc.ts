@@ -1,13 +1,11 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import type { WorkspaceController } from '../controllers/WorkspaceController';
 import type { containerService as containerServiceInstance } from '../containerService';
-import type { AgentInfrastructureController } from '../controllers/AgentInfrastructureController';
 
 export function registerWorkspaceHandlers(
   workspace: WorkspaceController,
   getMainWindow: () => BrowserWindow | null,
   containerService?: typeof containerServiceInstance,
-  agentInfrastructure?: AgentInfrastructureController,
 ): void {
   const sendContainerProgress = (stage: string, message: string, percent?: number) => {
     const win = getMainWindow();
@@ -31,11 +29,13 @@ export function registerWorkspaceHandlers(
     if (result.canceled || result.filePaths.length === 0) return undefined;
     return result.filePaths[0];
   });
+  // Directory mutations only need a workspace-symlink resync — the running
+  // agent server picks up the new directory list on its next session via
+  // `workspaceDirectoriesGuidance`, so we don't churn the child process.
   ipcMain.handle('workspaces:addDirectory', async (_event, directoryPath: string) => {
     const dir = workspace.addDirectory(directoryPath);
     if (containerService?.isRunning()) {
       await containerService.start(workspace.mountMap, sendContainerProgress);
-      await agentInfrastructure?.start(workspace.workspacePath);
     }
     return dir;
   });
@@ -43,14 +43,12 @@ export function registerWorkspaceHandlers(
     workspace.removeDirectory(directoryId);
     if (containerService?.isRunning()) {
       await containerService.start(workspace.mountMap, sendContainerProgress);
-      await agentInfrastructure?.start(workspace.workspacePath);
     }
   });
   ipcMain.handle('workspaces:updateDirectoryPermission', async (_event, directoryId: string, readOnly: boolean) => {
     const dir = workspace.updateDirectoryPermission(directoryId, readOnly);
     if (containerService?.isRunning()) {
       await containerService.start(workspace.mountMap, sendContainerProgress);
-      await agentInfrastructure?.start(workspace.workspacePath);
     }
     return dir;
   });

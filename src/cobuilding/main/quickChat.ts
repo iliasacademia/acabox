@@ -1,6 +1,29 @@
 import { BrowserWindow, ipcMain, screen } from 'electron';
 import log from 'electron-log';
-import { captureContext, type QuickChatContext } from './contextCapture';
+
+export interface QuickChatContext {
+  frontmostApp: string | null;
+  bundleId: string | null;
+  documentUrl: string | null;
+  selectedText: string | null;
+  focusedElementDescription: string | null;
+  focusedElementValue: string | null;
+  focusedElementRole: string | null;
+}
+
+const EMPTY_CONTEXT: QuickChatContext = {
+  frontmostApp: null,
+  bundleId: null,
+  documentUrl: null,
+  selectedText: null,
+  focusedElementDescription: null,
+  focusedElementValue: null,
+  focusedElementRole: null,
+};
+
+async function captureContext(): Promise<QuickChatContext> {
+  return EMPTY_CONTEXT;
+}
 
 declare const QUICK_CHAT_WINDOW_WEBPACK_ENTRY: string;
 declare const QUICK_CHAT_WINDOW_PRELOAD_WEBPACK_ENTRY: string;

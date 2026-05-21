@@ -82,24 +82,11 @@ interface SessionsAPI {
 interface ContainerAPI {
   start(): Promise<void>;
   stop(): Promise<void>;
-  /** Stop agent, container, and Podman VM — use before clearing image downloads. */
-  gracefulShutdownPodman(): Promise<void>;
-  /** Clear download setup like scripts/reset-downloads.sh (VM, binaries, cache, podman dirs, settings keys). */
-  clearImageDownloadState(): Promise<void>;
   status(): Promise<{ running: boolean }>;
   exec(command: string[]): Promise<{ stdout: string; stderr: string }>;
-  getBinaryMode(): Promise<'system' | 'bundled'>;
-  setBinaryMode(mode: 'system' | 'bundled'): Promise<void>;
-  getImageSource(): Promise<'registry' | 'local'>;
-  setImageSource(source: 'registry' | 'local'): Promise<void>;
+  execLogged(command: string[], meta?: { source?: string; appDirName?: string | null }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
   quitApp(): Promise<void>;
   relaunchApp(): Promise<void>;
-  getBundledStatus(): Promise<{ downloaded: boolean; binDir: string }>;
-  downloadBinaries(): Promise<void>;
-  deleteBinaries(): Promise<void>;
-  downloadImage(): Promise<void>;
-  getName(): Promise<string>;
-  isBaseImageDownloaded(): Promise<boolean>;
   ensureSetup(): Promise<void>;
   getEnvironmentInfo(): Promise<EnvironmentInfoPayload | null>;
   appDepsReady(dirName: string): Promise<boolean>;
@@ -256,26 +243,11 @@ declare global {
   interface ContainerAPI {
     start(): Promise<void>;
     stop(): Promise<void>;
-    gracefulShutdownPodman(): Promise<void>;
-    clearImageDownloadState(): Promise<void>;
     status(): Promise<{ running: boolean }>;
     exec(command: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }>;
-    syncOverlay(): Promise<{ durationMs: number }>;
     execLogged(command: string[], meta?: { source?: string; appDirName?: string | null }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
-    getBinaryMode(): Promise<'system' | 'bundled'>;
-    setBinaryMode(mode: 'system' | 'bundled'): Promise<void>;
-    getImageSource(): Promise<'registry' | 'local'>;
-    setImageSource(source: 'registry' | 'local'): Promise<void>;
     quitApp(): Promise<void>;
     relaunchApp(): Promise<void>;
-    getMemoryLimit(): Promise<'2g' | '4g' | '6g' | '8g'>;
-    setMemoryLimit(limit: '2g' | '4g' | '6g' | '8g'): Promise<void>;
-    getBundledStatus(): Promise<{ downloaded: boolean; binDir: string }>;
-    downloadBinaries(): Promise<void>;
-    deleteBinaries(): Promise<void>;
-    downloadImage(): Promise<void>;
-    getName(): Promise<string>;
-    isBaseImageDownloaded(): Promise<boolean>;
     ensureSetup(): Promise<void>;
     getEnvironmentInfo(): Promise<EnvironmentInfoPayload | null>;
     appDepsReady(dirName: string): Promise<boolean>;
@@ -450,6 +422,36 @@ declare global {
     importApp(): Promise<{ ok: boolean; dirName?: string; canceled?: boolean; error?: string }>;
     list(): Promise<MiniAppEntry[]>;
     touch(dirName: string): Promise<{ ok: boolean; error?: string }>;
+    build(dirName: string): Promise<{ ok: boolean; outfile?: string; error?: string; exitCode: number }>;
+  }
+
+  interface MiniAppToolDef {
+    name: string;
+    description: string;
+    input_schema: Record<string, unknown>;
+  }
+
+  interface MiniAppMcpServer {
+    serverName: string;
+    dirName: string;
+    tools: MiniAppToolDef[];
+  }
+
+  interface MiniAppMcpAPI {
+    register(payload: {
+      serverName: string;
+      dirName: string;
+      tools: MiniAppToolDef[];
+      iframeRouteKey: string;
+    }): Promise<void>;
+    unregister(serverName: string): Promise<void>;
+    unregisterByRoute(iframeRouteKey: string): Promise<void>;
+    list(): Promise<MiniAppMcpServer[]>;
+    callTool(serverName: string, toolName: string, args: unknown): Promise<{ result?: unknown; error?: string }>;
+    onInvoke(
+      callback: (payload: { invocationId: string; iframeRouteKey: string; toolName: string; args: unknown }) => void,
+    ): () => void;
+    sendResult(payload: { invocationId: string; result?: unknown; error?: string }): void;
   }
 
   interface WritingAgentProject {
@@ -773,11 +775,9 @@ declare global {
     academiaFileAPI: AcademiaFileAPI;
     scheduledTasksAPI: ScheduledTasksAPI;
     fileMonitorAPI: FileMonitorAPI;
-    browserMonitorAPI: BrowserMonitorAPI;
     debugAPI: DebugAPI;
-    writingAgentAPI: WritingAgentAPI;
     miniAppsAPI: MiniAppsAPI;
-    officeAddinAPI: OfficeAddinAPI;
+    miniAppMcpAPI: MiniAppMcpAPI;
     reportsAPI: ReportsAPI;
     scannerAPI: ScannerAPI;
     papersAPI: PapersAPI;

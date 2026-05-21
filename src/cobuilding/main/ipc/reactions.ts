@@ -1,8 +1,6 @@
-import { app, ipcMain, shell } from 'electron';
+import { app, ipcMain } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
-import { startBrowserMonitor, stopBrowserMonitor, isBrowserMonitorRunning } from '../browserMonitor';
-import { browserExtensionServer } from '../../../server/browserExtensionServer';
 import {
   getTaskBySessionSource,
   createTask,
@@ -12,8 +10,8 @@ import {
 import { getTaskScheduler } from '../scheduledTasks';
 import type { Workspace } from '../../shared/types';
 
-type ReactionSource = 'browser' | 'file';
-const DEFAULT_REACTION_SOURCES: ReactionSource[] = ['browser', 'file'];
+type ReactionSource = 'file';
+const DEFAULT_REACTION_SOURCES: ReactionSource[] = ['file'];
 
 const DEFAULT_ACTIVITY_SUMMARY_PROMPT =
   'Complete ALL of the following steps in order:\n' +
@@ -44,8 +42,6 @@ function patchSettings(patch: Record<string, unknown>): void {
   writeSettings(data);
 }
 
-// ── Reactions enabled ───────────────────────────────────────────────
-
 export function getReactionsEnabled(): boolean {
   return readSettings().reactionsEnabled === true;
 }
@@ -54,16 +50,12 @@ function setReactionsEnabledSetting(enabled: boolean): void {
   patchSettings({ reactionsEnabled: enabled });
 }
 
-// ── Reactions task ──────────────────────────────────────────────────
-
 export function ensureReactionsTask(workspaceId: string): void {
   const existing = getTaskBySessionSource(workspaceId, 'reactions-system');
   if (existing) return;
   createTask(workspaceId, 'Reactions', 'Summarizes your recent activity every 15 minutes',
     DEFAULT_ACTIVITY_SUMMARY_PROMPT, '*/15 * * * *', 'reactions-system');
 }
-
-// ── Reaction user instructions ──────────────────────────────────────
 
 function getReactionUserInstructions(): string | null {
   return (readSettings().reactionUserInstructions as string) ?? null;
@@ -79,8 +71,6 @@ function clearReactionUserInstructions(): void {
   writeSettings(data);
 }
 
-// ── Reaction sources ────────────────────────────────────────────────
-
 export function getReactionSources(): ReactionSource[] {
   return (readSettings().reactionSources as ReactionSource[]) ?? DEFAULT_REACTION_SOURCES;
 }
@@ -90,7 +80,7 @@ export function setReactionSources(sources: ReactionSource[]): void {
 }
 
 function buildReactionsPrompt(sources: ReactionSource[]): string {
-  const sourceFilter = sources.length === 2 ? 'all' : sources.join(',');
+  const sourceFilter = sources.join(',');
   return 'Complete ALL of the following steps in order:\n' +
     '\n' +
     '1. Use the activity-summary skill to add an update to today\'s daily summary with activity since the last update. ' +
@@ -105,13 +95,10 @@ export function updateReactionsTaskPrompt(workspaceId: string, sources: Reaction
   updateTask(task.id, { prompt: buildReactionsPrompt(sources) });
 }
 
-// ── IPC registration ────────────────────────────────────────────────
-
 export function registerReactionsHandlers(
   getActiveWorkspace: () => Workspace | null,
-  rebuildTrayMenu: () => void,
+  _rebuildTrayMenu: () => void,
 ): void {
-  // Reaction prompt
   ipcMain.handle('reactionPrompt:get', () => {
     return { instructions: getReactionUserInstructions() };
   });
@@ -124,7 +111,6 @@ export function registerReactionsHandlers(
     clearReactionUserInstructions();
   });
 
-  // Reaction sources
   ipcMain.handle('reactionSources:get', () => {
     return getReactionSources();
   });
@@ -141,7 +127,6 @@ export function registerReactionsHandlers(
     }
   });
 
-  // Reactions enabled
   ipcMain.handle('settings:getReactionsEnabled', () => {
     return getReactionsEnabled();
   });
@@ -149,65 +134,19 @@ export function registerReactionsHandlers(
   ipcMain.handle('settings:setReactionsEnabled', async (_event, enabled: boolean) => {
     setReactionsEnabledSetting(enabled);
     const workspace = getActiveWorkspace();
-    if (enabled) {
-      if (!isBrowserMonitorRunning()) {
-        await startBrowserMonitor();
-        rebuildTrayMenu();
+    if (enabled && workspace) {
+      ensureReactionsTask(workspace.id);
+      const task = getTaskBySessionSource(workspace.id, 'reactions-system');
+      if (task) {
+        setTaskEnabled(task.id, true);
+        getTaskScheduler()?.scheduleTask(task.id);
       }
-      if (workspace) {
-        ensureReactionsTask(workspace.id);
-        const task = getTaskBySessionSource(workspace.id, 'reactions-system');
-        if (task) {
-          setTaskEnabled(task.id, true);
-          getTaskScheduler()?.scheduleTask(task.id);
-        }
-      }
-    } else {
-      await stopBrowserMonitor();
-      rebuildTrayMenu();
-      if (workspace) {
-        const task = getTaskBySessionSource(workspace.id, 'reactions-system');
-        if (task) {
-          setTaskEnabled(task.id, false);
-          getTaskScheduler()?.unscheduleTask(task.id);
-        }
+    } else if (workspace) {
+      const task = getTaskBySessionSource(workspace.id, 'reactions-system');
+      if (task) {
+        setTaskEnabled(task.id, false);
+        getTaskScheduler()?.unscheduleTask(task.id);
       }
     }
-  });
-
-  // Browser monitor
-  ipcMain.handle('browserMonitor:status', () => {
-    return {
-      serverRunning: isBrowserMonitorRunning(),
-      extensionConnected: browserExtensionServer.isConnected(),
-    };
-  });
-
-  ipcMain.handle('browserMonitor:start', async () => {
-    if (!isBrowserMonitorRunning()) {
-      await startBrowserMonitor();
-      rebuildTrayMenu();
-    }
-  });
-
-  ipcMain.handle('browserMonitor:stop', async () => {
-    await stopBrowserMonitor();
-    rebuildTrayMenu();
-  });
-
-  ipcMain.handle('browserMonitor:downloadExtension', async () => {
-    const zipPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'extension.zip')
-      : path.join(app.getAppPath(), 'browser-extension', 'extension.zip');
-
-    if (!fs.existsSync(zipPath)) {
-      return { success: false, error: 'Browser extension zip not found' };
-    }
-
-    const destDir = app.getPath('downloads');
-    const destPath = path.join(destDir, 'academia-browser-extension.zip');
-    fs.copyFileSync(zipPath, destPath);
-    shell.showItemInFolder(destPath);
-    return { success: true, path: destPath };
   });
 }

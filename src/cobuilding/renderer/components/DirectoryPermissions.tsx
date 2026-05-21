@@ -3,7 +3,6 @@ import type { Workspace, WorkspaceDirectory } from '../../shared/types';
 import { SOUL_MD, MEMORY_PATH_ABOUT_YOU, MEMORY_PATH_WORKING_ON, MAX_WORKSPACE_DIRECTORIES } from '../../shared/paths';
 import { kernelRegistry } from './notebook/kernelRegistry';
 import { XIcon, PlusIcon } from 'lucide-react';
-import { GoogleDrivePicker } from './GoogleDrivePicker';
 import DirectoryPermBadge from './DirectoryPermBadge';
 import './DirectoryPermissions.css';
 import './shared-forms.css';
@@ -19,8 +18,7 @@ interface DirectoryPermissionsProps {
   inline?: boolean;
 }
 
-const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, userDirectories, onClose, onSaved, onLogout, onRestartOnboarding, onDirectoriesChanged, inline }) => {
-  // --- Workspace directories ---
+const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, userDirectories, onClose, onLogout, onRestartOnboarding, onDirectoriesChanged, inline }) => {
   const [localDirs, setLocalDirs] = useState<WorkspaceDirectory[]>(userDirectories);
   const [dirError, setDirError] = useState<string | null>(null);
   const [togglingDirId, setTogglingDirId] = useState<string | null>(null);
@@ -29,7 +27,6 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
     setLocalDirs(userDirectories);
   }, [userDirectories]);
 
-  // --- Researcher Profile card state ---
   const [aboutContent, setAboutContent] = useState('');
   const [savedAboutContent, setSavedAboutContent] = useState('');
   const [workingOnContent, setWorkingOnContent] = useState('');
@@ -38,27 +35,12 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
   const [profileError, setProfileError] = useState<string | null>(null);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
-  // --- System Prompt card state ---
   const [soulContent, setSoulContent] = useState('');
   const [savedSoulContent, setSavedSoulContent] = useState('');
   const [soulLoaded, setSoulLoaded] = useState(false);
   const [soulError, setSoulError] = useState<string | null>(null);
   const [isSavingSoul, setIsSavingSoul] = useState(false);
 
-  // Accessibility permission (shared across all overlay integrations)
-  const [accessibilityGranted, setAccessibilityGranted] = useState<boolean | null>(null);
-  const [requestingPermission, setRequestingPermission] = useState(false);
-
-  // Per-integration enable state (Word, Obsidian, Apple Notes, Google Docs, ...).
-  type IntegrationId = 'word' | 'obsidian' | 'apple-notes' | 'google-docs';
-  const [wordIntegrationEnabled, setWordIntegrationEnabled] = useState<boolean | null>(null);
-  const [obsidianIntegrationEnabled, setObsidianIntegrationEnabled] = useState<boolean | null>(null);
-  const [appleNotesIntegrationEnabled, setAppleNotesIntegrationEnabled] = useState<boolean | null>(null);
-  const [googleDocsIntegrationEnabled, setGoogleDocsIntegrationEnabled] = useState<boolean | null>(null);
-  const [drivePickerOpen, setDrivePickerOpen] = useState(false);
-  const [driveFolders, setDriveFolders] = useState<Array<{ id: string; name: string; mimeType: string; path: string }>>([]);
-  const [integrationToggling, setIntegrationToggling] = useState<IntegrationId | null>(null);
-  const [integrationPermissionPrompt, setIntegrationPermissionPrompt] = useState<{ id: IntegrationId; displayName: string } | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isRestartingOnboarding, setIsRestartingOnboarding] = useState(false);
 
@@ -78,19 +60,8 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
       setSavedWorkingOnContent(workingOn.content);
       setProfileLoaded(true);
     });
-    window.electronAPI.invoke('check-accessibility-permission').then((result: any) => {
-      if (result) setAccessibilityGranted(result.hasPermission ?? false);
-    }).catch(() => setAccessibilityGranted(false));
-    window.electronAPI.invoke('integration:get-enabled', 'word').then((v: boolean) => setWordIntegrationEnabled(!!v)).catch(() => setWordIntegrationEnabled(false));
-    window.electronAPI.invoke('integration:get-enabled', 'obsidian').then((v: boolean) => setObsidianIntegrationEnabled(!!v)).catch(() => setObsidianIntegrationEnabled(false));
-    window.electronAPI.invoke('integration:get-enabled', 'apple-notes').then((v: boolean) => setAppleNotesIntegrationEnabled(!!v)).catch(() => setAppleNotesIntegrationEnabled(false));
-    window.electronAPI.invoke('integration:get-enabled', 'google-docs').then((v: boolean) => setGoogleDocsIntegrationEnabled(!!v)).catch(() => setGoogleDocsIntegrationEnabled(false));
-    (window as any).googleDriveAPI?.getSelection?.().then((r: any) => {
-      if (r?.success && r.data?.selectedItems) setDriveFolders(r.data.selectedItems);
-    }).catch(() => { });
   }, []);
 
-  // --- System Prompt card save/cancel ---
   const soulDirty = soulContent !== savedSoulContent;
   const canSaveSoul = soulLoaded && soulDirty && !isSavingSoul;
 
@@ -113,7 +84,6 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
     setSoulError(null);
   };
 
-  // --- Workspace directory add/remove ---
   const handleAddDirectory = async () => {
     setDirError(null);
     const selected = await window.workspacesAPI.selectDirectory();
@@ -149,7 +119,6 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
     if (togglingDirId) return;
     setDirError(null);
     setTogglingDirId(dirId);
-    // Optimistic update so the icon flips immediately
     const snapshot = localDirs;
     const optimistic = snapshot.map(d =>
       d.id === dirId ? { ...d, read_only: !currentlyReadOnly } : d
@@ -170,7 +139,6 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
     }
   };
 
-  // --- Researcher Profile card save/cancel ---
   const profileDirty = aboutContent !== savedAboutContent || workingOnContent !== savedWorkingOnContent;
   const canSaveProfile = profileLoaded && profileDirty && !isSavingProfile;
 
@@ -198,45 +166,6 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
     setProfileError(null);
   };
 
-  const handleToggleIntegration = async (id: IntegrationId, displayName: string, currentlyEnabled: boolean | null) => {
-    if (currentlyEnabled === null || integrationToggling !== null) return;
-    setIntegrationToggling(id);
-    setIntegrationPermissionPrompt(null);
-    try {
-      const result: any = await window.electronAPI.invoke(
-        'integration:set-enabled',
-        id,
-        !currentlyEnabled,
-      );
-      if (result?.success === false && result?.error === 'permission_required') {
-        setIntegrationPermissionPrompt({ id, displayName });
-      }
-    } catch (err) {
-      console.error('[DirectoryPermissions] Integration toggle failed:', err);
-    } finally {
-      setIntegrationToggling(null);
-    }
-  };
-
-  const handleRequestPermission = async () => {
-    setRequestingPermission(true);
-    try {
-      const result: any = await window.electronAPI.invoke('request-accessibility-permission');
-      if (result) setAccessibilityGranted(result.hasPermission ?? false);
-    } catch { /* ignore */ }
-    setRequestingPermission(false);
-  };
-
-  useEffect(() => {
-    const recheck = () => {
-      window.electronAPI.invoke('check-accessibility-permission').then((result: any) => {
-        if (result) setAccessibilityGranted(result.hasPermission ?? false);
-      }).catch(() => { });
-    };
-    window.addEventListener('focus', recheck);
-    return () => window.removeEventListener('focus', recheck);
-  }, []);
-
   return (
     <div
       className={inline ? 'pageShell' : 'wsSettings'}
@@ -246,83 +175,50 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
         className={inline ? 'pageShell__inner' : 'wsSettings__page'}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* ───────── Workspace Directories ───────── */}
         <section className="wsSettings__section">
           <p className="wsSettings__sectionLabel">Workspace directories</p>
           <div className="wsSettings__sectionCard">
             <div className="wsSettings__integrationName" style={{ marginBottom: 6 }}>Local folders</div>
             {localDirs.length > 0 ? (
-      <div className="wsSettings__dirList">
-        {localDirs.map((dir) => (
-          <div key={dir.id} className="wsSettings__dirRow">
-            <span className="wsSettings__dirPath" title={dir.directory_path}>
-              {dir.directory_path}
-            </span>
-            <DirectoryPermBadge
-              readOnly={dir.read_only}
-              isToggling={togglingDirId === dir.id}
-              disabled={togglingDirId !== null}
-              onToggle={() => handleTogglePermission(dir.id, dir.read_only)}
-            />
-            <button
-              type="button"
-              className="wsSettings__dirRemoveBtn"
-              onClick={() => handleRemoveDirectory(dir.id)}
-              aria-label="Remove directory"
-            >
-              <XIcon size={14} />
-            </button>
+              <div className="wsSettings__dirList">
+                {localDirs.map((dir) => (
+                  <div key={dir.id} className="wsSettings__dirRow">
+                    <span className="wsSettings__dirPath" title={dir.directory_path}>
+                      {dir.directory_path}
+                    </span>
+                    <DirectoryPermBadge
+                      readOnly={dir.read_only}
+                      isToggling={togglingDirId === dir.id}
+                      disabled={togglingDirId !== null}
+                      onToggle={() => handleTogglePermission(dir.id, dir.read_only)}
+                    />
+                    <button
+                      type="button"
+                      className="wsSettings__dirRemoveBtn"
+                      onClick={() => handleRemoveDirectory(dir.id)}
+                      aria-label="Remove directory"
+                    >
+                      <XIcon size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="wsSettings__hint" style={{ margin: 0 }}>
+                No local directories added.
+              </p>
+            )}
+            {dirError && <p className="wsSettings__dirError">{dirError}</p>}
+            {localDirs.length < MAX_WORKSPACE_DIRECTORIES && (
+              <button type="button" className="wsSettings__dirAddBtn" onClick={handleAddDirectory}>
+                <PlusIcon size={14} />
+                Add folder
+              </button>
+            )}
           </div>
-        ))}
-      </div>
-    ) : (
-    <p className="wsSettings__hint" style={{ margin: 0 }}>
-      No local directories added.
-    </p>
-  )
-  }
-  { dirError && <p className="wsSettings__dirError">{dirError}</p> }
-  {
-    localDirs.length < MAX_WORKSPACE_DIRECTORIES && (
-      <button type="button" className="wsSettings__dirAddBtn" onClick={handleAddDirectory}>
-        <PlusIcon size={14} />
-        Add folder
-      </button>
-    )
-  }
-          </div >
+        </section>
 
-  <div className="wsSettings__sectionCard" style={{ marginTop: 8 }}>
-    <div className="wsSettings__integrationName" style={{ marginBottom: 6 }}>Google Drive</div>
-    {driveFolders.length > 0 ? (
-      <div className="wsSettings__dirList">
-        {driveFolders.map((folder) => (
-          <div key={folder.id} className="wsSettings__dirRow">
-            <span className="wsSettings__dirPath" title={folder.name}>
-              {folder.name}
-            </span>
-          </div>
-        ))}
-      </div>
-    ) : (
-      <p className="wsSettings__hint" style={{ margin: 0 }}>
-        No Google Drive folders connected.
-      </p>
-    )}
-    <button type="button" className="wsSettings__dirAddBtn" onClick={() => setDrivePickerOpen(true)}>
-      <PlusIcon size={14} />
-      {driveFolders.length > 0 ? 'Manage Google Drive folders' : 'Connect Google Drive'}
-    </button>
-    <GoogleDrivePicker
-      open={drivePickerOpen}
-      onOpenChange={setDrivePickerOpen}
-      onSelectionSaved={(items) => setDriveFolders(items)}
-    />
-  </div>
-        </section >
-
-  {/* ───────── System Prompt ───────── */ }
-  < section className = "wsSettings__section" >
+        <section className="wsSettings__section">
           <p className="wsSettings__sectionLabel">System prompt</p>
           <div className="wsSettings__sectionCard">
             <p className="wsSettings__hint">
@@ -336,9 +232,7 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
               rows={6}
               disabled={!soulLoaded}
             />
-
             {soulError && <p className="gsStep__error">{soulError}</p>}
-
             <div className="wsSettings__cardActions wsSettings__cardActions--flush">
               <button
                 type="button"
@@ -358,10 +252,9 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
               </button>
             </div>
           </div>
-        </section >
+        </section>
 
-  {/* ───────── Researcher Profile ───────── */ }
-  < section className = "wsSettings__section" >
+        <section className="wsSettings__section">
           <p className="wsSettings__sectionLabel">Researcher profile</p>
           <div className="wsSettings__sectionCard">
             <p className="wsSettings__hint">
@@ -413,159 +306,9 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
               </button>
             </div>
           </div>
-        </section >
+        </section>
 
-  {/* ───────── Integrations ───────── */ }
-  < section className = "wsSettings__section" >
-          <p className="wsSettings__sectionLabel">Integrations</p>
-          <div className="wsSettings__sectionCard">
-            <p className="wsSettings__hint">
-              Show the floating overlay over a host app and let the agent propose edits with Approve/Deny cards. All integrations require macOS Accessibility permission for Academia.
-            </p>
-
-            <div className="wsSettings__dirRow">
-              <span style={{
-                flex: 1,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                fontSize: 14,
-                color: accessibilityGranted === null ? '#888' : accessibilityGranted ? '#16a34a' : '#dc2626',
-              }}>
-                <span style={{ fontSize: 16 }}>
-                  {accessibilityGranted === null ? '⏳' : accessibilityGranted ? '✓' : '✗'}
-                </span>
-                {accessibilityGranted === null
-                  ? 'Checking accessibility permission...'
-                  : accessibilityGranted
-                  ? 'Accessibility permission granted'
-                  : 'Accessibility permission not granted'}
-              </span>
-              {accessibilityGranted === false && (
-                <button
-                  type="button"
-                  className="gsStep__btn gsStep__btn--primary"
-                  disabled={requestingPermission}
-                  onClick={handleRequestPermission}
-                >
-                  {requestingPermission ? 'Opening...' : 'Grant Permission'}
-                </button>
-              )}
-            </div>
-
-            <div className="wsSettings__divider" />
-
-            <div className="wsSettings__dirRow" style={{ marginBottom: 8 }}>
-              <div style={{ flex: 1 }}>
-                <div className="wsSettings__integrationName">Word Integration</div>
-                <div className="wsSettings__integrationDesc">
-                  {wordIntegrationEnabled
-                    ? 'Overlay appears over Microsoft Word documents. Edits are proposed via Track Changes.'
-                    : 'Show the overlay over Microsoft Word and let the agent propose tracked-change edits.'}
-                </div>
-              </div>
-              <button
-                type="button"
-                className={`gsStep__btn ${wordIntegrationEnabled ? 'gsStep__btn--secondary' : 'gsStep__btn--primary'}`}
-                disabled={wordIntegrationEnabled === null || integrationToggling !== null}
-                onClick={() => handleToggleIntegration('word', 'Word', wordIntegrationEnabled)}
-              >
-                {integrationToggling === 'word'
-                  ? 'Working...'
-                  : wordIntegrationEnabled === null
-                    ? '...'
-                    : wordIntegrationEnabled
-                      ? 'Disable and Restart'
-                      : 'Enable and Restart'}
-              </button>
-            </div>
-
-            <div className="wsSettings__dirRow" style={{ marginBottom: 8 }}>
-              <div style={{ flex: 1 }}>
-                <div className="wsSettings__integrationName">Obsidian Integration</div>
-                <div className="wsSettings__integrationDesc">
-                  {obsidianIntegrationEnabled
-                    ? 'Overlay appears over Obsidian when the active workspace is the vault. Edits go through Approve/Deny cards.'
-                    : 'Show the overlay over Obsidian for any markdown note in the active workspace. The workspace must be your Obsidian vault (folder with .obsidian/ inside).'}
-                </div>
-              </div>
-              <button
-                type="button"
-                className={`gsStep__btn ${obsidianIntegrationEnabled ? 'gsStep__btn--secondary' : 'gsStep__btn--primary'}`}
-                disabled={obsidianIntegrationEnabled === null || integrationToggling !== null}
-                onClick={() => handleToggleIntegration('obsidian', 'Obsidian', obsidianIntegrationEnabled)}
-              >
-                {integrationToggling === 'obsidian'
-                  ? 'Working...'
-                  : obsidianIntegrationEnabled === null
-                    ? '...'
-                    : obsidianIntegrationEnabled
-                      ? 'Disable and Restart'
-                      : 'Enable and Restart'}
-              </button>
-            </div>
-
-            <div className="wsSettings__dirRow" style={{ marginBottom: 8 }}>
-              <div style={{ flex: 1 }}>
-                <div className="wsSettings__integrationName">Apple Notes Integration</div>
-                <div className="wsSettings__integrationDesc">
-                  {appleNotesIntegrationEnabled
-                    ? 'Overlay appears over Apple Notes for the focused note. Edits go through Approve/Deny cards and apply via AppleScript.'
-                    : 'Show the overlay over Apple Notes. Notes are not files — chats are tied to the active note via its Notes id, independent of the workspace.'}
-                </div>
-              </div>
-              <button
-                type="button"
-                className={`gsStep__btn ${appleNotesIntegrationEnabled ? 'gsStep__btn--secondary' : 'gsStep__btn--primary'}`}
-                disabled={appleNotesIntegrationEnabled === null || integrationToggling !== null}
-                onClick={() => handleToggleIntegration('apple-notes', 'Apple Notes', appleNotesIntegrationEnabled)}
-              >
-                {integrationToggling === 'apple-notes'
-                  ? 'Working...'
-                  : appleNotesIntegrationEnabled === null
-                    ? '...'
-                    : appleNotesIntegrationEnabled
-                      ? 'Disable and Restart'
-                      : 'Enable and Restart'}
-              </button>
-            </div>
-
-            <div className="wsSettings__dirRow" style={{ marginBottom: 8 }}>
-              <div style={{ flex: 1 }}>
-                <div className="wsSettings__integrationName">Google Docs Integration</div>
-                <div className="wsSettings__integrationDesc">
-                  {googleDocsIntegrationEnabled
-                    ? 'Overlay appears over Chrome when the focused tab is a Google Doc. Selection text and the doc id come from the Academia browser extension. Edit suggestions show as cards but Apply is disabled until OAuth + Docs API ships.'
-                    : 'Show the overlay over Chrome when you are on a Google Doc. Requires the Academia browser extension to be installed and connected. Phase A is read-only (selection) plus suggestion cards — automatic editing arrives with the upcoming Google Docs API integration.'}
-                </div>
-              </div>
-              <button
-                type="button"
-                className={`gsStep__btn ${googleDocsIntegrationEnabled ? 'gsStep__btn--secondary' : 'gsStep__btn--primary'}`}
-                disabled={googleDocsIntegrationEnabled === null || integrationToggling !== null}
-                onClick={() => handleToggleIntegration('google-docs', 'Google Docs', googleDocsIntegrationEnabled)}
-              >
-                {integrationToggling === 'google-docs'
-                  ? 'Working...'
-                  : googleDocsIntegrationEnabled === null
-                    ? '...'
-                    : googleDocsIntegrationEnabled
-                      ? 'Disable and Restart'
-                      : 'Enable and Restart'}
-              </button>
-            </div>
-
-            {integrationPermissionPrompt && (
-              <div style={{ marginTop: 8, padding: 10, background: 'rgba(204, 41, 54, 0.08)', borderRadius: 2, fontSize: 12, color: '#7a1f29' }}>
-                <strong>Accessibility permission required for {integrationPermissionPrompt.displayName}.</strong>{' '}
-                Academia needs macOS Accessibility permission to position the overlay over {integrationPermissionPrompt.displayName} windows. We've opened System Settings — once you grant Academia access there, return here and click the toggle again.
-              </div>
-            )}
-          </div>
-        </section >
-
-  {/* ───────── Account ───────── */ }
-  < section className = "wsSettings__section" >
+        <section className="wsSettings__section">
           <p className="wsSettings__sectionLabel">Account</p>
           <div className="wsSettings__sectionCard">
             <div className="wsSettings__dirRow" style={{ marginBottom: 12 }}>
@@ -616,9 +359,9 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
               </button>
             </div>
           </div>
-        </section >
-      </div >
-    </div >
+        </section>
+      </div>
+    </div>
   );
 };
 

@@ -21,8 +21,8 @@ import { MiniAppsTab } from './components/MiniAppsTab';
 import { ToolsPage } from './components/ToolsPage';
 import { NotificationBell } from './components/NotificationBell';
 import { PaperMonitorView } from './components/PaperMonitorView';
-import { ReactionsToolView } from './components/ReactionsToolView';
 import { HomePage } from './components/HomePage';
+import { ReactionsToolView } from './components/ReactionsToolView';
 import { resolveWorkspacePath } from './utils/resolveWorkspacePath';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { useElectronChatAdapter } from './chatAdapter';
@@ -589,10 +589,8 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
   const [fileReturnThreadId, setFileReturnThreadId] = useState<string | null>(null);
   const [fileCount, setFileCount] = useState(0);
   const [userDirectories, setUserDirectories] = useState<WorkspaceDirectory[]>([]);
-  const [hasDriveFolders, setHasDriveFolders] = useState(false);
   useEffect(() => {
     window.workspacesAPI.listDirectories().then(setUserDirectories).catch((err) => console.error('[ChatView] listDirectories failed:', err));
-    (window as any).googleDriveAPI?.getCacheDirectories?.().then((result: any) => setHasDriveFolders(!!result)).catch(() => {});
   }, [workspace.id]);
   const [debugSection, setDebugSection] = useState<DebugSection>(() => {
     const saved = localStorage.getItem('debug-section');
@@ -1040,7 +1038,6 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
                       <FilesTab
                         workspacePath={workspace.directory_path}
                         userDirectories={userDirectories}
-                        hasDriveFolders={hasDriveFolders}
                         onSelectFile={handleSelectFile}
                         onFileCount={setFileCount}
                         onDirectoriesChanged={setUserDirectories}

@@ -56,16 +56,16 @@ export function appHasDeps(deps: AppDeps): boolean {
   );
 }
 
-type ExecFn = (command: string[]) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
-type StreamingExecFn = (command: string[], onLine: (line: string) => void) => Promise<{ exitCode: number }>;
-
 export interface InstallStep {
   registry: string;
   packages: string[];
-  command: string[];
 }
 
-/** Build the list of install steps for an app's deps without executing them. */
+/**
+ * Build the list of install steps for an app's deps. The actual install
+ * commands live in `packageInstaller.buildCommand` (the host-side equivalent
+ * of the old container `/opt/pip-site` / `/opt/npm-site` flows).
+ */
 export function getInstallSteps(appsDir: string, dirName: string): InstallStep[] {
   const deps = readAppDeps(appsDir, dirName);
   if (!appHasDeps(deps)) return [];
@@ -73,92 +73,31 @@ export function getInstallSteps(appsDir: string, dirName: string): InstallStep[]
   const steps: InstallStep[] = [];
 
   if (deps.pipPackages.length > 0) {
-    steps.push({
-      registry: 'pip',
-      packages: deps.pipPackages,
-      command: ['sh', '-c', 'PIP=$(command -v /opt/venv/bin/pip || command -v pip3 || echo pip) && exec $PIP install --no-input --target /opt/pip-site ' + deps.pipPackages.join(' ')],
-    });
+    steps.push({ registry: 'pip', packages: deps.pipPackages });
   }
 
   const npmPkgs = Object.entries(deps.npmDependencies).map(([n, v]) => `${n}@${v}`);
   if (npmPkgs.length > 0) {
-    steps.push({
-      registry: 'npm',
-      packages: npmPkgs,
-      command: ['npm', 'install', '-g', '--prefix', '/opt/npm-site', ...npmPkgs],
-    });
+    steps.push({ registry: 'npm', packages: npmPkgs });
   }
 
   if (deps.rPackages.length > 0) {
-    // Sanitize R package names to prevent injection into the Rscript -e string
-    const safeRPkgs = deps.rPackages.map((p) => p.replace(/[^a-zA-Z0-9._]/g, ''));
-    const vec = 'c(' + safeRPkgs.map((p) => `"${p}"`).join(',') + ')';
-    steps.push({
-      registry: 'R',
-      packages: deps.rPackages,
-      command: ['Rscript', '-e', `install.packages(${vec}, repos='https://cloud.r-project.org')`],
-    });
+    steps.push({ registry: 'R', packages: deps.rPackages });
   }
 
   if (deps.aptPackages.length > 0) {
-    // Sanitize apt package names to prevent shell injection
-    const safeAptPkgs = deps.aptPackages.map((p) => p.replace(/[^a-zA-Z0-9._+\-:]/g, ''));
-    steps.push({
-      registry: 'apt',
-      packages: deps.aptPackages,
-      command: ['bash', '-lc', `apt-get update && apt-get install -y ${safeAptPkgs.join(' ')}`],
-    });
+    steps.push({ registry: 'apt', packages: deps.aptPackages });
   }
 
   for (const script of deps.setupScripts) {
-    steps.push({
-      registry: 'manual',
-      packages: [script],
-      command: ['bash', `.applications/${dirName}/setup/${script}`],
-    });
+    // Manual scripts are referenced by absolute host path so packageInstaller
+    // can `bash` them directly (the workspace is the agent cwd, but the
+    // installer runs from the main process).
+    const scriptPath = path.join(appsDir, dirName, 'setup', script);
+    steps.push({ registry: 'manual', packages: [scriptPath] });
   }
 
   return steps;
-}
-
-/**
- * Install an app's deps live in a running container. Idempotent — already-installed
- * packages are fast no-ops. Returns a summary of what was installed.
- */
-export async function installDepsInContainer(
-  appsDir: string,
-  dirName: string,
-  exec: ExecFn,
-): Promise<string[]> {
-  const steps = getInstallSteps(appsDir, dirName);
-  const results: string[] = [];
-  for (const step of steps) {
-    results.push(`${step.registry}: ${step.packages.length} packages`);
-    await exec(step.command);
-  }
-  return results;
-}
-
-/**
- * Like installDepsInContainer but streams output lines as they arrive.
- * Calls onProgress before each step with the registry and package list,
- * and onLine for each output line during execution.
- */
-export async function installDepsStreaming(
-  appsDir: string,
-  dirName: string,
-  execStreaming: StreamingExecFn,
-  onProgress: (registry: string, packages: string[]) => void,
-  onLine: (line: string) => void,
-): Promise<string[]> {
-  const steps = getInstallSteps(appsDir, dirName);
-  const results: string[] = [];
-  for (const step of steps) {
-    results.push(`${step.registry}: ${step.packages.length} packages`);
-    onProgress(step.registry, step.packages);
-    await execStreaming(step.command, onLine);
-  }
-  return results;
 }
 
 // ─── Public API ────────────────────────────────────────────────

@@ -10,11 +10,9 @@ import { captureError } from '../shared/telemetry';
 import { containerService } from './containerService';
 import { commandLogger, parseAppDirFromArgs } from './commandLogger';
 import http from 'http';
-import { findHostAppForDocument, getRegisteredHostApps, type HostApp } from './hostApps';
-import { wordHostApp } from './hostApps/wordHostApp';
+import { type HostApp } from './hostApps';
 import { IDENTITY_PREAMBLE } from './hostApps/identityPreamble';
 import { ACADEMIA_DIR, SOUL_MD } from '../shared/paths';
-import { windowMonitorService } from '../../windowMonitorService';
 
 class AuthRetryError extends Error {
   constructor(public originalError: string) {
@@ -28,37 +26,8 @@ function isAuthError(msg: string): boolean {
   return lower.includes('401') && (lower.includes('authenticat') || lower.includes('token') || lower.includes('unauthorized'));
 }
 
-/**
- * Resolve which HostApp this session/turn is acting on. Resolution order:
- *
- *   1. The document path's own scheme/extension (Apple Notes' `applenotes://`,
- *      Google Docs' `gdocs://`, Word's `.docx`, Obsidian's `.md`, ...).
- *   2. The focused window's bundle id, looked up via windowMonitorService —
- *      covers the case where the overlay is up over Chrome but the browser
- *      extension hasn't reported a Google Docs URL yet (so the agent still
- *      binds to the google-docs host instead of falling back to Word).
- *   3. The pre-HostApp default: Word, then the first registered host, then the
- *      hardcoded wordHostApp module (so non-Word builds with no registered
- *      hosts at all still get *something* — should never happen in practice).
- */
-export function resolveSessionHostApp(documentPath: string | null | undefined): { hostApp: HostApp; matched: boolean } {
-  const registered = getRegisteredHostApps();
-  const fromDoc = findHostAppForDocument(documentPath ?? null);
-  if (fromDoc) return { hostApp: fromDoc, matched: true };
-  try {
-    const focusedId = windowMonitorService.getFocusedWindowId();
-    if (focusedId) {
-      const hostId = windowMonitorService.getHostAppIdForWindow(focusedId);
-      if (hostId) {
-        const fromWindow = registered.find((h) => h.id === hostId);
-        if (fromWindow) return { hostApp: fromWindow, matched: true };
-      }
-    }
-  } catch {
-    // windowMonitorService unavailable (scheduled tasks, tests) — fall through.
-  }
-  const fallback = registered.find((h) => h.id === wordHostApp.id) ?? registered[0] ?? wordHostApp;
-  return { hostApp: fallback, matched: false };
+export function resolveSessionHostApp(_documentPath: string | null | undefined): { hostApp: HostApp | null; matched: boolean } {
+  return { hostApp: null, matched: false };
 }
 
 // ─── MCP Relay Dispatch ──────────────────────────────────────────
@@ -69,26 +38,28 @@ type ToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: bo
 
 async function handleMcpRelay(serverName: string, toolName: string, args: Record<string, unknown>): Promise<ToolResult> {
   const mcpServers = (globalThis as any).__hostMcpServers as Record<string, any> | undefined;
-  if (!mcpServers) {
-    return { content: [{ type: 'text', text: 'Host MCP servers not available.' }], isError: true };
+  if (mcpServers?.[serverName]?.[toolName]) {
+    try {
+      return await mcpServers[serverName][toolName](args);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: 'text', text: `MCP call failed: ${msg}` }], isError: true };
+    }
   }
 
-  const serverHandler = mcpServers[serverName];
-  if (!serverHandler) {
-    return { content: [{ type: 'text', text: `Unknown MCP server: ${serverName}` }], isError: true };
+  // Fall through to mini-app MCP registry — mini-apps publish servers
+  // dynamically as their iframes mount.
+  const { miniAppMcpRegistry } = await import('./miniAppMcpRegistry');
+  if (miniAppMcpRegistry.hasServer(serverName)) {
+    const { result, error } = await miniAppMcpRegistry.invoke(serverName, toolName, args);
+    if (error) {
+      return { content: [{ type: 'text', text: error }], isError: true };
+    }
+    const text = typeof result === 'string' ? result : JSON.stringify(result);
+    return { content: [{ type: 'text', text }] };
   }
 
-  const toolHandler = serverHandler[toolName];
-  if (!toolHandler) {
-    return { content: [{ type: 'text', text: `Unknown tool: ${serverName}/${toolName}` }], isError: true };
-  }
-
-  try {
-    return await toolHandler(args);
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { content: [{ type: 'text', text: `MCP call failed: ${msg}` }], isError: true };
-  }
+  return { content: [{ type: 'text', text: `Unknown MCP server: ${serverName}` }], isError: true };
 }
 
 
@@ -204,24 +175,24 @@ export function createAgentSession(
 
   // ─── Agent Server Communication ───────────────────────────────
 
-  // Wait for the agent server to be ready before connecting.
-  // Emits status updates so the spinner shows the right label:
-  //   "Waiting for agent container..." — container isn't running yet
-  //   "Waiting for agent..."           — container is up, agent server isn't responding
+  // Wait for the agent server to be ready before connecting. Emits status
+  // updates so the spinner shows what we're blocked on:
+  //   "Starting agent service..." — host-process service hasn't reported ready
+  //   "Waiting for agent..."      — service is up but the agent HTTP isn't responding yet
   async function waitForAgent(): Promise<string> {
     const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
     const startTime = Date.now();
     let anyStatusEmitted = false;
     while (!sessionState.stopped) {
       if (Date.now() - startTime > TIMEOUT_MS) {
-        throw new Error('Agent failed to start. Please check that the container is running in the Debug panel.');
+        throw new Error('Agent failed to start. Check the Debug panel for details.');
       }
       const isRunning = containerService.isRunning();
       const port = containerService.getAgentPort();
 
       let status = '';
       if (!isRunning) {
-        status = 'Waiting for agent container...';
+        status = 'Starting agent service...';
       } else if (!port) {
         status = 'Waiting for agent...';
       }
@@ -264,13 +235,14 @@ export function createAgentSession(
     if (content) soulMdContent = content;
   } catch { /* doesn't exist */ }
 
-  // Build system prompt: identity preamble always, host-app guidance only when matched.
-  const hostGuidance = hostAppMatched
+  const hostGuidance = (hostAppMatched && sessionHostApp)
     ? [IDENTITY_PREAMBLE, sessionHostApp.systemPromptAppend].filter(Boolean).join('\n\n')
     : IDENTITY_PREAMBLE;
 
-  // Build workspace directories guidance so the agent knows which directories
-  // are read-only and should copy files to /data before editing.
+  // Build workspace directories guidance. Each user-shared directory is
+  // symlinked into the workspace root (e.g. ${workspace}/MyResearch), so the
+  // agent — whose cwd is the workspace — addresses them with simple relative
+  // paths.
   let workspaceDirectoriesGuidance: string | undefined;
   try {
     const dirs = listWorkspaceDirectories(workspace.id);
@@ -278,12 +250,12 @@ export function createAgentSession(
       const lines = dirs.map(dir => {
         const name = path.basename(dir.directory_path);
         return dir.read_only
-          ? `- ${name}/ (read only) — copy files to /data before editing; direct edits will fail`
-          : `- ${name}/ (read & write) — edit files directly`;
+          ? `- ${name}/ (read only) — make a copy inside the workspace before editing; direct edits will fail.`
+          : `- ${name}/ (read & write) — edit files directly.`;
       });
       workspaceDirectoriesGuidance = [
         '## Workspace Directories',
-        'The following user research directories are mounted in your workspace:',
+        'The following user research directories are available as subdirectories of your workspace:',
         ...lines,
       ].join('\n');
     }
@@ -321,7 +293,7 @@ export function createAgentSession(
           soulMd: soulMdContent,
           hostGuidance,
           workspaceDirectoriesGuidance,
-          ...(hostAppMatched ? { additionalAllowedTools: sessionHostApp.allowedTools } : {}),
+          ...((hostAppMatched && sessionHostApp) ? { additionalAllowedTools: sessionHostApp.allowedTools } : {}),
         });
 
         const createRes = await httpPost(`${agentBaseUrl}/sessions`, createBody);
@@ -471,10 +443,25 @@ export function createAgentSession(
 
       const processedText = messagePreprocessor ? messagePreprocessor(userMessage) : userMessage;
 
-      // Translate file attachment paths from host to container
+      // Rewrite file attachment paths so the agent sees them relative to the
+      // workspace cwd. User-shared directories are symlinked into the
+      // workspace, so a host path that lives inside one of those mounts can be
+      // translated to a workspace-relative path via the symlink name.
+      const userDirs = listWorkspaceDirectories(workspace.id);
       const translatedAttachments = attachments?.map((att) => {
-        if (att.type === 'file_reference' && att.filePath?.startsWith(workspace.directory_path)) {
-          return { ...att, filePath: '/data' + att.filePath.slice(workspace.directory_path.length) };
+        if (att.type !== 'file_reference' || !att.filePath) return att;
+        const filePath = att.filePath;
+        if (filePath.startsWith(workspace.directory_path + path.sep)) {
+          return { ...att, filePath: filePath.slice(workspace.directory_path.length + 1) };
+        }
+        for (const dir of userDirs) {
+          if (filePath === dir.directory_path) {
+            return { ...att, filePath: path.basename(dir.directory_path) };
+          }
+          if (filePath.startsWith(dir.directory_path + path.sep)) {
+            const name = path.basename(dir.directory_path);
+            return { ...att, filePath: name + filePath.slice(dir.directory_path.length) };
+          }
         }
         return att;
       });

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import type { QuickChatContext } from '../main/contextCapture';
+import type { QuickChatContext } from '../main/quickChat';
 import './QuickChat.css';
 
 declare global {

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { QuickChatContext } from './contextCapture';
+import type { QuickChatContext } from './quickChat';
 
 contextBridge.exposeInMainWorld('quickChatAPI', {
   onContext: (callback: (context: QuickChatContext) => void) => {

@@ -20,8 +20,6 @@ const SKILLS = [
   'flow-cytometry',
   'geo-database',
   'gnomad-database',
-  'google-drive',
-  'grant-finder',
   'manage-mini-application',
   'opentargets-database',
   'pdb-database',

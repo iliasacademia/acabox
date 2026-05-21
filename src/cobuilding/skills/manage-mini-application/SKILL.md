@@ -47,6 +47,56 @@ The script prints `{ name, dir_name, dir }` to stdout and creates:
 
 If you later edit an app's purpose, also update `manifest.json` (name/description/icon) so the Tools page stays in sync.
 
+### Publishing an MCP server from a mini-app
+
+A mini-app can optionally expose tools that other mini-apps and the agent itself can call. Declare them in `manifest.json` under an `mcp` key:
+
+```json
+{
+  "name": "Variant Annotator",
+  "description": "Annotates a list of genomic variants",
+  "icon": "Dna",
+  "mcp": {
+    "server_name": "variant-annotator",
+    "tools": [
+      {
+        "name": "annotate",
+        "description": "Annotate a list of variants with gene + clinical significance.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "variants": { "type": "array", "items": { "type": "string" }, "description": "rsIDs or chrom:pos:ref:alt" }
+          },
+          "required": ["variants"]
+        }
+      }
+    ]
+  }
+}
+```
+
+The MCP server registers as soon as the mini-app's iframe loads and unregisters when it closes. While loaded:
+
+- Other mini-apps invoke its tools via `window.coscientist.callMcpTool(serverName, toolName, args)` (or the bridge `mcp:callTool`).
+- The agent invokes them via `mcp__mini-apps__list_published_servers` and `mcp__mini-apps__call_published_tool`.
+
+To handle inbound invocations, the mini-app listens for `{ type: 'mcp:invoke', invocationId, toolName, args }` postMessages and responds with `{ type: 'mcp:result', invocationId, result }` (or `error`). Wrap this in a small handler in `index.tsx`:
+
+```ts
+window.addEventListener('message', async (event) => {
+  if (event.data?.type !== 'mcp:invoke') return;
+  const { invocationId, toolName, args } = event.data;
+  try {
+    const result = await myToolImplementations[toolName](args);
+    window.parent.postMessage({ type: 'mcp:result', invocationId, result }, '*');
+  } catch (err) {
+    window.parent.postMessage({ type: 'mcp:result', invocationId, error: String(err) }, '*');
+  }
+});
+```
+
+Tool names must match `[A-Za-z0-9_]+`, server names `[A-Za-z0-9_-]+`. Keep `description` and `input_schema` accurate — those are what other callers see.
+
 If `--template` is specified, the template tree at `.applications/_templates/<name>/` is mirrored into the new app — anything inside `<template>/src/` lands in the new app's `src/`, anything else lands at the app root. So a template can ship `src/App.tsx`, `notebook.ipynb`, `scripts/foo.py`, `requirements.txt`, `setup/*.sh`, etc., and each file ends up where it belongs.
 
 **Dependencies install asynchronously — do not wait for them.** The host has a BackgroundBuilder that watches `.applications/<app>/requirements.txt`, `package.json`, `r-packages.txt`, `apt-packages.txt`, and `setup/*.sh`. The moment those files appear, it runs a live install in the running container AND rebuilds the container image so the deps survive restarts. Templates therefore declare both their code and their installable dependencies (including model-checkpoint downloads written as idempotent `setup/*.sh` scripts), and the install pipeline picks them up automatically — no agent action required.

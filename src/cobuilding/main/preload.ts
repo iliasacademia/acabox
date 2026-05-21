@@ -94,6 +94,32 @@ contextBridge.exposeInMainWorld('miniAppsAPI', {
   importApp: () => ipcRenderer.invoke('miniApps:import'),
   list: () => ipcRenderer.invoke('miniApps:list'),
   touch: (dirName: string) => ipcRenderer.invoke('miniApps:touch', dirName),
+  build: (dirName: string): Promise<{ ok: boolean; outfile?: string; error?: string; exitCode: number }> =>
+    ipcRenderer.invoke('miniApps:build', dirName),
+});
+
+contextBridge.exposeInMainWorld('miniAppMcpAPI', {
+  register: (payload: {
+    serverName: string;
+    dirName: string;
+    tools: Array<{ name: string; description: string; input_schema: Record<string, unknown> }>;
+    iframeRouteKey: string;
+  }) => ipcRenderer.invoke('miniAppMcp:register', payload),
+  unregister: (serverName: string) => ipcRenderer.invoke('miniAppMcp:unregister', serverName),
+  unregisterByRoute: (iframeRouteKey: string) => ipcRenderer.invoke('miniAppMcp:unregisterByRoute', iframeRouteKey),
+  list: (): Promise<Array<{ serverName: string; dirName: string; tools: Array<{ name: string; description: string; input_schema: Record<string, unknown> }> }>> =>
+    ipcRenderer.invoke('miniAppMcp:list'),
+  callTool: (serverName: string, toolName: string, args: unknown): Promise<{ result?: unknown; error?: string }> =>
+    ipcRenderer.invoke('miniAppMcp:callTool', serverName, toolName, args),
+  onInvoke: (
+    callback: (payload: { invocationId: string; iframeRouteKey: string; toolName: string; args: unknown }) => void,
+  ) => {
+    const listener = (_event: unknown, payload: { invocationId: string; iframeRouteKey: string; toolName: string; args: unknown }) => callback(payload);
+    ipcRenderer.on('miniAppMcp:invoke', listener);
+    return () => { ipcRenderer.removeListener('miniAppMcp:invoke', listener); };
+  },
+  sendResult: (payload: { invocationId: string; result?: unknown; error?: string }) =>
+    ipcRenderer.send('miniAppMcp:result', payload),
 });
 
 contextBridge.exposeInMainWorld('settingsAPI', {
@@ -106,25 +132,12 @@ contextBridge.exposeInMainWorld('settingsAPI', {
 contextBridge.exposeInMainWorld('containerAPI', {
   start: () => ipcRenderer.invoke('container:start'),
   stop: () => ipcRenderer.invoke('container:stop'),
-  gracefulShutdownPodman: () => ipcRenderer.invoke('container:gracefulShutdownPodman'),
-  clearImageDownloadState: () => ipcRenderer.invoke('dm:clearImageDownloadState'),
   status: () => ipcRenderer.invoke('container:status'),
   exec: (command: string[]) => ipcRenderer.invoke('container:exec', command),
-  syncOverlay: () => ipcRenderer.invoke('container:syncOverlay'),
   execLogged: (command: string[], meta?: { source?: string; appDirName?: string | null }) =>
     ipcRenderer.invoke('container:execLogged', command, meta),
-  getBinaryMode: () => ipcRenderer.invoke('container:getBinaryMode'),
-  setBinaryMode: (mode: string) => ipcRenderer.invoke('container:setBinaryMode', mode),
-  getImageSource: () => ipcRenderer.invoke('container:getImageSource'),
-  setImageSource: (source: string) => ipcRenderer.invoke('container:setImageSource', source),
   quitApp: () => ipcRenderer.invoke('app:quit'),
   relaunchApp: () => ipcRenderer.invoke('app:relaunch'),
-  getBundledStatus: () => ipcRenderer.invoke('container:getBundledStatus'),
-  downloadBinaries: () => ipcRenderer.invoke('container:downloadBinaries'),
-  deleteBinaries: () => ipcRenderer.invoke('container:deleteBinaries'),
-  downloadImage: () => ipcRenderer.invoke('container:downloadImage'),
-  getName: () => ipcRenderer.invoke('container:getName'),
-  isBaseImageDownloaded: () => ipcRenderer.invoke('container:isBaseImageDownloaded'),
   ensureSetup: () => ipcRenderer.invoke('container:ensureSetup'),
   getEnvironmentInfo: () => ipcRenderer.invoke('container:getEnvironmentInfo'),
   appDepsReady: (dirName: string) => ipcRenderer.invoke('container:appDepsReady', dirName),
@@ -182,31 +195,15 @@ contextBridge.exposeInMainWorld('systemLogAPI', {
 });
 
 
-contextBridge.exposeInMainWorld('browserMonitorAPI', {
-  status: () => ipcRenderer.invoke('browserMonitor:status'),
-  start: () => ipcRenderer.invoke('browserMonitor:start'),
-  stop: () => ipcRenderer.invoke('browserMonitor:stop'),
-  downloadExtension: () => ipcRenderer.invoke('browserMonitor:downloadExtension'),
-});
-
 contextBridge.exposeInMainWorld('fileMonitorAPI', {
   status: () => ipcRenderer.invoke('fileMonitor:status'),
   start: () => ipcRenderer.invoke('fileMonitor:start'),
   stop: () => ipcRenderer.invoke('fileMonitor:stop'),
   getTodaySessions: () => ipcRenderer.invoke('fileMonitor:getTodaySessions'),
   openFile: (fileUrl: string, bundleId?: string) => ipcRenderer.invoke('fileMonitor:openFile', fileUrl, bundleId),
-  setDockRightForDocument: (documentPath: string, docked: boolean) =>
-    ipcRenderer.invoke('windowMonitor:setDockRightForDocument', documentPath, docked),
-  setOverlayKickoffForDocument: (documentPath: string, prompt: string) =>
-    ipcRenderer.invoke('windowMonitor:setOverlayKickoffForDocument', documentPath, prompt),
-  requestNewOverlayChatForDocument: (documentPath: string) =>
-    ipcRenderer.invoke('windowMonitor:requestNewOverlayChatForDocument', documentPath),
-  navigateOverlayToSession: (sessionId: string) =>
-    ipcRenderer.invoke('windowMonitor:navigateOverlayToSession', sessionId),
 });
 
 contextBridge.exposeInMainWorld('observationsAPI', {
-  getBrowserSessions: () => ipcRenderer.invoke('observations:getBrowserSessions'),
   getFileSessions: () => ipcRenderer.invoke('observations:getFileSessions'),
   getSessionFiles: () => ipcRenderer.invoke('observations:getSessionFiles'),
 });
@@ -270,47 +267,6 @@ contextBridge.exposeInMainWorld('calendarAPI', {
     return () => { ipcRenderer.removeListener('calendar:mutation', handler); };
   },
 
-});
-
-contextBridge.exposeInMainWorld('googleDocsAPI', {
-  status: () => ipcRenderer.invoke('googleDocs:status'),
-  connect: () => ipcRenderer.invoke('googleDocs:connect'),
-  disconnect: () => ipcRenderer.invoke('googleDocs:disconnect'),
-});
-
-contextBridge.exposeInMainWorld('googleDriveAPI', {
-  status: () => ipcRenderer.invoke('googleDrive:status'),
-  connect: () => ipcRenderer.invoke('googleDocs:connect'),
-  listFolder: (folderId?: string, options?: { sharedWithMe?: boolean }) => ipcRenderer.invoke('googleDrive:listFolder', folderId, options),
-  saveSelection: (selection: any) => ipcRenderer.invoke('googleDrive:saveSelection', selection),
-  getSelection: () => ipcRenderer.invoke('googleDrive:getSelection'),
-  getCacheDirectories: () => ipcRenderer.invoke('googleDrive:getCacheDirectories'),
-  listChildren: (parentId: string) => ipcRenderer.invoke('googleDrive:listChildren', parentId),
-  listCacheEntries: () => ipcRenderer.invoke('googleDrive:listCacheEntries'),
-  getContextualTree: () => ipcRenderer.invoke('googleDrive:getContextualTree'),
-  getContextualTreeNodes: () => ipcRenderer.invoke('googleDrive:getContextualTreeNodes'),
-  refreshTree: () => ipcRenderer.invoke('googleDrive:refreshTree'),
-  resetCache: () => ipcRenderer.invoke('googleDrive:resetCache'),
-  openInBrowser: (fileId: string, mimeType: string) => {
-    let url: string;
-    switch (mimeType) {
-      case 'application/vnd.google-apps.folder':
-        url = `https://drive.google.com/drive/folders/${fileId}`;
-        break;
-      case 'application/vnd.google-apps.document':
-        url = `https://docs.google.com/document/d/${fileId}/edit`;
-        break;
-      case 'application/vnd.google-apps.spreadsheet':
-        url = `https://docs.google.com/spreadsheets/d/${fileId}/edit`;
-        break;
-      case 'application/vnd.google-apps.presentation':
-        url = `https://docs.google.com/presentation/d/${fileId}/edit`;
-        break;
-      default:
-        url = `https://drive.google.com/file/d/${fileId}/view`;
-    }
-    return ipcRenderer.invoke('shell:openExternal', url);
-  },
 });
 
 contextBridge.exposeInMainWorld('scheduledTasksAPI', {

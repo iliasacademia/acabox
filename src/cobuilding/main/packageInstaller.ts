@@ -2,6 +2,22 @@ import { EventEmitter } from 'events';
 import log from 'electron-log';
 import { containerService } from './containerService';
 import { captureError } from '../shared/telemetry';
+import { ensurePythonVenv, venvBin } from './pythonSetup';
+import { getNpmPrefix, ensureNpmAvailable, NpmUnavailableError } from './nodeSetup';
+
+/**
+ * Strip the version suffix from an npm package spec. Handles scoped
+ * packages (`@babel/core@7.28.5` → `@babel/core`) correctly — naive
+ * `.split('@')[0]` would yield an empty string for those.
+ */
+function parseNpmName(spec: string): string {
+  if (spec.startsWith('@')) {
+    const at = spec.indexOf('@', 1);
+    return at === -1 ? spec : spec.slice(0, at);
+  }
+  const at = spec.indexOf('@');
+  return at === -1 ? spec : spec.slice(0, at);
+}
 
 /**
  * Package-level install coordinator.
@@ -257,6 +273,25 @@ class PackageInstaller extends EventEmitter {
   }
 
   private async runWave(registry: Registry, packages: string[]): Promise<void> {
+    // Pip needs the venv to exist. Lazy-bootstrap on first use so the heavy
+    // setup only runs when someone actually requests a Python package.
+    if (registry === 'pip') {
+      try { await ensurePythonVenv(); }
+      catch (err) {
+        throw new Error(`Python environment not available: ${(err as Error).message}`);
+      }
+    }
+    // npm needs to be on the user's PATH. Probe up-front so a missing Node
+    // install produces an actionable error instead of an ENOENT mid-wave.
+    if (registry === 'npm') {
+      try { await ensureNpmAvailable(); }
+      catch (err) {
+        if (err instanceof NpmUnavailableError) {
+          throw new Error('npm is not installed. Install Node.js (https://nodejs.org or "brew install node") and try again.');
+        }
+        throw err;
+      }
+    }
     const command = this.buildCommand(registry, packages);
     log.info(`[PackageInstaller] ${registry} wave running: ${command.join(' ')}`);
 
@@ -303,7 +338,7 @@ class PackageInstaller extends EventEmitter {
 
   private buildPackageMatchers(registry: Registry, packages: string[]): PackageMatcher[] {
     return packages.map((pkg) => {
-      const name = registry === 'npm' ? pkg.split('@')[0] : pkg;
+      const name = registry === 'npm' ? parseNpmName(pkg) : pkg;
       const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       return {
         pkg,
@@ -318,22 +353,22 @@ class PackageInstaller extends EventEmitter {
   private buildCommand(registry: Registry, packages: string[]): string[] {
     switch (registry) {
       case 'pip':
-        return [
-          'sh', '-c',
-          'PIP=$(command -v /opt/venv/bin/pip || command -v pip3 || echo pip) && '
-            + 'exec $PIP install --no-input --target /opt/pip-site ' + packages.join(' '),
-        ];
+        // Install into the user-data venv that backs both the agent's
+        // python invocations and the kernel gateway. No `--target`: regular
+        // venv install so packages are importable from `python` inside the
+        // venv without any sys.path tweaking.
+        return [venvBin('pip'), 'install', '--disable-pip-version-check', '--no-input', ...packages];
       case 'npm':
-        return ['npm', 'install', '-g', '--prefix', '/opt/npm-site', ...packages];
-      case 'R': {
-        const safe = packages.map((p) => p.replace(/[^a-zA-Z0-9._]/g, ''));
-        const vec = 'c(' + safe.map((p) => `"${p}"`).join(',') + ')';
-        return ['Rscript', '-e', `install.packages(${vec}, repos='https://cloud.r-project.org')`];
-      }
-      case 'apt': {
-        const safe = packages.map((p) => p.replace(/[^a-zA-Z0-9._+\-:]/g, ''));
-        return ['bash', '-lc', `apt-get update && apt-get install -y ${safe.join(' ')}`];
-      }
+        // Host-side shared install. mini-apps reach these modules at build
+        // time via NODE_PATH=<npmPrefix>/lib/node_modules; we set that env
+        // in the esbuild invocation that bundles the iframe.
+        return ['npm', 'install', '-g', '--prefix', getNpmPrefix(), '--no-audit', '--no-fund', ...packages];
+      case 'R':
+      case 'apt':
+        // R and apt installs were container-only. On a host build we don't
+        // own the system package manager, so refuse with a clear message
+        // rather than silently no-op.
+        throw new Error(`${registry} installs are not supported on host. Install the dependency manually and re-open the app.`);
       case 'manual':
         if (packages.length !== 1) {
           // Manual scripts can't be batched — they're side-effecting bash

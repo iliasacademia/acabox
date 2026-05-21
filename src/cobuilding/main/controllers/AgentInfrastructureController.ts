@@ -1,7 +1,6 @@
 import { app, Notification as ElectronNotification } from 'electron';
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
-import * as os from 'os';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
@@ -21,27 +20,10 @@ import {
 import { getLatestReport } from '../db/reportRepository';
 import { AGENT_MEMORY_SUBDIR, REFERENCES_SUBDIR, REFERENCES_INDEX } from '../../shared/paths';
 import { queryActivity } from '../activityQuery';
-import { getWordFilePath, getWordText, getWordSelection, saveWordDocument, openWordDocument } from '../../../server/wordActions';
-import { googleDocsGetActiveDoc, googleDocsGetText, googleDocsFindAndReplace } from '../mcpServers/googleDocsMcpServer';
-import { createGoogleDriveHandlers } from '../mcpServers/googleDriveMcpServer';
-import { listWorkspaceDirectoriesBySource } from '../db/workspaceRepository';
-import {
-  appleNotesGetActiveNote,
-  appleNotesGetText,
-  appleNotesListNotes,
-  appleNotesSearchNotes,
-  appleNotesSaveNote,
-  appleNotesOpenNote,
-  appleNotesFindAndReplace,
-} from '../mcpServers/appleNotesMcpServer';
-import { createObsidianHandlers } from '../mcpServers/obsidianMcpServer';
-import { resolveObsidianDocumentPath } from '../hostApps/obsidianHostApp';
 import { checkLogin } from '../../../apiClient';
-import { findReferencesForFile, findReferencesForText, createCitationReportFromText, getCitationReport, addClaimToReport, searchCitationsForClaim, formatCitations, listCitationReports } from '../citeright/citeRightClient';
-import { saveUserContext as grantsSaveUserContext, createProject as grantsCreateProject, getProject as grantsGetProject, listProjects as grantsListProjects, setFavoriteOpportunity, setHiddenOpportunity, setHiddenReason as grantsSetHiddenReason, visitOpportunity, updateProject as grantsUpdateProject } from '../grants/grantsClient';
-import { summarizeReport } from '../citeright/reportSummary';
 import { createSession as createDbSession, insertMessage as insertDbMessage, updateSessionTitle } from '../db/chatRepository';
-import { getZoteroLocalStatus, searchZoteroLibrary, getZoteroItem, addDoiToZotero } from '../../../zoteroLocalClient';
+import { buildMiniApp } from '../miniAppBuilder';
+import { ensurePythonVenv } from '../pythonSetup';
 
 export interface AgentInfrastructureDeps {
   workspaceController: WorkspaceController;
@@ -73,10 +55,8 @@ export class AgentInfrastructureController {
         query_activity: async (args: any) => {
           const result = queryActivity(args);
           if ('error' in result) return fail(result.error);
-          const browserCount = result.browser_sessions
-            ? result.browser_sessions.reduce((sum: number, group: any) => sum + (group.sessions as unknown[]).length, 0) : 0;
           const fileCount = result.file_sessions?.length || 0;
-          const header = `Activity from ${result.query.since} to ${result.query.until}\nBrowser sessions: ${browserCount} | File sessions: ${fileCount}\n`;
+          const header = `Activity from ${result.query.since} to ${result.query.until}\nFile sessions: ${fileCount}\n`;
           return ok(header + '\n' + JSON.stringify(result, null, 2));
         },
       },
@@ -134,84 +114,6 @@ export class AgentInfrastructureController {
         },
       },
 
-      'google-docs': {
-        get_active_doc: googleDocsGetActiveDoc,
-        get_text: googleDocsGetText,
-        find_and_replace: googleDocsFindAndReplace,
-      },
-
-      'google-drive': createGoogleDriveHandlers({
-        getAllowedItems: () => {
-          const dirs = listWorkspaceDirectoriesBySource(workspace.id, 'google-drive');
-          return dirs.map(d => {
-            const meta = d.metadata ? JSON.parse(d.metadata) : {};
-            return {
-              driveId: meta.driveId as string,
-              name: d.display_name,
-              mimeType: (meta.mimeType as string) ?? 'application/vnd.google-apps.folder',
-            };
-          }).filter(d => d.driveId);
-        },
-        getWorkspaceId: () => workspace.id,
-      }),
-
-      'apple-notes': {
-        get_active_note: appleNotesGetActiveNote,
-        get_text: appleNotesGetText,
-        list_notes: appleNotesListNotes,
-        search_notes: appleNotesSearchNotes,
-        save_note: appleNotesSaveNote,
-        open_note: appleNotesOpenNote,
-        find_and_replace: appleNotesFindAndReplace,
-      },
-
-      obsidian: createObsidianHandlers({
-        workspaceDir: userDirectoryPaths[0] ?? '',
-        getActiveNotePath: () => resolveObsidianDocumentPath(userDirectoryPaths),
-      }),
-
-      'ms-word': {
-        get_file_path: async () => { try { return ok(JSON.stringify(await getWordFilePath())); } catch (e: any) { return fail(String(e)); } },
-        get_text: async (args: any) => { try { return ok(JSON.stringify(await getWordText(args.offset, args.limit))); } catch (e: any) { return fail(String(e)); } },
-        get_selection: async () => { try { return ok(JSON.stringify(await getWordSelection())); } catch (e: any) { return fail(String(e)); } },
-        save_document: async () => { try { return ok(JSON.stringify(await saveWordDocument())); } catch (e: any) { return fail(String(e)); } },
-        open_document: async (args: any) => { try { return ok(JSON.stringify(await openWordDocument(args.path))); } catch (e: any) { return fail(String(e)); } },
-        find_and_replace: async (args: any) => ok(JSON.stringify({ proposed: true, ...args })),
-      },
-
-      citeright: {
-        find_references: async (args: any) => {
-          const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
-          const pollOptions = { timeoutMs: (args.timeout_seconds ?? 600) * 1000, pollIntervalMs: (args.poll_interval_seconds ?? 3) * 1000 };
-          const response = args.file_path ? await findReferencesForFile(args.file_path, pollOptions) : await findReferencesForText(args.document_text, pollOptions);
-          return ok(JSON.stringify(summarizeReport(response)));
-        },
-        create_citation_report: async (args: any) => {
-          const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
-          return ok(JSON.stringify(summarizeReport(await createCitationReportFromText(args.document_text))));
-        },
-        get_citation_report: async (args: any) => {
-          const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
-          return ok(JSON.stringify(summarizeReport(await getCitationReport(args.report_id))));
-        },
-        add_claim_to_report: async (args: any) => {
-          const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
-          return ok(JSON.stringify(summarizeReport(await addClaimToReport(args.report_id, args.text))));
-        },
-        search_citations_for_claim: async (args: any) => {
-          const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
-          return ok(JSON.stringify(summarizeReport(await searchCitationsForClaim(args.report_id, args.claim_id))));
-        },
-        format_citations: async (args: any) => {
-          const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
-          return ok(JSON.stringify(await formatCitations(args.works)));
-        },
-        list_citation_reports: async (args: any) => {
-          const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
-          return ok(JSON.stringify(await listCitationReports(args.page, args.per_page)));
-        },
-      },
-
       'mini-apps': {
         open_mini_application: async (args: any) => {
           const appDir = path.join(agentDir, '.applications', args.dir_name);
@@ -220,92 +122,26 @@ export class AgentInfrastructureController {
           return ok(`Opened mini-application: ${args.dir_name}`);
         },
         build_and_open_mini_application: async (args: any) => {
-          const appDir = path.join(agentDir, '.applications', args.dir_name);
-          const exists = await fs.promises.access(appDir).then(() => true, () => false);
-          if (!exists) return fail(`Mini-application directory not found: .applications/${args.dir_name}`);
-
-          const entry = `.applications/${args.dir_name}/src/index.tsx`;
-          const outfile = `.applications/${args.dir_name}/dist/bundle.js`;
-          const build = await containerService.exec([
-            'esbuild',
-            entry,
-            '--bundle',
-            `--outfile=${outfile}`,
-            '--jsx=automatic',
-            '--loader:.tsx=tsx',
-            '--loader:.ts=ts',
-            '--format=iife',
-            '--alias:@reusable=/data/.applications/_reusable',
-          ]);
-          if (build.exitCode !== 0) {
-            const detail = (build.stderr || build.stdout || '').trim() || 'Unknown build error';
-            return fail(`Build failed for ${args.dir_name}:\n${detail}`);
+          const build = await buildMiniApp(agentDir, args.dir_name);
+          if (!build.ok) {
+            return fail(`Build failed for ${args.dir_name}:\n${build.error}`);
           }
-
           return ok(`Built and opened mini-application: ${args.dir_name}`);
         },
-      },
-
-      zotero: {
-        status: async () => {
-          try {
-            const status = await getZoteroLocalStatus();
-            return ok(JSON.stringify({ status }));
-          } catch (e: any) { return fail(`Zotero status check failed: ${e.message}`); }
+        list_published_servers: async () => {
+          const { miniAppMcpRegistry } = await import('../miniAppMcpRegistry');
+          const servers = miniAppMcpRegistry.list();
+          return ok(JSON.stringify(servers, null, 2));
         },
-        search_library: async (args: any) => {
-          try {
-            return ok(JSON.stringify(await searchZoteroLibrary(args.query, args.limit)));
-          } catch (e: any) { return fail(`Zotero search failed: ${e.message}`); }
-        },
-        get_item: async (args: any) => {
-          try {
-            return ok(JSON.stringify(await getZoteroItem(args.key)));
-          } catch (e: any) { return fail(`Zotero get_item failed: ${e.message}`); }
-        },
-        add_doi: async (args: any) => {
-          try {
-            return ok(JSON.stringify(await addDoiToZotero(args.doi)));
-          } catch (e: any) { return fail(`Zotero add_doi failed: ${e.message}`); }
-        },
-      },
-
-      grants: {
-        save_user_context: async (args: any) => {
-          const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
-          return ok(JSON.stringify(await grantsSaveUserContext(args.data)));
-        },
-        create_project: async (args: any) => {
-          const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
-          return ok(JSON.stringify(await grantsCreateProject(args.research_summary, args.name)));
-        },
-        get_project: async (args: any) => {
-          const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
-          return ok(JSON.stringify(await grantsGetProject(args.project_id)));
-        },
-        list_projects: async () => {
-          const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
-          return ok(JSON.stringify(await grantsListProjects()));
-        },
-        favorite_opportunity: async (args: any) => {
-          const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
-          return ok(JSON.stringify(await setFavoriteOpportunity(args.project_id, args.grant_opportunity_id, args.favorite)));
-        },
-        hide_opportunity: async (args: any) => {
-          const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
-          return ok(JSON.stringify(await setHiddenOpportunity(args.project_id, args.grant_opportunity_id, args.hidden)));
-        },
-        set_hidden_reason: async (args: any) => {
-          const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
-          return ok(JSON.stringify(await grantsSetHiddenReason(args.project_id, args.grant_opportunity_id, args.hidden_reason)));
-        },
-        visit_opportunity: async (args: any) => {
-          const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
-          return ok(JSON.stringify(await visitOpportunity(args.project_id, args.grant_opportunity_id)));
-        },
-        update_project: async (args: any) => {
-          const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
-          return ok(JSON.stringify(await grantsUpdateProject(args.project_id, { name: args.name, research_summary: args.research_summary })));
+        call_published_tool: async (args: any) => {
+          const { miniAppMcpRegistry } = await import('../miniAppMcpRegistry');
+          const { server_name, tool_name, arguments: toolArgs } = args ?? {};
+          if (typeof server_name !== 'string' || typeof tool_name !== 'string') {
+            return fail('server_name and tool_name are required strings.');
+          }
+          const { result, error } = await miniAppMcpRegistry.invoke(server_name, tool_name, toolArgs ?? {});
+          if (error) return fail(error);
+          return ok(typeof result === 'string' ? result : JSON.stringify(result));
         },
       },
 
@@ -408,19 +244,6 @@ export class AgentInfrastructureController {
       log.warn('[AgentInfrastructure] Credential refresh failed, using stored key:', err);
     }
 
-    await migrateHostSessionsToContainer(workspacePath);
-
-    if (this.deps.containerService.isOverlayEnabled() && this.deps.containerService.isRunning()) {
-      try {
-        await this.deps.containerService.exec([
-          'rsync', '-a',
-          '/data-host/.academia/', '/data/.academia/',
-        ]);
-      } catch (err) {
-        log.warn(`[AgentInfrastructure] Failed to sync host files into overlay: ${(err as Error).message}`);
-      }
-    }
-
     void migrateMissingManifests(workspacePath);
 
     await this.deps.containerService.ensureAgentFilesInWorkspace(workspacePath);
@@ -430,7 +253,6 @@ export class AgentInfrastructureController {
     const { apiKey: agentApiKey, baseURL: agentBaseURL } = getCredentials();
     const agentConfig = {
       port: 8080,
-      claudeBinaryPath: '/data/.academia/claude',
       mcpServers: {},
       anthropicApiKey: agentApiKey ?? '',
       ...(agentBaseURL ? { anthropicBaseURL: agentBaseURL } : {}),
@@ -438,27 +260,15 @@ export class AgentInfrastructureController {
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       allowedTools: [
         'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'Agent',
-        'NotebookEdit', 'WebSearch', 'Skill', 'TodoWrite',
+        'WebSearch', 'Skill', 'TodoWrite',
         'EnterPlanMode', 'ExitPlanMode',
         'mcp__activity__query_activity',
         'mcp__mini-apps__open_mini_application',
         'mcp__mini-apps__build_and_open_mini_application',
+        'mcp__mini-apps__list_published_servers',
+        'mcp__mini-apps__call_published_tool',
         'mcp__notification__show_notification',
         'mcp__reaction__create_reaction_thread',
-        'mcp__citeright__find_references', 'mcp__citeright__create_citation_report',
-        'mcp__citeright__get_citation_report', 'mcp__citeright__add_claim_to_report',
-        'mcp__citeright__search_citations_for_claim', 'mcp__citeright__format_citations',
-        'mcp__citeright__list_citation_reports',
-        'mcp__zotero__status', 'mcp__zotero__search_library',
-        'mcp__zotero__get_item', 'mcp__zotero__add_doi',
-        'mcp__google-drive__get_drive_tree',
-        'mcp__google-drive__list_files', 'mcp__google-drive__search_files',
-        'mcp__google-drive__get_file_metadata', 'mcp__google-drive__download_file',
-        'mcp__grants__save_user_context', 'mcp__grants__create_project',
-        'mcp__grants__get_project', 'mcp__grants__list_projects',
-        'mcp__grants__favorite_opportunity', 'mcp__grants__hide_opportunity',
-        'mcp__grants__set_hidden_reason', 'mcp__grants__visit_opportunity',
-        'mcp__grants__update_project',
         'mcp__suggested-tasks__list_suggestions',
         'mcp__suggested-tasks__create_suggestion',
         'mcp__suggested-tasks__update_suggestion',
@@ -471,72 +281,19 @@ export class AgentInfrastructureController {
     };
 
     await this.deps.containerService.startAgentServer(JSON.stringify(agentConfig, null, 2), workspacePath);
+
+    // Bootstrap the Python venv in the background so the agent's install
+    // wrapper has a `pip` to call when it first encounters a Python
+    // dependency. Best-effort: if the user has no system Python the agent
+    // can still operate without Python tooling.
+    void ensurePythonVenv().catch((err) => {
+      log.warn(`[AgentInfrastructure] Python venv bootstrap deferred: ${(err as Error).message}`);
+    });
   }
 
   async stop(): Promise<void> {
     await this.deps.containerService.stopAgentServer();
     (globalThis as any).__hostMcpServers = null;
-  }
-}
-
-async function migrateHostSessionsToContainer(workspacePath: string): Promise<void> {
-  const markerPath = path.join(workspacePath, '.academia', 'claude-config', '.sessions-migrated');
-  try { await fsPromises.access(markerPath); return; } catch { /* not migrated yet */ }
-
-  const suffix = app.isPackaged ? '' : '-dev';
-  const podmanHome = path.join(os.homedir(), `.cobuild-podman${suffix}`);
-  const hostProjectsDir = path.join(podmanHome, '.claude', 'projects');
-  const containerProjectsDir = path.join(workspacePath, '.academia', 'claude-config', 'projects', '-data');
-
-  const hostExists = await fsPromises.access(hostProjectsDir).then(() => true, () => false);
-  if (!hostExists) {
-    await fsPromises.mkdir(path.dirname(markerPath), { recursive: true });
-    await fsPromises.writeFile(markerPath, new Date().toISOString());
-    return;
-  }
-
-  let copied = 0;
-  try {
-    await fsPromises.mkdir(containerProjectsDir, { recursive: true });
-
-    const projectDirs = await fsPromises.readdir(hostProjectsDir);
-    for (const projectDir of projectDirs) {
-      const projectPath = path.join(hostProjectsDir, projectDir);
-      const stat = await fsPromises.stat(projectPath);
-      if (!stat.isDirectory()) continue;
-
-      const files = await fsPromises.readdir(projectPath);
-      for (const file of files) {
-        if (!file.endsWith('.jsonl')) continue;
-        const src = path.join(projectPath, file);
-        const dest = path.join(containerProjectsDir, file);
-        const destExists = await fsPromises.access(dest).then(() => true, () => false);
-        if (destExists) continue;
-
-        await fsPromises.copyFile(src, dest);
-        copied++;
-
-        const sessionId = file.replace('.jsonl', '');
-        const subagentDir = path.join(projectPath, sessionId, 'subagents');
-        const subagentExists = await fsPromises.access(subagentDir).then(() => true, () => false);
-        if (subagentExists) {
-          const destSubDir = path.join(containerProjectsDir, sessionId, 'subagents');
-          await fsPromises.mkdir(destSubDir, { recursive: true });
-          const subs = await fsPromises.readdir(subagentDir);
-          for (const sub of subs) {
-            await fsPromises.copyFile(path.join(subagentDir, sub), path.join(destSubDir, sub));
-          }
-        }
-      }
-    }
-  } catch (err) {
-    log.warn(`[SessionMigration] Error: ${(err as Error).message}`);
-  }
-
-  await fsPromises.mkdir(path.dirname(markerPath), { recursive: true });
-  await fsPromises.writeFile(markerPath, new Date().toISOString());
-  if (copied > 0) {
-    log.info(`[SessionMigration] Migrated ${copied} session files from ${podmanHome} to container config`);
   }
 }
 

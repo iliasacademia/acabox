@@ -58,13 +58,12 @@ const FILE_TAG_LABEL: Record<FileTagType, string> = {
 interface FilesTabProps {
   workspacePath: string;
   userDirectories?: WorkspaceDirectory[];
-  hasDriveFolders?: boolean;
   onSelectFile: (path: string) => void;
   onFileCount?: (count: number) => void;
   onDirectoriesChanged?: (dirs: WorkspaceDirectory[]) => void;
 }
 
-export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, hasDriveFolders, onSelectFile, onFileCount, onDirectoriesChanged }) => {
+export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, onSelectFile, onFileCount, onDirectoriesChanged }) => {
   const workspaceName = workspacePath.split('/').pop() ?? workspacePath;
   const [rootChildren, setRootChildren] = useState<TreeNode[]>([]);
   const [rootExpanded, setRootExpanded] = useState(true);
@@ -76,10 +75,6 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, ha
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [creatingIn, setCreatingIn] = useState<{ dirPath: string; type: 'file' | 'folder' } | null>(null);
   const [fileTagMap, setFileTagMap] = useState<Map<string, FileTagType>>(new Map());
-  const [driveRefreshing, setDriveRefreshing] = useState(false);
-  const [driveTreeNodes, setDriveTreeNodes] = useState<TreeNode[] | null>(null);
-  const [driveTreeLoading, setDriveTreeLoading] = useState(false);
-  const [driveExpanded, setDriveExpanded] = useState(true);
   const [localDirs, setLocalDirs] = useState<WorkspaceDirectory[]>(userDirectories ?? []);
   const [togglingDirId, setTogglingDirId] = useState<string | null>(null);
 
@@ -230,33 +225,6 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, ha
     await loadRoot();
     setRefreshKey((k) => k + 1);
   }, [loadRoot]);
-
-  const loadDriveTree = useCallback(async () => {
-    setDriveTreeLoading(true);
-    try {
-      const result = await (window as any).googleDriveAPI.getContextualTreeNodes();
-      if (result?.success && result.data) {
-        setDriveTreeNodes(result.data);
-      }
-    } finally {
-      setDriveTreeLoading(false);
-    }
-  }, []);
-
-  const refreshDriveTree = useCallback(async () => {
-    setDriveRefreshing(true);
-    try {
-      await loadDriveTree();
-    } finally {
-      setDriveRefreshing(false);
-    }
-  }, [loadDriveTree]);
-
-  useEffect(() => {
-    if (hasDriveFolders && !driveTreeNodes && !driveTreeLoading) {
-      loadDriveTree();
-    }
-  }, [hasDriveFolders, driveTreeNodes, driveTreeLoading, loadDriveTree]);
 
   // Auto-refresh when files change on disk (e.g., created by container commands)
   useEffect(() => {
@@ -605,64 +573,6 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, ha
             onTogglePermission={() => handleTogglePermission(ud.id, ud.read_only)}
           />
         ))}
-        {hasDriveFolders && (
-          <div className="filesTabDriveSection">
-            <div
-              className="fileTreeRow fileTreeRow--root"
-              onClick={() => setDriveExpanded(v => !v)}
-            >
-              <ChevronRightIcon
-                className={`fileTreeChevron ${driveExpanded ? 'fileTreeChevron--open' : ''}`}
-              />
-              <span className="filesTabDriveIcon">☁️</span>
-              <span className="fileTreeName fileTreeName--root">Google Drive</span>
-              <div className="fileTreeRowActions">
-                <button
-                  className={`fileTreeRefresh ${driveRefreshing ? 'fileTreeRowAction--spinning' : ''}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    refreshDriveTree();
-                  }}
-                  title="Refresh Google Drive"
-                >
-                  <RefreshCwIcon style={{ width: 14, height: 14 }} />
-                </button>
-              </div>
-            </div>
-            {driveExpanded && (
-              <>
-                {driveTreeLoading && !driveTreeNodes && (
-                  <div className="filesTabDriveLoading">Loading Drive tree...</div>
-                )}
-                {driveTreeNodes && driveTreeNodes.map((rootNode) => (
-                  <FileTreeNode
-                    key={rootNode.path}
-                    node={rootNode}
-                    depth={1}
-                    workspacePath={workspacePath}
-                    fileTagMap={fileTagMap}
-                    onSelectFile={onSelectFile}
-                    loadChildren={loadChildren}
-                    onDropOnDir={handleDropOnDir}
-                    onDragOverDir={handleDragOverDir}
-                    onDragLeaveDir={handleDragLeaveDir}
-                    dropTargetPath={dropTargetPath}
-                    refreshKey={refreshKey}
-                    onContextMenu={handleContextMenu}
-                    renamingPath={renamingPath}
-                    onRenameCommit={handleRenameCommit}
-                    onRenameCancel={handleRenameCancel}
-                    onRenameRequest={handleRenameNodePath}
-                    onDeleteRequest={handleDeleteNodePath}
-                    creatingIn={creatingIn}
-                    onCreateCommit={handleCreateCommit}
-                    onCreateCancel={handleCreateCancel}
-                  />
-                ))}
-              </>
-            )}
-          </div>
-        )}
       </div>
       {copyProgress && (
         <div className="filesTabCopyProgress">
@@ -831,8 +741,6 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
         setChildren(kids);
         setLoaded(true);
       }
-    } else if (node.driveFileId) {
-      (window as any).googleDriveAPI.openInBrowser(node.driveFileId, node.driveMimeType ?? '');
     } else {
       onSelectFile(node.path);
     }

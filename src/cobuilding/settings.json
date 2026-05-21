@@ -7,10 +7,6 @@
           {
             "type": "command",
             "command": "bash .claude/hooks/block-host-installs.sh"
-          },
-          {
-            "type": "command",
-            "command": "bash .claude/hooks/warn-podman-exec.sh"
           }
         ]
       }

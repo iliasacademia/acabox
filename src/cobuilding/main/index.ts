@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, net, protocol, shell, systemPreferences } from 'electron';
 import { WorkspaceController } from './controllers/WorkspaceController';
 import { AgentInfrastructureController } from './controllers/AgentInfrastructureController';
+import { miniAppMcpRegistry } from './miniAppMcpRegistry';
 import { registerWorkspaceHandlers } from './ipc/workspaceIpc';
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
@@ -17,13 +18,8 @@ import { registerSession, unregisterSession, getRegisteredSession, hasSession, d
 import type { IPCAttachment } from '../shared/types';
 import { provisionWorkspace } from './skills';
 import { containerService } from './containerService';
-import { showDownloadManagerIfNeeded, registerDownloadManagerIpc } from './downloadManager';
 import { processCpuMonitor } from '../../utils/processCpuMonitor';
-import { getAllPodmanDataPaths } from './podmanBinaries';
-import { ensureClaudeBinaryReady } from './sdkBinarySetup';
 import { convertReferenceFile } from './directoryScanner/agents/fileTagging';
-import { fetchPapers, type FetchPapersInput } from './papers/papersService';
-import { persistPapersAsBriefings } from './papers/paperBriefings';
 import { getReport, getLatestReport, updateReportData } from './db/reportRepository';
 import {
   listBriefings,
@@ -52,8 +48,6 @@ import { listWorkspaceDirectories } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
 import { createTray, createDockIcon, rebuildTrayMenu, setShowWindowCallback } from './tray';
 import { BriefingsController } from './controllers/BriefingsController';
-import { startBrowserMonitor, stopBrowserMonitor } from './browserMonitor';
-import { getAllSessions } from './browserMonitor/repository';
 import { initFileMonitor, startFileMonitor, stopFileMonitor, isFileMonitorRunning } from './fileMonitor';
 import { getAllFileSessions, getTodayFileSessions } from './fileMonitor/repository';
 import { initActivityQuery } from './activityQuery';
@@ -74,7 +68,7 @@ import { runScheduledTask } from './scheduledTasks/runner';
 import type { CreateTaskData, UpdateTaskData, NotificationNavigationAction } from '../shared/types';
 import { migrateWorkspaceFiles } from './migrateWorkspaceFiles';
 import { BackgroundBuilder } from './backgroundBuilder';
-import { discoverApps, getEnvironmentInfo, getInstallSteps, installDepsInContainer } from './environmentGenerator';
+import { getEnvironmentInfo, getInstallSteps } from './environmentGenerator';
 import { packageInstaller, installStepsToRequests, type Registry, type PackageState } from './packageInstaller';
 import { checkLogin, getCurrentUser, logout, setBaseUrl, BASE_URL, hasSessionCookie } from '../../apiClient';
 import { getDeviceId } from '../../utils/deviceId';
@@ -84,11 +78,6 @@ import { createQuickChatWindow, showQuickChat, updateMainWindowRef } from './qui
 import { registerCalendarHandlers } from './ipc/calendar';
 import { registerDebugHandlers } from './ipc/debug';
 import { registerReactionsHandlers, getReactionsEnabled, ensureReactionsTask } from './ipc/reactions';
-import { AcademiaHttpServer } from '../../server/httpServer';
-import { setHttpProxyPort, stopHttpsServer, registerOfficeAddinIpcHandlers } from './officeAddin';
-import { GoogleDriveController } from './controllers/GoogleDriveController';
-import { windowMonitorService } from '../../windowMonitorService';
-import { wordAccessibility } from '../../native/wordAccessibility';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
 import { validateExternalUrl } from '../../utils/urlValidation';
 import { ACADEMIA_DIR, AGENT_MEMORY_SUBDIR, REFERENCES_SUBDIR, REFERENCES_INDEX } from '../shared/paths';
@@ -106,9 +95,6 @@ const isSmokeTest = process.argv.includes('--smoke-test');
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
-
-let cobuildingHttpBaseUrl: string | null = null;
-let cobuildingHttpAuthToken: string | null = null;
 
 function getSettingsPath(): string {
   return path.join(app.getPath('userData'), 'cobuilding-settings.json');
@@ -394,11 +380,6 @@ const briefingsController = new BriefingsController({
   },
 });
 
-const googleDriveController = new GoogleDriveController({
-  workspaceController,
-  containerService,
-});
-
 const agentInfrastructure = new AgentInfrastructureController({
   workspaceController,
   containerService,
@@ -432,69 +413,6 @@ const forwardingListeners = new Map<string, () => void>();
 // desktop never streams to an overlay viewing the same conversation; the
 // overlay only hears about it on the next manual refresh.
 //
-// `sseSessionSubscribers` holds the open SSE response streams listening
-// on `GET /api/cobuilding/sessions/:id/events`. `sseFanoutListeners`
-// tracks the single agent-session listener attached per session that
-// fans events out to every subscriber. Once attached, the fanout listener
-// stays for the lifetime of the agent session — fans out for both
-// desktop-initiated and overlay-initiated turns.
-const sseSessionSubscribers = new Map<string, Set<NodeJS.WritableStream>>();
-const sseFanoutListeners = new Map<string, () => void>();
-let sseSubscriberSeq = 0;
-
-function broadcastSseToSubscribers(sessionId: string, event: string, data: unknown): void {
-  const subs = sseSessionSubscribers.get(sessionId);
-  if (!subs || subs.size === 0) return;
-  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  for (const stream of subs) {
-    try { stream.write(payload); } catch { /* dead connection — request.raw 'close' will reap it */ }
-  }
-}
-
-/**
- * Attach exactly one fanout listener to the agent session for `sessionId`,
- * which forwards events to every active SSE subscriber for that session.
- * Idempotent — safe to call from every chat-send entry point.
- */
-function ensureSseFanout(sessionId: string): void {
-  if (sseFanoutListeners.has(sessionId)) return;
-  const session = getRegisteredSession(sessionId);
-  if (!session) return;
-  const unsubscribe = session.addListener({
-    onEvent: (msg) => {
-      if (msg.type !== 'heartbeat') {
-        log.debug(`[SseFanout] event sessionId=${sessionId} type=${msg.type}`);
-      }
-      broadcastSseToSubscribers(sessionId, 'event', msg);
-      // Also nudge the desktop renderer when a user-message lands from
-      // another surface. agentSession emits 'user-message' immediately
-      // after inserting a foreign-typed user turn into the DB; firing
-      // chat:foreign-done now (rather than waiting for onDone) makes
-      // the user turn visible on the desktop before the assistant
-      // streams its reply, which is exactly the gap that was missing
-      // user "ok" turns from the desktop view in screenshots.
-      if (msg.type === 'user-message' && mainWindow && !mainWindow.isDestroyed()) {
-        log.info(`[SseFanout] firing chat:foreign-done sessionId=${sessionId} cause=user-message`);
-        mainWindow.webContents.send('chat:foreign-done', sessionId);
-      }
-    },
-    onDone: () => {
-      broadcastSseToSubscribers(sessionId, 'done', {});
-      // Also signal the desktop renderer (which can't subscribe to SSE —
-      // it has its own IPC chain) that a turn finished for this session,
-      // so it can refetch history if its active thread matches. Without
-      // this, an overlay-typed user message stays missing on the desktop
-      // even though the assistant's streamed reply already arrived via
-      // `ensureForwarding`'s chat:event path.
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('chat:foreign-done', sessionId);
-      }
-    },
-    onError: (err) => broadcastSseToSubscribers(sessionId, 'error', { error: err }),
-  });
-  sseFanoutListeners.set(sessionId, unsubscribe);
-}
-
 function ensureForwarding(threadId: string, sender: Electron.WebContents): void {
   const key = `${threadId}:${sender.id}`;
   // Always register the renderer's interest in this thread, even before a
@@ -523,16 +441,6 @@ function ensureForwarding(threadId: string, sender: Electron.WebContents): void 
       }
       if (msg.type === 'turn-complete') {
         log.info(`[Forwarding] Sending ${msg.type} event for ${threadId}`);
-        if (containerService.isOverlayEnabled() && containerService.isRunning()) {
-          try {
-            await Promise.race([
-              containerService.syncOverlay(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 30_000)),
-            ]);
-          } catch (err) {
-            log.warn(`[Forwarding] Post-turn overlay sync failed: ${(err as Error).message}`);
-          }
-        }
       }
       sender.send('chat:event', threadId, msg);
     },
@@ -647,8 +555,6 @@ app.whenReady().then(async () => {
   registerAnalyticsIpc();
   startAnalyticsHeartbeat();
 
-  await ensureClaudeBinaryReady();
-
   protocol.handle('local-file', async (request) => {
     const filePath = decodeURIComponent(request.url.slice('local-file://'.length));
     const resolved = workspaceController.isPathAllowed(filePath);
@@ -688,15 +594,9 @@ app.whenReady().then(async () => {
     if (activeWorkspace) {
       migrateWorkspaceFiles(workspaceController.workspacePath);
       provisionWorkspace(workspaceController.workspacePath);
-      containerService.writeStartContainerScript(workspaceController.mountMap);
     }
 
-    if (!isSmokeTest) {
-      registerDownloadManagerIpc();
-      await showDownloadManagerIfNeeded(createMainWindow);
-    } else {
-      createMainWindow();
-    }
+    createMainWindow();
 
     registerFileHandlers(() => workspaceController.allAllowedPaths, () => mainWindow);
     initFileMonitor(() => workspaceController.workspacePath);
@@ -704,8 +604,45 @@ app.whenReady().then(async () => {
     initSessionFiles(() => workspaceController.workspacePath);
     registerCalendarHandlers(() => mainWindow);
     registerDebugHandlers();
+
+    // Mini-app MCP publishing
+    ipcMain.handle('miniAppMcp:register', (event, payload: {
+      serverName: string;
+      dirName: string;
+      tools: import('./miniAppMcpRegistry').MiniAppToolDef[];
+      iframeRouteKey: string;
+    }) => {
+      miniAppMcpRegistry.register({
+        serverName: payload.serverName,
+        dirName: payload.dirName,
+        tools: payload.tools,
+        iframeRouteKey: payload.iframeRouteKey,
+        hostWebContents: event.sender,
+      });
+    });
+    ipcMain.handle('miniAppMcp:unregister', (_event, serverName: string) => {
+      miniAppMcpRegistry.unregister(serverName);
+    });
+    ipcMain.handle('miniAppMcp:unregisterByRoute', (_event, iframeRouteKey: string) => {
+      miniAppMcpRegistry.unregisterByRoute(iframeRouteKey);
+    });
+    ipcMain.handle('miniAppMcp:list', () => miniAppMcpRegistry.list());
+    ipcMain.handle('miniAppMcp:callTool', async (_event, serverName: string, toolName: string, args: unknown) => {
+      return miniAppMcpRegistry.invoke(serverName, toolName, args);
+    });
+    ipcMain.on('miniAppMcp:result', (_event, payload: { invocationId: string; result?: unknown; error?: string }) => {
+      miniAppMcpRegistry.resolveInvocation(payload.invocationId, { result: payload.result, error: payload.error });
+    });
+    ipcMain.handle('miniApps:build', async (_event, dirName: string) => {
+      const workspacePath = workspaceController.workspacePath;
+      if (!workspacePath) {
+        return { ok: false, error: 'No active workspace', exitCode: 1 };
+      }
+      const { buildMiniApp } = await import('./miniAppBuilder');
+      return buildMiniApp(workspacePath, dirName);
+    });
     ipcMain.handle('debug:triggerInDepthSuggestions', () => briefingsController.trigger());
-    registerWorkspaceHandlers(workspaceController, () => mainWindow, containerService, agentInfrastructure);
+    registerWorkspaceHandlers(workspaceController, () => mainWindow, containerService);
     registerReactionsHandlers(() => workspaceController.activeWorkspace, rebuildTrayMenu);
     setupUpdaterIpcHandlers();
     setupUpdater(rebuildTrayMenu);
@@ -736,478 +673,14 @@ app.whenReady().then(async () => {
     }
 
     initSchedulingDatabase(app.getPath('userData'));
-    if (getReactionsEnabled()) {
-      startBrowserMonitor().then(() => rebuildTrayMenu());
-      if (activeWorkspace) {
-        ensureReactionsTask(activeWorkspace.id);
-        const rTask = getTaskBySessionSource(activeWorkspace.id, 'reactions-system');
-        if (rTask && !rTask.enabled) setTaskEnabled(rTask.id, true);
-      }
+    if (getReactionsEnabled() && activeWorkspace) {
+      ensureReactionsTask(activeWorkspace.id);
+      const rTask = getTaskBySessionSource(activeWorkspace.id, 'reactions-system');
+      if (rTask && !rTask.enabled) setTaskEnabled(rTask.id, true);
     }
     startScheduledTasks(handleNotificationNavigation);
     briefingsController.startScheduledBriefings();
 
-    // Start HTTP server and window monitor for the Word overlay
-    if (FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V2_ENABLED) {
-      (async () => {
-        try {
-          const httpServer = new AcademiaHttpServer(null, () => null);
-
-          // Navigation handler — show main window and send navigation event to renderer
-          httpServer.setNavigationHandler(async (payload) => {
-            if (payload.page === 'external' && payload.url) {
-              await shell.openExternal(payload.url);
-              return;
-            }
-            if (!mainWindow || mainWindow.isDestroyed()) {
-              createMainWindow();
-            }
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              if (mainWindow.isMinimized()) mainWindow.restore();
-              mainWindow.show();
-              mainWindow.focus();
-              mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
-                page: payload.page,
-                projectId: payload.projectId,
-                conversationId: payload.conversationId,
-                sessionId: payload.sessionId,
-              } as NavigateToPagePayload);
-            }
-          });
-
-          // Register cobuilding session routes for the Word overlay
-          httpServer.addRouteRegistrar(async (fastify) => {
-            // GET /api/cobuilding/sessions/:sessionId/messages
-            fastify.get<{ Params: { sessionId: string } }>(
-              '/api/cobuilding/sessions/:sessionId/messages',
-              async (request, reply) => {
-                const { sessionId } = request.params;
-                const msgs = getMessages(sessionId);
-                const parsed = msgs.map(m => {
-                  let content: unknown;
-                  try { content = JSON.parse(m.content); } catch { content = m.content; }
-                  return { id: m.id, type: m.type, content, created_at: m.created_at };
-                });
-                reply.send({ messages: parsed });
-              },
-            );
-
-            // GET /api/cobuilding/sessions/:sessionId/events
-            //
-            // Long-lived SSE stream of agent events for `sessionId`. Closes
-            // the asymmetry where desktop-initiated turns wouldn't reach an
-            // overlay viewing the same conversation: the overlay opens this
-            // endpoint when the conversation is opened, and the per-session
-            // fanout listener (attached on first chat-send via
-            // `ensureSseFanout`) writes every event/done/error frame to
-            // every active subscriber. The overlay treats `done` as a
-            // signal to refetch /messages and re-render — minimal coupling
-            // to the assistant-ui runtime, smallest possible diff to the
-            // desktop renderer (zero — it stays on its existing IPC path).
-            fastify.get<{ Params: { sessionId: string } }>(
-              '/api/cobuilding/sessions/:sessionId/events',
-              async (request, reply) => {
-                const { sessionId } = request.params;
-                reply.raw.writeHead(200, {
-                  'Content-Type': 'text/event-stream',
-                  'Cache-Control': 'no-cache',
-                  Connection: 'keep-alive',
-                });
-
-                let subs = sseSessionSubscribers.get(sessionId);
-                if (!subs) {
-                  subs = new Set();
-                  sseSessionSubscribers.set(sessionId, subs);
-                }
-                subs.add(reply.raw);
-
-                // Each open SSE stream is one visibility-tracked subscriber.
-                // Unique per connection so concurrent overlay windows on the
-                // same session each hold the count up independently.
-                const subscriberKey = `sse:${++sseSubscriberSeq}`;
-                addSubscriber(sessionId, subscriberKey);
-
-                // If the session already exists (the common case — the user
-                // is opening an active conversation), attach the fanout
-                // listener now. Otherwise it'll be attached the first time
-                // chat:send / POST /send runs for this sessionId.
-                ensureSseFanout(sessionId);
-
-                // Initial heartbeat so the EventSource's `open` fires.
-                reply.raw.write('event: connected\ndata: {}\n\n');
-
-                request.raw.on('close', () => {
-                  const set = sseSessionSubscribers.get(sessionId);
-                  if (set) {
-                    set.delete(reply.raw);
-                    if (set.size === 0) sseSessionSubscribers.delete(sessionId);
-                  }
-                  removeSubscriber(sessionId, subscriberKey);
-                });
-              },
-            );
-
-            // POST /api/cobuilding/apply-edit — execute a user-approved edit.
-            // Dispatches to the HostApp that owns the document (resolved by
-            // file extension on `document_path`). Falls back to Word for
-            // legacy callers that don't include `document_path`.
-            fastify.post<{ Body: { toolCallId: string; document_path?: string; search_text: string; replacement_text: string; replace_scope?: string; match_case?: boolean } }>(
-              '/api/cobuilding/apply-edit',
-              async (request, reply) => {
-                try {
-                  const { findHostAppForDocument } = await import('./hostApps');
-                  const { wordHostApp } = await import('./hostApps/wordHostApp');
-                  const { toolCallId, document_path, search_text, replacement_text, replace_scope, match_case } = request.body;
-                  const host = findHostAppForDocument(document_path) ?? wordHostApp;
-                  host.onApplyEditWillRun?.();
-                  let result;
-                  try {
-                    result = await host.applyEdit({
-                      toolCallId,
-                      document_path,
-                      search_text,
-                      replacement_text,
-                      replace_scope: (replace_scope as 'first' | 'all') || 'first',
-                      match_case: match_case ?? true,
-                    });
-                  } finally {
-                    host.onApplyEditDidRun?.();
-                  }
-                  if (toolCallId) {
-                    if (result.success) editStates.set(toolCallId, 'applied');
-                    else editStates.delete(toolCallId);
-                  }
-                  reply.send(result);
-                } catch (err) {
-                  reply.code(500).send({ success: false, error: String(err) });
-                }
-              },
-            );
-
-            // POST /api/cobuilding/edit-state — set edit state (for deny)
-            fastify.post<{ Body: { toolCallId: string; state: string } }>(
-              '/api/cobuilding/edit-state',
-              async (request, reply) => {
-                const { toolCallId, state } = request.body;
-                if (toolCallId && state) editStates.set(toolCallId, state);
-                reply.send({ ok: true });
-              },
-            );
-
-            // GET /api/cobuilding/edit-states — get all edit states
-            fastify.get('/api/cobuilding/edit-states', async (_request, reply) => {
-              reply.send(Object.fromEntries(editStates));
-            });
-
-            // Per-session pending context for messagePreprocessor injection.
-            // Context is set before each sendMessage and consumed by the preprocessor,
-            // so the DB stores only the user's raw text while Claude gets the context.
-            const pendingContext = new Map<string, { documentPath?: string; selectedText?: string }>();
-
-            // POST /api/cobuilding/sessions/:sessionId/send — streams response via SSE
-            fastify.post<{ Params: { sessionId: string }; Body: { text: string; documentPath?: string; selectedText?: string; attachments?: IPCAttachment[] } }>(
-              '/api/cobuilding/sessions/:sessionId/send',
-              async (request, reply) => {
-                const { sessionId } = request.params;
-                const { text, documentPath: ctxDocPath, selectedText: ctxSelectedText, attachments } = request.body;
-                if (!text || typeof text !== 'string') {
-                  reply.code(400).send({ error: 'text is required' });
-                  return;
-                }
-                const activeWorkspace = workspaceController.activeWorkspace;
-                if (!activeWorkspace) {
-                  reply.code(400).send({ error: 'No active workspace' });
-                  return;
-                }
-
-                // Build the display message: selection quote + user instruction
-                // This is what gets stored in the DB and shown in both overlay and desktop app.
-                const displayMessage = ctxSelectedText
-                  ? `"${ctxSelectedText}"\n\n${text}`
-                  : text;
-
-                // Store context for the messagePreprocessor to pick up
-                // (adds document path and selection context for Claude without it appearing in the stored message)
-                if (ctxDocPath || ctxSelectedText) {
-                  pendingContext.set(sessionId, { documentPath: ctxDocPath, selectedText: ctxSelectedText });
-                }
-
-                // Hijack the response so Fastify doesn't try to send its own
-                reply.hijack();
-                reply.raw.writeHead(200, {
-                  'Content-Type': 'text/event-stream',
-                  'Cache-Control': 'no-cache',
-                  'Connection': 'keep-alive',
-                  'X-Accel-Buffering': 'no',
-                });
-
-                const sendSSE = (event: string, data: unknown) => {
-                  if (!reply.raw.destroyed) {
-                    reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-                  }
-                };
-
-                const existingRunning = getRegisteredSession(sessionId);
-                if (existingRunning?.isRunning) {
-                  // Ensure IPC forwarding to the desktop app BEFORE sending the message,
-                  // so the desktop receives streaming events immediately.
-                  // Note: we deliberately do NOT fire NAVIGATE_TO_PAGE here.
-                  // Auto-yanking the desktop into the chat tab on every
-                  // overlay-typed message was disruptive — the desktop's
-                  // SessionsListRefresher already surfaces new/updated
-                  // sessions, and the live-message replication via
-                  // `chat:foreign-done` keeps history in sync once the
-                  // user navigates there themselves.
-                  if (mainWindow && !mainWindow.isDestroyed()) {
-                    ensureForwarding(sessionId, mainWindow.webContents);
-                  }
-                  ensureSseFanout(sessionId);
-                  const unsubscribe = existingRunning.addListener({
-                    onEvent: (msg) => sendSSE('event', msg),
-                    onDone: () => { sendSSE('done', {}); reply.raw.end(); unsubscribe(); notifySessionsChanged(); },
-                    onError: (err) => { sendSSE('error', { error: err }); reply.raw.end(); unsubscribe(); },
-                  });
-                  existingRunning.sendMessage(displayMessage, attachments);
-                  return;
-                }
-
-                const isNewSession = !hasSession(sessionId) && !getSession(sessionId);
-                if (!hasSession(sessionId)) {
-                  const existingDbSession = getSession(sessionId);
-                  const session = createAgentSession(
-                    sessionId,
-                    {
-                      onEvent: () => { },
-                      onDone: () => { },
-                      onError: () => { unregisterSession(sessionId); },
-                    },
-                    activeWorkspace,
-                    existingDbSession?.sdk_session_id ?? undefined,
-                    undefined,
-                    undefined,
-                    undefined,
-                    // messagePreprocessor: inject document/selection context for Claude
-                    // without storing it in the DB message. The host app resolved from
-                    // documentPath chooses how to phrase the prefix (Word vs Obsidian).
-                    (userText: string) => {
-                      const ctx = pendingContext.get(sessionId);
-                      pendingContext.delete(sessionId);
-                      if (!ctx) return userText;
-                      const { resolveSessionHostApp } = require('./agentSession');
-                      const { hostApp: host } = resolveSessionHostApp(ctx.documentPath);
-                      const prefix = host.messagePrefix({
-                        documentPath: ctx.documentPath,
-                        selectedText: ctx.selectedText,
-                      });
-                      return prefix ? `${prefix}\n${userText}` : userText;
-                    },
-                    ctxDocPath,
-                    refreshAndPushCredentials,
-                  );
-                  registerSession(sessionId, session);
-                }
-
-                if (isNewSession) notifySessionsChanged();
-                if (isNewSession) {
-                  generateSessionTitle(sessionId, text);
-                }
-
-                const session = getRegisteredSession(sessionId)!;
-
-                // Ensure IPC forwarding to the desktop app BEFORE sending the message,
-                // so the desktop receives streaming events immediately.
-                // Note: NAVIGATE_TO_PAGE is intentionally NOT fired here
-                // (see matching note in the existingRunning branch).
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                  ensureForwarding(sessionId, mainWindow.webContents);
-                }
-                ensureSseFanout(sessionId);
-
-                const unsubscribe = session.addListener({
-                  onEvent: (msg) => sendSSE('event', msg),
-                  onDone: () => {
-                    sendSSE('done', {});
-                    reply.raw.end();
-                    unsubscribe();
-                    notifySessionsChanged();
-                  },
-                  onError: (err) => {
-                    sendSSE('error', { error: err });
-                    reply.raw.end();
-                    unsubscribe();
-                  },
-                });
-
-                request.raw.on('close', () => {
-                  unsubscribe();
-                });
-
-                session.sendMessage(displayMessage, attachments);
-              },
-            );
-
-            // Register overlay chat-send handler for the unified WebSocket
-            const { setOverlayChatSendHandler, setOverlayBridgeHandler } = require('./overlayHandlers');
-            setOverlayChatSendHandler((params: { sessionId: string; text: string; documentPath?: string; selectedText?: string; onEvent: (msg: any) => void; onDone: () => void; onError: (err: string) => void; onCleanup?: () => void }) => {
-              const { sessionId, text, documentPath: ctxDocPath, selectedText: ctxSelectedText, onEvent, onDone, onError } = params;
-              const activeWorkspace = workspaceController.activeWorkspace;
-              if (!activeWorkspace) {
-                onError('No active workspace');
-                return;
-              }
-              const displayMessage = ctxSelectedText ? `"${ctxSelectedText}"\n\n${text}` : text;
-              if (ctxDocPath || ctxSelectedText) {
-                pendingContext.set(sessionId, { documentPath: ctxDocPath, selectedText: ctxSelectedText });
-              }
-
-              const existingRunning = getRegisteredSession(sessionId);
-              if (existingRunning?.isRunning) {
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                  ensureForwarding(sessionId, mainWindow.webContents);
-                }
-                ensureSseFanout(sessionId);
-                const unsubscribe = existingRunning.addListener({
-                  onEvent: (msg: any) => onEvent(msg),
-                  onDone: () => { onDone(); unsubscribe(); notifySessionsChanged(); },
-                  onError: (err: any) => { onError(String(err)); unsubscribe(); },
-                });
-                existingRunning.sendMessage(displayMessage);
-                return;
-              }
-
-              const isNewSession = !hasSession(sessionId) && !getSession(sessionId);
-              if (!hasSession(sessionId)) {
-                const existingDbSession = getSession(sessionId);
-                const session = createAgentSession(
-                  sessionId,
-                  { onEvent: () => { }, onDone: () => { }, onError: () => { unregisterSession(sessionId); } },
-                  activeWorkspace,
-                  existingDbSession?.sdk_session_id ?? undefined,
-                  undefined, undefined, undefined,
-                  (userText: string) => {
-                    const ctx = pendingContext.get(sessionId);
-                    pendingContext.delete(sessionId);
-                    if (!ctx) return userText;
-                    const { resolveSessionHostApp } = require('./agentSession');
-                    const { hostApp: host } = resolveSessionHostApp(ctx.documentPath);
-                    const prefix = host.messagePrefix({ documentPath: ctx.documentPath, selectedText: ctx.selectedText });
-                    return prefix ? `${prefix}\n${userText}` : userText;
-                  },
-                  ctxDocPath,
-                  refreshAndPushCredentials,
-                );
-                registerSession(sessionId, session);
-              }
-              if (isNewSession) notifySessionsChanged();
-              if (isNewSession) {
-                generateSessionTitle(sessionId, text);
-              }
-
-              const session = getRegisteredSession(sessionId)!;
-              if (mainWindow && !mainWindow.isDestroyed()) {
-                ensureForwarding(sessionId, mainWindow.webContents);
-              }
-              ensureSseFanout(sessionId);
-
-              const unsubscribe = session.addListener({
-                onEvent: (msg: any) => onEvent(msg),
-                onDone: () => { onDone(); unsubscribe(); notifySessionsChanged(); },
-                onError: (err: any) => { onError(String(err)); unsubscribe(); },
-              });
-              if (params.onCleanup) {
-                // Allow caller to register a cleanup callback (e.g., on WebSocket close)
-                const origCleanup = params.onCleanup;
-                params.onCleanup = () => { unsubscribe(); origCleanup(); };
-              }
-
-              session.sendMessage(displayMessage);
-            });
-
-            setOverlayBridgeHandler(async (params: { action: string; payload: Record<string, unknown>; wid: string | null }) => {
-              const { windowMonitorService } = require('../../windowMonitorService');
-              const { action, payload, wid } = params;
-              if (action === 'buttonClicked' && wid) {
-                windowMonitorService.togglePopupForWindow(wid);
-              } else if (action === 'closeWindow' && wid) {
-                windowMonitorService.closePopupForWindow(wid, payload.clearReviewState !== false);
-              } else if (action === 'setPopupSize' && wid) {
-                const { width, height } = payload;
-                if (typeof width === 'number' && typeof height === 'number') {
-                  windowMonitorService.setPopupSize(wid, width, height);
-                }
-              } else if (action === 'setDockRight' && wid) {
-                windowMonitorService.setDockRight(wid, payload.docked === true);
-              } else if (action === 'setDragOffset' && wid) {
-                const { dx, dy } = payload;
-                if (typeof dx === 'number' && typeof dy === 'number') {
-                  windowMonitorService.setButtonDragOffset(wid, dx, dy);
-                }
-              } else if (action === 'openPopup' && wid) {
-                windowMonitorService.openPopupForWindow(wid);
-              } else if (action === 'clearKickoff') {
-                const kickoffId = typeof payload.kickoffId === 'string' ? payload.kickoffId : '';
-                if (kickoffId) windowMonitorService.clearPendingKickoff(kickoffId);
-              } else if (action === 'clearNavigateSession') {
-                const nonce = typeof payload.nonce === 'string' ? payload.nonce : '';
-                if (nonce) windowMonitorService.clearPendingNavigateSession(nonce);
-              }
-              return { success: true };
-            });
-          });
-
-          const port = await httpServer.start();
-          const baseUrl = httpServer.getBaseUrl();
-          const authToken = httpServer.getAuthToken();
-          cobuildingHttpBaseUrl = baseUrl;
-          cobuildingHttpAuthToken = authToken;
-          log.info(`[HTTP Server] Started on port ${port}, base URL: ${baseUrl}`);
-
-          // Store HTTP port so the HTTPS server can proxy to it when started from debug panel
-          setHttpProxyPort(port);
-
-          if (baseUrl && authToken) {
-            // Share server URL and auth token with the renderer for direct API calls
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.executeJavaScript(
-                `window.__COBUILDING_SERVER_URL__ = ${JSON.stringify(baseUrl)}; window.__COBUILDING_AUTH_TOKEN__ = ${JSON.stringify(authToken)};`
-              );
-            }
-            // Set workspace directories so the overlay knows which docs are in the workspace
-            const activeWorkspace = workspaceController.activeWorkspace;
-            if (activeWorkspace) {
-              windowMonitorService.setActiveWorkspaceDirectories(workspaceController.userDirectoryPaths);
-              windowMonitorService.setSessionsProvider(({ documentPath, documentPathLike }) => {
-                if (!activeWorkspace) return [];
-                const rows = documentPathLike !== undefined
-                  ? listSessionsByDocPathLike(activeWorkspace.id, undefined, documentPathLike)
-                  : listSessions(activeWorkspace.id, undefined, documentPath);
-                return rows.map(s => ({
-                  id: s.id,
-                  title: s.title,
-                  created_at: s.created_at,
-                  is_running: getRegisteredSession(s.id)?.isRunning ?? false,
-                }));
-              });
-            }
-
-            // Auto-start the window monitor so overlays appear immediately
-            // for host apps like Google Docs that don't have an explicit
-            // "open" action from the desktop UI.
-            if (process.platform === 'darwin' && !windowMonitorService.isRunning()) {
-              const hasPermission = wordAccessibility.checkPermission();
-              if (hasPermission) {
-                windowMonitorService.start(baseUrl, authToken, false);
-                log.info('[overlay:autoStart] Window monitor started automatically');
-              }
-            }
-          }
-
-        } catch (error) {
-          log.error('[HTTP Server] Failed to start:', error);
-          captureError(error, { subsystem: 'office_addin', extra: { phase: 'http_server_start' } });
-        }
-      })();
-    }
 
     if (isSmokeTest) {
       log.info('[SMOKE TEST] All services started — shutting down');
@@ -1246,24 +719,12 @@ ipcMain.handle(
     }
     const activeWorkspace = await workspaceController.create(data.directoryPaths, apiKey);
     if (activeWorkspace) {
-      containerService.writeStartContainerScript(workspaceController.mountMap);
       if (getReactionsEnabled()) {
         ensureReactionsTask(activeWorkspace.id);
       }
       const scheduler = getTaskScheduler();
       scheduler?.stop();
       scheduler?.start();
-      // Tell the overlay about the workspace directories so it recognizes
-      // docs inside them (otherwise it falls through to the legacy
-      // "Not linked to a project" view on first onboarding).
-      windowMonitorService.setActiveWorkspaceDirectories(workspaceController.userDirectoryPaths);
-      windowMonitorService.setSessionsProvider(({ documentPath, documentPathLike }) => {
-        if (!activeWorkspace) return [];
-        const rows = documentPathLike !== undefined
-          ? listSessionsByDocPathLike(activeWorkspace.id, undefined, documentPathLike)
-          : listSessions(activeWorkspace.id, undefined, documentPath);
-        return rows.map((s) => ({ id: s.id, title: s.title, created_at: s.created_at, is_running: getRegisteredSession(s.id)?.isRunning ?? false }));
-      });
       // Directory scan is triggered separately via scanner:start IPC
     }
     if (!activeWorkspace) return null;
@@ -1305,44 +766,6 @@ ipcMain.handle('reports:get', (_event, reportId: string) => {
 
 ipcMain.handle('reports:update', (_event, reportId: string, reportData: string) => {
   updateReportData(reportId, reportData);
-});
-
-// ─── Papers (Paper Monitor) IPC ─────────────────────────────────
-
-ipcMain.handle('papers:fetch', async (_event, input: FetchPapersInput) => {
-  const safeInput: FetchPapersInput = input ?? { topics: [] };
-  log.info('[Papers] fetch start, topics:', safeInput.topics);
-  try {
-    const result = await fetchPapers(safeInput);
-    log.info(
-      `[Papers] fetch ok: ${result.papers.length} papers, ${result.errors.length} source/topic errors`,
-    );
-    if (result.errors.length > 0) {
-      for (const e of result.errors) {
-        log.warn(`[Papers] ${e.source}/"${e.topic}": ${e.message}`);
-      }
-    }
-    const activeWorkspace = workspaceController.activeWorkspace;
-    if (activeWorkspace && result.papers.length > 0) {
-      try {
-        persistPapersAsBriefings(activeWorkspace.id, result.papers);
-      } catch (err) {
-        log.warn(
-          '[Papers→Briefings] persist failed:',
-          err instanceof Error ? err.message : err,
-        );
-      }
-    }
-    return result;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error('[Papers] fetch failed:', message, err instanceof Error ? err.stack : '');
-    return {
-      papers: [],
-      fetchedAt: new Date().toISOString(),
-      errors: [{ source: 'arxiv' as const, topic: '*', message }],
-    };
-  }
 });
 
 // ─── Briefings IPC ──────────────────────────────────────────────
@@ -1469,16 +892,6 @@ ipcMain.handle('container:stop', async () => {
   containerService.stop();
 });
 
-/** Stop container stack then `podman machine stop` so image cache can be deleted safely. */
-ipcMain.handle('container:gracefulShutdownPodman', async () => {
-  backgroundBuilder.stopWatching();
-  ensuredApps.clear();
-  packageInstaller.reset();
-  await agentInfrastructure.stop();
-  containerService.stop();
-  containerService.stopPodmanMachineBestEffort();
-});
-
 ipcMain.handle('container:status', () => {
   return { running: containerService.isRunning() };
 });
@@ -1487,28 +900,8 @@ ipcMain.handle('container:exec', async (_event, command: string[]) => {
   return containerService.exec(command);
 });
 
-ipcMain.handle('container:syncOverlay', async () => {
-  return containerService.syncOverlay();
-});
-
 ipcMain.handle('container:execLogged', async (_event, command: string[], meta?: { source?: string; appDirName?: string | null }) => {
   return containerService.execLogged(command, meta as any);
-});
-
-ipcMain.handle('container:getBinaryMode', () => {
-  return containerService.getBinaryMode();
-});
-
-ipcMain.handle('container:setBinaryMode', (_event, mode: string) => {
-  containerService.setBinaryMode(mode as 'system' | 'bundled');
-});
-
-ipcMain.handle('container:getImageSource', () => {
-  return containerService.getImageSource();
-});
-
-ipcMain.handle('container:setImageSource', (_event, source: string) => {
-  containerService.setImageSource(source as 'registry' | 'local');
 });
 
 ipcMain.handle('settings:getMaxAttachmentSizeMB', () => {
@@ -1517,30 +910,6 @@ ipcMain.handle('settings:getMaxAttachmentSizeMB', () => {
 
 ipcMain.handle('settings:setMaxAttachmentSizeMB', (_event, sizeMB: number) => {
   setMaxAttachmentSizeMB(sizeMB);
-});
-
-ipcMain.handle('container:getBundledStatus', () => {
-  return containerService.getBundledBinaryStatus();
-});
-
-ipcMain.handle('container:downloadBinaries', async () => {
-  await containerService.downloadBundledBinaries(sendProgressTo('container:progress'));
-});
-
-ipcMain.handle('container:getName', () => {
-  return containerService.getContainerName();
-});
-
-ipcMain.handle('container:isBaseImageDownloaded', async () => {
-  return containerService.isBaseImageDownloaded();
-});
-
-ipcMain.handle('container:deleteBinaries', () => {
-  containerService.deleteBundledBinaries();
-});
-
-ipcMain.handle('container:downloadImage', async () => {
-  await containerService.updateBaseImage(sendProgressTo('container:progress'));
 });
 
 ipcMain.handle('container:ensureSetup', async () => {
@@ -1723,9 +1092,6 @@ systemLogger.onEntry((entry) => {
   }
 });
 
-// Office Add-in IPC handlers
-registerOfficeAddinIpcHandlers();
-
 // File Monitor IPC handlers
 ipcMain.handle('fileMonitor:status', () => ({ running: isFileMonitorRunning() }));
 ipcMain.handle('fileMonitor:start', () => { startFileMonitor(); });
@@ -1743,25 +1109,8 @@ ipcMain.handle('fileMonitor:openFile', (_event, fileUrl: string, bundleId?: stri
   }
 });
 
-ipcMain.handle('windowMonitor:setDockRightForDocument', (_event, documentPath: string, docked: boolean) => {
-  windowMonitorService.setDockRightForDocument(documentPath, docked);
-});
-
-ipcMain.handle('windowMonitor:setOverlayKickoffForDocument', (_event, documentPath: string, prompt: string) => {
-  windowMonitorService.setPendingKickoffForDocument(documentPath, prompt);
-});
-
-ipcMain.handle('windowMonitor:navigateOverlayToSession', (_event, sessionId: string) => {
-  windowMonitorService.setPendingNavigateSession(sessionId);
-});
-
-ipcMain.handle('windowMonitor:requestNewOverlayChatForDocument', (_event, documentPath: string) => {
-  windowMonitorService.requestNewOverlayChatForDocument(documentPath);
-});
-
 
 // Observations IPC handlers
-ipcMain.handle('observations:getBrowserSessions', () => getAllSessions());
 ipcMain.handle('observations:getFileSessions', () => getAllFileSessions());
 ipcMain.handle('observations:getSessionFiles', () => getAllSessionFiles());
 
@@ -2162,9 +1511,6 @@ ipcMain.handle('chat:send', (event, { threadId, text, attachments, model, docume
   }
 
   ensureForwarding(threadId, event.sender);
-  // Also fan events out to overlays watching this session — they live on
-  // the WKWebView side of an HTTP boundary so the IPC path can't reach them.
-  ensureSseFanout(threadId);
   getRegisteredSession(threadId)!.sendMessage(text, attachments, messageId);
 
   if (isFirstMessage && !isCalendarSession) {
@@ -2204,31 +1550,8 @@ ipcMain.on('chat:stop', (event, threadId: string) => {
 // Edit state sync (desktop ↔ overlay)
 // =============================================================================
 
-ipcMain.handle('edit-state:apply', async (_event, { toolCallId, document_path, search_text, replacement_text, replace_scope, match_case }: any) => {
-  try {
-    const { findHostAppForDocument } = await import('./hostApps');
-    const { wordHostApp } = await import('./hostApps/wordHostApp');
-    const host = findHostAppForDocument(document_path) ?? wordHostApp;
-    host.onApplyEditWillRun?.();
-    let result;
-    try {
-      result = await host.applyEdit({
-        toolCallId,
-        document_path,
-        search_text,
-        replacement_text,
-        replace_scope: (replace_scope as 'first' | 'all') || 'first',
-        match_case: match_case ?? true,
-      });
-    } finally {
-      host.onApplyEditDidRun?.();
-    }
-    if (result.success) editStates.set(toolCallId, 'applied');
-    else editStates.delete(toolCallId);
-    return result;
-  } catch (err) {
-    return { success: false, error: String(err) };
-  }
+ipcMain.handle('edit-state:apply', async (_event, _params: any) => {
+  return { success: false, error: 'No host apps are registered in this build.' };
 });
 
 ipcMain.handle('edit-state:set', (_event, { toolCallId, state }: { toolCallId: string; state: string }) => {
@@ -2522,10 +1845,7 @@ ipcMain.on('anthropic:stream', async (event, { streamKey, params }: { streamKey:
   }
 });
 
-ipcMain.handle('nativeTools:getUrl', async (_event, toolId: string) => {
-  if (toolId === 'grantFinder' && cobuildingHttpBaseUrl) {
-    return `${cobuildingHttpBaseUrl}/ui/popup/grantFinder/index.html`;
-  }
+ipcMain.handle('nativeTools:getUrl', async (_event, _toolId: string) => {
   return null;
 });
 
@@ -2811,206 +2131,6 @@ ipcMain.handle(IPC_CHANNELS.OPEN_EXTERNAL_URL, async (_event, url: string) => {
   }
 });
 
-ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_GET_STATUS, async () => {
-  const { getZoteroLocalStatus } = await import('../../zoteroLocalClient');
-  try {
-    const status = await getZoteroLocalStatus();
-    return { success: true, status };
-  } catch (error: any) {
-    return { success: false, error: error?.message ?? String(error), status: 'not-running' };
-  }
-});
-
-ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_ADD_DOI, async (_event, doi: string) => {
-  if (typeof doi !== 'string' || doi.length === 0) {
-    return { success: false, error: 'DOI must be a non-empty string', status: 'not-running' };
-  }
-  const { addDoiToZotero } = await import('../../zoteroLocalClient');
-  return await addDoiToZotero(doi);
-});
-
-ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_GET_DOI_METADATA, async (_event, doi: string) => {
-  if (typeof doi !== 'string' || doi.length === 0) return null;
-  const { getDoiMetadata } = await import('../../zoteroLocalClient');
-  return getDoiMetadata(doi);
-});
-
-ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_LIST_ADDED_DOIS, async () => {
-  const { listAddedDois } = await import('../../zoteroLocalClient');
-  return listAddedDois();
-});
-
-ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_CHECK_DOI, async (_event, doi: string) => {
-  if (typeof doi !== 'string' || doi.length === 0) return null;
-  const { checkDoiInZotero } = await import('../../zoteroLocalClient');
-  return await checkDoiInZotero(doi);
-});
-
-// Open a Zotero item by DOI — uses the key when known so Zotero jumps
-// straight to the item instead of opening the search panel.
-ipcMain.handle(IPC_CHANNELS.ZOTERO_OPEN_DOI, async (_event, doi: string) => {
-  if (typeof doi !== 'string' || doi.length === 0) {
-    return { success: false, error: 'doi is required' };
-  }
-  const { openZoteroForDoi } = await import('../../zoteroLocalClient');
-  await openZoteroForDoi(doi);
-  return { success: true };
-});
-
-// Integration toggles (Word, Obsidian, ...). Backed by electron-store, drive
-// `getRegisteredHostApps()` at startup.
-import { store as appStore } from '../../appStore';
-import { setHostAppRegistrationOverrides, type IntegrationId } from './hostApps';
-
-const INTEGRATION_DEFAULTS: Record<IntegrationId, boolean> = {
-  word: FEATURES.MS_WORD_INTEGRATION_ENABLED,
-  obsidian: FEATURES.OBSIDIAN_INTEGRATION_ENABLED,
-  'apple-notes': FEATURES.APPLE_NOTES_INTEGRATION_ENABLED,
-  'google-docs': FEATURES.GOOGLE_DOCS_INTEGRATION_ENABLED,
-};
-
-function integrationStoreKey(id: IntegrationId): string {
-  return `integration.${id}.enabled`;
-}
-
-function readIntegrationEnabled(id: IntegrationId): boolean {
-  return appStore.get(integrationStoreKey(id), INTEGRATION_DEFAULTS[id]) as boolean;
-}
-
-// Apply persisted toggles to the host-app registry as soon as the module loads
-// — must happen before windowMonitorService.start() consults the registry.
-setHostAppRegistrationOverrides({
-  word: readIntegrationEnabled('word'),
-  obsidian: readIntegrationEnabled('obsidian'),
-  'apple-notes': readIntegrationEnabled('apple-notes'),
-  'google-docs': readIntegrationEnabled('google-docs'),
-});
-
-const KNOWN_INTEGRATION_IDS: ReadonlySet<IntegrationId> = new Set(['word', 'obsidian', 'apple-notes', 'google-docs']);
-
-ipcMain.handle(IPC_CHANNELS.INTEGRATION_GET_ENABLED, async (_event, id: IntegrationId) => {
-  if (!KNOWN_INTEGRATION_IDS.has(id)) return false;
-  return readIntegrationEnabled(id);
-});
-
-ipcMain.handle(IPC_CHANNELS.INTEGRATION_SET_ENABLED, async (_event, id: IntegrationId, enabled: boolean) => {
-  if (!KNOWN_INTEGRATION_IDS.has(id)) {
-    return { success: false, error: 'unknown_integration' };
-  }
-  // Per-integration permission gate. The macOS Accessibility permission is
-  // global to the Academia app, but we surface the request here (with copy
-  // scoped to whichever toggle the user is enabling) rather than at app start.
-  if (enabled && process.platform === 'darwin') {
-    const granted = wordAccessibility.checkPermission();
-    if (!granted) {
-      // Open System Settings — user has to approve there, then come back and toggle again.
-      wordAccessibility.openAccessibilitySettings();
-      return {
-        success: false,
-        error: 'permission_required',
-        integrationId: id,
-      };
-    }
-  }
-  appStore.set(integrationStoreKey(id), enabled);
-  // Restart so the host-app registry, window-monitor processes, and overlay
-  // configs all rehydrate cleanly. This matches how SET_ALL_APPS_MONITOR_ENABLED
-  // already handles its toggle.
-  if (app.isPackaged) app.relaunch();
-  app.quit();
-  return { success: true };
-});
-
-// Permission IPC handlers (macOS only)
-ipcMain.handle(IPC_CHANNELS.CHECK_ACCESSIBILITY_PERMISSION, async () => {
-  if (process.platform !== 'darwin') {
-    return { success: true, hasPermission: true };
-  }
-  try {
-    const hasPermission = wordAccessibility.checkPermission();
-    return { success: true, hasPermission };
-  } catch (error: any) {
-    return { success: false, hasPermission: false, error: error.message };
-  }
-});
-
-ipcMain.handle(IPC_CHANNELS.REQUEST_ACCESSIBILITY_PERMISSION, async () => {
-  if (process.platform !== 'darwin') {
-    return { success: true, hasPermission: true };
-  }
-  try {
-    wordAccessibility.openAccessibilitySettings();
-    const hasPermission = wordAccessibility.checkPermission();
-    return { success: true, hasPermission };
-  } catch (error: any) {
-    return { success: false, hasPermission: false, error: error.message };
-  }
-});
-
-ipcMain.handle(IPC_CHANNELS.RESET_ACCESSIBILITY_PERMISSION, async () => {
-  if (process.platform !== 'darwin') {
-    return { success: false, error: 'Only supported on macOS' };
-  }
-  try {
-    const result = wordAccessibility.resetAndRequestPermission();
-    return { success: true, ...result };
-  } catch (error: any) {
-    return { success: false, resetSuccess: false, error: error.message };
-  }
-});
-
-// Ensure accessibility permission is granted and the window monitor is running.
-// Called on-demand from the renderer right before opening the Word overlay.
-let accessibilityPollTimer: ReturnType<typeof setInterval> | null = null;
-
-ipcMain.handle(IPC_CHANNELS.OVERLAY_ENSURE_READY, async () => {
-  if (process.platform !== 'darwin') {
-    return { hasPermission: true, started: true };
-  }
-  const hasPermission = wordAccessibility.checkPermission();
-  if (!hasPermission) {
-    wordAccessibility.openAccessibilitySettings();
-    // Poll until the user grants permission, then restart so the
-    // window monitor picks up the new AX trust state cleanly.
-    if (!accessibilityPollTimer) {
-      accessibilityPollTimer = setInterval(() => {
-        if (wordAccessibility.checkPermission()) {
-          clearInterval(accessibilityPollTimer!);
-          accessibilityPollTimer = null;
-          log.info('[overlay:ensureReady] Accessibility permission granted — restarting app');
-          if (app.isPackaged) app.relaunch();
-          app.quit();
-        }
-      }, 2000);
-    }
-    return { hasPermission: false, started: false };
-  }
-  if (cobuildingHttpBaseUrl && cobuildingHttpAuthToken && !windowMonitorService.isRunning()) {
-    windowMonitorService.start(cobuildingHttpBaseUrl, cobuildingHttpAuthToken, false);
-    const activeWorkspace = workspaceController.activeWorkspace;
-    if (activeWorkspace) {
-      windowMonitorService.setActiveWorkspaceDirectories(workspaceController.userDirectoryPaths);
-      windowMonitorService.setSessionsProvider(({ documentPath, documentPathLike }) => {
-        if (!activeWorkspace) return [];
-        const rows = documentPathLike !== undefined
-          ? listSessionsByDocPathLike(activeWorkspace.id, undefined, documentPathLike)
-          : listSessions(activeWorkspace.id, undefined, documentPath);
-        return rows.map(s => ({
-          id: s.id,
-          title: s.title,
-          created_at: s.created_at,
-          is_running: getRegisteredSession(s.id)?.isRunning ?? false,
-        }));
-      });
-    }
-    log.info('[overlay:ensureReady] Window monitor started on demand');
-  }
-  return { hasPermission: true, started: true };
-});
-
-// ---- Google Docs & Drive IPC handlers (see GoogleDriveController) ----
-googleDriveController.registerIpcHandlers();
-
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
@@ -3020,16 +2140,13 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   const steps: [string, () => void][] = [
     ['globalShortcut.unregisterAll', () => globalShortcut.unregisterAll()],
-    ['stopHttpsServer', stopHttpsServer],
     ['stopFileMonitor', stopFileMonitor],
-    ['stopBrowserMonitor', stopBrowserMonitor],
     ['stopScheduledTasks', stopScheduledTasks],
     ['stopBriefingsController', () => briefingsController.stopScheduledBriefings()],
     ['backgroundBuilder.dispose', () => backgroundBuilder.dispose()],
     ['destroyTokenManager', destroyTokenManager],
     ['destroyAllSessions', destroyAllSessions],
     ['containerService.stop', () => containerService.stop()],
-    ['windowMonitorService.stop', () => windowMonitorService.stop()],
     ['closeSchedulingDatabase', closeSchedulingDatabase],
     ['closeObservationsDatabase', closeObservationsDatabase],
     ['closeDatabase', closeDatabase],

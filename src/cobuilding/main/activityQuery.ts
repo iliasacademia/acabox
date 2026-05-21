@@ -1,7 +1,5 @@
 import * as path from 'path';
-import * as fs from 'fs';
 import { DateTime } from 'luxon';
-import { getBrowserSessionsByTimeRange } from './browserMonitor/repository';
 import { getFileSessionsByTimeRange } from './fileMonitor/repository';
 import { getSessionFilesBySessionIds } from './db/sessionFilesRepository';
 import { utcToLocal, toUtcIso, getLocalTimezone } from '../../shared/utils';
@@ -22,26 +20,12 @@ export interface ActivityQueryParams {
 
 export interface ActivityQueryResult {
   query: { since: string; until: string; timezone: string };
-  browser_sessions?: { domain: string; sessions: unknown[] }[];
   file_sessions?: unknown[];
 }
 
 function parseSources(source?: string): Set<string> {
-  if (!source || source === 'all') return new Set(['browser', 'file']);
+  if (!source || source === 'all') return new Set(['file']);
   return new Set(source.split(',').map(s => s.trim()));
-}
-
-const AUTH_PATH_PATTERN = /\/(auth|login|signin|sign-in|logout|signup|sign-up|oauth|sso|callback|saml|cas)\b/i;
-const AUTH_HOST_PATTERN = /\b(auth|login|signin|signup|oauth|sso|accounts|id)\./i;
-const LOCAL_HOST_PATTERN = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:\d+)?$/i;
-
-function isFilteredUrl(url: string): boolean {
-  if (AUTH_PATH_PATTERN.test(url) || AUTH_HOST_PATTERN.test(url)) return true;
-  try {
-    return LOCAL_HOST_PATTERN.test(new URL(url).host);
-  } catch {
-    return false;
-  }
 }
 
 export function periodToSince(period?: string): string | null {
@@ -75,44 +59,6 @@ export function queryActivity(params: ActivityQueryParams): ActivityQueryResult 
   const result: ActivityQueryResult = {
     query: { since: utcToLocal(since), until: utcToLocal(until), timezone: getLocalTimezone() },
   };
-
-  if (sources.has('browser')) {
-    const rawSessions = getBrowserSessionsByTimeRange(since, until, search)
-      .filter((s) => !isFilteredUrl(s.url) && s.snapshot_count > 1);
-
-    const sessions = rawSessions.map((s) => ({
-      ...s,
-      first_seen: utcToLocal(s.first_seen),
-      last_snapshot: utcToLocal(s.last_snapshot),
-    }));
-
-    // Always look up full_text_path
-    const browserSessionIds = sessions.map((s) => s.id);
-    const browserSessionFiles = getSessionFilesBySessionIds('browser', browserSessionIds);
-
-    const enrichedSessions = sessions
-      .map((session) => {
-        const sessionFiles = browserSessionFiles.get(session.id);
-        const fullTextFile = sessionFiles?.find((f) => f.file_type === 'full_text');
-        return { ...session, full_text_path: fullTextFile?.file_path ?? null };
-      })
-      .filter((s) => s.full_text_path !== null);
-
-    // Group by domain
-    const grouped: Record<string, unknown[]> = {};
-    for (const session of enrichedSessions) {
-      try {
-        const domain = new URL(session.url).hostname;
-        if (!grouped[domain]) grouped[domain] = [];
-        grouped[domain].push(session);
-      } catch {
-        const key = 'unknown';
-        if (!grouped[key]) grouped[key] = [];
-        grouped[key].push(session);
-      }
-    }
-    result.browser_sessions = Object.entries(grouped).map(([domain, sessions]) => ({ domain, sessions }));
-  }
 
   if (sources.has('file')) {
     const workspacePath = getWorkspacePath();

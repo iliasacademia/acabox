@@ -222,9 +222,6 @@ export function registerFileHandlers(getAllowedPaths: () => string[], getMainWin
       // For .tsv we force tab since the extension is unambiguous.
       return { type: 'csv' as const, content, delimiter: ext === 'tsv' ? '\t' : '' };
     }
-    if (LATEX_EXTENSIONS.has(ext)) {
-      return { type: 'latex' as const, content };
-    }
     return { type: 'text' as const, content };
   });
 

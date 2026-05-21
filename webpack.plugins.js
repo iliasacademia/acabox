@@ -1,10 +1,8 @@
 const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
-const NativeWatchPlugin = require('./webpack.native-watch.plugin');
 const webpack = require('webpack');
 const { sentryWebpackPlugin } = require('@sentry/webpack-plugin');
 const { validateCloudFrontDomain } = require('./src/utils/validateCloudFrontDomain');
-const os = require('os');
 
 // Validate CLOUDFRONT_DOMAIN at build time (skip in development)
 const isDevelopment = process.env.NODE_ENV === 'development';
@@ -59,9 +57,6 @@ if (!isDevelopment) {
   console.log('⚠️  Development mode: Skipping CLOUDFRONT_DOMAIN validation');
 }
 
-// Platform detection for conditional resource copying
-const platform = os.platform();
-
 module.exports = [
   new ForkTsCheckerWebpackPlugin({
     logger: 'webpack-infrastructure',
@@ -79,34 +74,11 @@ module.exports = [
   }),
   new CopyWebpackPlugin({
     patterns: [
-      ...(platform === 'darwin' ? [
-        {
-          from: 'src/applescripts',
-          to: 'applescripts',
-        },
-        {
-          from: 'src/native/build/Release/word_accessibility.node',
-          to: 'native/build/Release/word_accessibility.node',
-          noErrorOnMissing: true,
-        },
-        {
-          from: 'mcp/ms-word.md',
-          to: 'mcp/ms-word.md',
-        },
-      ] : []),
-      {
-        from: 'dist/popup',
-        to: 'popup',
-        noErrorOnMissing: true,
-      },
       {
         from: 'src/assets/icons',
         to: 'assets/icons',
       },
     ],
-  }),
-  new NativeWatchPlugin({
-    debounceDelay: 300, // Wait 300ms after last change before rebuilding
   }),
   // Sentry source-map upload. Runs once per webpack compilation (main + renderer);
   // each invocation uploads the maps from its own output directory, tagged with

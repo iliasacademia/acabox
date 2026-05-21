@@ -1,6 +1,5 @@
 import { randomUUID } from "crypto";
 import log from "electron-log";
-import { resolveClaudeBinary } from "../sdkBinarySetup";
 import { createReport, updateReportStatus } from "../db/reportRepository";
 import {
   generateDirectoryTree,
@@ -13,7 +12,6 @@ import { runResearchProfileAgent } from "./agents/researchProfile";
 import { runQuickTaskSuggestionAgent, runInDepthTaskSuggestionAgent, type NotificationOutput } from "./agents/taskSuggestion";
 import { runFileTaggingAgent } from "./agents/fileTagging";
 import { captureError } from "../../shared/telemetry";
-import { generateDriveDirectoryTree } from "../googleDriveService";
 
 export type { ScannerEvent, ScanParams, NotificationOutput };
 
@@ -37,13 +35,6 @@ export async function scanWorkspaceDirectory(
     (driveDirectories?.length ? ` + ${driveDirectories.length} Drive folder(s)` : ''),
   );
 
-  const claudeBinaryPath = resolveClaudeBinary();
-  if (!claudeBinaryPath) {
-    log.error("[DirectoryScanner] Claude binary not found — skipping scan");
-    onMessage({ type: "error", error: "Claude binary not found" });
-    return;
-  }
-
   createReport(reportId, workspaceId, "directory_scan");
   updateReportStatus(reportId, "running");
 
@@ -53,20 +44,7 @@ export async function scanWorkspaceDirectory(
     source: 'local' as const,
   }));
 
-  if (driveDirectories && driveDirectories.length > 0) {
-    onMessage({ type: "progress", text: "Listing Google Drive folders" });
-    for (const dd of driveDirectories) {
-      try {
-        const { tree } = await generateDriveDirectoryTree(dd.driveId, dd.name, params.workspaceId, dd.mimeType);
-        treeOutputs.push({ directoryPath: dd.name, tree, source: 'google-drive' });
-      } catch (err) {
-        log.error(`[DirectoryScanner] Failed to generate Drive tree for ${dd.name}:`, err);
-      }
-    }
-  }
-
   const ctx: ScanContext = {
-    claudeBinaryPath,
     cwd: params.cwd,
     directoryPaths,
     apiKey,
@@ -124,31 +102,13 @@ export async function scanWorkspaceDirectory(
 }
 
 export async function runInDepthScan(params: ScanParams): Promise<NotificationOutput> {
-  const claudeBinaryPath = resolveClaudeBinary();
-  if (!claudeBinaryPath) {
-    log.error("[DirectoryScanner] Claude binary not found — skipping in-depth scan");
-    return { made_changes: false, title: "", body: "" };
-  }
-
   const treeOutputs: TreeOutput[] = params.directoryPaths.map((dp) => ({
     directoryPath: dp,
     tree: generateDirectoryTree(dp),
     source: 'local' as const,
   }));
 
-  if (params.driveDirectories && params.driveDirectories.length > 0) {
-    for (const dd of params.driveDirectories) {
-      try {
-        const { tree } = await generateDriveDirectoryTree(dd.driveId, dd.name, params.workspaceId, dd.mimeType);
-        treeOutputs.push({ directoryPath: dd.name, tree, source: 'google-drive' });
-      } catch (err) {
-        log.error(`[DirectoryScanner] Failed to generate Drive tree for ${dd.name}:`, err);
-      }
-    }
-  }
-
   const ctx: ScanContext = {
-    claudeBinaryPath,
     cwd: params.cwd,
     directoryPaths: params.directoryPaths,
     apiKey: params.apiKey,

@@ -97,19 +97,9 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
       });
     }
     try {
-      const result = await window.containerAPI.exec([
-        'esbuild',
-        `.applications/${dirName}/src/index.tsx`,
-        '--bundle',
-        `--outfile=.applications/${dirName}/dist/bundle.js`,
-        '--jsx=automatic',
-        '--loader:.tsx=tsx',
-        '--loader:.ts=ts',
-        '--format=iife',
-        '--alias:@reusable=/data/.applications/_reusable',
-      ]);
-      if (result.exitCode !== 0) {
-        const errorMsg = result.stderr.trim() || result.stdout.trim() || `esbuild exited with code ${result.exitCode}`;
+      const result = await window.miniAppsAPI.build(dirName);
+      if (!result.ok) {
+        const errorMsg = (result.error || `esbuild exited with code ${result.exitCode}`).trim();
         if (toolIdForBuild) {
           trackAnalytics({
             name: 'tool.build_failed',
@@ -134,7 +124,6 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
         setRebuildState({ kind: 'error', message: errorMsg });
         return;
       }
-      await window.containerAPI.syncOverlay().catch(() => {});
       if (toolIdForBuild) {
         trackAnalytics({
           name: 'tool.build_completed',
@@ -573,6 +562,58 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
   const appDir = `${workspacePath}/.applications/${dirName}`;
   const { connect, executeCode } = useKernel(`miniapp::${dirName}`);
   const composerRuntime = useComposerRuntime();
+  const iframeRouteKey = React.useMemo(() => `${dirName}::${Math.random().toString(36).slice(2)}`, [dirName]);
+  const registeredServerRef = useRef<string | null>(null);
+
+  // Register MCP server from manifest.json on mount; tear down on unmount.
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const manifest = await window.filesAPI.readFile(`${appDir}/manifest.json`);
+        if (cancelled || !manifest || 'error' in manifest || manifest.type !== 'text') return;
+        let parsed: any;
+        try { parsed = JSON.parse(manifest.content); } catch { return; }
+        const mcp = parsed?.mcp;
+        if (!mcp || typeof mcp.server_name !== 'string' || !Array.isArray(mcp.tools)) return;
+        const tools = mcp.tools.filter((t: any) =>
+          t && typeof t.name === 'string' && typeof t.description === 'string' && t.input_schema && typeof t.input_schema === 'object',
+        );
+        if (tools.length === 0) return;
+        await window.miniAppMcpAPI.register({
+          serverName: mcp.server_name,
+          dirName,
+          tools,
+          iframeRouteKey,
+        });
+        registeredServerRef.current = mcp.server_name;
+      } catch (err) {
+        console.warn('[MiniAppContent] Failed to register MCP server:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      window.miniAppMcpAPI.unregisterByRoute(iframeRouteKey);
+      registeredServerRef.current = null;
+    };
+  }, [appDir, dirName, iframeRouteKey]);
+
+  // Route agent / other-mini-app invocations to this iframe and relay results.
+  React.useEffect(() => {
+    const unsubscribe = window.miniAppMcpAPI.onInvoke((payload) => {
+      if (payload.iframeRouteKey !== iframeRouteKey) return;
+      const iframe = iframeRef.current;
+      if (!iframe || !iframe.contentWindow) {
+        window.miniAppMcpAPI.sendResult({ invocationId: payload.invocationId, error: 'iframe is not mounted' });
+        return;
+      }
+      iframe.contentWindow.postMessage(
+        { type: 'mcp:invoke', invocationId: payload.invocationId, toolName: payload.toolName, args: payload.args },
+        '*',
+      );
+    });
+    return unsubscribe;
+  }, [iframeRouteKey]);
 
   const handleIframeLoad = useCallback(() => {
     const iframe = iframeRef.current;
@@ -605,6 +646,18 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
       // event.source check is the correct origin-validation mechanism for local-file:// pages.
       // event.origin is unreliable on local-file:// in Electron (reported as "null" or "file://").
       if (!iframe || event.source !== iframe.contentWindow) return;
+
+      // Mini-app MCP responses follow a separate protocol: the iframe is
+      // returning a result for an invocation main initiated, so the id field
+      // is `invocationId` instead of `id` and there's no response postback.
+      if (event.data?.type === 'mcp:result' && typeof event.data?.invocationId === 'string') {
+        window.miniAppMcpAPI.sendResult({
+          invocationId: event.data.invocationId,
+          result: event.data.result,
+          error: event.data.error,
+        });
+        return;
+      }
 
       const { type, id, ...args } = event.data;
       if (!type || !id) return;
@@ -661,6 +714,14 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
             await connect(args.kernelName as string);
             result = { ok: true };
             break;
+          case 'mcp:listServers':
+            result = await window.miniAppMcpAPI.list();
+            break;
+          case 'mcp:callTool': {
+            const { serverName, toolName, args: callArgs } = args as { serverName: string; toolName: string; args: unknown };
+            result = await window.miniAppMcpAPI.callTool(serverName, toolName, callArgs);
+            break;
+          }
           case 'executeCode': {
             const outputs: CellOutput[] = [];
             await executeCode(args.code as string, (output) => outputs.push(output));

@@ -1,6 +1,6 @@
 export interface AgentConfig {
   port: number;
-  claudeBinaryPath: string;
+  claudeBinaryPath?: string;
   mcpServers: Record<string, { type: 'http'; url: string }>;
   anthropicApiKey: string;
   anthropicBaseURL?: string;

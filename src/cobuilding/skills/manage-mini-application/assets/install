@@ -1,26 +1,22 @@
 #!/usr/bin/env bash
-# install — The only sanctioned way to install software into the cobuilding container.
+# install — The only sanctioned way to install software for a mini-application.
 #
-# Runs a package install inside the running Podman container AND records the
-# dependency in the target app's per-registry dependency file so it persists
-# across container rebuilds and travels with the app folder when shared.
+# Runs a package install on the host AND records the dependency in the target
+# app's per-registry dependency file so it persists when the app folder is
+# shared and is re-installable on a fresh workspace.
 #
 # Per-registry dependency files (the single source of truth for each registry):
 #   pip    → .applications/<app>/requirements.txt       (standard pip format)
 #   npm    → .applications/<app>/package.json           (dependencies field)
-#   R      → .applications/<app>/r-packages.txt         (one package per line)
-#   apt    → .applications/<app>/apt-packages.txt       (one package per line)
-#   manual → .applications/<app>/setup/*.sh            (check-then-install setup scripts)
+#   manual → .applications/<app>/setup/*.sh             (check-then-install setup scripts)
 #
 # Usage:
 #   .applications/install <manager> <package> [<package>...] --app <dir_name>
 #   .applications/install manual <script-path> --app <dir_name>
 #
 # Managers:
-#   pip     Python packages (pip install)
-#   npm     Node packages (installed globally; package.json here is a declarative manifest)
-#   R       R packages (install.packages)
-#   apt     System packages (apt-get install)
+#   pip     Python packages installed into the shared Coscientist venv
+#   npm     Node packages installed into the shared Coscientist npm prefix
 #   manual  Idempotent bash script (must live under .applications/<app>/setup/)
 #
 # Examples:
@@ -28,38 +24,29 @@
 #   .applications/install pip 'pandas>=2.0' scipy --app myApp
 #   .applications/install npm d3 --app myApp
 #   .applications/install npm 'd3@^7.0' --app myApp
-#   .applications/install R ggplot2 --app myApp
-#   .applications/install apt ffmpeg --app myApp
-#   .applications/install manual .applications/myApp/setup/install-miniconda.sh --app myApp
+#   .applications/install manual .applications/myApp/setup/init-data.sh --app myApp
 #
 # NOTES:
 # - This script is the ONLY way the agent should install software. Direct
-#   `pip install` / `npm install` / `apt-get install` / `Rscript -e install.packages(...)`
-#   calls on the host are blocked by a PreToolUse hook.
+#   `pip install` / `npm install` calls are blocked by a PreToolUse hook.
 # - Downloading DATA (model weights, datasets, etc.) into the app folder does
 #   not require this wrapper — use curl or wget to write directly into
 #   .applications/<dir_name>/. Those files are app-local, not global installs.
-# - npm in cobuild is ALWAYS global. `package.json` here is a declarative
-#   manifest only — no local `node_modules` is ever created. esbuild resolves
-#   bundled imports via the container's NODE_PATH.
+# - npm packages install into a shared host prefix. `package.json` here is a
+#   declarative manifest only — no per-app `node_modules` is created. esbuild
+#   resolves bundled imports by adding the shared npm prefix to NODE_PATH.
 
 set -euo pipefail
 
-CONTAINER="${COBUILDING_CONTAINER:-cobuilding-container}"
-IN_CONTAINER="${COBUILDING_INSIDE_CONTAINER:-}"
-
-# When the agent runs inside the container, execute commands directly.
-# When on the host, route through podman exec.
-run_in_container() {
-  if [ "$IN_CONTAINER" = "1" ]; then
-    "$@"
-  else
-    podman exec "$CONTAINER" "$@"
-  fi
-}
+# Host install locations. Both are set in the agent-server's environment by
+# the Electron host so the wrapper doesn't have to guess where they live.
+# Fall back to common defaults if the env vars are missing so the script is
+# still debuggable from a plain shell.
+VENV_DIR="${COSCIENTIST_VENV_DIR:-}"
+NPM_PREFIX="${COSCIENTIST_NPM_PREFIX:-}"
 
 usage() {
-  sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-1}"
 }
 
@@ -79,10 +66,15 @@ PACKAGES=()
 APP=""
 
 case "$MANAGER" in
-  pip|npm|R|r|apt|manual) ;;
+  pip|npm|manual) ;;
+  R|r|apt)
+    err "$MANAGER installs are not supported on the host build."
+    err "Use pip / npm, or write a manual setup script under .applications/<app>/setup/."
+    exit 1
+    ;;
   *)
     err "unknown manager: $MANAGER"
-    err "supported: pip, npm, R, apt, manual"
+    err "supported: pip, npm, manual"
     exit 1
     ;;
 esac
@@ -128,49 +120,42 @@ fi
 # Helpers
 # ---------------------------------------------------------------------------
 
-# Ensure the container is up. Fail loudly with a clear recovery hint.
-# When running inside the container, this check is unnecessary.
-ensure_container() {
-  if [ "$IN_CONTAINER" = "1" ]; then
+# Resolve the host pip binary. Prefers the bundled Coscientist venv passed in
+# via COSCIENTIST_VENV_DIR; otherwise complains loudly so the user fixes the
+# environment instead of accidentally polluting system Python.
+resolve_pip() {
+  if [ -n "$VENV_DIR" ] && [ -x "$VENV_DIR/bin/pip" ]; then
+    echo "$VENV_DIR/bin/pip"
     return 0
   fi
-  if ! podman container exists "$CONTAINER" 2>/dev/null; then
-    err "container '$CONTAINER' is not running. Start it with: .academia/start-container"
-    exit 1
-  fi
-  if ! podman inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -q true; then
-    err "container '$CONTAINER' exists but is not running. Start it with: .academia/start-container"
-    exit 1
-  fi
+  err "pip is unavailable — the Coscientist Python venv is not initialized."
+  err "Open a notebook or restart the app to bootstrap it, then try again."
+  exit 1
 }
 
-JUPYTER_CONTAINER="${COBUILDING_JUPYTER_CONTAINER:-cobuilding-jupyter}"
-
-# Check if the Jupyter gateway container is running.
-jupyter_running() {
-  podman inspect -f '{{.State.Running}}' "$JUPYTER_CONTAINER" 2>/dev/null | grep -q true
-}
-
-# Mirror a live install into the Jupyter container (best-effort).
-# Packages installed in the workspace container also need to be available
-# in the Jupyter kernel container for notebook imports to work immediately.
-sync_to_jupyter() {
-  if ! jupyter_running; then return; fi
-  echo "install: syncing to Jupyter container ($JUPYTER_CONTAINER)"
-  podman exec "$JUPYTER_CONTAINER" "$@" 2>/dev/null || true
+# Resolve the host npm binary and prefix. The prefix is where shared npm
+# packages land so mini-app esbuild bundles can resolve them via NODE_PATH.
+resolve_npm_prefix() {
+  if [ -z "$NPM_PREFIX" ]; then
+    err "COSCIENTIST_NPM_PREFIX is not set; cannot install npm packages."
+    exit 1
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    err "npm is not installed on this system."
+    err "Install Node.js (https://nodejs.org or 'brew install node') and try again."
+    exit 1
+  fi
+  mkdir -p "$NPM_PREFIX"
 }
 
 # pip: append to requirements.txt, deduping by package base name.
-# If the base name already appears, the line is replaced with the new spec.
 record_pip() {
   local reqs="$APP_DIR/requirements.txt"
   touch "$reqs"
   for pkg in "$@"; do
-    # Base name is everything up to the first version-spec character.
     local base
     base=$(printf '%s' "$pkg" | sed -E 's/[<>=!~;[:space:]].*$//')
     if grep -qE "^${base}([<>=!~;[:space:]]|\$)" "$reqs" 2>/dev/null; then
-      # Replace the existing line (handles upgrades / version changes).
       local tmp; tmp=$(mktemp)
       awk -v b="$base" -v full="$pkg" '
         BEGIN { re = "^" b "([<>=!~;[:space:]]|$)" }
@@ -188,7 +173,6 @@ record_pip() {
 parse_npm_spec() {
   local spec="$1"
   if [[ "$spec" == @* ]]; then
-    # Scoped: has two @'s if versioned (e.g. @scope/pkg@^1.0.0)
     if [[ "${spec:1}" == *"@"* ]]; then
       NAME="${spec%@*}"
       VERSION="${spec##*@}"
@@ -205,16 +189,15 @@ parse_npm_spec() {
   fi
 }
 
-# Query the resolved installed version of a global npm package.
+# Query the resolved installed version of a global npm package in our prefix.
 npm_installed_version() {
   local name="$1"
-  run_in_container npm list -g --prefix /opt/npm-site --depth=0 --json "$name" 2>/dev/null \
-    | jq -r --arg n "$name" '.dependencies[$n].version // empty'
+  npm list -g --prefix "$NPM_PREFIX" --depth=0 --json "$name" 2>/dev/null \
+    | jq -r --arg n "$name" '.dependencies[$n].version // empty' 2>/dev/null \
+    || echo ""
 }
 
 # npm: update dependencies field of package.json with semver caret ranges.
-# If the user passed name@spec, record the spec verbatim. If they passed just
-# the name, record ^<installed-version> (matching `npm install --save` default).
 record_npm() {
   local pkgjson="$APP_DIR/package.json"
   if [ ! -f "$pkgjson" ]; then
@@ -234,68 +217,25 @@ record_npm() {
   done
 }
 
-# R: append to r-packages.txt, dedupe by exact-line match.
-record_r() {
-  local f="$APP_DIR/r-packages.txt"
-  touch "$f"
-  for pkg in "$@"; do
-    if ! grep -qxF "$pkg" "$f" 2>/dev/null; then
-      echo "$pkg" >> "$f"
-    fi
-  done
-}
-
-# apt: append to apt-packages.txt, dedupe by exact-line match.
-record_apt() {
-  local f="$APP_DIR/apt-packages.txt"
-  touch "$f"
-  for pkg in "$@"; do
-    if ! grep -qxF "$pkg" "$f" 2>/dev/null; then
-      echo "$pkg" >> "$f"
-    fi
-  done
-}
-
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
-ensure_container
-
 case "$MANAGER" in
   pip)
-    echo "install: pip install ${PACKAGES[*]} (in $CONTAINER)"
-    run_in_container /opt/venv/bin/pip install --no-input --target /opt/pip-site "${PACKAGES[@]}"
-    sync_to_jupyter /opt/venv/bin/pip install --no-input --target /opt/pip-site "${PACKAGES[@]}"
+    PIP_BIN=$(resolve_pip)
+    echo "install: pip install ${PACKAGES[*]}"
+    "$PIP_BIN" install --disable-pip-version-check --no-input "${PACKAGES[@]}"
     record_pip "${PACKAGES[@]}"
     echo "install: recorded in $APP_DIR/requirements.txt"
     ;;
 
   npm)
-    echo "install: npm install -g ${PACKAGES[*]} (in $CONTAINER)"
-    run_in_container npm install -g --prefix /opt/npm-site "${PACKAGES[@]}"
-    sync_to_jupyter npm install -g --prefix /opt/npm-site "${PACKAGES[@]}"
+    resolve_npm_prefix
+    echo "install: npm install -g --prefix $NPM_PREFIX ${PACKAGES[*]}"
+    npm install -g --prefix "$NPM_PREFIX" --no-audit --no-fund "${PACKAGES[@]}"
     record_npm "${PACKAGES[@]}"
     echo "install: recorded in $APP_DIR/package.json"
-    ;;
-
-  R|r)
-    echo "install: R install.packages(${PACKAGES[*]}) (in $CONTAINER)"
-    # Build a vector literal: c("pkg1", "pkg2")
-    printf -v RVEC 'c(%s)' "$(printf '"%s",' "${PACKAGES[@]}" | sed 's/,$//')"
-    run_in_container Rscript -e "install.packages($RVEC, repos='https://cloud.r-project.org')"
-    sync_to_jupyter Rscript -e "install.packages($RVEC, repos='https://cloud.r-project.org')"
-    record_r "${PACKAGES[@]}"
-    echo "install: recorded in $APP_DIR/r-packages.txt"
-    ;;
-
-  apt)
-    echo "install: apt-get install ${PACKAGES[*]} (in $CONTAINER)"
-    echo "install: NOTE — apt installs require root and can affect system libraries." >&2
-    run_in_container bash -lc "apt-get update && apt-get install -y ${PACKAGES[*]}"
-    sync_to_jupyter bash -lc "apt-get update && apt-get install -y ${PACKAGES[*]}"
-    record_apt "${PACKAGES[@]}"
-    echo "install: recorded in $APP_DIR/apt-packages.txt"
     ;;
 
   manual)
@@ -304,24 +244,19 @@ case "$MANAGER" in
       exit 1
     fi
     SCRIPT_PATH="${PACKAGES[0]}"
-    # The script must live under .applications/<app>/setup/ so it's discoverable
-    # by the image build and travels with the app.
     EXPECTED_PREFIX="$APP_DIR/setup/"
     if [[ "$SCRIPT_PATH" != "$EXPECTED_PREFIX"* ]]; then
       err "setup scripts must live under $EXPECTED_PREFIX"
       err "got: $SCRIPT_PATH"
-      err "move or create the script in that directory first."
       exit 1
     fi
     if [ ! -f "$SCRIPT_PATH" ]; then
       err "script not found: $SCRIPT_PATH"
       exit 1
     fi
-    echo "install: running manual script $SCRIPT_PATH (in $CONTAINER)"
-    echo "install: NOTE — manual scripts must check-then-install (detect if already present and exit 0); they are re-run when the image is rebuilt." >&2
-    run_in_container bash "$SCRIPT_PATH"
-    sync_to_jupyter bash "$SCRIPT_PATH"
+    echo "install: running manual script $SCRIPT_PATH"
+    echo "install: NOTE — manual scripts must check-then-install (detect if already present and exit 0)." >&2
+    bash "$SCRIPT_PATH"
     echo "install: recorded by presence of $SCRIPT_PATH"
     ;;
-
 esac

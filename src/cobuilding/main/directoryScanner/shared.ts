@@ -48,7 +48,7 @@ export interface TreeOutput {
 }
 
 export interface ScanContext {
-  claudeBinaryPath: string;
+  claudeBinaryPath?: string;
   cwd: string;
   directoryPaths: string[];
   apiKey: string;
@@ -189,7 +189,7 @@ export function buildCommonQueryOptions(ctx: ScanContext) {
   const docReaderTool = "mcp__document-reader__read_document";
   return {
     abortController,
-    pathToClaudeCodeExecutable: claudeBinaryPath,
+    ...(claudeBinaryPath ? { pathToClaudeCodeExecutable: claudeBinaryPath } : {}),
     tools: ["Read", "Glob", "Grep", docReaderTool],
     allowedTools: ["Read", "Glob", "Grep", docReaderTool],
     cwd: ctx.cwd,

@@ -98,7 +98,17 @@ export class WorkspaceController {
       throw new Error(`A workspace can have at most ${MAX_WORKSPACE_DIRECTORIES} directories.`);
     }
 
-    const validPaths = [...new Set(directoryPaths.map(dp => this.validateDirectoryPath(dp)))];
+    // Dedupe by canonical path (realpath) — on case-insensitive filesystems
+    // ~/Data and ~/data resolve to the same inode but different strings; a
+    // plain Set dedupe by string would seat both rows in the DB.
+    const canonical = new Map<string, string>();
+    for (const dp of directoryPaths) {
+      const validated = this.validateDirectoryPath(dp);
+      let key = validated;
+      try { key = fs.realpathSync(validated); } catch { /* path may not exist yet */ }
+      if (!canonical.has(key)) canonical.set(key, validated);
+    }
+    const validPaths = [...canonical.values()];
 
     for (const vp of validPaths) {
       await fsPromises.mkdir(vp, { recursive: true });
@@ -123,6 +133,20 @@ export class WorkspaceController {
   addDirectory(directoryPath: string): WorkspaceDirectory {
     if (!this._activeWorkspace) throw new Error('No active workspace.');
     const validPath = this.validateDirectoryPath(directoryPath);
+    // Reject adds that resolve to the same inode as an existing entry.
+    // Case-insensitive filesystems and symlink chains let two different
+    // strings name the same directory; without this we'd insert a duplicate
+    // row and clobber the existing workspace symlink with one pointing at
+    // the same place.
+    let canonical = validPath;
+    try { canonical = fs.realpathSync(validPath); } catch { /* may not exist yet */ }
+    for (const existing of this._userDirectories) {
+      let existingCanonical = existing.directory_path;
+      try { existingCanonical = fs.realpathSync(existing.directory_path); } catch { /* ignore */ }
+      if (existingCanonical === canonical) {
+        throw new Error('This directory is already in your workspace.');
+      }
+    }
     const id = randomUUID();
     const displayName = path.basename(validPath);
     const sortOrder = this._userDirectories.length;

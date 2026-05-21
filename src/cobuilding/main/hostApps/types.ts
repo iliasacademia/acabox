@@ -1,5 +1,7 @@
 import type { createSdkMcpServer, HookInput, SyncHookJSONOutput } from '@anthropic-ai/claude-agent-sdk';
-import type { WindowState } from '../../../windowMonitor/types';
+
+// Stub — windowMonitor was Writing-Agent only. Kept as a type for slim-build compatibility.
+export type WindowState = Record<string, unknown>;
 
 export type SdkMcpServer = ReturnType<typeof createSdkMcpServer>;
 

@@ -2,7 +2,6 @@ import React, { useEffect, useState, type FC } from 'react';
 import { MarkdownView } from './fileViewers/MarkdownView';
 import { CsvView } from './fileViewers/CsvView';
 import { PdfView } from './fileViewers/PdfView';
-import { LatexView } from './fileViewers/LatexView';
 import { XlsxView } from './fileViewers/XlsxView';
 import { CodeView } from './CodeView';
 
@@ -69,10 +68,6 @@ const FileContentView: FC<{ content: FileContent; filePath: string }> = ({ conte
 
   if (content.type === 'csv') {
     return <CsvView content={content.content} delimiter={content.delimiter} />;
-  }
-
-  if (content.type === 'latex') {
-    return <LatexView content={content.content} />;
   }
 
   if (content.type === 'spreadsheet') {

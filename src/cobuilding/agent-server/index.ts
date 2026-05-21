@@ -26,8 +26,6 @@ import {
   type Query,
   type SDKUserMessage,
   type SDKMessage,
-  type HookInput,
-  type SyncHookJSONOutput,
 } from '@anthropic-ai/claude-agent-sdk';
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import { readFileSync, existsSync, readdirSync } from 'fs';
@@ -101,47 +99,14 @@ interface UserMessagePayload {
 // Configuration
 // ---------------------------------------------------------------------------
 
-const CONFIG_PATH = '/data/.academia/agent.json';
-
 function loadConfig(): AgentConfig {
-  const raw = readFileSync(CONFIG_PATH, 'utf-8');
+  const configPath = process.env.COSCIENTIST_AGENT_CONFIG || '/data/.academia/agent.json';
+  const raw = readFileSync(configPath, 'utf-8');
   return JSON.parse(raw) as AgentConfig;
 }
 
-// ---------------------------------------------------------------------------
-// Docx Protection Hook
-// ---------------------------------------------------------------------------
-
-async function docxProtectionHook(input: HookInput): Promise<SyncHookJSONOutput> {
-  if (input.hook_event_name !== 'PreToolUse') return {};
-  const { tool_name, tool_input } = input;
-  const toolInput = (tool_input ?? {}) as Record<string, unknown>;
-
-  const pathFields = ['file_path', 'path', 'command'];
-  for (const field of pathFields) {
-    const val = toolInput[field];
-    if (
-      typeof val === 'string' &&
-      val.includes('.docx') &&
-      (tool_name === 'Bash'
-        ? val.includes('unzip') || val.includes('zip') || val.includes('docx')
-        : tool_name === 'Read' || tool_name === 'Write' || tool_name === 'Edit')
-    ) {
-      if (tool_name === 'Bash' && (val.includes('unzip') || val.includes('mkdir') || val.includes('zip '))) {
-        return {
-          decision: 'block',
-          reason: 'Do not unpack or modify .docx files directly. Use the ms-word MCP tools (find_and_replace with Track Changes) to edit Word documents.',
-        } as SyncHookJSONOutput;
-      }
-      if ((tool_name === 'Edit' || tool_name === 'Write') && (val.includes('document.xml') || val.includes('word/'))) {
-        return {
-          decision: 'block',
-          reason: 'Do not edit .docx XML files directly. Use mcp__ms-word__find_and_replace with Track Changes enabled instead.',
-        } as SyncHookJSONOutput;
-      }
-    }
-  }
-  return {};
+function getWorkspaceRoot(): string {
+  return process.env.COSCIENTIST_WORKSPACE || '/data';
 }
 
 // ---------------------------------------------------------------------------
@@ -245,68 +210,6 @@ function createMcpRelayServers(state: SessionState) {
       ],
     }),
 
-    'ms-word': createSdkMcpServer({
-      name: 'ms-word',
-      tools: [
-        tool('get_file_path', 'Get the file path and name of the active Word document.', {}, relay('ms-word', 'get_file_path')),
-        tool('get_text', 'Get the text content of the active Word document.', {
-          offset: z.number().optional().describe('Character offset to start reading from (0-based, default 0)'),
-          limit: z.number().optional().describe('Max characters to return (default 8000)'),
-        }, relay('ms-word', 'get_text')),
-        tool('get_selection', 'Get the currently selected text in the active Word document.', {}, relay('ms-word', 'get_selection')),
-        tool('save_document', 'Save the active Word document.', {}, relay('ms-word', 'save_document')),
-        tool('open_document', 'Open (or focus) a Word document by file path.', {
-          path: z.string().describe('Absolute path to the .docx file to open'),
-        }, relay('ms-word', 'open_document')),
-        tool('find_and_replace', 'Propose a text edit in the active Word document. The edit is NOT applied immediately — the user sees a suggestion card and approves or denies. Call once per edit.', {
-          search_text: z.string().describe('The exact text to find'),
-          replacement_text: z.string().describe('The text to replace it with'),
-          replace_scope: z.enum(['first', 'all']).default('first').describe('"first" or "all"'),
-          match_case: z.boolean().default(true).describe('Case-sensitive search'),
-        }, relay('ms-word', 'find_and_replace')),
-      ],
-    }),
-
-    citeright: createSdkMcpServer({
-      name: 'citeright',
-      tools: [
-        tool('find_references', 'Find verified references for a passage, claim, or whole document. Polls until done. Pass document_text or file_path (exactly one required).', {
-          document_text: z.string().optional().describe('Passage or excerpt to find references for.'),
-          file_path: z.string().optional().describe('Path to a .pdf or .docx file to upload.'),
-          timeout_seconds: z.number().optional().default(600).describe('Max seconds to wait (default 600).'),
-          poll_interval_seconds: z.number().optional().default(3).describe('Seconds between polls (default 3).'),
-        }, relay('citeright', 'find_references')),
-        tool('create_citation_report', 'Submit document text to start a citation analysis.', {
-          document_text: z.string().describe('The document or excerpt to analyze.'),
-        }, relay('citeright', 'create_citation_report')),
-        tool('get_citation_report', 'Fetch the current state of a citation report by id.', {
-          report_id: z.union([z.string(), z.number()]).describe('Citation report id.'),
-        }, relay('citeright', 'get_citation_report')),
-        tool('add_claim_to_report', 'Add a manual claim to an existing citation report.', {
-          report_id: z.union([z.string(), z.number()]),
-          text: z.string().describe('The claim or query text.'),
-        }, relay('citeright', 'add_claim_to_report')),
-        tool('search_citations_for_claim', 'Run citation search for a specific claim within a report.', {
-          report_id: z.union([z.string(), z.number()]),
-          claim_id: z.string(),
-        }, relay('citeright', 'search_citations_for_claim')),
-        tool('format_citations', 'Format work metadata into citation strings (apa, mla, chicago, harvard, ieee).', {
-          works: z.array(z.object({
-            title: z.string(),
-            authors: z.array(z.union([z.object({ first_name: z.string().optional(), last_name: z.string().optional(), full_name: z.string().optional() }), z.string()])).optional(),
-            publication: z.string().optional(),
-            publication_year: z.union([z.string(), z.number()]).optional(),
-            doi: z.string().optional(),
-            url: z.string().optional(),
-          }).passthrough()).describe('Works to format (max 50).'),
-        }, relay('citeright', 'format_citations')),
-        tool('list_citation_reports', 'List recent citation reports (paginated).', {
-          page: z.number().optional().default(1),
-          per_page: z.number().optional().default(10),
-        }, relay('citeright', 'list_citation_reports')),
-      ],
-    }),
-
     'mini-apps': createSdkMcpServer({
       name: 'mini-apps',
       tools: [
@@ -320,250 +223,20 @@ function createMcpRelayServers(state: SessionState) {
           { dir_name: z.string().describe('The directory name of the mini-application (lowerCamelCase name under .applications/)') },
           relay('mini-apps', 'build_and_open_mini_application'),
         ),
-      ],
-    }),
-
-    'google-docs': createSdkMcpServer({
-      name: 'google-docs',
-      tools: [
-        tool('get_active_doc',
-          "Get the document path, URL, and display title of the Google Doc currently open in the user's focused Chrome tab. Returns success=false when no Google Doc is active or the Academia browser extension is not connected.",
+        tool('list_published_servers',
+          'List MCP servers currently published by other open mini-applications. Each entry includes serverName, dirName, and the tools the mini-app exposes (name + description + input schema). Use this to discover what callable services other mini-apps offer before invoking them.',
           {},
-          relay('google-docs', 'get_active_doc'),
+          relay('mini-apps', 'list_published_servers'),
         ),
-        tool('get_text',
-          "Read the active Google Doc. By default returns the full doc body in a single call (up to 200,000 characters) via the OAuth-backed Docs API. Pass selection_only:true to get just the user's current text selection instead.",
+        tool('call_published_tool',
+          'Invoke a tool exposed by another open mini-application. The target mini-app must be currently loaded in the UI (its iframe registers when shown, unregisters when closed). The result is whatever JSON the mini-app returns.',
           {
-            selection_only: z.boolean().optional().describe("If true, return only the user's current selection. Default: false."),
-            offset: z.number().optional().describe('Character offset to start reading from (0-based, default 0). Ignored when selection_only=true.'),
-            limit: z.number().optional().describe('Max characters to return (default 200000). Ignored when selection_only=true.'),
+            server_name: z.string().describe('serverName from list_published_servers'),
+            tool_name: z.string().describe('name of the tool to invoke (from the server\'s tools list)'),
+            arguments: z.record(z.string(), z.unknown()).optional().describe('Arguments matching the tool\'s input_schema'),
           },
-          relay('google-docs', 'get_text'),
+          relay('mini-apps', 'call_published_tool'),
         ),
-        tool('find_and_replace',
-          'Propose a text edit in the active Google Doc. The edit is NOT applied automatically — the user sees a suggestion card with the diff. Call this tool once per edit. Do NOT describe the edits in your text — the UI shows them automatically.',
-          {
-            search_text: z.string().describe('The exact text to find in the doc'),
-            replacement_text: z.string().describe('The text to replace it with'),
-            replace_scope: z.enum(['first', 'all']).default('first').describe('"first" replaces only the first occurrence, "all" replaces every occurrence'),
-            match_case: z.boolean().default(true).describe('Whether the search is case-sensitive'),
-          },
-          relay('google-docs', 'find_and_replace'),
-        ),
-      ],
-    }),
-
-    'google-drive': createSdkMcpServer({
-      name: 'google-drive',
-      tools: [
-        tool('get_drive_tree',
-          "Get the user's connected Google Drive tree. Shows the hierarchy from Drive root down to each selected item, with full contents for selected folders. Items marked with ⬇ are downloadable with download_file. Each item includes its file ID for use with download_file.",
-          {},
-          relay('google-drive', 'get_drive_tree'),
-        ),
-        tool('search_files',
-          "Search by filename within the user's connected Google Drive files. Only returns results that are downloadable (within connected folders or individually selected).",
-          {
-            query: z.string().describe('Search query — matches file names.'),
-            page_size: z.number().optional().describe('Max results to return (default 20).'),
-          },
-          relay('google-drive', 'search_files'),
-        ),
-        tool('download_file',
-          'Download a Google Drive file to the local cache so you can read it. The file must be within a connected folder or be an individually selected file (marked ⬇ in get_drive_tree). Returns the containerPath at /data/google-drive/{fileId}/filename. Google Docs, Sheets, and Slides are fetched as structured JSON via their native APIs. Cached — subsequent calls return the cached version unless the file has been modified.',
-          {
-            file_id: z.string().describe('The Google Drive file ID to download.'),
-          },
-          relay('google-drive', 'download_file'),
-        ),
-      ],
-    }),
-
-    'apple-notes': createSdkMcpServer({
-      name: 'apple-notes',
-      tools: [
-        tool('get_active_note',
-          'Get the id and name of the currently selected note in Apple Notes. Returns null when no note is selected.',
-          {},
-          relay('apple-notes', 'get_active_note'),
-        ),
-        tool('get_text',
-          'Get the plain-text content of an Apple Note. Defaults to the active note. Supports pagination via offset/limit.',
-          {
-            note_id: z.string().optional().describe('Apple Notes id (x-coredata://...). Defaults to the currently selected note.'),
-            offset: z.number().optional().describe('Character offset to start reading from (0-based, default 0)'),
-            limit: z.number().optional().describe('Max characters to return (default 8000)'),
-          },
-          relay('apple-notes', 'get_text'),
-        ),
-        tool('list_notes',
-          'List Apple Notes by most-recently-modified, paginated. Returns id, name, and modification date.',
-          {
-            offset: z.number().optional().describe('Pagination offset (0-based, default 0)'),
-            limit: z.number().optional().describe('Max notes to return (default 50)'),
-          },
-          relay('apple-notes', 'list_notes'),
-        ),
-        tool('search_notes',
-          "Search Apple Notes for a query string in note titles and bodies. Returns up to `limit` matches with id, name, and modification date.",
-          {
-            query: z.string().describe('Text to search for in note titles and bodies'),
-            limit: z.number().optional().describe('Max matches to return (default 50)'),
-          },
-          relay('apple-notes', 'search_notes'),
-        ),
-        tool('save_note',
-          'Save an Apple Note. Apple Notes saves automatically — this is a no-op kept for parity with the Word/Obsidian flow.',
-          {
-            note_id: z.string().optional().describe('Apple Notes id. Defaults to the active note.'),
-          },
-          relay('apple-notes', 'save_note'),
-        ),
-        tool('open_note',
-          'Open (focus) a note in Apple Notes by id. Brings the Notes window forward and selects that note.',
-          {
-            note_id: z.string().describe('Apple Notes id (x-coredata://...).'),
-          },
-          relay('apple-notes', 'open_note'),
-        ),
-        tool('find_and_replace',
-          'Propose a text edit in an Apple Note. The edit is NOT applied immediately — the user sees a suggestion card and approves or denies each edit. Call this tool once per edit. Do NOT describe the edits in your text — the UI shows them automatically.',
-          {
-            search_text: z.string().describe('The exact text to find in the note'),
-            replacement_text: z.string().describe('The text to replace it with'),
-            replace_scope: z.enum(['first', 'all']).default('first').describe('"first" replaces only the first occurrence, "all" replaces every occurrence'),
-            match_case: z.boolean().default(true).describe('Whether the search is case-sensitive'),
-            note_id: z.string().optional().describe('Apple Notes id. Defaults to the active note.'),
-          },
-          relay('apple-notes', 'find_and_replace'),
-        ),
-      ],
-    }),
-
-    obsidian: createSdkMcpServer({
-      name: 'obsidian',
-      tools: [
-        tool('get_active_note',
-          'Get the path of the currently active note in Obsidian. Returns null if no markdown note is active.',
-          {},
-          relay('obsidian', 'get_active_note'),
-        ),
-        tool('get_text',
-          'Read the contents of a markdown note in the workspace. Defaults to the active note. Supports pagination via offset/limit.',
-          {
-            path: z.string().optional().describe('Absolute path to the .md file to read. Defaults to the active note.'),
-            offset: z.number().optional().describe('Character offset to start reading from (0-based, default 0)'),
-            limit: z.number().optional().describe('Max characters to return (default 8000)'),
-          },
-          relay('obsidian', 'get_text'),
-        ),
-        tool('list_notes',
-          'List all markdown notes in the workspace/vault. Returns relative paths.',
-          {
-            subdir: z.string().optional().describe('Optional subdirectory under the vault root to list (e.g. "daily").'),
-          },
-          relay('obsidian', 'list_notes'),
-        ),
-        tool('open_note',
-          'Open (focus) a note in Obsidian by absolute path.',
-          {
-            path: z.string().describe('Absolute path to the .md file inside the vault.'),
-          },
-          relay('obsidian', 'open_note'),
-        ),
-        tool('find_and_replace',
-          'Propose a text edit in a markdown note. The edit is NOT applied immediately — the user sees a suggestion card and approves or denies each edit. Approved edits are written to disk and Obsidian auto-reloads the buffer. Call this tool once per edit. Do NOT describe the edits in your text — the UI shows them automatically.',
-          {
-            search_text: z.string().describe('The exact text to find in the note'),
-            replacement_text: z.string().describe('The text to replace it with'),
-            replace_scope: z.enum(['first', 'all']).default('first').describe('"first" replaces only the first occurrence, "all" replaces every occurrence'),
-            match_case: z.boolean().default(true).describe('Whether the search is case-sensitive'),
-            path: z.string().optional().describe('Absolute path to the .md file. Defaults to the active note.'),
-          },
-          relay('obsidian', 'find_and_replace'),
-        ),
-      ],
-    }),
-
-    zotero: createSdkMcpServer({
-      name: 'zotero',
-      tools: [
-        tool('status', 'Check whether the local Zotero desktop client is running and reachable.', {}, relay('zotero', 'status')),
-        tool('search_library', 'Search the user\'s local Zotero library by query string.', {
-          query: z.string().describe('Search query'),
-          limit: z.number().optional().default(10).describe('Max results to return'),
-        }, relay('zotero', 'search_library')),
-        tool('get_item', 'Get a specific item from the Zotero library by key.', {
-          key: z.string().describe('Zotero item key'),
-        }, relay('zotero', 'get_item')),
-        tool('add_doi', 'Add a publication to the Zotero library by DOI.', {
-          doi: z.string().describe('DOI of the publication to add'),
-        }, relay('zotero', 'add_doi')),
-      ],
-    }),
-
-    grants: createSdkMcpServer({
-      name: 'grants',
-      tools: [
-        tool('save_user_context',
-          'Save user profile data to improve grant matching quality. Call before creating a project if user context is available. Each question/response pair is upserted.',
-          {
-            data: z.array(z.object({
-              question: z.enum([
-                'What type of organization are you affiliated with?',
-                'Where is your research institution located?',
-                'What best describes your field of research?',
-                'What title best describes you?',
-                'How many grants did you apply for in the last 12 months?',
-                'How many years of professional experience do you have?',
-              ]).describe('Must be one of the predefined onboarding questions.'),
-              response: z.string().describe('The user\'s answer.'),
-            })).min(1).describe('Array of question/response pairs to save.'),
-          },
-          relay('grants', 'save_user_context'),
-        ),
-        tool('create_project',
-          'Create a grant project and trigger the matching pipeline. Results appear asynchronously — use get_project to poll. More detailed research summaries produce better matches.',
-          {
-            research_summary: z.string().min(1).describe('Detailed description of research focus, methodology, and goals.'),
-            name: z.string().optional().describe('Optional project name. Auto-generated if omitted.'),
-          },
-          relay('grants', 'create_project'),
-        ),
-        tool('get_project',
-          'Get a grant project with matched opportunities. Poll after creating a project until results stabilize (2-5 minutes). Only opportunities with score > 3 are returned.',
-          {
-            project_id: z.number().int().describe('The project ID returned by create_project.'),
-          },
-          relay('grants', 'get_project'),
-        ),
-        tool('list_projects', 'List all grant projects for the current user.', {},
-          relay('grants', 'list_projects'),
-        ),
-        tool('favorite_opportunity', 'Save or unsave a grant opportunity for later reference.', {
-          project_id: z.number().int(),
-          grant_opportunity_id: z.number().int(),
-          favorite: z.boolean().describe('true to save, false to unsave.'),
-        }, relay('grants', 'favorite_opportunity')),
-        tool('hide_opportunity', 'Dismiss or un-dismiss a grant opportunity.', {
-          project_id: z.number().int(),
-          grant_opportunity_id: z.number().int(),
-          hidden: z.boolean().describe('true to hide, false to un-hide.'),
-        }, relay('grants', 'hide_opportunity')),
-        tool('set_hidden_reason', 'Record why a grant opportunity was dismissed. Call after hide_opportunity.', {
-          project_id: z.number().int(),
-          grant_opportunity_id: z.number().int(),
-          hidden_reason: z.string().min(1).describe('Why the opportunity was dismissed.'),
-        }, relay('grants', 'set_hidden_reason')),
-        tool('visit_opportunity', 'Mark a grant opportunity as visited. Clears the "new" indicator.', {
-          project_id: z.number().int(),
-          grant_opportunity_id: z.number().int(),
-        }, relay('grants', 'visit_opportunity')),
-        tool('update_project', 'Update a grant project name or research summary. Does NOT re-trigger matching — create a new project for a new search.', {
-          project_id: z.number().int(),
-          name: z.string().optional(),
-          research_summary: z.string().optional(),
-        }, relay('grants', 'update_project')),
       ],
     }),
 
@@ -719,7 +392,9 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
     const queryInstance = query({
       prompt: userMessageGenerator(messageQueue),
       options: {
-        pathToClaudeCodeExecutable: sessionConfig.claudeBinaryPath,
+        // Let the SDK auto-resolve the bundled Claude binary from the
+        // platform-specific package (e.g. @anthropic-ai/claude-agent-sdk-darwin-arm64).
+        ...(sessionConfig.claudeBinaryPath ? { pathToClaudeCodeExecutable: sessionConfig.claudeBinaryPath } : {}),
         stderr: (data: string) => {
           for (const line of data.split('\n').filter(Boolean)) {
             console.log(`[AgentServer:stderr] ${line}`);
@@ -730,27 +405,21 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
         systemPrompt: buildSystemPrompt(sessionConfig) as any,
         ...(resume && { resume }),
         includePartialMessages: true,
-        cwd: '/data',
+        cwd: getWorkspaceRoot(),
         env: {
-          // Inherit the container's full environment (PATH, NODE_PATH, VIRTUAL_ENV, etc.)
-          // so the subprocess can find system binaries (ls, grep, python3, etc.)
           ...process.env,
           ANTHROPIC_API_KEY: sessionConfig.anthropicApiKey,
           ...(sessionConfig.anthropicBaseURL ? { ANTHROPIC_BASE_URL: sessionConfig.anthropicBaseURL } : {}),
-          MINI_APP_WORKSPACE_DIR: '/data',
-          COBUILDING_INSIDE_CONTAINER: '1',
-          CLAUDE_CONFIG_DIR: '/data/.academia/claude-config',
+          MINI_APP_WORKSPACE_DIR: getWorkspaceRoot(),
+          CLAUDE_CONFIG_DIR: `${getWorkspaceRoot()}/.academia/claude-config`,
         },
         settingSources: sessionConfig.settingSources as any[],
         settings: {
           autoMemoryEnabled: true,
-          autoMemoryDirectory: `/data/${AGENT_MEMORY_SUBDIR}`,
+          autoMemoryDirectory: `${getWorkspaceRoot()}/${AGENT_MEMORY_SUBDIR}`,
         },
         mcpServers: filterMcpServers(mcpRelayServers, sessionConfig.allowedTools) as any,
         allowedTools: sessionConfig.allowedTools,
-        hooks: {
-          PreToolUse: [{ hooks: [docxProtectionHook] }],
-        },
       },
     });
 
@@ -782,7 +451,7 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
       let validResume = resumeSessionId;
       if (validResume) {
         const fileExists = existsSync, readDir = readdirSync;
-        const configDir = '/data/.academia/claude-config';
+        const configDir = `${getWorkspaceRoot()}/.academia/claude-config`;
         // SDK stores sessions in {CLAUDE_CONFIG_DIR}/projects/{projectKey}/{sessionId}.jsonl
         let found = false;
         const projectsDir = `${configDir}/projects`;
@@ -1077,8 +746,11 @@ function startServer(initialConfig: AgentConfig): void {
     }
   });
 
-  server.listen(currentConfig.port, '0.0.0.0', () => {
-    console.log(`[AgentServer] Listening on 0.0.0.0:${currentConfig.port}`);
+  const port = process.env.COSCIENTIST_AGENT_PORT
+    ? parseInt(process.env.COSCIENTIST_AGENT_PORT, 10)
+    : currentConfig.port;
+  server.listen(port, '127.0.0.1', () => {
+    console.log(`[AgentServer] Listening on 127.0.0.1:${port}`);
   });
 
   process.on('SIGTERM', () => {
@@ -1104,6 +776,6 @@ function startServer(initialConfig: AgentConfig): void {
 // Set CLAUDE_CONFIG_DIR at the process level so the SDK parent process
 // (which handles session load/resume) uses the persistent workspace mount.
 // The subprocess also receives it via the query() env option.
-process.env.CLAUDE_CONFIG_DIR = '/data/.academia/claude-config';
+process.env.CLAUDE_CONFIG_DIR = `${getWorkspaceRoot()}/.academia/claude-config`;
 
 startServer(loadConfig());

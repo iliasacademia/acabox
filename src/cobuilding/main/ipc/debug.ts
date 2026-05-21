@@ -5,7 +5,6 @@ import * as os from 'os';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import log from 'electron-log';
-import { getAllPodmanDataPaths } from '../podmanBinaries';
 import { closeDatabase, getDatabase, initDatabase } from '../db/database';
 import { closeObservationsDatabase, getObservationsDatabase, initObservationsDatabase } from '../db/observationsDatabase';
 import { closeSchedulingDatabase, getSchedulingDatabase, initSchedulingDatabase } from '../db/schedulingDatabase';
@@ -36,7 +35,7 @@ function removePath(p: string): { path: string; ok: boolean; error?: string } {
 export function registerDebugHandlers() {
   ipcMain.handle('debug:getStorageInfo', () => {
     const userData = app.getPath('userData');
-    const podmanPaths = getAllPodmanDataPaths();
+    const podmanPaths: Record<string, string> = {};
     return {
       environment: app.isPackaged ? 'production' : 'development',
       userData,
@@ -54,7 +53,7 @@ export function registerDebugHandlers() {
   });
 
   ipcMain.handle('debug:syncOverlay', async () => {
-    return containerService.syncOverlay();
+    return { skipped: true };
   });
 
   // Telemetry test hooks — fire main-process errors of various shapes so we can
@@ -192,33 +191,6 @@ export function registerDebugHandlers() {
       r.ok ? ok('Settings') : fail('Settings', r.error!);
     }
 
-    // ── Podman Binaries ──
-    if (set.has('podman-binaries')) {
-      try {
-        containerService.deleteBundledBinaries();
-        ok('Podman binaries');
-      } catch (e) { fail('Podman binaries', (e as Error).message); }
-    }
-
-    // ── Podman Config & VM Images ──
-    if (set.has('podman-config-data')) {
-      const r = removePath(path.join(userData, 'cobuilding-podman-data'));
-      r.ok ? ok('Podman config & data') : fail('Podman config & data', r.error!);
-    }
-
-    // ── Podman VM State ──
-    if (set.has('podman-vm')) {
-      try { containerService.stop(); } catch { /* ok */ }
-      const podmanPaths = getAllPodmanDataPaths();
-      for (const p of podmanPaths) {
-        if (p.label.includes('HOME') || p.label.includes('runtime')) {
-          const r = removePath(p.path);
-          if (!r.ok) fail(p.label, r.error!);
-        }
-      }
-      ok('Podman VM state');
-    }
-
     // ── Electron Cache ──
     if (set.has('electron-cache')) {
       for (const dir of ['Cache', 'Code Cache', 'GPUCache', 'DawnGraphiteCache', 'DawnWebGPUCache',
@@ -233,7 +205,7 @@ export function registerDebugHandlers() {
   });
 
   ipcMain.handle('debug:pruneImages', async () => {
-    await containerService.pruneImages();
+    // No container images in the slim build.
   });
 
   ipcMain.handle('debug:exportWorkspace', async () => {

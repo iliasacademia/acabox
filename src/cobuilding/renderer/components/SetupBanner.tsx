@@ -96,7 +96,6 @@ export const SetupBanner: React.FC = () => {
     setError(null);
     setSetupState('downloading', 'Retrying setup...', 0);
     try {
-      await window.containerAPI.deleteBinaries();
       await window.containerAPI.ensureSetup();
       setSetupState('ready');
     } catch (err) {
