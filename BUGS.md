@@ -23,14 +23,12 @@
   `127.0.0.1`, and add a per-instance token to `/health` + `--KernelGatewayApp.auth_token`.
   (Found by the rename/pollution reviews 2026-07-22; pre-existing, not rename-introduced.)
 
-- **B13** (2026-07-22) — `src/apiClient.ts:133,223` — the academia.edu User-Agent was changed from
-  `WritingAgent/<ver>` to `Acabox/<ver>` to stop the fork masquerading as the original app in
-  academia's server-side request logs/UA funnels. Low risk, but UNVERIFIED against the backend:
-  if any desktop-API endpoint gates access on the `WritingAgent` UA prefix, login/credential
-  fetch could break. Verify a real login after this change; if it breaks, that's a backend
-  coordination item (revert the UA or have the backend accept `Acabox`).
-
 <!--
+B13 (User-Agent WritingAgent→Acabox login-gating concern) is retired: academia
+login was removed entirely (see "Removed academia login" in CLAUDE.md), so there
+is no login/credential fetch left to break. academia:fetch still sends the Acabox
+UA but is optional and unauthenticated.
+
 B1/B2/B3 (all `shellPath.ts`) resolved together: `getLoginShellPath()` is now
 wired into `buildSubprocessEnv` (B1), pre-warmed off the event loop via
 `prewarmLoginShellPath()` in `HostProcessService.start()` (B2), and reads the

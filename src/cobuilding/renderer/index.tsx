@@ -35,7 +35,7 @@ import WorkspaceOnboarding from './components/WorkspaceOnboarding';
 import ScanningProgress from './components/ScanningProgress';
 import ScanResultsReview from './components/ScanResultsReview';
 import DirectoryPermissions from './components/DirectoryPermissions';
-import AcademiaLogin from './components/AcademiaLogin';
+import ApiKeyOnboarding from './components/ApiKeyOnboarding';
 import WelcomeScreen from './components/WelcomeScreen';
 import { ToolFallback } from './components/assistant-ui/tool-fallback';
 import { SetupBanner } from './components/SetupBanner';
@@ -44,7 +44,7 @@ import { useTabs } from './tabs/useTabs';
 import type { TabDescriptor } from './tabs/types';
 import { kernelRegistry } from './components/notebook/kernelRegistry';
 import type { Workspace, WorkspaceDirectory } from '../shared/types';
-import { initFullStory, identifyUser, trackEvent } from './utils/fullstory';
+import { trackEvent } from './utils/fullstory';
 import { initSentryRenderer } from './sentry';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { initAnalytics as initCoScientistAnalytics } from './coscientistAnalytics';
@@ -574,7 +574,7 @@ function OpenMiniAppHandler({ onOpen }: { onOpen: (dirName: string, opts?: { for
 /** File extensions that need full-width viewing (tables, PDFs). */
 const WIDE_VIEWER_RE = /\.(csv|tsv|xlsx?|pdf)$/i;
 
-function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding }: { workspace: Workspace; onWorkspaceUpdated: (ws: Workspace) => void; onLogout: () => void; onRestartOnboarding: () => void }) {
+function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { workspace: Workspace; onWorkspaceUpdated: (ws: Workspace) => void; onRestartOnboarding: () => void }) {
   useEffect(() => {
     trackEvent('Cobuilding Session');
   }, []);
@@ -1098,7 +1098,6 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
                   onWorkspaceUpdated(ws);
                   setSidebarTab('home');
                 }}
-                onLogout={onLogout}
                 onRestartOnboarding={onRestartOnboarding}
                 onDirectoriesChanged={setUserDirectories}
                 inline
@@ -1114,34 +1113,33 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
   );
 }
 
-type OnboardingStep = 'loading' | 'welcome' | 'login' | 'workspace' | 'scanning' | 'review' | 'ready';
+type OnboardingStep = 'loading' | 'welcome' | 'apikey' | 'workspace' | 'scanning' | 'review' | 'ready';
 
 function App() {
   const [step, setStep] = useState<OnboardingStep>('loading');
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [scanReportId, setScanReportId] = useState<string | null>(null);
+  // True only when the user reached 'workspace' by entering a key in the
+  // onboarding flow. When a key already existed at boot (env or settings), the
+  // key step is skipped, so we must NOT offer a Back button to it — an env-var
+  // key can't be changed from the UI, which would strand the user.
+  const [cameFromApiKey, setCameFromApiKey] = useState(false);
 
   useEffect(() => {
-    window.workspacesAPI.getActive().then((ws) => {
-      window.authAPI.checkLogin().then((result: any) => {
-        const { loggedIn, user, appInfo } = result;
-        initFullStory(appInfo?.isPackaged);
-        if (user?.id) {
-          identifyUser(user.id, user.email, user.first_name || user.name, appInfo?.deviceId, appInfo?.appVersion);
-        }
-
-        if (ws && loggedIn) {
+    // No login: the gate is "do we have an Anthropic API key?" (env or the
+    // Settings-saved key), not an academia session.
+    Promise.all([window.workspacesAPI.getActive(), window.authAPI.getApiKeyStatus()])
+      .then(([ws, { hasKey }]) => {
+        if (!hasKey) {
+          setStep('welcome');
+        } else if (ws) {
           setWorkspace(ws);
           setStep('ready');
-        } else if (loggedIn) {
-          setStep('workspace');
         } else {
-          setStep('welcome');
+          setStep('workspace');
         }
-      }).catch(() => {
-        setStep('welcome');
-      });
-    });
+      })
+      .catch(() => setStep('welcome'));
   }, []);
 
   switch (step) {
@@ -1151,30 +1149,22 @@ function App() {
     case 'welcome':
       return (
         <WelcomeScreen
-          onGetStarted={() => setStep('login')}
+          onGetStarted={() => setStep('apikey')}
         />
       );
 
-    case 'login':
+    case 'apikey':
       return (
-        <AcademiaLogin
+        <ApiKeyOnboarding
           onBack={() => setStep('welcome')}
-          onSuccess={() => {
-            window.authAPI.checkLogin().then((result: any) => {
-              const { user, appInfo } = result;
-              if (user?.id) {
-                identifyUser(user.id, user.email, user.first_name || user.name, appInfo?.deviceId, appInfo?.appVersion);
-              }
-            });
-            setStep('workspace');
-          }}
+          onSuccess={() => { setCameFromApiKey(true); setStep('workspace'); }}
         />
       );
 
     case 'workspace':
       return (
         <WorkspaceOnboarding
-          onBack={() => setStep('login')}
+          onBack={cameFromApiKey ? () => setStep('apikey') : undefined}
           onComplete={() => {
             window.workspacesAPI.getActive().then((ws) => {
               if (ws) {
@@ -1217,10 +1207,9 @@ function App() {
         <ChatView
           workspace={workspace!}
           onWorkspaceUpdated={setWorkspace}
-          onLogout={() => setStep('welcome')}
           onRestartOnboarding={() => {
             setWorkspace(null);
-            setStep('welcome');
+            setStep('workspace');
           }}
         />
       );

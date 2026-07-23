@@ -11,28 +11,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 });
 
 contextBridge.exposeInMainWorld('authAPI', {
-  checkLogin: () => ipcRenderer.invoke('auth:checkLogin'),
-  startQRAuth: () => ipcRenderer.invoke('auth:startQRAuth'),
-  verifyQRCode: (deviceId: string, code: string) =>
-    ipcRenderer.invoke('auth:verifyQRCode', deviceId, code),
-  logout: () => ipcRenderer.invoke('auth:logout'),
   getApiKey: () => ipcRenderer.invoke('auth:getApiKey'),
-  refetchApiKey: () => ipcRenderer.invoke('auth:refetchApiKey'),
-  getApiProvider: () => ipcRenderer.invoke('auth:getApiProvider'),
-  setApiProvider: (provider: string, customKey?: string, customBaseURL?: string) => ipcRenderer.invoke('auth:setApiProvider', provider, customKey, customBaseURL),
+  getApiKeyStatus: () => ipcRenderer.invoke('auth:getApiKeyStatus'),
+  setApiKey: (key: string, baseURL?: string) => ipcRenderer.invoke('auth:setApiKey', key, baseURL),
   isDev: process.env.NODE_ENV === 'development',
   setEndpoint: (endpoint: string) => ipcRenderer.invoke('auth:setEndpoint', endpoint),
-  hasSessionCookie: () => ipcRenderer.invoke('auth:hasSessionCookie'),
-  onDeepLinkCallback: (
-    callback: (data: { verificationCode: string; deviceId: string }) => void
-  ) => {
-    const handler = (
-      _event: unknown,
-      data: { verificationCode: string; deviceId: string }
-    ) => callback(data);
-    ipcRenderer.on('auth:deepLinkCallback', handler);
-    return () => ipcRenderer.removeListener('auth:deepLinkCallback', handler);
-  },
 });
 
 contextBridge.exposeInMainWorld('workspacesAPI', {

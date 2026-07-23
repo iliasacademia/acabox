@@ -20,7 +20,6 @@ import {
 import { getLatestReport } from '../db/reportRepository';
 import { AGENT_MEMORY_SUBDIR, REFERENCES_SUBDIR, REFERENCES_INDEX } from '../../shared/paths';
 import { queryActivity } from '../activityQuery';
-import { checkLogin } from '../../../apiClient';
 import { createSession as createDbSession, insertMessage as insertDbMessage, updateSessionTitle } from '../db/chatRepository';
 import { buildMiniApp } from '../miniAppBuilder';
 import { ensurePythonVenv } from '../pythonSetup';

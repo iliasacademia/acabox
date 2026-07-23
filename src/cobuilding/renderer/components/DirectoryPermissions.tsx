@@ -4,6 +4,7 @@ import { SOUL_MD, MEMORY_PATH_ABOUT_YOU, MEMORY_PATH_WORKING_ON, MAX_WORKSPACE_D
 import { kernelRegistry } from './notebook/kernelRegistry';
 import { XIcon, PlusIcon } from 'lucide-react';
 import DirectoryPermBadge from './DirectoryPermBadge';
+import ApiKeySettings from './ApiKeySettings';
 import './DirectoryPermissions.css';
 import './shared-forms.css';
 
@@ -12,13 +13,12 @@ interface DirectoryPermissionsProps {
   userDirectories: WorkspaceDirectory[];
   onClose: () => void;
   onSaved: (ws: Workspace) => void;
-  onLogout: () => void;
   onRestartOnboarding: () => void;
   onDirectoriesChanged?: (dirs: WorkspaceDirectory[]) => void;
   inline?: boolean;
 }
 
-const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, userDirectories, onClose, onLogout, onRestartOnboarding, onDirectoriesChanged, inline }) => {
+const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, userDirectories, onClose, onRestartOnboarding, onDirectoriesChanged, inline }) => {
   const [localDirs, setLocalDirs] = useState<WorkspaceDirectory[]>(userDirectories);
   const [dirError, setDirError] = useState<string | null>(null);
   const [togglingDirId, setTogglingDirId] = useState<string | null>(null);
@@ -41,7 +41,6 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
   const [soulError, setSoulError] = useState<string | null>(null);
   const [isSavingSoul, setIsSavingSoul] = useState(false);
 
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isRestartingOnboarding, setIsRestartingOnboarding] = useState(false);
 
   useEffect(() => {
@@ -321,7 +320,7 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
               <button
                 type="button"
                 className="gsStep__btn gsStep__btn--secondary"
-                disabled={isRestartingOnboarding || isLoggingOut}
+                disabled={isRestartingOnboarding}
                 onClick={async () => {
                   setIsRestartingOnboarding(true);
                   await window.debugAPI.restartOnboarding();
@@ -333,31 +332,7 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
               </button>
             </div>
 
-            <div className="wsSettings__dirRow">
-              <div style={{ flex: 1 }}>
-                <div className="wsSettings__integrationName">Log out</div>
-                <div className="wsSettings__integrationDesc">
-                  Sign out of your Academia account on this device.
-                </div>
-              </div>
-              <button
-                type="button"
-                className="gsStep__btn gsStep__btn--secondary"
-                disabled={isLoggingOut || isRestartingOnboarding}
-                onClick={async () => {
-                  setIsLoggingOut(true);
-                  const result = await window.authAPI.logout();
-                  if (result.success) {
-                    kernelRegistry.clearAll().catch(() => {});
-                    onLogout();
-                  } else {
-                    setIsLoggingOut(false);
-                  }
-                }}
-              >
-                {isLoggingOut ? 'Logging out...' : 'Log Out'}
-              </button>
-            </div>
+            <ApiKeySettings />
           </div>
         </section>
       </div>

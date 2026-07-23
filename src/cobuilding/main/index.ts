@@ -70,10 +70,9 @@ import { migrateWorkspaceFiles } from './migrateWorkspaceFiles';
 import { BackgroundBuilder } from './backgroundBuilder';
 import { getEnvironmentInfo, getInstallSteps } from './environmentGenerator';
 import { packageInstaller, installStepsToRequests, type Registry, type PackageState } from './packageInstaller';
-import { checkLogin, getCurrentUser, logout, setBaseUrl, BASE_URL, hasSessionCookie } from '../../apiClient';
+import { setBaseUrl, BASE_URL } from '../../apiClient';
 import { getDeviceId } from '../../utils/deviceId';
-import { createCobuildingAuthSession, verifyCobuildingAuthCode } from './cobuildingAuthService';
-import { fetchGatewayCredentials, destroyTokenManager, getCredentials, setCredentials } from './cobuildingTokenManager';
+import { destroyTokenManager, getCredentials, setCredentials } from './cobuildingTokenManager';
 import { createQuickChatWindow, showQuickChat, updateMainWindowRef } from './quickChat';
 import { registerCalendarHandlers } from './ipc/calendar';
 import { registerDebugHandlers } from './ipc/debug';
@@ -85,10 +84,8 @@ import { initSentryMain } from './sentry';
 import { captureError } from '../shared/telemetry';
 import {
   initAnalytics,
-  markAuthenticated as markAnalyticsAuthenticated,
   registerAnalyticsIpc,
   startHeartbeat as startAnalyticsHeartbeat,
-  setAuthenticated as setAnalyticsAuthenticated,
   track as trackAnalyticsEvent,
 } from './coscientistAnalytics';
 const isSmokeTest = process.argv.includes('--smoke-test');
@@ -121,28 +118,6 @@ function setMaxAttachmentSizeMB(sizeMB: number): void {
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
-export type ApiProvider = 'cloudflare' | 'anthropic' | 'custom';
-
-function getApiProvider(): ApiProvider {
-  try {
-    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
-    if (data.apiProvider === 'cloudflare' || data.apiProvider === 'anthropic' || data.apiProvider === 'custom') return data.apiProvider;
-    return 'cloudflare';
-  } catch {
-    return 'cloudflare';
-  }
-}
-
-function setApiProvider(provider: ApiProvider): void {
-  const settingsPath = getSettingsPath();
-  let data: Record<string, unknown> = {};
-  try {
-    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-  } catch { }
-  data.apiProvider = provider;
-  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
-}
-
 function getCustomAnthropicKey(): string | null {
   try {
     const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
@@ -170,6 +145,30 @@ function getCustomAnthropicBaseURL(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Resolve the Anthropic API key the app should use. There is no login: the key
+ * comes from the ANTHROPIC_API_KEY env var (useful for dev via .env.local) if
+ * set, otherwise from the key the user saved in Settings (settings.json).
+ */
+function resolveApiKey(): { apiKey: string | null; baseURL: string | undefined } {
+  const envKey = process.env.ANTHROPIC_API_KEY?.trim();
+  if (envKey) {
+    return { apiKey: envKey, baseURL: process.env.ANTHROPIC_BASE_URL?.trim() || undefined };
+  }
+  return { apiKey: getCustomAnthropicKey(), baseURL: getCustomAnthropicBaseURL() };
+}
+
+/**
+ * Resolve the key (env → settings) and push it into the in-memory credential
+ * store that getCredentials() serves. Called at boot before the agent starts,
+ * and again whenever the user saves a new key so it takes effect live.
+ */
+function loadCredentialsIntoStore(): { apiKey: string | null; baseURL: string | undefined } {
+  const c = resolveApiKey();
+  setCredentials(c.apiKey, c.baseURL);
+  return c;
 }
 
 // Configure electron-log for cobuilding — write to userData so dev/prod logs are separated
@@ -250,44 +249,6 @@ app.on('render-process-gone', (_event, _webContents, details) => {
   log.warn('[APP] render-process-gone:', details);
 });
 
-// Register deep link protocol — must happen before app is ready
-app.setAsDefaultProtocolClient('cobuilding-agent');
-
-let pendingDeepLinkUrl: string | null = null;
-
-function handleDeepLinkUrl(url: string) {
-  try {
-    const parsed = new URL(url);
-    const verificationCode = parsed.searchParams.get('verification_code');
-    const deviceId = parsed.searchParams.get('device_id');
-    if (!verificationCode || !/^\d{6}$/.test(verificationCode)) {
-      log.warn('[Deep Link] Received URL with missing or invalid verification_code:', url);
-      return;
-    }
-    if (!deviceId) {
-      log.warn('[Deep Link] Received URL with missing device_id:', url);
-      return;
-    }
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.show();
-      mainWindow.focus();
-      mainWindow.webContents.send('auth:deepLinkCallback', { verificationCode, deviceId });
-    } else {
-      pendingDeepLinkUrl = url;
-    }
-  } catch (err) {
-    log.error('[Deep Link] Failed to parse URL:', err);
-  }
-}
-
-// macOS: deep link when app is already running
-app.on('open-url', (event, url) => {
-  event.preventDefault();
-  if (url.startsWith('cobuilding-agent://')) {
-    handleDeepLinkUrl(url);
-  }
-});
-
 let mainWindow: BrowserWindow | null = null;
 
 function sendProgressTo(channel: string) {
@@ -340,18 +301,31 @@ let activeApiBaseUrl: string = (() => {
 })();
 
 async function refreshCredentialsForSession(): Promise<{ apiKey: string; baseURL?: string }> {
-  const result = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
-  return { apiKey: result.apiKey, baseURL: result.baseURL };
+  // Re-read the user's key (env → settings) so a key updated in Settings
+  // mid-session is picked up. No academia gateway anymore.
+  const { apiKey, baseURL } = loadCredentialsIntoStore();
+  if (!apiKey) throw new Error('No Anthropic API key configured. Add one in Settings.');
+  return { apiKey, baseURL };
 }
 
 let inflightCredentialRefresh: Promise<boolean> | null = null;
+// The key most recently handed to the agent (seeded with the boot key, updated
+// on each successful push). The agent's 401 retry calls refreshAndPushCredentials;
+// if the re-resolved key is the SAME one already tried, there is nothing new to
+// try, so we report failure and let the caller surface "key rejected" instead of
+// restarting the turn forever on the same bad key.
+let lastPushedApiKey: string | null = null;
 
 async function refreshAndPushCredentials(): Promise<boolean> {
   if (inflightCredentialRefresh) return inflightCredentialRefresh;
   inflightCredentialRefresh = (async () => {
     try {
-      const { apiKey, baseURL } = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
-      return await containerService.updateAgentCredentials(apiKey, baseURL);
+      const { apiKey, baseURL } = loadCredentialsIntoStore();
+      if (!apiKey) return false;
+      if (apiKey === lastPushedApiKey) return false; // unchanged → nothing to retry
+      const ok = await containerService.updateAgentCredentials(apiKey, baseURL);
+      if (ok) lastPushedApiKey = apiKey;
+      return ok;
     } catch (err) {
       log.error('[CredentialRefresh] Refresh and push failed:', err);
       return false;
@@ -371,7 +345,7 @@ const briefingsController = new BriefingsController({
   workspaceController,
   notificationsController,
   getCredentials,
-  ensureCredentials: () => fetchGatewayCredentials(getApiProvider() === 'cloudflare').then(() => { }),
+  ensureCredentials: () => { loadCredentialsIntoStore(); return Promise.resolve(); },
   onBriefingsChanged: () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('briefings:changed');
@@ -529,15 +503,6 @@ function createMainWindow(): void {
     mainWindow?.show();
   });
 
-  // Dispatch any deep link URL that arrived before the window was ready
-  if (pendingDeepLinkUrl && mainWindow && !mainWindow.isDestroyed()) {
-    const urlToDispatch = pendingDeepLinkUrl;
-    pendingDeepLinkUrl = null;
-    mainWindow.webContents.once('did-finish-load', () => {
-      handleDeepLinkUrl(urlToDispatch);
-    });
-  }
-
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
     log.error('[APP] Window failed to load:', errorCode, errorDescription);
   });
@@ -550,6 +515,21 @@ function createMainWindow(): void {
 app.whenReady().then(async () => {
   processCpuMonitor.start();
 
+  // No login: load the user's Anthropic API key (env → settings) into the
+  // credential store before anything spawns the agent, so getCredentials() is
+  // populated without any auth flow. If none is set, the renderer routes the
+  // user to the Settings key-entry screen.
+  const bootCreds = loadCredentialsIntoStore();
+  // The agent gets this key directly via its start config, so record it as the
+  // last-pushed key — a 401 on this exact key then terminates cleanly instead
+  // of looping (see refreshAndPushCredentials).
+  lastPushedApiKey = bootCreds.apiKey;
+  log.info(
+    bootCreds.apiKey
+      ? `[Auth] Loaded Anthropic API key from ${process.env.ANTHROPIC_API_KEY ? 'env' : 'settings'}`
+      : '[Auth] No Anthropic API key configured — user must add one in Settings',
+  );
+
   // Only in packaged builds: under `npm start` the process runs as the stock
   // Electron dev binary (bundle id com.github.Electron), so this write would
   // land in the shared com.github.Electron preferences domain that every
@@ -558,7 +538,9 @@ app.whenReady().then(async () => {
     systemPreferences.setUserDefault('NSNavPanelExpandedStateForSaveMode2', 'boolean', true as any);
   }
 
-  // track() is a no-op until markAnalyticsAuthenticated() runs in the auth flow.
+  // Analytics stays gated off: there is no login to flip the auth gate, so
+  // track() is a no-op and nothing is posted to academia. Kept wired so it can
+  // be re-enabled later against a fork-owned backend if desired.
   initAnalytics();
   registerAnalyticsIpc();
   startAnalyticsHeartbeat();
@@ -720,12 +702,7 @@ ipcMain.handle(
   async (_event, data: { name: string; directoryPaths: string[] }) => {
     let apiKey = getCredentials().apiKey ?? '';
     if (!apiKey) {
-      try {
-        await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
-        apiKey = getCredentials().apiKey ?? '';
-      } catch (err) {
-        log.warn('[workspaces:create] Could not fetch API key:', err);
-      }
+      apiKey = loadCredentialsIntoStore().apiKey ?? '';
     }
     const activeWorkspace = await workspaceController.create(data.directoryPaths, apiKey);
     if (activeWorkspace) {
@@ -853,10 +830,8 @@ ipcMain.handle(
       if (!sourceDir) return;
       let { apiKey, baseURL } = getCredentials();
       if (!apiKey) {
-        try {
-          await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
-          ({ apiKey, baseURL } = getCredentials());
-        } catch { return; }
+        ({ apiKey, baseURL } = loadCredentialsIntoStore());
+        if (!apiKey) return;
       }
       convertReferenceFile({
         filePath,
@@ -1777,7 +1752,7 @@ async function validateAnthropicParams(params: unknown, allowedDirs: string[]): 
 ipcMain.handle('anthropic:complete', async (_event, params: unknown) => {
   const activeWorkspace = workspaceController.activeWorkspace;
   const { apiKey: completeApiKey, baseURL: completeBaseURL } = getCredentials();
-  if (!completeApiKey) throw new Error('No API credentials available');
+  if (!completeApiKey) throw new Error('No Anthropic API key configured. Add one in Settings.');
   if (!activeWorkspace) throw new Error('No active workspace');
   const validated = await validateAnthropicParams(params, workspaceController.allAllowedPaths);
   log.info('[anthropic:complete] workspace=%s model=%s max_tokens=%d messages=%d',
@@ -1807,7 +1782,7 @@ ipcMain.on('anthropic:stream', async (event, { streamKey, params }: { streamKey:
   }
   const { apiKey: streamApiKey, baseURL: streamBaseURL } = getCredentials();
   if (!streamApiKey) {
-    event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: 'No API credentials available' });
+    event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: 'No Anthropic API key configured. Add one in Settings.' });
     return;
   }
   const activeWorkspace = workspaceController.activeWorkspace;
@@ -1865,135 +1840,44 @@ ipcMain.handle('academia:fetch', async (_event, args: { method: string; endpoint
 });
 
 // Auth IPC handlers
-ipcMain.handle('auth:checkLogin', async () => {
-  try {
-    const loggedIn = await checkLogin();
-    if (loggedIn && getApiProvider() !== 'custom') {
-      await fetchGatewayCredentials(getApiProvider() === 'cloudflare')
-        .catch((err) => log.warn('[Auth] fetchGatewayCredentials error:', err));
-    } else if (loggedIn && getApiProvider() === 'custom') {
-      const customKey = getCustomAnthropicKey();
-      if (customKey) {
-        setCredentials(customKey, getCustomAnthropicBaseURL());
-      }
-    }
-    const appInfo = {
-      deviceId: getDeviceId(),
-      appVersion: app.getVersion(),
-      isPackaged: app.isPackaged,
-    };
-    if (!loggedIn) return { loggedIn: false, appInfo };
-    const user = await getCurrentUser().catch(() => null);
-    markAnalyticsAuthenticated();
-    return { loggedIn: true, user, appInfo };
-  } catch (error) {
-    log.error('[Auth] checkLogin error:', error);
-    return { loggedIn: false };
-  }
-});
-
-ipcMain.handle('auth:startQRAuth', async () => {
-  try {
-    const session = await createCobuildingAuthSession(activeApiBaseUrl);
-    return {
-      success: true,
-      deviceId: session.deviceId,
-      qrCodeDataURL: session.qrCodeDataURL,
-      authorizationURL: session.authorizationURL,
-    };
-  } catch (error: any) {
-    log.error('[Auth] startQRAuth error:', error);
-    return { success: false, error: error.message || 'Failed to create QR auth session' };
-  }
-});
-
-ipcMain.handle('auth:verifyQRCode', async (_event, deviceId: string, code: string) => {
-  try {
-    if (!code || code.length !== 6 || !/^\d{6}$/.test(code)) {
-      return { success: false, error: 'Invalid code format. Please enter a 6-digit code.' };
-    }
-    const result = await verifyCobuildingAuthCode(deviceId, code);
-    if (result.error) {
-      return { success: false, error: result.error };
-    }
-    if (result.authorized) {
-      await fetchGatewayCredentials(getApiProvider() === 'cloudflare')
-        .catch((err) => log.warn('[Auth] fetchGatewayCredentials after verify error:', err));
-      markAnalyticsAuthenticated();
-    }
-    return { success: true, authorized: result.authorized, userId: result.user_id };
-  } catch (error: any) {
-    log.error('[Auth] verifyQRCode error:', error);
-    return { success: false, error: error.message || 'Verification failed' };
-  }
-});
-
 ipcMain.handle('auth:getApiKey', () => {
   const { apiKey, baseURL } = getCredentials();
-  return { apiKey, baseURL, provider: getApiProvider() };
+  return { apiKey, baseURL };
 });
 
-ipcMain.handle('auth:getApiProvider', () => {
-  return { provider: getApiProvider() };
+// Boot gate for the renderer: does a usable Anthropic key exist (env or
+// settings)? Never returns the key itself. `source` lets Settings show where
+// the active key comes from (env keys are read-only from the UI's view).
+ipcMain.handle('auth:getApiKeyStatus', () => {
+  const envKey = process.env.ANTHROPIC_API_KEY?.trim();
+  const { apiKey, baseURL } = resolveApiKey();
+  return {
+    hasKey: !!apiKey,
+    source: envKey ? 'env' : (getCustomAnthropicKey() ? 'settings' : null),
+    baseURL: baseURL ?? null,
+  };
 });
 
-ipcMain.handle('auth:setApiProvider', async (_event, provider: string, customKey?: string, customBaseURL?: string) => {
-  if (provider !== 'cloudflare' && provider !== 'anthropic' && provider !== 'custom') {
-    return { success: false, error: 'Invalid provider' };
+ipcMain.handle('auth:setApiKey', async (_event, key: string, baseURL?: string) => {
+  const trimmed = (key || '').trim();
+  if (!trimmed) return { success: false, error: 'API key is required' };
+  // An ANTHROPIC_API_KEY env var overrides settings, so saving here would have
+  // no visible effect — say so rather than silently no-op.
+  if (process.env.ANTHROPIC_API_KEY?.trim()) {
+    return {
+      success: false,
+      error: 'ANTHROPIC_API_KEY is set in the environment and takes precedence. Unset it to manage the key here.',
+    };
   }
-  setApiProvider(provider as ApiProvider);
-  log.info(`[Auth] API provider set to: ${provider}`);
-
-  if (provider === 'custom') {
-    if (!customKey) return { success: false, error: 'API key is required for custom mode' };
-    const baseURL = customBaseURL?.trim() || undefined;
-    setCustomAnthropicKey(customKey, baseURL);
-    destroyTokenManager();
-    setCredentials(customKey, baseURL);
-    log.info('[Auth] Using custom Anthropic API key');
-    return { success: true };
-  }
-
-  try {
-    await fetchGatewayCredentials(provider === 'cloudflare');
-    return { success: true };
-  } catch (error: any) {
-    log.error('[Auth] Failed to fetch credentials after provider switch:', error);
-    return { success: false, error: error.message };
-  }
+  const url = baseURL?.trim() || undefined;
+  setCustomAnthropicKey(trimmed, url);
+  setCredentials(trimmed, url);
+  // Push to an already-running agent server so a pasted key takes effect
+  // without an app restart.
+  await refreshAndPushCredentials().catch((err) => log.warn('[Auth] push new key to agent failed:', err));
+  log.info('[Auth] Anthropic API key updated from Settings');
+  return { success: true };
 });
-
-ipcMain.handle('auth:refetchApiKey', async () => {
-  try {
-    const result = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
-    log.debug('[Auth] Refetched API key successfully');
-    return { success: true, keyIdentifier: result.keyIdentifier };
-  } catch (error: any) {
-    log.error('[Auth] refetchApiKey error:', error);
-    return { success: false, error: error.message || 'Failed to refetch API key' };
-  }
-});
-
-ipcMain.handle('auth:logout', async () => {
-  try {
-    backgroundBuilder.dispose();
-    ensuredApps.clear();
-    packageInstaller.reset();
-    await agentInfrastructure.stop();
-    containerService.stop();
-    getTaskScheduler()?.stop();
-    workspaceController.deactivateAll();
-    destroyTokenManager();
-    setAnalyticsAuthenticated(false);
-    const result = await logout();
-    return result;
-  } catch (error: any) {
-    log.error('[Auth] logout error:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('auth:hasSessionCookie', () => hasSessionCookie());
 
 ipcMain.handle('auth:setEndpoint', (_event, endpoint: string) => {
   if (app.isPackaged) {

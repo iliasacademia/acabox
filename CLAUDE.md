@@ -137,6 +137,17 @@ to `PATH`.
   userData move means first launch after the rename bootstraps a fresh
   venv/npm-site/workspace/DB.
 - Development moved to `https://github.com/iliasacademia/acabox`.
+- **Removed academia login entirely.** No welcome-gated academia session, QR
+  auth, deep-link scheme, or credential gateway. The Claude API key comes from
+  the user: `ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL` env (dev via `.env.local`)
+  or the Settings screen (stored in settings.json). Resolved into the in-memory
+  credential store at boot (`resolveApiKey`/`loadCredentialsIntoStore` in
+  `index.ts`), before the agent starts. Renderer boots straight in when a key
+  exists (gate = `auth:getApiKeyStatus`), else shows the key-entry screen
+  (`ApiKeyOnboarding`); Settings has an `ApiKeySettings` section. Analytics
+  stays gated off (no academia egress). The academia backend client
+  (`apiClient`, `academia:fetch`) is kept but optional — used only by mini-apps,
+  degrades to 401 if invoked without a session.
 
 **NOT yet tested at runtime (highest priority next):**
 - A real chat turn — agent doing Bash/Read/Write against a shared dir.
@@ -164,17 +175,13 @@ to `PATH`.
   (was `/cobuild`, the ORIGINAL app's channel — it would have offered the other
   product as an "update"). Until an Acabox feed exists, packaged-build update
   checks 404 harmlessly.
-- **`cobuilding-agent://` deep-link scheme is shared with the original
-  Coscientist app.** The academia.edu QR-auth flow constructs those URLs, so
-  the scheme can't be renamed client-side; whichever app launched most
-  recently receives the callback. Fallback: manual 6-digit code entry.
-- **Analytics event_type is now `AcaboxEvent`** — the academia.edu backend
-  registers event classes per type, so events are likely dropped server-side
-  (fail-safe) until/unless a backend class is added. This is intentional: it
-  stops fork events polluting the original app's dashboards.
-- **Vestigial upstream CI/build files still present** (recommended for
-  deletion, kept pending owner sign-off): `buildspec.yml`, `sign-app.js`,
-  `test-cleanup.sh`, `.github/workflows/build.yml`,
-  `scripts/reset-{downloads,dev}.sh`, `scripts/cleanup-old-paths.sh`. The
-  GitHub workflow would overwrite the ORIGINAL app's S3 update manifests if
-  upstream secrets were ever configured on this repo.
+- **No Anthropic API key = no agent.** With login gone, the app boots but chat
+  and scans fail until a key is set (env or Settings). This is surfaced as
+  "No Anthropic API key configured. Add one in Settings." — not a crash.
+- **`academia:fetch` is unauthenticated now.** Mini-apps that call it (the old
+  grant-finder bridge) get 401s since there's no session. Core features don't
+  use it. Kept as an optional path, not removed.
+- **Analytics is gated off** (no login flips the auth gate), so `track()` is a
+  no-op and nothing is posted to academia. `coscientistAnalytics` +
+  `apiClient`/`apiCall` are kept but dormant; re-enable against a fork-owned
+  backend if ever wanted.

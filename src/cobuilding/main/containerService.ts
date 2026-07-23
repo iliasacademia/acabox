@@ -474,8 +474,10 @@ class HostProcessService {
     if (!port) return false;
     return new Promise<boolean>((resolve) => {
       // Field names must match the agent-server's /credentials handler —
-      // it reads `anthropicApiKey` / `anthropicBaseURL`.
-      const body = JSON.stringify({ anthropicApiKey: apiKey, anthropicBaseURL: baseURL });
+      // it reads `anthropicApiKey` / `anthropicBaseURL`. Send baseURL as null
+      // (not undefined) when absent so the field survives JSON.stringify and the
+      // agent's `'anthropicBaseURL' in body` check clears a previously-set URL.
+      const body = JSON.stringify({ anthropicApiKey: apiKey, anthropicBaseURL: baseURL ?? null });
       const req = http.request({
         hostname: 'localhost',
         port,

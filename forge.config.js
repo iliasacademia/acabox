@@ -74,17 +74,8 @@ const packagerConfig = {
   appBundleId: 'com.electron.acabox',
   derefSymlinks: true,
   prune: false,
-  // The scheme the runtime actually handles (app.setAsDefaultProtocolClient +
-  // the open-url filter in src/cobuilding/main/index.ts). It is constructed by
-  // the academia.edu QR-auth flow, so it cannot be renamed client-side; note it
-  // is also registered by the original Academia Coscientist app — whichever app
-  // launched most recently receives the callbacks.
-  protocols: [
-    {
-      name: 'Acabox',
-      schemes: ['cobuilding-agent'],
-    },
-  ],
+  // No custom URL scheme: the only deep link was the academia QR-auth callback,
+  // which was removed along with login.
   asar: {
     unpack: '{**/node_modules/better-sqlite3/**/*,**/node_modules/@anthropic-ai/claude-agent-sdk/**/*,**/node_modules/@anthropic-ai/claude-agent-sdk-*/**/*}',
   },

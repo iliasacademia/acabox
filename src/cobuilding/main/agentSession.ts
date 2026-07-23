@@ -349,7 +349,10 @@ export function createAgentSession(
               } catch (refreshErr) {
                 log.error('[AgentSession] Credential refresh failed:', refreshErr);
               }
-              emitError(err.originalError);
+              // Re-read of the user's key still got rejected — it's wrong,
+              // expired, or missing. Point them at Settings rather than surface
+              // the raw SDK 401.
+              emitError('Your Anthropic API key was rejected. Update it in Settings and try again.');
               return;
             }
             if (sessionState.stopped) break;
