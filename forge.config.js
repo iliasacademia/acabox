@@ -69,15 +69,20 @@ const codeSignIdentity = process.env.APPLE_IDENTITY || undefined;
 const platform = os.platform();
 
 const packagerConfig = {
-  name: 'Academia Coscientist',
+  name: 'Acabox',
   icon: './src/assets/icons/dock-icon',
-  appBundleId: 'com.electron.academia-coscientist',
+  appBundleId: 'com.electron.acabox',
   derefSymlinks: true,
   prune: false,
+  // The scheme the runtime actually handles (app.setAsDefaultProtocolClient +
+  // the open-url filter in src/cobuilding/main/index.ts). It is constructed by
+  // the academia.edu QR-auth flow, so it cannot be renamed client-side; note it
+  // is also registered by the original Academia Coscientist app — whichever app
+  // launched most recently receives the callbacks.
   protocols: [
     {
-      name: 'Academia Coscientist',
-      schemes: ['academia-coscientist'],
+      name: 'Acabox',
+      schemes: ['cobuilding-agent'],
     },
   ],
   asar: {
@@ -98,9 +103,9 @@ const packagerConfig = {
   ],
   ...(platform === 'darwin' ? {
     extendInfo: {
-      NSDesktopFolderUsageDescription: 'Academia Coscientist needs access to your Desktop to manage workspace files.',
-      NSDocumentsFolderUsageDescription: 'Academia Coscientist needs access to your Documents to manage workspace files.',
-      NSDownloadsFolderUsageDescription: 'Academia Coscientist needs access to your Downloads to manage workspace files.',
+      NSDesktopFolderUsageDescription: 'Acabox needs access to your Desktop to manage workspace files.',
+      NSDocumentsFolderUsageDescription: 'Acabox needs access to your Documents to manage workspace files.',
+      NSDownloadsFolderUsageDescription: 'Acabox needs access to your Downloads to manage workspace files.',
     },
   } : {}),
 };
@@ -142,9 +147,9 @@ module.exports = {
     {
       name: '@electron-forge/maker-squirrel',
       config: {
-        name: 'AcademiaCoscientist',
+        name: 'Acabox',
         authors: 'Academia.edu',
-        description: 'Academia Coscientist',
+        description: 'Acabox',
         certificateFile: process.env.WINDOWS_CERTIFICATE_FILE,
         certificatePassword: process.env.WINDOWS_CERTIFICATE_PASSWORD,
       },

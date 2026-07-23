@@ -129,7 +129,7 @@ const AcademiaLogin: React.FC<AcademiaLoginProps> = ({ onSuccess, onBack }) => {
             &larr;
           </button>
         )}
-        <span className="academiaLogin__brandName">Co-scientist</span>
+        <span className="academiaLogin__brandName">Acabox</span>
         <span className="academiaLogin__brandLabel">SETUP</span>
       </div>
       <div className="academiaLogin__inner">

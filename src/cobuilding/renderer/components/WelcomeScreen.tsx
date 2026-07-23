@@ -10,7 +10,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onGetStarted }) => {
   return (
     <div className="welcomeScreen">
       <div className="welcomeScreen__branding">
-        <span className="welcomeScreen__brandName">Co-scientist</span>
+        <span className="welcomeScreen__brandName">Acabox</span>
         <span className="welcomeScreen__brandLabel">SETUP</span>
       </div>
       <div className="welcomeScreen__content">

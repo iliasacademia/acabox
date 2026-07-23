@@ -45,7 +45,7 @@ const ScanResultsReview: React.FC<ScanResultsReviewProps> = ({
   return (
     <div className="wsSetup">
       <div className="wsSetup__branding">
-        <span className="wsSetup__brandName">Co-scientist</span>
+        <span className="wsSetup__brandName">Acabox</span>
         <span className="wsSetup__brandLabel">SETUP</span>
       </div>
 

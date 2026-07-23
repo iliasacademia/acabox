@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Academia Electron Cleanup Script
+# Acabox Cleanup Script
 # Safely shuts down the app and cleans up native resources
 # Use this when the app won't quit normally or has zombie processes
 
 set -e
 
-echo "🧹 Academia Electron Cleanup Script"
+echo "🧹 Acabox Cleanup Script"
 echo "===================================="
 echo ""
 
@@ -18,14 +18,14 @@ NC='\033[0m' # No Color
 
 # Function to check if processes exist
 check_processes() {
-    local count=$(ps aux | grep -i "academia-electron" | grep -v grep | grep -v cleanup.sh | wc -l | tr -d ' ')
+    local count=$(ps aux | grep -E "Acabox.app/Contents/MacOS|Desktop-app-without-container/node_modules/electron" | grep -v grep | grep -v cleanup.sh | wc -l | tr -d ' ')
     echo $count
 }
 
 # Function to show running processes
 show_processes() {
     echo -e "${YELLOW}Current Electron processes:${NC}"
-    ps aux | grep -i "academia-electron" | grep -v grep | grep -v cleanup.sh || echo "  None found"
+    ps aux | grep -E "Acabox.app/Contents/MacOS|Desktop-app-without-container/node_modules/electron" | grep -v grep | grep -v cleanup.sh || echo "  None found"
     echo ""
 }
 
@@ -42,7 +42,7 @@ show_processes
 
 # Step 2: Try graceful shutdown (SIGTERM)
 echo "🛑 Step 2: Attempting graceful shutdown (SIGTERM)..."
-pkill -TERM -f "academia-electron" 2>/dev/null || true
+pkill -TERM -f "Acabox.app/Contents/MacOS|Desktop-app-without-container/node_modules/electron" 2>/dev/null || true
 sleep 3
 
 AFTER_TERM=$(check_processes)
@@ -68,7 +68,7 @@ echo -e "${YELLOW}⚠ Still $AFTER_KILLALL process(es) running after killall${NC
 
 # Step 4: Force kill with SIGKILL
 echo "💥 Step 4: Force killing with SIGKILL..."
-pkill -9 -f "academia-electron" 2>/dev/null || true
+pkill -9 -f "Acabox.app/Contents/MacOS|Desktop-app-without-container/node_modules/electron" 2>/dev/null || true
 killall -9 Electron 2>/dev/null || true
 sleep 3
 

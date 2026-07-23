@@ -58,14 +58,18 @@ export function setupUpdater(onRebuildTrayMenu: (statusLabel?: string) => void) 
     return;
   }
 
-  autoUpdater.channel = 'cobuild';
+  // Fork-scoped channel: the original Academia Coscientist app publishes to
+  // /cobuild on its CloudFront distribution. Pointing there would offer (and
+  // download) the other product as an "update". Acabox has no release feed
+  // yet, so update checks against /acabox simply 404 until one exists.
+  autoUpdater.channel = 'acabox';
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
   const arch = process.arch;
   const feedUrl = process.platform === 'darwin'
-    ? `https://${cloudFrontDomain}/cobuild/${arch}`
-    : `https://${cloudFrontDomain}/cobuild`;
+    ? `https://${cloudFrontDomain}/acabox/${arch}`
+    : `https://${cloudFrontDomain}/acabox`;
 
   autoUpdater.setFeedURL({ provider: 'generic', url: feedUrl });
   log.info('[UPDATER] Configured with feed URL:', feedUrl);

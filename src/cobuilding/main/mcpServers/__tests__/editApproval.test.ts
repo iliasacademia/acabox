@@ -65,12 +65,12 @@ describe('edit approval mode', () => {
 
 describe('approval message formatting', () => {
   function formatApprovalMessage(searchText: string, replacementText: string): string {
-    return `Academia Coscientist wants to replace "${searchText.substring(0, 60)}${searchText.length > 60 ? '...' : ''}" with "${replacementText.substring(0, 60)}${replacementText.length > 60 ? '...' : ''}"`;
+    return `Acabox wants to replace "${searchText.substring(0, 60)}${searchText.length > 60 ? '...' : ''}" with "${replacementText.substring(0, 60)}${replacementText.length > 60 ? '...' : ''}"`;
   }
 
   it('formats short text without truncation', () => {
     const msg = formatApprovalMessage('hello', 'world');
-    expect(msg).toBe('Academia Coscientist wants to replace "hello" with "world"');
+    expect(msg).toBe('Acabox wants to replace "hello" with "world"');
   });
 
   it('truncates long text with ellipsis', () => {
@@ -81,9 +81,9 @@ describe('approval message formatting', () => {
     expect(msg).not.toContain('a'.repeat(61));
   });
 
-  it('uses Academia Coscientist branding', () => {
+  it('uses Acabox branding', () => {
     const msg = formatApprovalMessage('x', 'y');
-    expect(msg).toContain('Academia Coscientist');
+    expect(msg).toContain('Acabox');
     expect(msg).not.toContain('Claude');
   });
 });

@@ -12,7 +12,14 @@
 
 ## Outstanding
 
-_None._
+- **B12** (2026-07-22) — `containerService.ts:27` (`findFreePort`) vs `agent-server/index.ts:752` —
+  the free-port probe binds `0.0.0.0` while the agent server binds `127.0.0.1`; on macOS the
+  wildcard probe succeeds even when another process holds the same port on loopback
+  (SO_REUSEADDR), so a second app instance (packaged + dev running together) picks the same
+  port and, because `/health` carries no instance identity, silently cross-attaches to the
+  other instance's agent server. Fix direction: probe on `127.0.0.1` and/or add an instance
+  token to `/health`. (Found by the rename review 2026-07-22; pre-existing, not
+  rename-introduced.)
 
 <!--
 B1/B2/B3 (all `shellPath.ts`) resolved together: `getLoginShellPath()` is now

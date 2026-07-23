@@ -15,8 +15,8 @@
 #   .applications/install manual <script-path> --app <dir_name>
 #
 # Managers:
-#   pip     Python packages installed into the shared Coscientist venv
-#   npm     Node packages installed into the shared Coscientist npm prefix
+#   pip     Python packages installed into the shared Acabox venv
+#   npm     Node packages installed into the shared Acabox npm prefix
 #   manual  Idempotent bash script (must live under .applications/<app>/setup/)
 #
 # Examples:
@@ -120,7 +120,7 @@ fi
 # Helpers
 # ---------------------------------------------------------------------------
 
-# Resolve the host pip binary. Prefers the bundled Coscientist venv passed in
+# Resolve the host pip binary. Prefers the bundled Acabox venv passed in
 # via COSCIENTIST_VENV_DIR; otherwise complains loudly so the user fixes the
 # environment instead of accidentally polluting system Python.
 resolve_pip() {
@@ -128,7 +128,7 @@ resolve_pip() {
     echo "$VENV_DIR/bin/pip"
     return 0
   fi
-  err "pip is unavailable — the Coscientist Python venv is not initialized."
+  err "pip is unavailable — the Acabox Python venv is not initialized."
   err "Open a notebook or restart the app to bootstrap it, then try again."
   exit 1
 }

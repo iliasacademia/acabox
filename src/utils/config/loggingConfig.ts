@@ -31,7 +31,7 @@ export const LOGGING_CONFIG = {
     enabled: process.env.DATADOG_ENABLED === 'true' || app.isPackaged,
     clientToken: process.env.DATADOG_CLIENT_TOKEN || '',
     site: process.env.DATADOG_SITE || 'datadoghq.com',
-    service: 'academia-electron',
+    service: 'acabox',
     env: app.isPackaged ? 'production' : 'development',
     // RUM application id — required for Datadog RUM browser SDK. Public, safe to bundle.
     rumApplicationId: process.env.DATADOG_APPLICATION_ID || '',

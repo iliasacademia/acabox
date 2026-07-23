@@ -69,7 +69,7 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete, o
             &larr;
           </button>
         )}
-        <span className="wsSetup__brandName">Co-scientist</span>
+        <span className="wsSetup__brandName">Acabox</span>
         <span className="wsSetup__brandLabel">SETUP</span>
       </div>
 

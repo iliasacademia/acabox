@@ -156,10 +156,10 @@ async function ensurePythonVenvInner(onProgress?: SetupProgress): Promise<void> 
     throw new PythonSetupError(
       'No Python 3 installation found on this system.',
       process.platform === 'darwin'
-        ? 'Install Python 3 via Homebrew (brew install python) or from python.org, then restart Academia Coscientist.'
+        ? 'Install Python 3 via Homebrew (brew install python) or from python.org, then restart Acabox.'
         : process.platform === 'win32'
-          ? 'Install Python 3.10+ from python.org (make sure "Add to PATH" is checked), then restart Academia Coscientist.'
-          : 'Install Python 3.10+ via your package manager (e.g. apt install python3 python3-venv), then restart Academia Coscientist.',
+          ? 'Install Python 3.10+ from python.org (make sure "Add to PATH" is checked), then restart Acabox.'
+          : 'Install Python 3.10+ via your package manager (e.g. apt install python3 python3-venv), then restart Acabox.',
     );
   }
   log.info(`[PythonSetup] Using system Python: ${systemPython}`);

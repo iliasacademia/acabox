@@ -157,7 +157,7 @@ export type CoScientistEventName = CoScientistEvent['name'];
 export const ANALYTICS_SCHEMA_VERSION = 1 as const;
 
 /** Backend event_type discriminator. */
-export const COSCIENTIST_EVENT_TYPE = 'CoScientistEvent' as const;
+export const COSCIENTIST_EVENT_TYPE = 'AcaboxEvent' as const;
 
 /**
  * The full data blob posted to `POST /api/v0/arbitrary_event`.

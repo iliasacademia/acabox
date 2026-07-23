@@ -1,4 +1,4 @@
-# clawdbox — engineering context
+# Acabox — engineering context
 
 > This file is auto-loaded at the start of every Claude Code session in this
 > repo. It is the working-context handoff for whoever (human or agent) picks
@@ -7,30 +7,36 @@
 >
 > NOTE: this is NOT the workspace-agent instructions. Those live at
 > `src/cobuilding/CLAUDE.md` and are read by the Claude that runs *inside* the
-> Coscientist app. Don't confuse the two.
+> Acabox app. Don't confuse the two.
 
 ## What this project is
 
-`clawdbox` is a slimmed-down fork of `academia-edu/academia-electron` — the
-"Academia Coscientist" Electron app. The product lets a scientist point the
-app at local research folders and use Claude to build, host, and run small
-local apps ("mini-apps") that work with their files.
+Acabox (formerly working name `clawdbox`) is a slimmed-down fork of
+`academia-edu/academia-electron` — the "Academia Coscientist" Electron app.
+The product lets a scientist point the app at local research folders and use
+Claude to build, host, and run small local apps ("mini-apps") that work with
+their files.
 
 The fork's purpose: **remove the Podman/VM container** (it ate too many
 resources) while preserving the three capabilities that matter:
 
 1. Local file access from user-shared folders for data analysis.
-2. Mini-apps live, are accessed, and used inside Coscientist.
+2. Mini-apps live, are accessed, and used inside Acabox.
 3. **New:** mini-apps can create and run MCP servers that the agent and other
    mini-apps can call.
 
 Dropped on purpose: Apple Notes, Word overlay, browser extension, Google
 Drive/Docs, Obsidian, Zotero, CiteRight, grants — and all their MCP servers.
 
-- GitHub: `https://github.com/iliasacademia/clawdbox` (private). Default
-  branch `main`. The original upstream is still wired as the `origin` remote
-  (`academia-edu/academia-electron`); `clawdbox` is a separate remote.
-- App still self-identifies as `academia-coscientist` v0.0.1 in package.json.
+- GitHub: `https://github.com/iliasacademia/acabox` (private). Default branch
+  `main` — local `main` tracks the `acabox` remote; push there. The original
+  upstream is still wired as the `origin` remote
+  (`academia-edu/academia-electron`) for reference only. The earlier
+  `clawdbox` remote/repo is retired.
+- App identity: package name `acabox`, product name "Acabox", bundle id
+  `com.electron.acabox`, userData under
+  `~/Library/Application Support/acabox/<channel>`. Deliberately disjoint
+  from the original Coscientist app so both can coexist on one machine.
 
 ## Architecture (post-slim)
 
@@ -45,7 +51,7 @@ the Electron main process:
   `mcp-call` SSE events + a `/mcp-result` POST.
 - **Jupyter kernel gateway** — spawned from the per-user Python venv on first
   notebook use. Port range `23300..23399`.
-- **Python venv** — `~/Library/Application Support/academia-electron/<channel>/python-venv`.
+- **Python venv** — `~/Library/Application Support/acabox/<channel>/python-venv`.
   Bootstrapped lazily (and now eagerly, in the background, on
   `agentInfrastructure.start`) from system `python3` (3.9+ required). Holds
   `jupyter_kernel_gateway ipykernel pandas numpy matplotlib` plus whatever
@@ -109,12 +115,12 @@ to `PATH`.
   `[BackgroundBuilder] Watching`.
 - `npx tsc --noEmit` must stay clean before committing.
 - Do NOT run `npm run package` for routine testing — production build only.
-- Logs: `~/Library/Application Support/academia-electron/development/cobuilding.log`,
+- Logs: `~/Library/Application Support/acabox/development/cobuilding.log`,
   plus the in-app Debug tab (command log + system log streams).
 - To kill stray dev instances:
   `pkill -9 -f "Desktop-app-without-container/node_modules/electron"`.
 
-## Status (last updated 2026-05-21)
+## Status (last updated 2026-07-22)
 
 **Done & verified:**
 - Boots clean, `tsc --noEmit` clean, smoke-test exits 0.
@@ -123,8 +129,14 @@ to `PATH`.
 - Mini-app MCP publishing wired end-to-end (not yet exercised with a real app).
 - Dead-code cleanup: ~80k lines of dropped integrations, no-op IPCs, vestigial
   debug UI, stale skills (google-drive, grant-finder), podman-warn hook.
-- All work committed to `clawdbox/main` (commit "Slim Academia Coscientist
-  into a host-process Electron build").
+- Login-shell PATH resolution for packaged builds (`shellPath.ts`, wired into
+  `buildSubprocessEnv`, npm probe, python discovery). Ledger: BUGS.md.
+- Renamed product to **Acabox** (was Academia Coscientist / clawdbox): app
+  name, bundle id, userData dir, protocol declaration, UI strings, analytics
+  event_type (`AcaboxEvent`), logging service tag, cookie-store salt. The
+  userData move means first launch after the rename bootstraps a fresh
+  venv/npm-site/workspace/DB.
+- Development moved to `https://github.com/iliasacademia/acabox`.
 
 **NOT yet tested at runtime (highest priority next):**
 - A real chat turn — agent doing Bash/Read/Write against a shared dir.
@@ -148,3 +160,21 @@ to `PATH`.
   (`ls /data`, `R --version`); failures there are cosmetic.
 - **Requires system Python 3.9+ and npm on PATH** for Python/npm mini-app
   deps. No bundled Python yet (python-build-standalone is a future option).
+- **No release feed yet.** The auto-updater now points at an `/acabox` channel
+  (was `/cobuild`, the ORIGINAL app's channel — it would have offered the other
+  product as an "update"). Until an Acabox feed exists, packaged-build update
+  checks 404 harmlessly.
+- **`cobuilding-agent://` deep-link scheme is shared with the original
+  Coscientist app.** The academia.edu QR-auth flow constructs those URLs, so
+  the scheme can't be renamed client-side; whichever app launched most
+  recently receives the callback. Fallback: manual 6-digit code entry.
+- **Analytics event_type is now `AcaboxEvent`** — the academia.edu backend
+  registers event classes per type, so events are likely dropped server-side
+  (fail-safe) until/unless a backend class is added. This is intentional: it
+  stops fork events polluting the original app's dashboards.
+- **Vestigial upstream CI/build files still present** (recommended for
+  deletion, kept pending owner sign-off): `buildspec.yml`, `sign-app.js`,
+  `test-cleanup.sh`, `.github/workflows/build.yml`,
+  `scripts/reset-{downloads,dev}.sh`, `scripts/cleanup-old-paths.sh`. The
+  GitHub workflow would overwrite the ORIGINAL app's S3 update manifests if
+  upstream secrets were ever configured on this repo.

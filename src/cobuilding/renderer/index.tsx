@@ -788,7 +788,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
           <div className="appLayout">
           <div className="topNavBar">
             <div className="topNavBar__brand">
-              <span className="topNavBar__brandName">Co-scientist</span>
+              <span className="topNavBar__brandName">Acabox</span>
             </div>
             <nav className="topNavBar__tabs">
               <button

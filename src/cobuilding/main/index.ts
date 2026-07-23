@@ -206,8 +206,8 @@ process.on('unhandledRejection', (reason) => {
   }
 });
 
-app.setName('Academia Coscientist');
-app.setPath('userData', path.join(app.getPath('appData'), 'academia-electron', app.isPackaged ? 'production' : 'development'));
+app.setName('Acabox');
+app.setPath('userData', path.join(app.getPath('appData'), 'acabox', app.isPackaged ? 'production' : 'development'));
 
 // Initialize Sentry after userData path is set so native minidumps land in the right directory.
 // Passing the installation_id puts a stable identity on Sentry's scope so "Users" counts
@@ -500,7 +500,7 @@ function createMainWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
-    title: 'Academia Co-scientist',
+    title: 'Acabox',
     show: false,
     webPreferences: {
       preload: COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY,
@@ -691,7 +691,7 @@ app.whenReady().then(async () => {
   } catch (error) {
     log.error('[APP] Fatal error during startup:', error);
     dialog.showErrorBox(
-      'Academia Coscientist - Startup Error',
+      'Acabox - Startup Error',
       `The application failed to start.\n\n${error instanceof Error ? error.message : String(error)}\n\nCheck the log file for details:\n${log.transports.file.getFile().path}`,
     );
   }

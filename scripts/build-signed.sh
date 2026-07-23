@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Script to build and sign the Academia Electron app locally
+# Script to build and sign the Acabox app locally
 # This script requires environment variables to be set for code signing and notarization
 
 set -e
 
-echo "🔨 Academia Electron - Signed Build Script"
+echo "🔨 Acabox - Signed Build Script"
 echo "=========================================="
 echo ""
 

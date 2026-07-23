@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Generate timestamp-based version for Academia Electron App
+# Generate timestamp-based version for Acabox App
 # Format: YYYYMMDDHHMMSS[-beta]
 # Example: 20250106143022 (stable) or 20250106143022-beta (beta)
 
