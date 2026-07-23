@@ -15,6 +15,7 @@ import { app } from 'electron';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as path from 'path';
+import { getLoginShellPath, prewarmLoginShellPath } from './shellPath';
 
 const execFileAsync = promisify(execFile);
 
@@ -43,8 +44,15 @@ export class NpmUnavailableError extends Error {
  */
 export async function ensureNpmAvailable(): Promise<string> {
   const probe = process.platform === 'win32' ? 'where' : 'which';
+  // Probe under the login-shell PATH — the same PATH the actual npm install
+  // runs with (via buildSubprocessEnv) — so a Finder/Dock-launched build
+  // doesn't reject npm that lives in Homebrew/nvm dirs launchd omits.
+  await prewarmLoginShellPath();
   try {
-    const { stdout } = await execFileAsync(probe, ['npm'], { timeout: 5000 });
+    const { stdout } = await execFileAsync(probe, ['npm'], {
+      timeout: 5000,
+      env: { ...process.env, PATH: getLoginShellPath() },
+    });
     const resolved = stdout.split(/\r?\n/).map(s => s.trim()).filter(Boolean)[0];
     if (resolved) return resolved;
   } catch { /* fallthrough */ }

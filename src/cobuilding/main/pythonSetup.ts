@@ -18,6 +18,7 @@ import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import log from 'electron-log';
+import { getLoginShellPath, prewarmLoginShellPath } from './shellPath';
 
 const execFileAsync = promisify(execFile);
 
@@ -46,22 +47,39 @@ export function venvExists(): boolean {
   return fs.existsSync(venvBin('python'));
 }
 
+/**
+ * Find a suitable system Python (3.9+) and return its ABSOLUTE path, or null.
+ *
+ * The probe runs under the login-shell PATH so a Finder/Dock-launched build
+ * (minimal launchd PATH) still finds a Homebrew/pyenv interpreter — and can
+ * prefer it over the /usr/bin/python3 CLT stub. Returning `sys.executable`
+ * (always absolute) rather than the bare candidate name means the later
+ * `python -m venv` spawn invokes the exact interpreter we validated here,
+ * regardless of what PATH that spawn inherits.
+ */
 export async function findSystemPython(): Promise<string | null> {
   const candidates = process.platform === 'win32'
     ? ['python', 'py']
     : ['python3', 'python'];
+  await prewarmLoginShellPath();
+  const env = { ...process.env, PATH: getLoginShellPath() };
+  // Marker-delimited so banners a sitecustomize.py or wrapper script prints
+  // to stdout can't shift our payload (same trick shellPath.ts uses).
+  const probe =
+    'import sys; print("__CB_PY__%d.%d|%s__CB_PY__" % (sys.version_info[0], sys.version_info[1], sys.executable))';
   for (const cand of candidates) {
     try {
-      const { stdout } = await execFileAsync(cand, ['--version'], { timeout: 5000 });
-      const versionMatch = stdout.match(/Python (\d+)\.(\d+)/);
-      if (versionMatch) {
-        const major = parseInt(versionMatch[1], 10);
-        const minor = parseInt(versionMatch[2], 10);
-        if (major === 3 && minor >= 9) {
-          return cand;
+      const { stdout } = await execFileAsync(cand, ['-c', probe], { timeout: 5000, env });
+      const match = stdout.match(/__CB_PY__(\d+)\.(\d+)\|([\s\S]*?)__CB_PY__/);
+      if (match) {
+        const major = parseInt(match[1], 10);
+        const minor = parseInt(match[2], 10);
+        const exePath = match[3].trim();
+        if (major === 3 && minor >= 9 && exePath) {
+          return exePath;
         }
       }
-    } catch { /* not in PATH */ }
+    } catch { /* not in PATH, or a CLT stub that exits non-zero */ }
   }
   return null;
 }

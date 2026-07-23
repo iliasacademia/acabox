@@ -20,6 +20,7 @@ import { commandLogger, parseAppDirFromArgs, type CommandSource } from './comman
 import { captureError } from '../shared/telemetry';
 import { ensurePythonVenv, getVenvDir as getPythonVenvDir } from './pythonSetup';
 import { getNpmPrefix, getNpmNodeModulesPath } from './nodeSetup';
+import { getLoginShellPath, prewarmLoginShellPath } from './shellPath';
 
 const execFileAsync = promisify(execFile);
 
@@ -81,7 +82,10 @@ function buildSubprocessEnv(): NodeJS.ProcessEnv {
   const binSep = process.platform === 'win32' ? ';' : ':';
   const venvBinDir = path.join(venvDir, process.platform === 'win32' ? 'Scripts' : 'bin');
   const npmBinDir = process.platform === 'win32' ? npmPrefix : path.join(npmPrefix, 'bin');
-  const existingPath = process.env.PATH ?? '';
+  // Use the resolved login-shell PATH (Homebrew/nvm/etc.), not the minimal
+  // launchd PATH a Finder/Dock launch inherits, so subprocesses can find
+  // user-installed npm/node. Warm on a cache hit; see prewarm in start().
+  const existingPath = getLoginShellPath();
   return {
     ...process.env,
     COSCIENTIST_VENV_DIR: venvDir,
@@ -120,7 +124,15 @@ class HostProcessService {
     if (this.isStarting) return;
     this.isStarting = true;
     try {
-      await this.syncWorkspaceSymlinks(mountMap);
+      // Resolve the login-shell PATH off the event loop before start()
+      // returns, so the synchronous getLoginShellPath() in buildSubprocessEnv
+      // (main thread, reached via agentInfrastructure.start → startAgentServer)
+      // is guaranteed a warm cache. Overlapped with the symlink sync since
+      // neither depends on the other.
+      await Promise.all([
+        prewarmLoginShellPath(),
+        this.syncWorkspaceSymlinks(mountMap),
+      ]);
       onProgress?.('ready', 'Host process service ready', 100);
       this.startedFlag = true;
     } finally {
