@@ -4,6 +4,7 @@ import {
   type PreToolUseHookInput,
 } from "@anthropic-ai/claude-agent-sdk";
 import * as path from "path";
+import { app } from "electron";
 import log from "electron-log";
 import { tree as generateTreeCli } from "tree-node-cli";
 import { createDocumentReaderMcpServer } from "./documentReaderMcpServer";
@@ -197,6 +198,11 @@ export function buildCommonQueryOptions(ctx: ScanContext) {
       ...process.env,
       ANTHROPIC_API_KEY: apiKey,
       ...(baseURL ? { ANTHROPIC_BASE_URL: baseURL } : {}),
+      // Pin the scanner's Claude Code CLI state under our own userData. Without
+      // this it defaults to ~/.claude + ~/.claude.json, which the original app
+      // and the user's own Claude Code CLI also read/rewrite — Acabox scans
+      // would race and mutate shared global state.
+      CLAUDE_CONFIG_DIR: path.join(app.getPath('userData'), 'scanner-claude-config'),
     },
     mcpServers: {
       "document-reader": createDocumentReaderMcpServer(directoryPaths, hasDriveItems),

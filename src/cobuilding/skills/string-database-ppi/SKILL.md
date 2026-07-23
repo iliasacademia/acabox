@@ -38,7 +38,7 @@ STRING_API = "https://string-db.org/api"
 def string_get(endpoint: str, params: dict) -> list:
     """GET request to STRING API. Returns parsed JSON."""
     params.setdefault("format", "json")
-    params.setdefault("caller_identity", "academia_cobuilding")
+    params.setdefault("caller_identity", "acabox")
     r = requests.get(f"{STRING_API}/{endpoint}", params=params, timeout=30)
     r.raise_for_status()
     return r.json()
@@ -126,7 +126,7 @@ def export_network_tsv(gene_list: list, outpath: str = "./string_output/network.
     params = {
         "identifiers": "%0d".join(gene_list),
         "species": 9606,
-        "caller_identity": "academia_cobuilding",
+        "caller_identity": "acabox",
     }
     r = requests.get(f"{STRING_API}/tsv/network", params=params, timeout=30)
     r.raise_for_status()

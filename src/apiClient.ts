@@ -130,7 +130,7 @@ export const APIclient = async (enableLogging = true): Promise<AxiosInstance> =>
     httpAgent: new HttpCookieAgent(agentArgs),
     headers: {
       Accept: 'application/json',
-      'User-Agent': `WritingAgent/${app.getVersion()}`,
+      'User-Agent': `Acabox/${app.getVersion()}`,
     },
   });
 
@@ -220,7 +220,7 @@ export const getCsrfToken = async (): Promise<string> => {
   const client = await APIclient();
   const headers = {
     Accept: '*/*',
-    'User-Agent': `WritingAgent/${app.getVersion()}`,
+    'User-Agent': `Acabox/${app.getVersion()}`,
     'Content-Type': 'application/x-www-form-urlencoded',
     'Content-Length': 0,
     'Accept-Encoding': 'gzip, deflate, br',

@@ -30,7 +30,10 @@ export function initSentryMain(installationId: string): void {
 
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
-    release: app.getVersion(),
+    // Prefix the release with the app slug so events stay filterable even if a
+    // build ever reuses the original app's Sentry DSN. Must match the release
+    // name the source-map upload uses in webpack.plugins.js.
+    release: `acabox@${app.getVersion()}`,
     environment: app.isPackaged ? 'production' : 'development',
     tracesSampleRate: 0.1,
     // Session tracking for release-health is enabled by default in @sentry/electron v7+.
@@ -45,6 +48,7 @@ export function initSentryMain(installationId: string): void {
       ),
   });
 
+  Sentry.setTag('app', 'acabox');
   Sentry.setUser({ id: installationId });
 
   setCaptureImpl((error, options) => {

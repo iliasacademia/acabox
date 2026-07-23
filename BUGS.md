@@ -12,14 +12,23 @@
 
 ## Outstanding
 
-- **B12** (2026-07-22) — `containerService.ts:27` (`findFreePort`) vs `agent-server/index.ts:752` —
-  the free-port probe binds `0.0.0.0` while the agent server binds `127.0.0.1`; on macOS the
-  wildcard probe succeeds even when another process holds the same port on loopback
-  (SO_REUSEADDR), so a second app instance (packaged + dev running together) picks the same
-  port and, because `/health` carries no instance identity, silently cross-attaches to the
-  other instance's agent server. Fix direction: probe on `127.0.0.1` and/or add an instance
-  token to `/health`. (Found by the rename review 2026-07-22; pre-existing, not
-  rename-introduced.)
+- **B12** (2026-07-22) — `containerService.ts:27` (`findFreePort`) vs `agent-server/index.ts:752`
+  and the kernel gateway (`containerService.ts:538`) — the free-port probe binds `0.0.0.0` while
+  the agent server and kernel gateway bind `127.0.0.1`; on macOS the wildcard probe succeeds even
+  when another process holds the same port on loopback (SO_REUSEADDR), so a second app instance
+  (packaged + dev together) picks the same port and, because neither `/health` nor the kernel
+  gateway carries an instance identity, silently cross-attaches to the other instance's server.
+  The pollution review's port-range move (kernel → 23400-23499) only removes overlap with the
+  *original* container-era app; two Acabox instances still collide. Fix direction: probe on
+  `127.0.0.1`, and add a per-instance token to `/health` + `--KernelGatewayApp.auth_token`.
+  (Found by the rename/pollution reviews 2026-07-22; pre-existing, not rename-introduced.)
+
+- **B13** (2026-07-22) — `src/apiClient.ts:133,223` — the academia.edu User-Agent was changed from
+  `WritingAgent/<ver>` to `Acabox/<ver>` to stop the fork masquerading as the original app in
+  academia's server-side request logs/UA funnels. Low risk, but UNVERIFIED against the backend:
+  if any desktop-API endpoint gates access on the `WritingAgent` UA prefix, login/credential
+  fetch could break. Verify a real login after this change; if it breaks, that's a backend
+  coordination item (revert the UA or have the backend accept `Acabox`).
 
 <!--
 B1/B2/B3 (all `shellPath.ts`) resolved together: `getLoginShellPath()` is now

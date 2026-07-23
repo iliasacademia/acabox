@@ -90,7 +90,7 @@ module.exports = [
     org: process.env.SENTRY_ORG,
     project: process.env.SENTRY_PROJECT,
     authToken: process.env.SENTRY_AUTH_TOKEN,
-    release: { name: require('./package.json').version },
+    release: { name: 'acabox@' + require('./package.json').version },
     disable:
       !process.env.SENTRY_AUTH_TOKEN ||
       !process.env.SENTRY_ORG ||

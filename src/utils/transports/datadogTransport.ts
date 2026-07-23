@@ -22,7 +22,7 @@ function getDatadogLogsIntakeUrl(): string {
   const baseUrl = siteMap[site] || siteMap['datadoghq.com'];
   // Client token passed as dd-api-key query parameter (this is correct even for client tokens)
   // Also include ddsource for proper log categorization
-  return `${baseUrl}?dd-api-key=${clientToken}&ddsource=electron-main`;
+  return `${baseUrl}?dd-api-key=${clientToken}&ddsource=acabox-electron-main`;
 }
 
 /**
@@ -84,7 +84,7 @@ export function createDatadogTransport(): HttpTransport | null {
         service,
 
         // Standard Datadog attributes
-        ddsource: 'electron-main',
+        ddsource: 'acabox-electron-main',
         ddtags: `env:${env},version:${metadata.appVersion},channel:${metadata.channel}`,
 
         // Custom attributes

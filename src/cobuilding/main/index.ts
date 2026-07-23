@@ -181,7 +181,6 @@ log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [v' + app.getVersio
 log.transports.console.level = app.isPackaged ? false : 'debug';
 
 import { systemLogger } from './systemLogger';
-systemLogger.init();
 
 let _handlingFatalError = false;
 process.on('uncaughtException', (error) => {
@@ -208,6 +207,11 @@ process.on('unhandledRejection', (reason) => {
 
 app.setName('Acabox');
 app.setPath('userData', path.join(app.getPath('appData'), 'acabox', app.isPackaged ? 'production' : 'development'));
+
+// Init the system logger only after userData is redirected above — it caches
+// the log-file path at init time, so initializing earlier would pin it to the
+// default (productName) dir instead of acabox/<channel>.
+systemLogger.init();
 
 // Initialize Sentry after userData path is set so native minidumps land in the right directory.
 // Passing the installation_id puts a stable identity on Sentry's scope so "Users" counts
@@ -546,7 +550,11 @@ function createMainWindow(): void {
 app.whenReady().then(async () => {
   processCpuMonitor.start();
 
-  if (process.platform === 'darwin') {
+  // Only in packaged builds: under `npm start` the process runs as the stock
+  // Electron dev binary (bundle id com.github.Electron), so this write would
+  // land in the shared com.github.Electron preferences domain that every
+  // Electron project's dev runs — including the original app's — share.
+  if (process.platform === 'darwin' && app.isPackaged) {
     systemPreferences.setUserDefault('NSNavPanelExpandedStateForSaveMode2', 'boolean', true as any);
   }
 
@@ -663,13 +671,15 @@ app.whenReady().then(async () => {
     log.info('[APP] Updater and tray initialized.');
 
     createQuickChatWindow(mainWindow!);
-    const shortcutRegistered = globalShortcut.register('Alt+Shift+Space', () => {
+    // Alt+Shift+A rather than the original app's Alt+Shift+Space, so the two
+    // apps don't fight over one OS-wide exclusive hotkey when both are running.
+    const shortcutRegistered = globalShortcut.register('Alt+Shift+A', () => {
       showQuickChat();
     });
     if (!shortcutRegistered) {
-      log.warn('[APP] Failed to register global shortcut Option+Shift+Space — may be in use by another app');
+      log.warn('[APP] Failed to register global shortcut Alt+Shift+A — may be in use by another app');
     } else {
-      log.info('[APP] Global shortcut Option+Shift+Space registered');
+      log.info('[APP] Global shortcut Alt+Shift+A registered');
     }
 
     initSchedulingDatabase(app.getPath('userData'));

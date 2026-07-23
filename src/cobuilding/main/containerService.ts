@@ -535,7 +535,10 @@ class HostProcessService {
     });
 
     if (!this.kernelPort) {
-      this.kernelPort = await findFreePort(23300, 23399);
+      // 23400-23499, disjoint from the original container-era app's host port
+      // window (agent 23300-23320, kernel 23330-23350), so both apps running
+      // at once don't contend for the same kernel-gateway port.
+      this.kernelPort = await findFreePort(23400, 23499);
     }
 
     const jupyterBin = getVenvBin('jupyter');
