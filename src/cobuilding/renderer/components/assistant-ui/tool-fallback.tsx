@@ -1,347 +1,152 @@
-import React, { memo, useCallback, useRef, useState } from 'react';
+import React, { memo, useEffect, useState } from 'react';
+import type { ToolCallMessagePartComponent, ToolCallMessagePartStatus } from '@assistant-ui/react';
+import { MSymbol } from '../command-desk/MSymbol';
+import { useToolElapsed, useToolFinalElapsed, useSubagentProgress } from '../../progressStore';
 import {
-  AlertCircleIcon,
-  CheckIcon,
-  ChevronDownIcon,
-  LoaderIcon,
-  XCircleIcon,
-} from 'lucide-react';
-import {
-  useScrollLock,
-  type ToolCallMessagePartStatus,
-  type ToolCallMessagePartComponent,
-} from '@assistant-ui/react';
-import { FindAndReplaceSuggestion } from './find-and-replace-suggestion';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '../ui/collapsible';
-import { getToolLabel } from './tool-labels';
-import { useToolElapsed, useSubagentProgress } from '../../progressStore';
+  getToolCardDisplay,
+  resolveToolArgs,
+  toolResultToText,
+  formatToolSeconds,
+} from './tool-card-display';
 
-const ANIMATION_DURATION = 200;
-
-export type ToolFallbackRootProps = Omit<
-  React.ComponentProps<typeof Collapsible>,
-  'open' | 'onOpenChange'
-> & {
-  open?: boolean;
-  onOpenChange?: (open: boolean) => void;
-  defaultOpen?: boolean;
-};
-
-function ToolFallbackRoot({
-  className,
-  open: controlledOpen,
-  onOpenChange: controlledOnOpenChange,
-  defaultOpen = false,
-  children,
-  ...props
-}: ToolFallbackRootProps) {
-  const collapsibleRef = useRef<HTMLDivElement>(null);
-  const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
-  const lockScroll = useScrollLock(collapsibleRef, ANIMATION_DURATION);
-
-  const isControlled = controlledOpen !== undefined;
-  const isOpen = isControlled ? controlledOpen : uncontrolledOpen;
-
-  const handleOpenChange = useCallback(
-    (open: boolean) => {
-      if (!open) {
-        lockScroll();
-      }
-      if (!isControlled) {
-        setUncontrolledOpen(open);
-      }
-      controlledOnOpenChange?.(open);
-    },
-    [lockScroll, isControlled, controlledOnOpenChange],
-  );
-
-  return (
-    <Collapsible
-      ref={collapsibleRef}
-      data-slot="tool-fallback-root"
-      open={isOpen}
-      onOpenChange={handleOpenChange}
-      className={`toolFallbackRoot${className ? ` ${className}` : ''}`}
-      {...props}
-    >
-      {children}
-    </Collapsible>
-  );
-}
-
-type ToolStatus = ToolCallMessagePartStatus['type'];
-
-const statusIconMap: Record<ToolStatus, React.ElementType> = {
-  running: LoaderIcon,
-  complete: CheckIcon,
-  incomplete: XCircleIcon,
-  'requires-action': AlertCircleIcon,
-};
-
-function formatElapsed(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.round(seconds % 60);
-  return `${mins}m ${secs}s`;
-}
-
-function ToolFallbackTrigger({
-  toolName,
-  toolCallId,
-  status,
-  args,
-  argsText,
-  className,
-  ...props
-}: React.ComponentProps<typeof CollapsibleTrigger> & {
-  toolName: string;
-  toolCallId?: string;
-  status?: ToolCallMessagePartStatus;
-  args?: Record<string, unknown>;
-  argsText?: string;
-}) {
-  const statusType = status?.type ?? 'complete';
-  const isRunning = statusType === 'running';
-  const isCancelled =
-    status?.type === 'incomplete' && status.reason === 'cancelled';
-  const elapsed = useToolElapsed(toolCallId ?? '');
-
-  const Icon = statusIconMap[statusType];
-  const humanLabel = isCancelled
-    ? 'Cancelled tool'
-    : getToolLabel(toolName, args, argsText, status);
-
-  return (
-    <CollapsibleTrigger
-      data-slot="tool-fallback-trigger"
-      className={`toolFallbackTrigger${className ? ` ${className}` : ''}`}
-      {...props}
-    >
-      <Icon
-        data-slot="tool-fallback-trigger-icon"
-        className={`toolFallbackTriggerIcon${isCancelled ? ' toolFallbackTriggerIcon--cancelled' : ''}${isRunning ? ' toolFallbackTriggerIcon--running' : ''}`}
-      />
-      <span
-        data-slot="tool-fallback-trigger-label"
-        className={`toolFallbackTriggerLabel${isCancelled ? ' toolFallbackTriggerLabel--cancelled' : ''}`}
-      >
-        <span>{humanLabel}</span>
-      </span>
-      {isRunning && elapsed !== null && (
-        <span className="toolElapsedTime">{formatElapsed(elapsed)}</span>
-      )}
-      <ChevronDownIcon
-        data-slot="tool-fallback-trigger-chevron"
-        className="toolFallbackChevron"
-      />
-    </CollapsibleTrigger>
-  );
-}
-
-function ToolFallbackContent({
-  className,
-  children,
-  ...props
-}: React.ComponentProps<typeof CollapsibleContent>) {
-  return (
-    <CollapsibleContent
-      data-slot="tool-fallback-content"
-      className={className}
-      {...props}
-    >
-      <div className="toolFallbackContentInner">{children}</div>
-    </CollapsibleContent>
-  );
-}
-
-function ToolFallbackArgs({
-  argsText,
-  className,
-  ...props
-}: React.ComponentProps<'div'> & {
-  argsText?: string;
-}) {
-  if (!argsText) return null;
-
-  return (
-    <div
-      data-slot="tool-fallback-args"
-      className={`toolFallbackArgs${className ? ` ${className}` : ''}`}
-      {...props}
-    >
-      <pre className="toolFallbackArgsValue">{argsText}</pre>
-    </div>
-  );
-}
-
-function ToolFallbackResult({
-  result,
-  className,
-  ...props
-}: React.ComponentProps<'div'> & {
-  result?: unknown;
-}) {
-  if (result === undefined) return null;
-
-  return (
-    <div
-      data-slot="tool-fallback-result"
-      className={`toolFallbackResult${className ? ` ${className}` : ''}`}
-      {...props}
-    >
-      <p className="toolFallbackResultHeader">Result:</p>
-      <pre className="toolFallbackResultContent">
-        {typeof result === 'string' ? result : JSON.stringify(result, null, 2)}
-      </pre>
-    </div>
-  );
-}
-
-function ToolFallbackError({
-  status,
-  className,
-  ...props
-}: React.ComponentProps<'div'> & {
-  status?: ToolCallMessagePartStatus;
-}) {
-  if (status?.type !== 'incomplete') return null;
-
-  const error = status.error;
-  const errorText = error
-    ? typeof error === 'string'
-      ? error
-      : JSON.stringify(error)
-    : null;
-
-  if (!errorText) return null;
-
-  const isCancelled = status.reason === 'cancelled';
-  const headerText = isCancelled ? 'Cancelled reason:' : 'Error:';
-
-  return (
-    <div
-      data-slot="tool-fallback-error"
-      className={`toolFallbackErrorSection${className ? ` ${className}` : ''}`}
-      {...props}
-    >
-      <p className="toolFallbackErrorHeader">{headerText}</p>
-      <p className="toolFallbackErrorReason">{errorText}</p>
-    </div>
-  );
-}
-
-function formatDuration(ms: number): string {
-  const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${mins}m ${secs}s`;
-}
+/**
+ * Tool-call card — an instrument readout, not a chat bubble (Phase B spec).
+ * Collapsed row: status dot · tool icon · mono name · key args · right meta ·
+ * chevron. Expanded: the result tail in a mono <pre>. Errors tint the card
+ * and auto-expand on completion.
+ */
 
 function SubagentStatusLine({ parentToolCallId }: { parentToolCallId: string }) {
   const progress = useSubagentProgress(parentToolCallId);
   if (!progress) return null;
 
-  const isRunning = progress.status === 'running';
-  const isDone = progress.status === 'completed';
-  const isFailed = progress.status === 'failed' || progress.status === 'stopped';
-
-  let statusText: string;
-  if (isRunning) {
-    const parts: string[] = [];
-    if (progress.lastToolName) {
-      parts.push(getToolLabel(progress.lastToolName, undefined));
-    }
-    if (progress.summary) {
-      parts.push(progress.summary);
-    }
-    statusText = parts.join(' \u2014 ') || 'Working...';
+  const parts: string[] = [];
+  if (progress.status === 'running') {
+    if (progress.summary) parts.push(progress.summary);
+    else parts.push('WORKING');
   } else {
-    statusText = progress.summary || (isDone ? 'Completed' : 'Failed');
+    parts.push(progress.summary || progress.status.toUpperCase());
   }
+  if (progress.toolUseCount > 0) parts.push(`${progress.toolUseCount} TOOLS`);
+  if (progress.durationMs > 0) parts.push(formatToolSeconds(progress.durationMs / 1000));
 
-  return (
-    <div className={`subagentStatusLine${isFailed ? ' subagentStatusLine--failed' : isDone ? ' subagentStatusLine--done' : ''}`}>
-      {isRunning && <LoaderIcon className="subagentStatusIcon subagentStatusIcon--running" />}
-      {isDone && <CheckIcon className="subagentStatusIcon subagentStatusIcon--done" />}
-      {isFailed && <XCircleIcon className="subagentStatusIcon subagentStatusIcon--failed" />}
-      <span className="subagentStatusText">{statusText}</span>
-      {(progress.durationMs > 0 || progress.toolUseCount > 0) && (
-        <span className="subagentStatusMeta">
-          {progress.toolUseCount > 0 && `${progress.toolUseCount} tool${progress.toolUseCount !== 1 ? 's' : ''}`}
-          {progress.toolUseCount > 0 && progress.durationMs > 0 && ' \u00b7 '}
-          {progress.durationMs > 0 && formatDuration(progress.durationMs)}
-        </span>
-      )}
-    </div>
-  );
+  return <div className="cdTool__subline">{parts.join(' · ')}</div>;
 }
 
 const ToolFallbackImpl: ToolCallMessagePartComponent = (props: any) => {
-  const { toolName, toolCallId, args, argsText, result, status } = props;
+  const { toolName, toolCallId, args, argsText, result, isError, status } = props as {
+    toolName: string;
+    toolCallId: string;
+    args?: Record<string, unknown>;
+    argsText?: string;
+    result?: unknown;
+    isError?: boolean;
+    status?: ToolCallMessagePartStatus;
+  };
 
-  // Delegate to suggestion card for find_and_replace proposals from any host app.
-  if (
-    toolName === 'mcp__ms-word__find_and_replace' ||
-    toolName === 'mcp__obsidian__find_and_replace' ||
-    toolName === 'mcp__apple-notes__find_and_replace' ||
-    toolName === 'mcp__google-docs__find_and_replace'
-  ) {
-    return <FindAndReplaceSuggestion {...props} />;
+  const statusType = status?.type ?? 'complete';
+  const isRunning = statusType === 'running';
+  const isCancelled = statusType === 'incomplete' && (status as any)?.reason === 'cancelled';
+  const failed = !isRunning && (isError === true || (statusType === 'incomplete' && !isCancelled));
+
+  const [open, setOpen] = useState(false);
+  // Errors auto-expand once, when the failure lands.
+  useEffect(() => {
+    if (failed) setOpen(true);
+  }, [failed]);
+
+  const display = getToolCardDisplay(toolName, args, argsText);
+  const elapsed = useToolElapsed(toolCallId);
+  const finalElapsed = useToolFinalElapsed(toolCallId);
+  const outputText = toolResultToText(result);
+
+  let meta: React.ReactNode = null;
+  if (isRunning) {
+    meta = (
+      <span className="cdTool__meta cdTool__meta--running">
+        {elapsed != null ? `RUNNING · ${formatToolSeconds(elapsed)}` : 'RUNNING'}
+      </span>
+    );
+  } else if (isCancelled) {
+    meta = <span className="cdTool__meta">CANCELLED</span>;
+  } else if (failed) {
+    meta = <span className="cdTool__meta cdTool__meta--error">{extractExitMeta(toolName, args, argsText, outputText) ?? 'ERROR'}</span>;
+  } else if (finalElapsed != null) {
+    meta = <span className="cdTool__meta">{formatToolSeconds(finalElapsed)}</span>;
+  } else {
+    const lineMeta = resultLineMeta(toolName, args, argsText, outputText);
+    if (lineMeta) meta = <span className="cdTool__meta">{lineMeta}</span>;
   }
 
-  const isCancelled =
-    status?.type === 'incomplete' && status.reason === 'cancelled';
-  const isAgent = toolName === 'Agent';
+  const expandable = outputText.length > 0;
+  const dotClass = isRunning
+    ? 'cdDot--busy cdDot--pulse'
+    : failed
+      ? 'cdDot--error'
+      : isCancelled
+        ? 'cdDot--sleeping'
+        : 'cdDot--running';
 
   return (
-    <ToolFallbackRoot
-      className={isCancelled ? 'toolFallbackRoot--cancelled' : ''}
-    >
-      <ToolFallbackTrigger toolName={toolName} toolCallId={toolCallId} status={status} args={args} argsText={argsText} />
-      {isAgent && <SubagentStatusLine parentToolCallId={toolCallId} />}
-      <ToolFallbackContent>
-        <p className="toolFallbackDetailHeader">Used tool: {toolName}</p>
-        <ToolFallbackError status={status} />
-        <ToolFallbackArgs
-          argsText={argsText}
-          className={isCancelled ? 'toolFallbackArgs--cancelled' : undefined}
-        />
-        {!isCancelled && <ToolFallbackResult result={result} />}
-      </ToolFallbackContent>
-    </ToolFallbackRoot>
+    <div className={`cdTool${failed ? ' cdTool--error' : ''}${open && expandable ? ' cdTool--open' : ''}`}>
+      <button
+        type="button"
+        className="cdTool__row"
+        onClick={() => expandable && setOpen((v) => !v)}
+        aria-expanded={open && expandable}
+      >
+        <span className={`cdDot ${dotClass}`} />
+        <MSymbol name={display.icon} size={15} className="cdTool__icon" />
+        <span className="cdTool__name">{display.name}</span>
+        <span className="cdTool__args">{display.args}</span>
+        {meta}
+        {expandable && (
+          <MSymbol name={open ? 'expand_less' : 'expand_more'} size={16} className="cdTool__chevron" />
+        )}
+      </button>
+      {toolName === 'Agent' && <SubagentStatusLine parentToolCallId={toolCallId} />}
+      {open && expandable && (
+        <pre className={`cdTool__out${failed ? ' cdTool__outError' : ''}`}>{outputText}</pre>
+      )}
+    </div>
   );
 };
 
-const ToolFallback = memo(
-  ToolFallbackImpl,
-) as unknown as ToolCallMessagePartComponent & {
-  Root: typeof ToolFallbackRoot;
-  Trigger: typeof ToolFallbackTrigger;
-  Content: typeof ToolFallbackContent;
-  Args: typeof ToolFallbackArgs;
-  Result: typeof ToolFallbackResult;
-  Error: typeof ToolFallbackError;
-};
+/** "EXIT 1" when a Bash failure reports its exit code; null otherwise. */
+function extractExitMeta(
+  toolName: string,
+  args: Record<string, unknown> | undefined,
+  argsText: string | undefined,
+  output: string,
+): string | null {
+  if (toolName !== 'Bash') return null;
+  const m = output.match(/exit(?:ed with)?(?: code| status)?[ :]+(\d+)/i);
+  return m ? `EXIT ${m[1]}` : null;
+}
 
-ToolFallback.displayName = 'ToolFallback';
-ToolFallback.Root = ToolFallbackRoot;
-ToolFallback.Trigger = ToolFallbackTrigger;
-ToolFallback.Content = ToolFallbackContent;
-ToolFallback.Args = ToolFallbackArgs;
-ToolFallback.Result = ToolFallbackResult;
-ToolFallback.Error = ToolFallbackError;
+/** Line-count meta for file and shell instruments when no duration is known. */
+function resultLineMeta(
+  toolName: string,
+  args: Record<string, unknown> | undefined,
+  argsText: string | undefined,
+  output: string,
+): string | null {
+  if (toolName === 'Write' || toolName === 'Edit') {
+    const a = resolveToolArgs(args, argsText);
+    const content = a?.content ?? a?.new_string;
+    if (typeof content === 'string' && content.length > 0) {
+      return `${content.split('\n').length} LINES`;
+    }
+    return null;
+  }
+  if ((toolName === 'Read' || toolName === 'Bash') && output) {
+    const lines = output.split('\n').length;
+    if (lines > 1) return `${lines} LINES`;
+  }
+  return null;
+}
 
-export {
-  ToolFallback,
-  ToolFallbackRoot,
-  ToolFallbackTrigger,
-  ToolFallbackContent,
-  ToolFallbackArgs,
-  ToolFallbackResult,
-  ToolFallbackError,
-};
+const ToolFallback = memo(ToolFallbackImpl) as unknown as ToolCallMessagePartComponent;
+(ToolFallback as any).displayName = 'ToolFallback';
+
+export { ToolFallback };

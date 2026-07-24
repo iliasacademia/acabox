@@ -25,7 +25,7 @@ interface FilesAPI {
   readFile(filePath: string): Promise<FileContent>;
   fileExists(filePath: string): Promise<boolean>;
   findByName(filename: string, hintDirs: string[]): Promise<string | null>;
-  findByExtension(extensions: string[]): Promise<{ relPath: string; mtimeMs: number }[]>;
+  findByExtension(extensions: string[]): Promise<{ relPath: string; path: string; mtimeMs: number; size: number }[]>;
   downloadFile(filename: string, content: string): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean }>;
   showInFinder(filePath: string): Promise<void>;
   revealInFinder(filePath: string): Promise<void>;
@@ -161,7 +161,7 @@ declare global {
     readFile(filePath: string): Promise<FileContent>;
     fileExists(filePath: string): Promise<boolean>;
     findByName(filename: string, hintDirs: string[]): Promise<string | null>;
-  findByExtension(extensions: string[]): Promise<{ relPath: string; mtimeMs: number }[]>;
+    findByExtension(extensions: string[]): Promise<{ relPath: string; path: string; mtimeMs: number; size: number }[]>;
     writeFile(filePath: string, content: string): Promise<void>;
     downloadFile(filename: string, content: string): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean }>;
     showInFinder(filePath: string): Promise<void>;
@@ -220,6 +220,19 @@ declare global {
     onTitleUpdated(callback: (sessionId: string, title: string) => void): () => void;
     onSessionsChanged(callback: () => void): () => void;
     onForeignTurnDone(callback: (sessionId: string) => void): () => void;
+  }
+
+  interface SystemStats {
+    cpuPercent: number;
+    memUsedBytes: number;
+    memTotalBytes: number;
+    diskUsedBytes: number | null;
+    diskTotalBytes: number | null;
+    appUptimeSec: number;
+  }
+
+  interface SystemStatsAPI {
+    get(): Promise<SystemStats>;
   }
 
   interface ContainerAPI {
@@ -379,7 +392,6 @@ declare global {
      * subsystem: optional tag applied when kind === 'capture'
      */
     telemetryTest(kind: string, subsystem?: string): Promise<{ ok: boolean; error?: string }>;
-    triggerInDepthSuggestions(): Promise<void>;
   }
 
   interface SettingsAPI {
@@ -625,13 +637,7 @@ declare global {
     }): Promise<PapersFetchResult>;
   }
 
-  type BriefingType =
-    | 'suggested_action'
-    | 'suggested_tool'
-    | 'paper'
-    | 'citation'
-    | 'grant'
-    | 'writing_agent';
+  type BriefingType = 'writing_agent';
 
   type BriefingStatus = 'new' | 'opened' | 'dismissed';
 
@@ -646,37 +652,6 @@ declare global {
     source_report_id: string | null;
     created_at: string;
     updated_at: string;
-  }
-
-  interface BriefingDataSuggestedTool {
-    name: string;
-    details_on_what_to_build: string;
-  }
-
-  interface BriefingDataSuggestedAction {
-    title: string;
-    description: string;
-    chat_prompt: string;
-  }
-
-  interface BriefingDataPaper {
-    title: string;
-    authors?: string[];
-    url?: string;
-    abstract?: string;
-  }
-
-  interface BriefingDataCitation {
-    paper_title: string;
-    citing_work: string;
-    url?: string;
-  }
-
-  interface BriefingDataGrant {
-    title: string;
-    agency: string;
-    deadline?: string;
-    url?: string;
   }
 
   interface BriefingDataWritingAgent {
@@ -706,21 +681,6 @@ declare global {
     onChanged(callback: () => void): () => void;
   }
 
-  interface AppNotification {
-    id: string;
-    type: string;
-    title: string;
-    body: string;
-    created_at: string;
-    read_at: string | null;
-  }
-
-  interface NotificationsAPI {
-    list(limit?: number): Promise<AppNotification[]>;
-    unreadCount(): Promise<number>;
-    markAllAsRead(): Promise<void>;
-  }
-
   interface ScannedFile {
     id: string;
     workspace_id: string;
@@ -746,6 +706,7 @@ declare global {
     workspacesAPI: WorkspacesAPI;
     sessionsAPI: SessionsAPI;
     containerAPI: ContainerAPI;
+    systemStatsAPI: SystemStatsAPI;
     settingsAPI: SettingsAPI;
     commandLogAPI: CommandLogAPI;
     systemLogAPI: SystemLogAPI;
@@ -764,7 +725,6 @@ declare global {
     scannerAPI: ScannerAPI;
     papersAPI: PapersAPI;
     briefingsAPI: BriefingsAPI;
-    notificationsAPI: NotificationsAPI;
     scannedFilesAPI: ScannedFilesAPI;
     nativeToolsAPI: { getUrl(toolId: string): Promise<string | null> };
     academiaAPI: {
@@ -776,10 +736,6 @@ declare global {
         open_count_so_far: number;
         days_since_created: number;
       } | null>;
-      setThreadAttribution(
-        threadId: string,
-        attribution: { source: 'suggestion'; briefing_id: string },
-      ): Promise<void>;
       setThreadCreationPrompt(threadId: string, prompt: string): Promise<void>;
     };
   }

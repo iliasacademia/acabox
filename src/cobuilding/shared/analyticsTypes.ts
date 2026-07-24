@@ -90,12 +90,7 @@ export type CoScientistEvent =
       name: 'tool.created';
       metadata: {
         tool_id: string;
-        creation_source: 'chat' | 'suggestion';
-        /**
-         * Briefing ID this tool was built from, if `creation_source === 'suggestion'`.
-         * Always set when the user clicked "Build it" on a briefing; absent otherwise.
-         */
-        source_briefing_id?: string;
+        creation_source: 'chat';
         name: string;
         description: string;
         creation_prompt: string;

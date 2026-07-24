@@ -1,10 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
-import { ChevronLeftIcon, SparklesIcon, ArrowUpRightIcon, CircleHelpIcon } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
+import { ChevronLeftIcon, SparklesIcon, ArrowUpRightIcon } from 'lucide-react';
 import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
-import { pushPendingAttribution } from '../coscientistAnalytics';
-import { buildSuggestedToolPrompt } from '../../shared/suggestedTasksTools';
 
 interface ParsedRow {
   briefing: Briefing;
@@ -25,59 +21,16 @@ function parseRows(rows: Briefing[]): ParsedRow[] {
 
 function rowTitle(row: ParsedRow): string {
   const d = row.data;
-  switch (row.briefing.type) {
-    case 'suggested_tool':
-      return typeof d.name === 'string' ? d.name : 'Suggested mini-app';
-    case 'suggested_action':
-      return typeof d.title === 'string' ? d.title : 'Suggested action';
-    case 'paper':
-      return typeof d.title === 'string' ? d.title : 'Paper';
-    case 'citation':
-      return typeof d.paper_title === 'string' ? d.paper_title : 'Citation';
-    case 'grant':
-      return typeof d.title === 'string' ? d.title : 'Grant';
-    case 'writing_agent': {
-      if (typeof d.title === 'string' && d.title.trim()) return d.title;
-      if (typeof d.file_path !== 'string') return 'Review Introduction';
-      const parts = d.file_path.split('/');
-      return parts[parts.length - 1] || d.file_path;
-    }
-  }
-}
-
-function rowEyebrow(type: BriefingType): string {
-  switch (type) {
-    case 'suggested_action': return 'I can do this for you';
-    case 'suggested_tool': return 'I can build this for you';
-    case 'paper': return 'New paper';
-    case 'citation': return 'New citation';
-    case 'grant': return 'Grant opportunity';
-    case 'writing_agent': return 'I can do this for you';
-  }
+  if (typeof d.title === 'string' && d.title.trim()) return d.title;
+  if (typeof d.file_path !== 'string') return 'Review Introduction';
+  const parts = d.file_path.split('/');
+  return parts[parts.length - 1] || d.file_path;
 }
 
 function rowDescription(row: ParsedRow): string {
   if (row.briefing.why_im_suggesting_this) return row.briefing.why_im_suggesting_this;
   const d = row.data;
-  switch (row.briefing.type) {
-    case 'suggested_action': return typeof d.description === 'string' ? d.description : '';
-    case 'suggested_tool': return typeof d.details_on_what_to_build === 'string' ? d.details_on_what_to_build : '';
-    case 'paper': return typeof d.abstract === 'string' ? d.abstract : '';
-    case 'citation': return typeof d.citing_work === 'string' ? `Cited by ${d.citing_work}` : '';
-    case 'grant': return typeof d.agency === 'string' ? d.agency : '';
-    case 'writing_agent': return typeof d.description === 'string' ? d.description : '';
-  }
-}
-
-function rowPrimaryLabel(type: BriefingType): string {
-  switch (type) {
-    case 'suggested_action': return 'Yes, do it';
-    case 'suggested_tool': return 'Build it';
-    case 'paper': return 'Read it';
-    case 'citation': return 'View';
-    case 'grant': return 'View';
-    case 'writing_agent': return 'Open in Word';
-  }
+  return typeof d.description === 'string' ? d.description : '';
 }
 
 /** Group briefings by relative day label. Keeps insertion (most-recent-first) order. */
@@ -149,45 +102,24 @@ const STATUS_LABEL: Record<BriefingStatus, string> = {
 export function BriefingHistory({
   onBack,
   workspacePath,
-  onSwitchToChat,
 }: {
   onBack: () => void;
   workspacePath: string;
-  onSwitchToChat: () => void;
 }) {
   const [rows, setRows] = useState<ParsedRow[] | null>(null);
-  const assistantRuntime = useAssistantRuntime();
-  const composerRuntime = useComposerRuntime();
 
   useEffect(() => {
-    window.briefingsAPI.list().then((data) => {
+    window.briefingsAPI.list({ type: ['writing_agent'] }).then((data) => {
       setRows(parseRows(data));
     });
   }, []);
 
   const groups = useMemo(() => groupByDay(rows ?? []), [rows]);
 
-  const sendChatPrompt = (prompt: string) => {
-    assistantRuntime.switchToNewThread();
-    onSwitchToChat();
-    onBack();
-    setTimeout(() => {
-      composerRuntime.setText(prompt);
-      composerRuntime.send();
-    }, 100);
-  };
-
   const handleOpenRow = async (row: ParsedRow) => {
     window.briefingsAPI.setStatus(row.briefing.id, 'opened');
     const d = row.data;
-    if (row.briefing.type === 'suggested_action') {
-      if (typeof d.chat_prompt === 'string') sendChatPrompt(d.chat_prompt);
-    } else if (row.briefing.type === 'suggested_tool') {
-      if (typeof d.details_on_what_to_build === 'string') {
-        pushPendingAttribution(row.briefing.id);
-        sendChatPrompt(buildSuggestedToolPrompt(typeof d.name === 'string' ? d.name : '', d.details_on_what_to_build));
-      }
-    } else if (row.briefing.type === 'writing_agent') {
+    if (row.briefing.type === 'writing_agent') {
       if (typeof d.file_path !== 'string') return;
       if (!(await ensureAccessibilityPermission())) return;
       const absolutePath = `${workspacePath}/${d.file_path}`;
@@ -208,7 +140,6 @@ export function BriefingHistory({
       window.fileMonitorAPI.openFile(fileUrl, 'com.microsoft.Word');
       window.fileMonitorAPI.setDockRightForDocument(absolutePath, true);
     }
-    // paper / citation / grant: action handlers will be added when those types ship.
   };
 
   return (
@@ -242,23 +173,11 @@ export function BriefingHistory({
                   <div key={row.briefing.id} className="homeBriefingCard homeBriefingCard--action">
                     <div className="homeBriefingCard__eyebrow">
                       <SparklesIcon className="homeBriefingCard__eyebrowIcon" />
-                      <span>{rowEyebrow(row.briefing.type)}</span>
+                      <span>I can do this for you</span>
                     </div>
                     <h3 className="homeBriefingCard__title">{rowTitle(row)}</h3>
                     <p className="homeBriefingCard__description">
                       {rowDescription(row)}
-                      {row.briefing.type === 'suggested_tool' && row.briefing.why_im_suggesting_this && typeof row.data.details_on_what_to_build === 'string' && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button type="button" className="homeBriefingCard__infoBtn">
-                              <CircleHelpIcon style={{ width: 14, height: 14 }} />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent className="tooltipContent--wide" side="top">
-                            {row.data.details_on_what_to_build}
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
                     </p>
                     <div className="homeBriefingCard__actions">
                       <button
@@ -266,7 +185,7 @@ export function BriefingHistory({
                         className="homeBriefingCard__button homeBriefingCard__button--primary"
                         onClick={() => handleOpenRow(row)}
                       >
-                        {rowPrimaryLabel(row.briefing.type)}
+                        Open in Word
                         <ArrowUpRightIcon className="homeBriefingCard__buttonIcon" />
                       </button>
                       <button

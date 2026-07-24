@@ -25,7 +25,7 @@
 }
 
 .wsSettings__sectionLabel {
-  font-family: 'Gupter', serif;
+  font-family: 'DM Sans', sans-serif;
   font-size: 22px;
   font-weight: 500;
   color: #141413;
@@ -35,7 +35,7 @@
 
 .wsSettings__sectionCard {
   background: #ffffff;
-  border: 1px solid rgb(232, 226, 214);
+  border: 1px solid #dddde2;
   border-radius: 2px;
   padding: 22px 24px;
 }
@@ -47,7 +47,7 @@
   gap: 8px;
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px solid rgb(232, 226, 214);
+  border-top: 1px solid #dddde2;
 }
 
 .wsSettings__cardActions--flush {
@@ -95,7 +95,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   background: #ffffff;
-  border: 1px solid rgb(232, 226, 214);
+  border: 1px solid #dddde2;
   border-radius: 2px;
   padding: 8px 12px;
 }
@@ -171,7 +171,7 @@
   font-size: 13px;
   color: #141413;
   background: #ffffff;
-  border: 1px solid rgb(232, 226, 214);
+  border: 1px solid #dddde2;
   border-radius: 2px;
   padding: 10px 12px;
   resize: vertical;
@@ -192,7 +192,7 @@
 
 .wsSettings__divider {
   border: none;
-  border-top: 1px solid rgb(232, 226, 214);
+  border-top: 1px solid #dddde2;
   margin: 16px 0;
 }
 

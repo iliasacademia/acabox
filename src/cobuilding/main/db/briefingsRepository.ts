@@ -2,13 +2,7 @@ import { randomUUID } from 'crypto';
 import { getDatabase } from './database';
 import { track as trackAnalytics } from '../coscientistAnalytics';
 
-export type BriefingType =
-  | 'suggested_action'
-  | 'suggested_tool'
-  | 'paper'
-  | 'citation'
-  | 'grant'
-  | 'writing_agent';
+export type BriefingType = 'writing_agent';
 
 export type BriefingStatus = 'new' | 'opened' | 'dismissed';
 
@@ -150,59 +144,3 @@ export function setBriefingStatus(id: string, status: BriefingStatus): void {
   }
 }
 
-export type SuggestionType = 'suggested_action' | 'suggested_tool';
-
-const SUGGESTION_TYPES: SuggestionType[] = ['suggested_action', 'suggested_tool'];
-
-export interface UpdateBriefingInput {
-  briefingData?: unknown;
-  whyImSuggestingThis?: string | null;
-  type?: SuggestionType;
-}
-
-export function updateBriefing(id: string, updates: UpdateBriefingInput): void {
-  const db = getDatabase();
-  const row = db.prepare('SELECT type FROM briefings WHERE id = ?').get(id) as { type: string } | undefined;
-  if (!row || !SUGGESTION_TYPES.includes(row.type as SuggestionType)) return;
-
-  const sets: string[] = ["updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now')"];
-  const params: unknown[] = [];
-
-  if (updates.briefingData !== undefined) {
-    sets.push('briefing_data = ?');
-    params.push(typeof updates.briefingData === 'string' ? updates.briefingData : JSON.stringify(updates.briefingData));
-  }
-  if (updates.whyImSuggestingThis !== undefined) {
-    sets.push('why_im_suggesting_this = ?');
-    params.push(updates.whyImSuggestingThis);
-  }
-  if (updates.type !== undefined) {
-    sets.push('type = ?');
-    params.push(updates.type);
-  }
-
-  params.push(id);
-  db.prepare(`UPDATE briefings SET ${sets.join(', ')} WHERE id = ?`).run(...params);
-}
-
-export function deleteBriefing(id: string, workspaceId: string): boolean {
-  const db = getDatabase();
-  const row = db.prepare('SELECT type FROM briefings WHERE id = ? AND workspace_id = ?').get(id, workspaceId) as { type: string } | undefined;
-  if (!row || !SUGGESTION_TYPES.includes(row.type as SuggestionType)) return false;
-
-  db.prepare('DELETE FROM briefings WHERE id = ? AND workspace_id = ?').run(id, workspaceId);
-  return true;
-}
-
-export function reorderBriefings(workspaceId: string, orderedIds: string[]): void {
-  const db = getDatabase();
-  const stmt = db.prepare(
-    `UPDATE briefings SET sort_order = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now')
-     WHERE id = ? AND workspace_id = ? AND type IN ('suggested_action', 'suggested_tool')`,
-  );
-  db.transaction(() => {
-    for (let i = 0; i < orderedIds.length; i++) {
-      stmt.run(i, orderedIds[i], workspaceId);
-    }
-  })();
-}

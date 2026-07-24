@@ -9,10 +9,9 @@ import { ExportDebug } from './ExportDebug';
 import { HardResetDebug } from './HardResetDebug';
 import { ScannedFilesDebug } from './ScannedFilesDebug';
 import { TelemetryDebug } from './TelemetryDebug';
-import { BriefingsDebug } from './BriefingsDebug';
 import './DebugPanel.css';
 
-export type DebugSection = 'apps' | 'observations' | 'kernels' | 'file-monitor' | 'storage' | 'auth' | 'export' | 'hard-reset' | 'scanned-files' | 'telemetry' | 'briefings';
+export type DebugSection = 'apps' | 'observations' | 'kernels' | 'file-monitor' | 'storage' | 'auth' | 'export' | 'hard-reset' | 'scanned-files' | 'telemetry';
 
 const DEBUG_SECTIONS: { id: DebugSection; label: string }[] = [
   { id: 'apps', label: 'Logs' },
@@ -21,7 +20,6 @@ const DEBUG_SECTIONS: { id: DebugSection; label: string }[] = [
   { id: 'file-monitor', label: 'File Monitor' },
   { id: 'storage', label: 'Storage' },
   { id: 'auth', label: 'API Key' },
-  { id: 'briefings', label: 'Briefings' },
   { id: 'scanned-files', label: 'Scanned Files' },
   { id: 'telemetry', label: 'Telemetry' },
   { id: 'export', label: 'Export' },
@@ -57,7 +55,6 @@ export const DebugContent: React.FC<{ activeSection: DebugSection; onRestartOnbo
       {activeSection === 'file-monitor' && <FileMonitorDebug />}
       {activeSection === 'storage' && <StorageDebug />}
       {activeSection === 'auth' && <AuthDebug />}
-      {activeSection === 'briefings' && <BriefingsDebug />}
       {activeSection === 'scanned-files' && <ScannedFilesDebug />}
       {activeSection === 'telemetry' && <TelemetryDebug />}
       {activeSection === 'export' && <ExportDebug />}

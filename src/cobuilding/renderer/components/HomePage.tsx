@@ -1,33 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
 import { resolveWorkspacePath } from '../utils/resolveWorkspacePath';
-import { pushPendingAttribution } from '../coscientistAnalytics';
-import { buildSuggestedToolPrompt } from '../../shared/suggestedTasksTools';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 import {
   ArrowUpRightIcon,
-  CalendarIcon,
-  CircleHelpIcon,
-  FileTextIcon,
   HistoryIcon,
-  LayoutGridIcon,
   PencilIcon,
-  QuoteIcon,
   SparklesIcon,
 } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { BriefingHistory } from './BriefingHistory';
 
 /** A briefing with its `briefing_data` JSON parsed into a typed payload. */
 type ParsedBriefing =
-  | { briefing: Briefing; type: 'suggested_tool'; data: BriefingDataSuggestedTool }
-  | { briefing: Briefing; type: 'suggested_action'; data: BriefingDataSuggestedAction }
-  | { briefing: Briefing; type: 'paper'; data: BriefingDataPaper }
-  | { briefing: Briefing; type: 'citation'; data: BriefingDataCitation }
-  | { briefing: Briefing; type: 'grant'; data: BriefingDataGrant }
   | { briefing: Briefing; type: 'writing_agent'; data: BriefingDataWritingAgent };
 
 function parseBriefing(b: Briefing): ParsedBriefing | null {
+  if (b.type !== 'writing_agent') return null;
   try {
     const data = JSON.parse(b.briefing_data);
     return { briefing: b, type: b.type, data } as ParsedBriefing;
@@ -67,46 +55,6 @@ interface BriefingCardDisplay {
 
 function renderBriefingCard(parsed: ParsedBriefing): BriefingCardDisplay | null {
   switch (parsed.type) {
-    case 'suggested_action':
-      return {
-        eyebrow: 'I can do this for you',
-        title: parsed.data.title,
-        primaryLabel: 'Yes, do it',
-        fallbackDescription: parsed.data.description,
-        Icon: SparklesIcon,
-      };
-    case 'suggested_tool':
-      return {
-        eyebrow: 'I can build this for you',
-        title: parsed.data.name,
-        primaryLabel: 'Build it',
-        fallbackDescription: parsed.data.details_on_what_to_build,
-        Icon: LayoutGridIcon,
-      };
-    case 'paper':
-      return {
-        eyebrow: 'New paper',
-        title: parsed.data.title,
-        primaryLabel: 'Read it',
-        fallbackDescription: parsed.data.abstract ?? '',
-        Icon: FileTextIcon,
-      };
-    case 'citation':
-      return {
-        eyebrow: 'New citation',
-        title: parsed.data.paper_title,
-        primaryLabel: 'View',
-        fallbackDescription: `Cited by ${parsed.data.citing_work}`,
-        Icon: QuoteIcon,
-      };
-    case 'grant':
-      return {
-        eyebrow: 'Grant opportunity',
-        title: parsed.data.title,
-        primaryLabel: 'View',
-        fallbackDescription: parsed.data.agency,
-        Icon: CalendarIcon,
-      };
     case 'writing_agent':
       return {
         eyebrow: 'I can do this for you',
@@ -214,12 +162,7 @@ export function HomePage({
 
   const handleOpenBriefing = async (parsed: ParsedBriefing) => {
     updateBriefingStatus(parsed.briefing.id, 'opened');
-    if (parsed.type === 'suggested_action') {
-      sendChatPrompt(parsed.data.chat_prompt);
-    } else if (parsed.type === 'suggested_tool') {
-      pushPendingAttribution(parsed.briefing.id);
-      sendChatPrompt(buildSuggestedToolPrompt(parsed.data.name, parsed.data.details_on_what_to_build));
-    } else if (parsed.type === 'writing_agent') {
+    if (parsed.type === 'writing_agent') {
       if (!(await ensureAccessibilityPermission())) return;
       const absolutePath = resolveWorkspacePath(parsed.data.file_path, workspacePath, userDirectoryPaths ?? []);
       const fileUrl = absolutePath.startsWith('file://')
@@ -240,7 +183,6 @@ export function HomePage({
       // Snap Word to ~66% width and the overlay to the remaining ~33%.
       window.fileMonitorAPI.setDockRightForDocument(absolutePath, true);
     }
-    // paper / citation / grant: action handlers will be added when those types ship.
   };
 
   const handleDismissBriefing = (id: string) => {
@@ -248,7 +190,7 @@ export function HomePage({
   };
 
   if (view === 'history') {
-    return <BriefingHistory onBack={() => setView('home')} workspacePath={workspacePath} onSwitchToChat={onSwitchToChat} />;
+    return <BriefingHistory onBack={() => setView('home')} workspacePath={workspacePath} />;
   }
 
   return (
@@ -286,23 +228,7 @@ export function HomePage({
                       <p className="homeBriefingCard__subtitle">{card.subtitle}</p>
                     )}
                     <p className="homeBriefingCard__description">
-                      {/* writing_agent always uses our peer-review copy; other
-                          types prefer the briefing's own reason text. */}
-                      {parsed.type === 'writing_agent'
-                        ? card.fallbackDescription
-                        : (parsed.briefing.why_im_suggesting_this ?? card.fallbackDescription)}
-                      {parsed.type === 'suggested_tool' && parsed.briefing.why_im_suggesting_this && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button type="button" className="homeBriefingCard__infoBtn">
-                              <CircleHelpIcon style={{ width: 14, height: 14 }} />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent className="tooltipContent--wide" side="top">
-                            {parsed.data.details_on_what_to_build}
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
+                      {card.fallbackDescription}
                     </p>
                     <div className="homeBriefingCard__actions">
                       <button
@@ -330,7 +256,7 @@ export function HomePage({
           <div className="homeBriefingCard homeBriefingCard--action homeFreeformCard">
             <div className="homeFreeformCard__heading">
               <SparklesIcon
-                style={{ width: 16, height: 16, flexShrink: 0, color: '#6b3c10' }}
+                style={{ width: 16, height: 16, flexShrink: 0, color: '#0645b1' }}
               />
               <span>What else can I do for you?</span>
             </div>

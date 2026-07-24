@@ -30,11 +30,11 @@
 .gsStep__btn--secondary {
   background: transparent;
   color: #3d3933;
-  border: 1px solid #d6d0c5;
+  border: 1px solid #dddde2;
 }
 
 .gsStep__btn--secondary:hover:not(:disabled) {
-  background: #efeae1;
+  background: #f4f7fc;
   border-color: #c9bfa8;
 }
 
@@ -61,7 +61,7 @@
   font-size: 14px;
   color: #141413;
   background: #ffffff;
-  border: 1px solid rgb(232, 226, 214);
+  border: 1px solid #dddde2;
   border-radius: 2px;
   padding: 8px 12px;
   outline: none;
@@ -75,7 +75,7 @@
 }
 
 .gsStep__input::placeholder {
-  color: #b5aea4;
+  color: #91919e;
 }
 
 .gsStep__input:disabled {

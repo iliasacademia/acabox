@@ -34,6 +34,8 @@ export interface HistoryDbMessage {
    * For 'tool_result': `Array<{ type: 'tool_result', tool_use_id, content, is_error? }>`.
    */
   content: unknown;
+  /** ISO timestamp of the DB row, when the transport provides it. */
+  createdAt?: string;
 }
 
 interface AnthropicTextBlock {
@@ -72,18 +74,24 @@ export function convertHistoryMessages(dbMessages: readonly HistoryDbMessage[]):
   const toolResults = buildToolResultsMap(dbMessages);
   const messages: ThreadMessageLike[] = [];
   let pendingAssistantContent: ReturnType<typeof convertAssistantBlocks> | null = null;
+  let pendingAssistantCreatedAt: string | undefined;
 
   const flushAssistant = () => {
     if (pendingAssistantContent && pendingAssistantContent.length > 0) {
-      messages.push({ role: 'assistant', content: pendingAssistantContent });
+      messages.push({
+        role: 'assistant',
+        content: pendingAssistantContent,
+        ...(pendingAssistantCreatedAt ? { createdAt: new Date(pendingAssistantCreatedAt) } : {}),
+      });
     }
     pendingAssistantContent = null;
+    pendingAssistantCreatedAt = undefined;
   };
 
   for (const msg of dbMessages) {
     if (msg.type === 'user') {
       flushAssistant();
-      messages.push(convertUserMessage(msg.content));
+      messages.push(convertUserMessage(msg.content, msg.createdAt));
     } else if (msg.type === 'assistant') {
       const blocks = asAnthropicContentBlocks(msg.content);
       const converted = convertAssistantBlocks(blocks, toolResults);
@@ -91,6 +99,7 @@ export function convertHistoryMessages(dbMessages: readonly HistoryDbMessage[]):
         pendingAssistantContent.push(...converted);
       } else {
         pendingAssistantContent = [...converted];
+        pendingAssistantCreatedAt = msg.createdAt;
       }
     }
     // tool_result rows are folded into their tool_use parents via the
@@ -115,7 +124,7 @@ function buildToolResultsMap(dbMessages: readonly HistoryDbMessage[]): ToolResul
   return map;
 }
 
-function convertUserMessage(content: unknown): ThreadMessageLike {
+function convertUserMessage(content: unknown, createdAt?: string): ThreadMessageLike {
   const parsed = (typeof content === 'object' && content !== null
     ? (content as { text?: string; attachments?: StoredAttachment[] })
     : { text: typeof content === 'string' ? content : '' });
@@ -135,6 +144,7 @@ function convertUserMessage(content: unknown): ThreadMessageLike {
     role: 'user',
     content: text,
     ...(attachments.length > 0 ? { attachments } : {}),
+    ...(createdAt ? { createdAt: new Date(createdAt) } : {}),
   };
 }
 
@@ -183,11 +193,12 @@ function asArray<T>(content: unknown): T[] {
  * `convertHistoryMessages` directly.
  */
 export function convertHistoryMessagesFromStringContent(
-  dbMessages: readonly { type: string; content: string }[],
+  dbMessages: readonly { type: string; content: string; created_at?: string }[],
 ): ThreadMessageLike[] {
   const normalized: HistoryDbMessage[] = dbMessages.map((m) => ({
     type: m.type,
     content: safeJsonParse(m.content),
+    createdAt: m.created_at,
   }));
   return convertHistoryMessages(normalized);
 }

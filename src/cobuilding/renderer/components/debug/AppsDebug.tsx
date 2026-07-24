@@ -100,7 +100,9 @@ const SystemLogs: React.FC = () => {
 
   useEffect(() => {
     const cleanup = window.systemLogAPI.onEntry((entry) => {
-      setEntries(prev => [...prev, entry]);
+      // Dedup by id: entries streamed between subscribing and getAll()
+      // resolving would otherwise appear twice.
+      setEntries(prev => (prev.some(e => e.id === entry.id) ? prev : [...prev, entry]));
     });
     return cleanup;
   }, []);
@@ -144,7 +146,7 @@ const CommandLogs: React.FC<{ selectedApp: string }> = ({ selectedApp }) => {
 
   useEffect(() => {
     const cleanup = window.commandLogAPI.onEntry((entry) => {
-      setEntries(prev => [...prev, entry]);
+      setEntries(prev => (prev.some(e => e.id === entry.id) ? prev : [...prev, entry]));
     });
     return cleanup;
   }, []);

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react';
-import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, CodeIcon, DownloadIcon, FileIcon, FolderIcon, FolderOpenIcon, MonitorIcon, RefreshCwIcon } from 'lucide-react';
+import { ChevronDownIcon, ChevronRightIcon, FileIcon, FolderIcon, FolderOpenIcon } from 'lucide-react';
 import { useComposerRuntime } from '@assistant-ui/react';
 import { CodeView, languageForPath } from './CodeView';
 import { useKernel } from './notebook/useKernel';
@@ -8,6 +8,9 @@ import type { CellOutput } from './notebook/types';
 import { useSetupState } from '../setupStore';
 import { track as trackAnalytics } from '../coscientistAnalytics';
 import { captureError } from '../../shared/telemetry';
+import { MSymbol } from './command-desk/MSymbol';
+import { resolveToolIcon } from './command-desk/toolIcon';
+import { setToolStatus, clearToolStatus, useToolStatus } from '../toolStatusStore';
 
 interface RequestFixError {
   kind: string;
@@ -40,21 +43,41 @@ function buildFixPrompt(appName: string, err: RequestFixError): string {
 type RebuildState =
   | { kind: 'idle' }
   | { kind: 'building' }
-  | { kind: 'error'; message: string };
+  | { kind: 'error'; message: string; at: number };
 
 interface MiniAppViewerProps {
   dirName: string;
   workspacePath: string;
   reloadNonce?: number;
   preBuilt?: boolean;
+  /** Display name from the app's manifest; falls back to dirName. */
+  appName?: string | null;
+  /** Lucide icon name from the app's manifest. */
+  appIcon?: string | null;
+  /** Whether the chat side panel is currently open (header toggle state). */
+  chatOpen?: boolean;
+  onToggleChat?: () => void;
   onBack?: () => void;
 }
 
-export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, reloadNonce, preBuilt, onBack }) => {
+export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, reloadNonce, preBuilt, appName, appIcon, chatOpen, onToggleChat, onBack }) => {
   const [viewingSource, setViewingSource] = useState(false);
   const [rebuildKey, setRebuildKey] = useState(0);
   const [rebuildState, setRebuildState] = useState<RebuildState>({ kind: 'idle' });
   const appDir = `${workspacePath}/.applications/${dirName}`;
+  const composerRuntime = useComposerRuntime();
+
+  // Surface build state to the shared tool-status store (tab dots, etc.).
+  useEffect(() => {
+    if (rebuildState.kind === 'building') {
+      setToolStatus(dirName, { kind: 'building' });
+    } else if (rebuildState.kind === 'error') {
+      setToolStatus(dirName, { kind: 'buildFailed', message: rebuildState.message, at: rebuildState.at });
+    } else {
+      setToolStatus(dirName, { kind: 'running' });
+    }
+  }, [dirName, rebuildState]);
+  useEffect(() => () => clearToolStatus(dirName), [dirName]);
 
   // Telemetry: register the open with main (which mints tool_id if missing,
   // increments open_count, and fires tool.created / tool.opened events).
@@ -121,7 +144,7 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
             duration_ms: Date.now() - buildStartMs,
           },
         });
-        setRebuildState({ kind: 'error', message: errorMsg });
+        setRebuildState({ kind: 'error', message: errorMsg, at: Date.now() });
         return;
       }
       if (toolIdForBuild) {
@@ -159,7 +182,7 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
           duration_ms: Date.now() - buildStartMs,
         },
       });
-      setRebuildState({ kind: 'error', message: errorMessage });
+      setRebuildState({ kind: 'error', message: errorMessage, at: Date.now() });
     }
   }, [dirName]);
 
@@ -174,20 +197,45 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
     await window.filesAPI.showInFinder(appDir);
   }, [appDir]);
 
+  // "Send to chat — let it fix itself": opens the panel and posts the build
+  // output as a user message in the tool's chat.
+  const handleSendErrorToChat = useCallback(() => {
+    if (rebuildState.kind !== 'error') return;
+    if (!chatOpen) onToggleChat?.();
+    composerRuntime.setText(
+      `The build for \`${dirName}\` failed. Diagnose and fix it.\n\nBuild output:\n\`\`\`\n${rebuildState.message}\n\`\`\``,
+    );
+    composerRuntime.send();
+  }, [rebuildState, chatOpen, onToggleChat, composerRuntime, dirName]);
+
+  const showBuildError = rebuildState.kind === 'error' && !viewingSource;
+
   return (
     <div className="miniAppViewer">
       <MiniAppHeader
         dirName={dirName}
+        appName={appName ?? dirName}
+        appIcon={appIcon ?? null}
         viewingSource={viewingSource}
         onToggleSource={() => setViewingSource((v) => !v)}
         onRebuild={handleRebuild}
         onShowInFinder={handleShowInFinder}
         rebuildState={rebuildState}
         preBuilt={preBuilt}
+        chatOpen={chatOpen}
+        onToggleChat={onToggleChat}
+        nativeToolUrl={nativeToolUrl}
         onBack={onBack}
       />
       <div className="miniAppBody">
-        {preBuilt && nativeToolUrl ? (
+        {showBuildError ? (
+          <BuildErrorView
+            message={rebuildState.kind === 'error' ? rebuildState.message : ''}
+            at={rebuildState.kind === 'error' ? rebuildState.at : Date.now()}
+            onRebuild={handleRebuild}
+            onSendToChat={handleSendErrorToChat}
+          />
+        ) : preBuilt && nativeToolUrl ? (
           <MiniAppContent
             key={`prebuilt-${reloadNonce ?? 0}`}
             dirName={dirName}
@@ -196,9 +244,7 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
             nativeToolUrl={nativeToolUrl}
           />
         ) : preBuilt ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-            <div style={{ width: 24, height: 24, border: '3px solid #e0e0e0', borderTopColor: '#666', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-          </div>
+          <CenteredMonoStatus label="STARTING" />
         ) : (
           <ContainerGate dirName={dirName}>
             {viewingSource ? (
@@ -223,81 +269,192 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
 
 const MiniAppHeader: FC<{
   dirName: string;
+  appName: string;
+  appIcon: string | null;
   viewingSource: boolean;
   onToggleSource: () => void;
   onRebuild: () => void;
   onShowInFinder: () => void;
   rebuildState: RebuildState;
   preBuilt?: boolean;
+  chatOpen?: boolean;
+  onToggleChat?: () => void;
+  nativeToolUrl: string | null;
   onBack?: () => void;
-}> = ({ dirName, viewingSource, onToggleSource, onRebuild, onShowInFinder, rebuildState, preBuilt, onBack }) => {
+}> = ({ dirName, appName, appIcon, viewingSource, onToggleSource, onRebuild, onShowInFinder, rebuildState, preBuilt, chatOpen, onToggleChat, nativeToolUrl, onBack }) => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [menuOpen]);
+
   const handleExport = useCallback(async () => {
+    setMenuOpen(false);
     await window.miniAppsAPI.exportApp(dirName);
   }, [dirName]);
 
+  const status = useToolStatus(dirName);
   const isBuilding = rebuildState.kind === 'building';
+  const failed = rebuildState.kind === 'error';
+  const installing = status.kind === 'installing';
+  const ToolIcon = resolveToolIcon(appIcon);
 
   return (
-    <div className="miniAppHeader">
+    <div className="cdToolHeader">
       {onBack && (
-        <button className="toolDetailBackBtn" onClick={onBack}>
-          <ArrowLeftIcon style={{ width: 14, height: 14 }} />
-          Back to tools
+        <button type="button" className="cdIconBtn" title="Back to Tools" onClick={onBack}>
+          <MSymbol name="arrow_back" size={18} />
         </button>
       )}
-      <div className="miniAppHeader__right">
-        {!preBuilt && (
-          <>
-            <div className="miniAppHeaderIconBtn__wrapper">
+      {failed ? (
+        <MSymbol name="error" size={18} className="cdToolHeader__icon cdToolHeader__icon--error" />
+      ) : (
+        <ToolIcon className="cdToolHeader__icon" style={{ width: 18, height: 18 }} />
+      )}
+      <span className="cdToolHeader__name">{appName}</span>
+      {failed ? (
+        <span className="cdStatusChip cdStatusChip--error">
+          <span className="cdDot cdDot--error" />
+          BUILD FAILED
+        </span>
+      ) : isBuilding ? (
+        <span className="cdStatusChip">
+          <span className="cdDot cdDot--busy cdDot--pulse" />
+          BUILDING
+        </span>
+      ) : installing ? (
+        <span className="cdStatusChip">
+          <span className="cdDot cdDot--busy cdDot--pulse" />
+          FIRST BOOT
+        </span>
+      ) : (
+        <span className="cdStatusChip">
+          <span className="cdDot cdDot--running" />
+          RUNNING
+        </span>
+      )}
+      <span className="cdToolHeader__spacer" />
+      {!preBuilt && (
+        <button
+          type="button"
+          className="cdBtnXs cdBtnXs--sm"
+          onClick={onRebuild}
+          disabled={isBuilding || installing}
+        >
+          <MSymbol name="refresh" size={15} />
+          Rebuild
+        </button>
+      )}
+      {onToggleChat && (
+        <button
+          type="button"
+          className={`cdIconBtn cdIconBtn--30${chatOpen ? ' cdIconBtn--active' : ''}`}
+          title="Chat panel"
+          onClick={onToggleChat}
+        >
+          <MSymbol name="forum" size={18} />
+        </button>
+      )}
+      {preBuilt && nativeToolUrl && (
+        <button
+          type="button"
+          className="cdIconBtn cdIconBtn--30"
+          title="Open in browser"
+          onClick={() => (window as any).electronAPI.invoke('shell:openExternal', nativeToolUrl)}
+        >
+          <MSymbol name="open_in_new" size={18} />
+        </button>
+      )}
+      {!preBuilt && (
+        <div className="cdMenuWrap" ref={menuRef}>
+          <button
+            type="button"
+            className={`cdIconBtn cdIconBtn--30${menuOpen ? ' cdIconBtn--active' : ''}`}
+            title="More"
+            onClick={() => setMenuOpen((v) => !v)}
+          >
+            <MSymbol name="more_horiz" size={18} />
+          </button>
+          {menuOpen && (
+            <div className="cdMenu">
               <button
-                className="miniAppHeaderIconBtn"
-                onClick={handleExport}
+                type="button"
+                className="cdMenu__item"
+                onClick={() => { setMenuOpen(false); onToggleSource(); }}
               >
-                <DownloadIcon style={{ width: 16, height: 16 }} />
+                <MSymbol name="code" size={16} />
+                {viewingSource ? 'View tool' : 'View source'}
               </button>
-              <span className="miniAppHeaderIconBtn__tooltip">Download</span>
-            </div>
-            <div className="miniAppHeaderIconBtn__wrapper">
               <button
-                className="miniAppHeaderIconBtn"
-                onClick={onRebuild}
-                disabled={isBuilding}
+                type="button"
+                className="cdMenu__item"
+                onClick={() => { setMenuOpen(false); onShowInFinder(); }}
               >
-                <RefreshCwIcon style={{ width: 16, height: 16, animation: isBuilding ? 'spin 0.8s linear infinite' : 'none' }} />
+                <MSymbol name="folder_open" size={16} />
+                Reveal in Finder
               </button>
-              <span className="miniAppHeaderIconBtn__tooltip">Rebuild</span>
-            </div>
-            <div className="miniAppHeaderIconBtn__wrapper">
-              <button
-                className="miniAppHeaderIconBtn"
-                onClick={onShowInFinder}
-              >
-                <FolderIcon style={{ width: 16, height: 16 }} />
+              <button type="button" className="cdMenu__item" onClick={handleExport}>
+                <MSymbol name="download" size={16} />
+                Download
               </button>
-              <span className="miniAppHeaderIconBtn__tooltip">Show in Finder</span>
             </div>
-          </>
-        )}
-        {!preBuilt && (
-          <div className="miniAppHeaderViewToggle">
-            <button
-              className={`miniAppHeaderViewBtn${!viewingSource ? ' miniAppHeaderViewBtn--active' : ''}`}
-              onClick={() => viewingSource && onToggleSource()}
-              title="View tool"
-            >
-              <MonitorIcon style={{ width: 14, height: 14 }} />
-              Tool
-            </button>
-            <button
-              className={`miniAppHeaderViewBtn${viewingSource ? ' miniAppHeaderViewBtn--active' : ''}`}
-              onClick={() => !viewingSource && onToggleSource()}
-              title="View source"
-            >
-              <CodeIcon style={{ width: 14, height: 14 }} />
-              Code
-            </button>
-          </div>
-        )}
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/** Centered mono placeholder line (pre-boot / waiting states). */
+const CenteredMonoStatus: FC<{ label: string; pulse?: boolean }> = ({ label, pulse = true }) => (
+  <div className="cdInstallWrap">
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span className={`cdDot cdDot--busy${pulse ? ' cdDot--pulse' : ''}`} />
+      <span className="cdWorking__label">{label}</span>
+    </div>
+  </div>
+);
+
+/** Build error state — replaces the iframe content (Phase B spec). */
+const BuildErrorView: FC<{
+  message: string;
+  at: number;
+  onRebuild: () => void;
+  onSendToChat: () => void;
+}> = ({ message, at, onRebuild, onSendToChat }) => {
+  const time = new Date(at);
+  const hh = String(time.getHours()).padStart(2, '0');
+  const mm = String(time.getMinutes()).padStart(2, '0');
+  return (
+    <div className="cdBuildErr">
+      <div className="cdBuildErr__col">
+        <span className="cdBuildErr__eyebrow">BUILD FAILED · {hh}:{mm}</span>
+        <span className="cdBuildErr__title">Build failed.</span>
+        <span className="cdBuildErr__sub">The rebundle didn't come up. Full output:</span>
+        <pre className="cdBuildErr__out">{message}</pre>
+        <div className="cdBuildErr__actions">
+          <button type="button" className="cdBtnPrimary cdBtnPrimary--36" onClick={onRebuild}>
+            <MSymbol name="refresh" size={16} />
+            Rebuild
+          </button>
+          <button type="button" className="cdBtnXs cdBtnXs--sm" onClick={onSendToChat}>
+            <MSymbol name="forum" size={15} />
+            Send to chat — let it fix itself
+          </button>
+          <button
+            type="button"
+            className="cdTextLink"
+            onClick={() => navigator.clipboard.writeText(message)}
+          >
+            Copy output
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -310,88 +467,86 @@ interface AppPackage {
   line: string;
 }
 
-const Spinner: FC = () => (
-  <div style={{
-    width: 24, height: 24, border: '3px solid #e0e0e0', borderTopColor: '#666',
-    borderRadius: '50%', animation: 'spin 0.8s linear infinite',
-  }} />
-);
-
-const SimpleInstallingView: FC<{ message: string }> = ({ message }) => (
-  <div style={{
-    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-    height: '100%', paddingBottom: '12vh', gap: 12, color: '#666', fontSize: 14,
-  }}>
-    <Spinner />
-    <span>{message}</span>
-    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-  </div>
-);
-
-function displayPackageName(pkg: AppPackage): string {
+/** "pandas==2.2.3" / "left-pad@1.3.0" → name + version for the install rows. */
+function splitPackageSpec(pkg: AppPackage): { name: string; version: string } {
   switch (pkg.registry) {
-    case 'npm': return pkg.package.split('@')[0];
-    case 'manual': return pkg.package.split('/').pop() ?? pkg.package;
-    default: return pkg.package;
+    case 'npm': {
+      const at = pkg.package.lastIndexOf('@');
+      if (at > 0) return { name: pkg.package.slice(0, at), version: pkg.package.slice(at + 1) };
+      return { name: pkg.package, version: '' };
+    }
+    case 'manual':
+      return { name: pkg.package.split('/').pop() ?? pkg.package, version: '' };
+    default: {
+      const m = pkg.package.match(/^([^=<>~!\s]+)\s*(?:(?:==|>=|<=|~=|!=)\s*(.+))?$/);
+      return { name: m?.[1] ?? pkg.package, version: m?.[2] ?? '' };
+    }
   }
 }
 
-const PackageRow: FC<{ pkg: AppPackage }> = ({ pkg }) => {
-  const icon =
-    pkg.state === 'installed' ? '✓'
-      : pkg.state === 'installing' ? '⟳'
-      : pkg.state === 'failed' ? '✗'
-      : '⊘';
-  const colors = {
-    installed: '#1a7f37',
-    installing: '#bf8700',
-    failed: '#cf222e',
-    queued: '#888',
-    unknown: '#888',
-  } as const;
-  const label = pkg.state === 'installed' ? 'installed'
-    : pkg.state === 'installing' ? (pkg.line || 'installing…')
-    : pkg.state === 'failed' ? 'failed'
-    : 'queued';
+const InstallPackageRow: FC<{ pkg: AppPackage }> = ({ pkg }) => {
+  const { name, version } = splitPackageSpec(pkg);
+  const state = pkg.state;
+  const rowClass =
+    state === 'failed' ? ' cdInstall__row--failed'
+      : state === 'queued' || state === 'unknown' ? ' cdInstall__row--queued'
+      : '';
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 12, marginBottom: 3 }}>
-      <span style={{ color: colors[pkg.state], width: 12, textAlign: 'center' }}>{icon}</span>
-      <span style={{
-        color: '#666', background: '#eee', borderRadius: 3, padding: '1px 5px',
-        fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.3,
-        flexShrink: 0,
-      }}>
-        {pkg.registry}
-      </span>
-      <code style={{ color: '#333' }}>{displayPackageName(pkg)}</code>
-      <span
-        style={{
-          color: '#888', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap', fontFamily: pkg.state === 'installing' ? 'SF Mono, Menlo, Monaco, monospace' : undefined,
-          fontSize: pkg.state === 'installing' ? 10 : 12,
-        }}
-        title={label}
-      >
-        {label}
-      </span>
+    <div className={`cdInstall__row${rowClass}`}>
+      <span className="cdInstall__pkg">{name}</span>
+      {version && <span className="cdInstall__ver">{version}</span>}
+      <span className="cdInstall__rowSpacer" />
+      {state === 'installed' && (
+        <>
+          <span className="cdDot cdDot--running" />
+          <span className="cdInstall__state">DONE</span>
+        </>
+      )}
+      {state === 'installing' && (
+        <>
+          <span className="cdDot cdDot--busy cdDot--pulse" />
+          <span className="cdInstall__state">INSTALLING…</span>
+        </>
+      )}
+      {(state === 'queued' || state === 'unknown') && (
+        <>
+          <span className="cdDot cdDot--sleeping" />
+          <span className="cdInstall__state cdInstall__state--queued">QUEUED</span>
+        </>
+      )}
+      {state === 'failed' && (
+        <>
+          <span className="cdDot cdDot--error" />
+          <span className="cdInstall__state cdInstall__state--failed">FAILED</span>
+        </>
+      )}
     </div>
   );
 };
 
+/** First-boot dependency interstitial — replaces the iframe (Phase B spec). */
 const PackageChecklistView: FC<{ packages: AppPackage[] }> = ({ packages }) => {
+  const total = packages.length;
+  const done = packages.filter((p) => p.state === 'installed').length;
+  const liveLine = packages.find((p) => p.state === 'installing')?.line ?? '';
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      height: '100%', paddingBottom: '12vh', gap: 16, color: '#666', fontSize: 14,
-    }}>
-      <Spinner />
-      <span>Installing software...</span>
-      <div style={{ width: '100%', maxWidth: 440 }}>
+    <div className="cdInstallWrap">
+      <div className="cdInstall">
+        <div className="cdInstall__header">
+          <span className="cdInstall__title">FIRST BOOT — INSTALLING {total} PACKAGE{total === 1 ? '' : 'S'}</span>
+          <span className="cdInstall__count">{done}/{total}</span>
+        </div>
         {packages.map((p) => (
-          <PackageRow key={`${p.registry}:${p.package}`} pkg={p} />
+          <InstallPackageRow key={`${p.registry}:${p.package}`} pkg={p} />
         ))}
+        <div className="cdInstall__footer">
+          <div className="cdProgress">
+            <div className="cdProgress__fill" style={{ width: `${total > 0 ? Math.round((done / total) * 100) : 0}%` }} />
+          </div>
+          <span className="cdInstall__footerCount">{done}/{total}</span>
+        </div>
       </div>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      {liveLine && <span className="cdInstall__log">▸ {liveLine}</span>}
     </div>
   );
 };
@@ -543,12 +698,23 @@ const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dir
     return () => { cancelled = true; };
   }, [containerReady, dirName]);
 
+  // Surface first-boot progress to the shared status store (tab dots, header).
+  useEffect(() => {
+    if (depsReady === false) {
+      const done = packages?.filter((p) => p.state === 'installed').length ?? 0;
+      const total = packages?.length ?? 0;
+      setToolStatus(dirName, { kind: 'installing', done, total });
+    } else if (depsReady === true) {
+      setToolStatus(dirName, { kind: 'running' });
+    }
+  }, [depsReady, packages, dirName]);
+
   if (containerReady === null) return null;
-  if (!containerReady) return <SimpleInstallingView message={statusMessage} />;
+  if (!containerReady) return <CenteredMonoStatus label={statusMessage} />;
   if (depsReady === null) return null;
   if (!depsReady) {
     if (packages === null) return null;  // still fetching the install plan
-    if (packages.length === 0) return <SimpleInstallingView message="Installing software..." />;
+    if (packages.length === 0) return <CenteredMonoStatus label="FIRST BOOT — INSTALLING" />;
     return <PackageChecklistView packages={packages} />;
   }
 

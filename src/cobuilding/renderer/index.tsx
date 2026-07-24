@@ -19,9 +19,14 @@ import { FileViewer } from './components/FileViewer';
 import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
 import { ToolsPage } from './components/ToolsPage';
-import { NotificationBell } from './components/NotificationBell';
 import { PaperMonitorView } from './components/PaperMonitorView';
 import { HomePage } from './components/HomePage';
+import { ChromeBar } from './components/command-desk/ChromeBar';
+import { Rail, type RailTab } from './components/command-desk/Rail';
+import { StatusBar } from './components/command-desk/StatusBar';
+import { CommandDesk } from './components/command-desk/CommandDesk';
+import { useHomeData } from './components/command-desk/useHomeData';
+import { AVAILABLE_TOOLS_STUB } from './components/availableTools';
 import { ReactionsToolView } from './components/ReactionsToolView';
 import { resolveWorkspacePath } from './utils/resolveWorkspacePath';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
@@ -31,12 +36,10 @@ import { useThreadHistoryAdapter } from './threadHistoryAdapter';
 import { createAttachmentAdapter } from './attachmentAdapter';
 import { useSessionSubscription } from './useSessionSubscription';
 import { reloadThreadHistory } from './reloadThreadHistory';
-import WorkspaceOnboarding from './components/WorkspaceOnboarding';
-import ScanningProgress from './components/ScanningProgress';
-import ScanResultsReview from './components/ScanResultsReview';
 import DirectoryPermissions from './components/DirectoryPermissions';
-import ApiKeyOnboarding from './components/ApiKeyOnboarding';
-import WelcomeScreen from './components/WelcomeScreen';
+import { Onboarding } from './components/command-desk/Onboarding';
+import { ChatHeader } from './components/command-desk/ChatHeader';
+import { ToolWorkspace } from './components/command-desk/ToolWorkspace';
 import { ToolFallback } from './components/assistant-ui/tool-fallback';
 import { SetupBanner } from './components/SetupBanner';
 import { GlobalComposer } from './components/GlobalComposer';
@@ -49,6 +52,8 @@ import { initSentryRenderer } from './sentry';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { initAnalytics as initCoScientistAnalytics } from './coscientistAnalytics';
 import './App.css';
+import './commandDesk.css';
+import './phaseB.css';
 
 // Initialize Sentry before any other code runs so unhandled errors during
 // React tree construction are captured. No-op when SENTRY_DSN is empty.
@@ -103,7 +108,7 @@ function QuickChatInjector({ onSwitchToChat }: { onSwitchToChat: () => void }) {
 }
 
 /** Listens for notification:navigate IPC and navigates to the specified target. */
-type SidebarTab = 'home' | 'tools' | 'files' | 'chats' | 'debug' | 'settings';
+type SidebarTab = 'home' | 'tools' | 'files' | 'chats' | 'activity' | 'debug' | 'settings';
 
 function NotificationNavigator({
   setSidebarTab,
@@ -183,6 +188,28 @@ function OverlayNavigationHandler({
 /** Subscribes to running agent sessions when a thread is opened. */
 function SessionSubscriber() {
   useSessionSubscription();
+  return null;
+}
+
+/** Esc stops the active generation — same as the composer's stop button. */
+function EscStopsRun() {
+  const runtime = useAssistantRuntime();
+  const isRunningRef = useRef(false);
+  isRunningRef.current = useAuiState((s: any) => s.thread?.isRunning ?? false) as boolean;
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || !isRunningRef.current) return;
+      try {
+        runtime.thread.cancelRun();
+      } catch {
+        // No active run — nothing to stop.
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [runtime]);
+
   return null;
 }
 
@@ -597,11 +624,18 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
     return (saved as DebugSection) || 'apps';
   });
 
-  const { tabs, activeTabId, openTab, deactivateAllTabs } = useTabs({
+  const { tabs, activeTabId, openTab, closeTab, activateTab, deactivateAllTabs } = useTabs({
     onBeforeClose: (id) => {
       kernelRegistry.shutdown(id).catch(() => {});
     },
   });
+
+  // Closing the last tool tab drops back to the Tools listing.
+  const closeToolTab = useCallback((id: string) => {
+    closeTab(id);
+    const remaining = tabsRef.current.filter((t) => t.kind === 'miniapp' && t.id !== id);
+    if (remaining.length === 0) setToolsViewMode('listing');
+  }, [closeTab]);
   const [autoSelectFirstApp, setAutoSelectFirstApp] = useState(false);
   // Per-mini-app reload nonce — bumped each time the app is (re-)opened so the
   // iframe remounts and picks up a freshly built bundle. Without this, calling
@@ -737,6 +771,78 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
     setToolsViewMode('listing');
   }, []);
 
+  // Live data for the Command Desk home + rail (sessions, mini-apps, drive).
+  const { sessions, apps, driveFiles, refreshApps, refreshDrive } = useHomeData();
+
+  // Apps/drive have no change events from the host — refresh when the user
+  // lands somewhere that displays them.
+  useEffect(() => {
+    if (sidebarTab === 'home') {
+      refreshApps();
+      refreshDrive();
+    } else if (sidebarTab === 'tools') {
+      refreshApps();
+    }
+  }, [sidebarTab, refreshApps, refreshDrive]);
+
+  const handleChatsClick = useCallback(() => {
+    setSidebarTab('chats');
+    setChatViewMode('list');
+    deactivateAllTabs();
+  }, [deactivateAllTabs]);
+
+  const openChatById = useCallback((sessionId: string) => {
+    setSidebarTab('chats');
+    setChatViewMode('detail');
+    deactivateAllTabs();
+    try {
+      runtime.threads.switchToThread(sessionId);
+    } catch (err) {
+      console.error('[CommandDesk] switchToThread failed:', err);
+    }
+  }, [runtime, deactivateAllTabs]);
+
+  const handleRailNavigate = useCallback((tab: RailTab) => {
+    switch (tab) {
+      case 'home':
+        setSidebarTab('home');
+        deactivateAllTabs();
+        break;
+      case 'chats':
+        handleChatsClick();
+        break;
+      case 'tools':
+        handleToolsClick();
+        break;
+      case 'files':
+        handleFilesClick();
+        break;
+      case 'activity':
+        setSidebarTab('activity');
+        deactivateAllTabs();
+        break;
+      case 'debug':
+        setSidebarTab('debug');
+        break;
+      case 'settings':
+        setSidebarTab('settings');
+        break;
+    }
+  }, [deactivateAllTabs, handleChatsClick, handleToolsClick, handleFilesClick]);
+
+  // ⌘K — interim: routes to the chat list (it has search) until a real
+  // command palette exists.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        handleChatsClick();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [handleChatsClick]);
+
   // Suppress ShowChatOnThreadSelect when switching threads for a miniapp
   const suppressThreadDeactivateRef = useRef(false);
 
@@ -749,6 +855,38 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
   // Determine the active miniapp tab (for chat session switching)
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const activeMiniAppDirName = activeTab?.kind === 'miniapp' && activeTab.data.kind === 'miniapp' ? activeTab.data.dirName : null;
+
+  // A tool counts as "running" while its viewer tab is open this session —
+  // there is no host-side mini-app lifecycle yet.
+  const liveToolDirNames = useMemo(
+    () =>
+      new Set(
+        tabs
+          .filter((t) => t.kind === 'miniapp' && t.data.kind === 'miniapp')
+          .map((t) => (t.data as { kind: 'miniapp'; dirName: string }).dirName),
+      ),
+    [tabs],
+  );
+
+  const pinnedTools = useMemo(
+    () =>
+      [...apps]
+        .sort(
+          (a, b) =>
+            (b.lastOpened ? Date.parse(b.lastOpened) : 0) -
+            (a.lastOpened ? Date.parse(a.lastOpened) : 0),
+        )
+        .slice(0, 3)
+        .map((a) => ({
+          dirName: a.dirName,
+          name: a.name,
+          icon: a.icon,
+          live: liveToolDirNames.has(a.dirName),
+        })),
+    [apps, liveToolDirNames],
+  );
+
+  const workspaceName = workspace.directory_path.split('/').filter(Boolean).pop() ?? 'workspace';
 
   const isInChatDetail = sidebarTab === 'chats' && chatViewMode === 'detail';
   // Views with their own side-panel composer hide the global composer; only
@@ -773,6 +911,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
       <SessionsListRefresher />
       <ForeignTurnWatcherDesktop />
       <SessionSubscriber />
+      <EscStopsRun />
       <ShowChatOnThreadSelect onShowChat={() => { deactivateAllTabs(); setChatViewMode('detail'); }} suppressRef={suppressThreadDeactivateRef} />
       <AppSessionSwitcher activeDirName={activeMiniAppDirName} cacheRef={appSessionCacheRef} suppressRef={suppressThreadDeactivateRef} />
       <OpenMiniAppHandler onOpen={handleSelectApp} />
@@ -784,57 +923,41 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
       <OverlayNavigationHandler setSidebarTab={setSidebarTab} setChatViewMode={setChatViewMode} deactivateAllTabs={deactivateAllTabs} />
       <TooltipProvider>
         <div className="appRoot">
+          <ChromeBar />
           <SetupBanner />
-          <div className="appLayout">
-          <div className="topNavBar">
-            <div className="topNavBar__brand">
-              <span className="topNavBar__brandName">Acabox</span>
-            </div>
-            <nav className="topNavBar__tabs">
-              <button
-                className={`topNavTab${sidebarTab === 'home' ? ' topNavTab--active' : ''}`}
-                onClick={() => { setSidebarTab('home'); deactivateAllTabs(); }}
-              >
-                Home
-              </button>
-              <button
-                className={`topNavTab${sidebarTab === 'tools' ? ' topNavTab--active' : ''}`}
-                onClick={handleToolsClick}
-              >
-                Tools
-              </button>
-              <button
-                className={`topNavTab${sidebarTab === 'files' ? ' topNavTab--active' : ''}`}
-                onClick={handleFilesClick}
-              >
-                Files
-              </button>
-              <button
-                className={`topNavTab${sidebarTab === 'chats' ? ' topNavTab--active' : ''}`}
-                onClick={() => { setSidebarTab('chats'); setChatViewMode('list'); deactivateAllTabs(); }}
-              >
-                Chats
-              </button>
-            </nav>
-            <div className="topNavBar__right">
-              <NotificationBell onNavigateHome={() => { setSidebarTab('home'); deactivateAllTabs(); }} />
-              <button
-                className={`topNavTab${sidebarTab === 'debug' ? ' topNavTab--active' : ''}`}
-                onClick={() => setSidebarTab('debug')}
-              >
-                Debug
-              </button>
-              <button
-                className={`topNavTab${sidebarTab === 'settings' ? ' topNavTab--active' : ''}`}
-                onClick={() => setSidebarTab('settings')}
-              >
-                Settings
-              </button>
-            </div>
-          </div>
+          <div className="cdBody">
+            <Rail
+              activeTab={sidebarTab}
+              chatCount={sessions.length}
+              toolCount={apps.length + AVAILABLE_TOOLS_STUB.length}
+              recents={sessions.slice(0, 5).map((s) => ({ id: s.id, title: s.title }))}
+              pinned={pinnedTools}
+              workspaceName={workspaceName}
+              onNavigate={handleRailNavigate}
+              onOpenChat={openChatById}
+              onOpenTool={handleSelectApp}
+            />
+            <div className="cdMain">
           <div className="contentArea">
-            {/* Home tab */}
-            <div style={{ display: sidebarTab === 'home' ? 'flex' : 'none', flex: 1 }}>
+            {/* Home tab — Command Desk */}
+            <div style={{ display: sidebarTab === 'home' ? 'flex' : 'none', flex: 1, minWidth: 0 }}>
+              <CommandDesk
+                sessions={sessions}
+                apps={apps}
+                driveFiles={driveFiles}
+                liveToolDirNames={liveToolDirNames}
+                workspaceName={workspaceName}
+                onOpenChat={openChatById}
+                onOpenTool={handleSelectApp}
+                onNavigateChats={handleChatsClick}
+                onNavigateTools={handleToolsClick}
+                onNavigateFiles={handleFilesClick}
+                onOpenFile={handleSelectFile}
+              />
+            </div>
+
+            {/* Activity tab — the briefings feed (formerly the Home screen) */}
+            <div style={{ display: sidebarTab === 'activity' ? 'flex' : 'none', flex: 1 }}>
               <div className="homeContent">
                 <HomePage
                   workspacePath={workspace.directory_path}
@@ -852,69 +975,21 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
             {/* Tools tab */}
             <div style={{ display: sidebarTab === 'tools' ? 'flex' : 'none', flex: 1, flexDirection: 'column' }}>
               {toolsViewMode === 'detail' && activeTab?.kind === 'miniapp' ? (
-                <div className="toolDetailContent">
-                  {toolChatOpen ? (
-                    <PanelGroup direction="horizontal" autoSaveId="cobuild.toolDetailLayout" className="appPanelGroup">
-                      <Panel id="toolDetailMain" order={1} defaultSize={65} minSize={30}>
-                        <div className="mainPanel">
-                          <div className="tabPanelsContainer">
-                            {tabs.filter(t => t.kind === 'miniapp').map((tab) => (
-                              <div key={tab.id} className="tabPanel" style={{ display: tab.id === activeTabId ? 'flex' : 'none' }}>
-                                {tab.data.kind === 'miniapp' && (
-                                  <MiniAppViewer
-                                    dirName={tab.data.dirName}
-                                    workspacePath={workspace.directory_path}
-                                    reloadNonce={miniAppReloadNonces[tab.data.dirName] ?? 0}
-                                    preBuilt={preBuiltApps.has(tab.data.dirName)}
-                                    onBack={() => setToolsViewMode('listing')}
-                                  />
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </Panel>
-                      <div className="panelBorder">
-                        <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
-                        <button
-                          className="panelCollapseBtn"
-                          onClick={() => setToolChatOpen(false)}
-                          title="Close chat panel"
-                        />
-                      </div>
-                      <Panel id="toolDetailChat" order={2} defaultSize={35} minSize={18} maxSize={50}>
-                        <div className="chatSidePanel">
-                          <Thread />
-                        </div>
-                      </Panel>
-                    </PanelGroup>
-                  ) : (
-                    <div style={{ flex: 1, display: 'flex', position: 'relative' }}>
-                      <div className="mainPanel" style={{ flex: 1 }}>
-                        <div className="tabPanelsContainer">
-                          {tabs.filter(t => t.kind === 'miniapp').map((tab) => (
-                            <div key={tab.id} className="tabPanel" style={{ display: tab.id === activeTabId ? 'flex' : 'none' }}>
-                              {tab.data.kind === 'miniapp' && (
-                                <MiniAppViewer
-                                  dirName={tab.data.dirName}
-                                  workspacePath={workspace.directory_path}
-                                  reloadNonce={miniAppReloadNonces[tab.data.dirName] ?? 0}
-                                  preBuilt={preBuiltApps.has(tab.data.dirName)}
-                                  onBack={() => setToolsViewMode('listing')}
-                                />
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <button
-                        className="panelExpandBtn"
-                        onClick={() => setToolChatOpen(true)}
-                        title="Open chat panel"
-                      />
-                    </div>
-                  )}
-                </div>
+                <ToolWorkspace
+                  tabs={tabs}
+                  activeTabId={activeTabId}
+                  apps={apps}
+                  workspacePath={workspace.directory_path}
+                  miniAppReloadNonces={miniAppReloadNonces}
+                  preBuiltApps={preBuiltApps}
+                  onSelectTab={activateTab}
+                  onCloseTab={closeToolTab}
+                  onBack={() => setToolsViewMode('listing')}
+                  onExpandChat={() => {
+                    setSidebarTab('chats');
+                    setChatViewMode('detail');
+                  }}
+                />
               ) : toolsViewMode === 'paper-monitor' ? (
                 <div className="toolDetailContent">
                   {toolChatOpen ? (
@@ -1052,17 +1127,12 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
             <div style={{ display: sidebarTab === 'chats' ? 'flex' : 'none', flex: 1, flexDirection: 'column' }}>
               {chatViewMode === 'detail' ? (
                 <>
-                  <div className="detailHeader">
-                    <button
-                      className="detailBackBtn"
-                      onClick={() => { setChatViewMode('list'); }}
-                    >
-                      &larr; Back to chats
-                    </button>
-                  </div>
-                  <div className="chatDetailContent" style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-                    <Thread hideComposer />
-                  </div>
+                  <ChatHeader
+                    workspacePath={workspace.directory_path}
+                    onBack={() => { setChatViewMode('list'); }}
+                    onOpenTool={handleSelectApp}
+                  />
+                  <Thread variant="full" hideComposer />
                 </>
               ) : (
                 <ThreadList onSelectThread={() => setChatViewMode('detail')} />
@@ -1106,114 +1176,76 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
           </div>
           {/* Global composer — shown on all pages except settings, debug, tool detail view */}
           {globalComposerVisible && <GlobalComposer />}
-        </div>
+          <StatusBar />
+            </div>
+          </div>
         </div>
       </TooltipProvider>
     </AssistantRuntimeProvider>
   );
 }
 
-type OnboardingStep = 'loading' | 'welcome' | 'apikey' | 'workspace' | 'scanning' | 'review' | 'ready';
+type BootState = 'loading' | 'onboarding-welcome' | 'onboarding-workspace' | 'ready';
 
 function App() {
-  const [step, setStep] = useState<OnboardingStep>('loading');
+  const [state, setState] = useState<BootState>('loading');
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
-  const [scanReportId, setScanReportId] = useState<string | null>(null);
-  // True only when the user reached 'workspace' by entering a key in the
-  // onboarding flow. When a key already existed at boot (env or settings), the
-  // key step is skipped, so we must NOT offer a Back button to it — an env-var
-  // key can't be changed from the UI, which would strand the user.
-  const [cameFromApiKey, setCameFromApiKey] = useState(false);
 
   useEffect(() => {
     // No login: the gate is "do we have an Anthropic API key?" (env or the
-    // Settings-saved key), not an academia session.
+    // Settings-saved key), not an academia session. A missing key starts
+    // onboarding from Welcome; a present key with no workspace starts at the
+    // directories step (an env-var key can't be changed from the UI, so we
+    // never route back through the key step in that case).
     Promise.all([window.workspacesAPI.getActive(), window.authAPI.getApiKeyStatus()])
       .then(([ws, { hasKey }]) => {
         if (!hasKey) {
-          setStep('welcome');
+          setState('onboarding-welcome');
         } else if (ws) {
           setWorkspace(ws);
-          setStep('ready');
+          setState('ready');
         } else {
-          setStep('workspace');
+          setState('onboarding-workspace');
         }
       })
-      .catch(() => setStep('welcome'));
+      .catch(() => setState('onboarding-welcome'));
   }, []);
 
-  switch (step) {
-    case 'loading':
-      return null;
-
-    case 'welcome':
-      return (
-        <WelcomeScreen
-          onGetStarted={() => setStep('apikey')}
-        />
-      );
-
-    case 'apikey':
-      return (
-        <ApiKeyOnboarding
-          onBack={() => setStep('welcome')}
-          onSuccess={() => { setCameFromApiKey(true); setStep('workspace'); }}
-        />
-      );
-
-    case 'workspace':
-      return (
-        <WorkspaceOnboarding
-          onBack={cameFromApiKey ? () => setStep('apikey') : undefined}
-          onComplete={() => {
-            window.workspacesAPI.getActive().then((ws) => {
-              if (ws) {
-                setWorkspace(ws);
-                setStep('scanning');
-              }
-            });
-          }}
-          onSkip={() => {
-            window.workspacesAPI.getActive().then((ws) => {
-              if (ws) {
-                setWorkspace(ws);
-                setStep('ready');
-              }
-            });
-          }}
-        />
-      );
-
-    case 'scanning':
-      return (
-        <ScanningProgress
-          onComplete={(reportId) => {
-            setScanReportId(reportId);
-            setStep('review');
-          }}
-          onSkip={() => setStep('ready')}
-        />
-      );
-
-    case 'review':
-      return (
-        <ScanResultsReview
-          onComplete={() => setStep('ready')}
-        />
-      );
-
-    case 'ready':
-      return (
-        <ChatView
-          workspace={workspace!}
-          onWorkspaceUpdated={setWorkspace}
-          onRestartOnboarding={() => {
-            setWorkspace(null);
-            setStep('workspace');
-          }}
-        />
-      );
+  if (state === 'ready') {
+    return (
+      <ChatView
+        workspace={workspace!}
+        onWorkspaceUpdated={setWorkspace}
+        onRestartOnboarding={() => {
+          setWorkspace(null);
+          setState('onboarding-workspace');
+        }}
+      />
+    );
   }
+
+  // The window has no native title bar (titleBarStyle: 'hiddenInset'), so
+  // onboarding also renders the chrome bar as its drag region. First-run
+  // frame: chrome bar + status bar, no rail (Phase B spec).
+  return (
+    <div className="appRoot">
+      <ChromeBar />
+      {state !== 'loading' && (
+        <Onboarding
+          initialStep={state === 'onboarding-welcome' ? 1 : 3}
+          onFinished={() => {
+            window.workspacesAPI.getActive().then((ws) => {
+              if (ws) {
+                setWorkspace(ws);
+                setState('ready');
+              }
+            });
+          }}
+        />
+      )}
+      <StatusBar firstRun />
+    </div>
+  );
 }
 
 // Wrap ResizeObserver callbacks in requestAnimationFrame so they never fire

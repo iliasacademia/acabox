@@ -18,6 +18,10 @@ export interface SubagentProgress {
 let toolProgress = new Map<string, ToolProgressEntry>();
 let subagentProgress = new Map<string, SubagentProgress>();
 let processingLabel: string | null = null;
+// Last observed elapsed time for finished tool calls, so completed cards can
+// show a real measured duration for the current renderer session. Not
+// persisted — history rows render without a duration.
+let finalElapsed = new Map<string, number>();
 
 const listeners = new Set<() => void>();
 
@@ -48,9 +52,24 @@ export function setToolProgress(toolCallId: string, toolName: string, elapsedSec
 
 export function clearToolProgress(toolCallId: string): void {
   if (!toolProgress.has(toolCallId)) return;
+  const entry = toolProgress.get(toolCallId);
+  if (entry) {
+    finalElapsed = new Map(finalElapsed);
+    finalElapsed.set(toolCallId, entry.elapsedSeconds);
+  }
   toolProgress = new Map(toolProgress);
   toolProgress.delete(toolCallId);
   notify();
+}
+
+function getFinalElapsedSnapshot(): Map<string, number> {
+  return finalElapsed;
+}
+
+/** Measured duration of a completed tool call (this renderer session only). */
+export function useToolFinalElapsed(toolCallId: string): number | null {
+  const finished = useSyncExternalStore(subscribe, getFinalElapsedSnapshot);
+  return finished.get(toolCallId) ?? null;
 }
 
 export function setSubagentStarted(parentToolCallId: string, taskId: string, description: string): void {

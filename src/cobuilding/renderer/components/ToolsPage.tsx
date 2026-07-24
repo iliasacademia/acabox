@@ -1,11 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import * as LucideIcons from 'lucide-react';
-import { LayoutGridIcon, UploadIcon, ChevronRightIcon, PlayIcon, TrashIcon, SparklesIcon, ArrowRightIcon, FileTextIcon, FolderOpenIcon, XIcon, CircleHelpIcon } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
+import { LayoutGridIcon, UploadIcon, ChevronRightIcon, PlayIcon, TrashIcon, SparklesIcon, ArrowRightIcon, FileTextIcon, FolderOpenIcon, XIcon } from 'lucide-react';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
-import { pushPendingAttribution, clearPendingAttribution } from '../coscientistAnalytics';
-import { buildSuggestedToolPrompt } from '../../shared/suggestedTasksTools';
 
 type ToolsPageMiniApp = MiniAppEntry;
 
@@ -50,55 +47,7 @@ function formatLastUsed(lastOpened: string | null): string | null {
   return `used ${years} year${years === 1 ? '' : 's'} ago`;
 }
 
-interface AvailableStub {
-  name: string;
-  description: string;
-  tag: 'ON-DEMAND' | 'SCHEDULED';
-  preBuilt?: boolean;
-  lastOpened: string;
-  status?: string;
-  filePickerType?: 'manuscript' | 'grant' | 'presentation' | 'reference' | 'all' | 'manuscript_grant';
-  chatPromptTemplate?: (filePath: string) => string;
-  /**
-   * If set, picking a file opens it in MS Word with the popup-v2 overlay
-   * docked right (~33%) and a kickoff prompt auto-sent in the overlay's
-   * chat. Picker is filtered to .docx files only — Word's find_and_replace
-   * MCP is the only host we have for live tracked-changes.
-   */
-  useWordOverlay?: boolean;
-}
-
-function hoursAgoIso(hours: number): string {
-  return new Date(Date.now() - hours * 3_600_000).toISOString();
-}
-
-const AVAILABLE_TOOLS_STUB: AvailableStub[] = [
-  {
-    name: 'Peer Review',
-    description: 'Review and provide structured feedback on any document in MS Word',
-    tag: 'ON-DEMAND',
-    preBuilt: true,
-    lastOpened: hoursAgoIso(2),
-    filePickerType: 'all',
-    useWordOverlay: true,
-  },
-  { name: 'Grant Finder', description: 'Funding opportunities matched to your research', tag: 'ON-DEMAND', preBuilt: true, lastOpened: hoursAgoIso(72) },
-  {
-    name: 'Grant Writer',
-    description: 'AI-assisted grant writing, specific aims, and narrative drafting',
-    tag: 'ON-DEMAND',
-    preBuilt: true,
-    lastOpened: hoursAgoIso(72),
-    filePickerType: 'grant',
-    chatPromptTemplate: (filePath) =>
-      `/academic-writing-agent\n\nPlease help me write and improve my grant proposal: ${filePath}`,
-  },
-  { name: 'Literature Synthesis', description: 'Build a structured review across many papers', tag: 'ON-DEMAND', preBuilt: true, lastOpened: hoursAgoIso(48) },
-  { name: 'Paper Monitor', description: 'New papers in your topics, weekly digest', tag: 'SCHEDULED', preBuilt: true, lastOpened: hoursAgoIso(5), status: 'ran this morning \u00b7 4 items' },
-  { name: 'Citation Alerts', description: 'When new work cites your publications', tag: 'SCHEDULED', preBuilt: true, lastOpened: hoursAgoIso(6), status: 'ran 6h ago \u00b7 1 new citation' },
-  { name: 'Reactions', description: 'AI reactions to your browser and file activity, delivered periodically', tag: 'SCHEDULED', preBuilt: true, lastOpened: hoursAgoIso(24) },
-];
-
+import { AVAILABLE_TOOLS_STUB, AvailableStub } from './availableTools';
 import { resolveWorkspacePath } from '../utils/resolveWorkspacePath';
 
 export function ToolsPage({
@@ -118,7 +67,6 @@ export function ToolsPage({
   const [apps, setApps] = useState<ToolsPageMiniApp[]>([]);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
-  const [suggestedApps, setSuggestedApps] = useState<Briefing[]>([]);
   const assistantRuntime = useAssistantRuntime();
   const composerRuntime = useComposerRuntime();
 
@@ -152,16 +100,6 @@ export function ToolsPage({
     });
   }, []);
 
-  useEffect(() => {
-    const fetchSuggestions = () => {
-      window.briefingsAPI
-        .list({ type: ['suggested_tool'], status: ['new'] })
-        .then(setSuggestedApps);
-    };
-    fetchSuggestions();
-    return window.briefingsAPI.onChanged(fetchSuggestions);
-  }, []);
-
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createToolText, setCreateToolText] = useState('');
 
@@ -170,10 +108,6 @@ export function ToolsPage({
     if (!text) return;
     setShowCreateModal(false);
     setCreateToolText('');
-    // Explicit user-initiated chat creation. Drain any stale suggestion
-    // attribution (e.g. a Build-it click that never produced a tool) so it
-    // can't leak onto this chat.
-    clearPendingAttribution();
     assistantRuntime.switchToNewThread();
     setTimeout(() => {
       composerRuntime.setText(`Create a tool for me that does the following:\n\n${text}`);
@@ -197,37 +131,6 @@ export function ToolsPage({
       setImporting(false);
     }
   }, [refresh, onSelectApp]);
-
-  const handleBuildSuggested = useCallback((briefing: Briefing) => {
-    const data: BriefingDataSuggestedTool = JSON.parse(briefing.briefing_data);
-    // Mark the next brand-new chat thread as suggestion-sourced. chatAdapter
-    // consumes the queue on the new thread's first send, binds the attribution
-    // to that thread_id, and sends it to main. tool:opened then looks up
-    // attribution by manifest.chatSessionId.
-    pushPendingAttribution(briefing.id);
-    assistantRuntime.switchToNewThread();
-    setTimeout(() => {
-      composerRuntime.setText(buildSuggestedToolPrompt(data.name, data.details_on_what_to_build));
-      onSwitchToChat();
-      setTimeout(() => {
-        const input = document.querySelector<HTMLTextAreaElement>('.composerInput');
-        if (input) {
-          input.focus();
-          input.setSelectionRange(input.value.length, input.value.length);
-        }
-        const shell = document.querySelector('.composerShell');
-        if (shell) {
-          shell.classList.remove('composerShell--highlight');
-          void (shell as HTMLElement).offsetWidth;
-          shell.classList.add('composerShell--highlight');
-        }
-      }, 0);
-    }, 0);
-  }, [assistantRuntime, composerRuntime, onSwitchToChat]);
-
-  const handleDismissSuggested = useCallback((briefing: Briefing) => {
-    window.briefingsAPI.setStatus(briefing.id, 'dismissed');
-  }, []);
 
   const [toolFilter, setToolFilter] = useState<'all' | 'on-demand' | 'scheduled'>('all');
   const [settingsOpen, setSettingsOpen] = useState<string | null>(null);
@@ -341,7 +244,6 @@ export function ToolsPage({
     }
   }, [workspacePath, refresh]);
 
-  const suggestedCount = suggestedApps.length;
   const toolCount = apps.length + AVAILABLE_TOOLS_STUB.length;
 
   return (
@@ -369,60 +271,6 @@ export function ToolsPage({
           </div>
           <ArrowRightIcon className="toolsAskCard__arrow" style={{ width: 18, height: 18 }} />
         </button>
-
-        {/* Personalized tools from directory scan */}
-        {suggestedApps.length > 0 && (
-          <section className="toolsSection">
-            <h2 className="toolsSection__heading">
-              Tools I can build for you
-              <span className="toolsSection__count">{suggestedCount}</span>
-              <span className="toolsSection__meta">&middot; based on patterns I noticed in your work</span>
-            </h2>
-            <div className="toolsCard">
-              {suggestedApps.map((briefing, i) => {
-                const data: BriefingDataSuggestedTool = JSON.parse(briefing.briefing_data);
-                const bordered = i > 0 ? ' toolRow--bordered' : '';
-                return (
-                  <div key={briefing.id} className={`toolRow${bordered}`}>
-                    <div className="toolRow__icon">
-                      <LayoutGridIcon style={{ width: 18, height: 18 }} />
-                    </div>
-                    <div className="toolRow__info">
-                      <div className="toolRow__header">
-                        <button className="toolRow__name" onClick={() => handleBuildSuggested(briefing)}>
-                          {data.name}
-                        </button>
-                      </div>
-                      <div className="toolRow__description">
-                        {briefing.why_im_suggesting_this}
-                        {briefing.why_im_suggesting_this && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button type="button" className="homeBriefingCard__infoBtn">
-                                <CircleHelpIcon style={{ width: 14, height: 14 }} />
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent className="tooltipContent--wide" side="top">
-                              {data.details_on_what_to_build}
-                            </TooltipContent>
-                          </Tooltip>
-                        )}
-                      </div>
-                    </div>
-                    <div className="toolRow__actions">
-                      <button className="toolRow__secondaryBtn" onClick={() => handleDismissSuggested(briefing)}>
-                        Skip
-                      </button>
-                      <button className="toolRow__primaryBtn" onClick={() => handleBuildSuggested(briefing)}>
-                        Build it
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        )}
 
         {/* Tools I've built for you (installed mini-apps) */}
         <section className="toolsSection">
@@ -523,9 +371,7 @@ export function ToolsPage({
                 if (toolFilter === 'scheduled') return stub.tag === 'SCHEDULED';
                 return true;
               });
-              const sortedStubs = [...filteredStubs].sort(
-                (a, b) => Date.parse(b.lastOpened) - Date.parse(a.lastOpened),
-              );
+              const sortedStubs = filteredStubs;
               if (sortedStubs.length === 0) {
                 return <div className="toolsSection__empty">No tools match this filter.</div>;
               }
@@ -547,7 +393,7 @@ export function ToolsPage({
                       </div>
                       <div className="toolRow__description">{tool.description}</div>
                       {(() => {
-                        const status = tool.name === 'Reactions' ? reactionsStatus : (tool.status ?? formatLastUsed(tool.lastOpened));
+                        const status = tool.name === 'Reactions' ? reactionsStatus : null;
                         return status ? <div className="toolRow__status">{status}</div> : null;
                       })()}
                     </div>

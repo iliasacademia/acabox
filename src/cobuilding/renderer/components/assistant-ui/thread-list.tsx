@@ -262,6 +262,11 @@ const ThreadListItem: FC = () => {
       ].filter(Boolean).join(' \u00b7 ')
     : '';
 
+  // The runtime always holds one unstarted "new thread" with no remoteId —
+  // it has no persisted session to jump back into, so keep it out of the list
+  // (the header count already excludes it).
+  if (!remoteId) return null;
+
   // Search filtering (after all hooks)
   if (searchQuery) {
     const q = searchQuery.toLowerCase();

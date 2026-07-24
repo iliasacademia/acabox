@@ -1,3 +1,5 @@
+<img src="src/assets/brand/acabox-wordmark.svg" alt="ACABOX" height="28">
+
 # Acabox
 
 Acabox is a desktop research assistant: point it at local research folders and

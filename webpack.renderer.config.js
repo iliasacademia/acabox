@@ -20,6 +20,14 @@ rules.push({
   type: 'asset/resource',
 });
 
+// Self-hosted fonts (DM Sans, IBM Plex Mono, Material Symbols) referenced by
+// @font-face url() in CSS. Emitted as files so the CSP's default-src 'self'
+// covers them — no external font CDN is reachable from the renderer.
+rules.push({
+  test: /\.(woff2?|ttf|otf)$/,
+  type: 'asset/resource',
+});
+
 
 module.exports = {
   // Full source maps in production so Sentry can symbolicate stack traces.

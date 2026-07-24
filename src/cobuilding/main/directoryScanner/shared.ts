@@ -8,6 +8,7 @@ import { app } from "electron";
 import log from "electron-log";
 import { tree as generateTreeCli } from "tree-node-cli";
 import { createDocumentReaderMcpServer } from "./documentReaderMcpServer";
+import { ensureApiKeyApproved } from "../../shared/claudeConfigApproval";
 
 export interface TaggedFileParsed {
   file_path?: unknown;
@@ -39,7 +40,6 @@ export interface ScanParams {
   baseURL?: string;
   onMessage: (event: ScannerEvent) => void;
   onBriefingsChanged: () => void;
-  onNotifyUser: (title: string, body: string) => void;
 }
 
 export interface TreeOutput {
@@ -61,7 +61,6 @@ export interface ScanContext {
   memoryDir: string;
   onMessage: (event: ScannerEvent) => void;
   onBriefingsChanged: () => void;
-  onNotifyUser: (title: string, body: string) => void;
 }
 
 export const DIRECTORY_ORGANIZATION_PROMPT = `Please help me organize my research directory. First, inspect the workspace and understand the current file structure, research projects, documents, data, scripts, outputs, and any existing naming conventions. Then recommend an effective organization plan for the directory.
@@ -188,6 +187,10 @@ export function buildCommonQueryOptions(ctx: ScanContext) {
     ctx;
   const hasDriveItems = ctx.treeOutputs.some(t => t.source === 'google-drive');
   const docReaderTool = "mcp__document-reader__read_document";
+  const scannerConfigDir = path.join(app.getPath('userData'), 'scanner-claude-config');
+  // Headless Claude Code refuses an env API key it hasn't "approved" — see
+  // ensureApiKeyApproved. Without this every scan reports "Not logged in".
+  ensureApiKeyApproved(scannerConfigDir, apiKey);
   return {
     abortController,
     ...(claudeBinaryPath ? { pathToClaudeCodeExecutable: claudeBinaryPath } : {}),

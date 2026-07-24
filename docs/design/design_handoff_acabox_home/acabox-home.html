@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ACABOX — Home (design reference 5a)</title>
+<style>
+@font-face{font-family:'DM Sans';src:url('fonts/DM-Sans.woff2') format('woff2');font-weight:100 1000;font-display:swap}
+@font-face{font-family:'IBM Plex Mono';src:url('fonts/IBMPlexMono-Regular.woff2') format('woff2');font-weight:400;font-display:swap}
+@font-face{font-family:'IBM Plex Mono';src:url('fonts/IBMPlexMono-Medium.woff2') format('woff2');font-weight:500;font-display:swap}
+@font-face{font-family:'Material Symbols Outlined';src:url('fonts/MaterialSymbolsOutlined.woff2') format('woff2');font-display:block}
+@keyframes cursorblink{50%{opacity:0}}
+body{margin:0;background:#f0eee9;font-family:'DM Sans',sans-serif;color:#141413;padding:28px 16px}
+a{color:#0645b1;text-decoration:none}
+a:hover{color:#0c3b8d;text-decoration:underline}
+/* NOTE: hover specs are encoded in style-hover attributes on each element (see README). */
+</style>
+</head>
+<body>
+<!-- ═══════════════ 5a EXPANDABLE RAIL ═══════════════ -->
+
+
+<div style="width:1280px;margin:0 auto;background:#fff;border:1px solid rgba(0,0,0,0.1);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.06);overflow:hidden">
+  <div style="display:flex;align-items:center;height:40px;padding:0 16px;background:#ffffff;border-bottom:1px solid #dddde2">
+    <div style="display:flex;gap:7px"><span style="width:11px;height:11px;border-radius:50%;background:#e2e0d9"></span><span style="width:11px;height:11px;border-radius:50%;background:#e2e0d9"></span><span style="width:11px;height:11px;border-radius:50%;background:#e2e0d9"></span></div>
+    <div style="flex:1;text-align:center;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.06em;color:#535366">ACABOX — LOCAL VM · V0.4.2</div>
+    <div style="display:flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#535366"><span style="width:6px;height:6px;border-radius:50%;background:#05b01c"></span>HEALTHY</div>
+  </div>
+  <div style="display:flex;height:840px">
+    <div id="rail-open" style="display:contents">
+      <div style="width:236px;flex:none;display:flex;flex-direction:column;padding:14px 12px;background:#ffffff;border-right:1px solid #dddde2;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:8px;padding:0 6px">
+          <div style="width:28px;height:28px;border-radius:6px;background:#0645b1;display:flex;align-items:center;justify-content:center;flex:none"><span style="font-family:'Material Symbols Outlined';font-size:16px;color:#ffffff">play_arrow</span></div>
+          <span style="font-family:'IBM Plex Mono',monospace;font-weight:500;font-size:13px;letter-spacing:0.1em;color:#141413">ACABOX</span>
+          <span style="flex:1"></span>
+          <span onclick="toggleRail()" title="Collapse" style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;color:#535366;cursor:pointer" style-hover="background:#f4f7fc;color:#0645b1"><span style="font-family:'Material Symbols Outlined';font-size:18px">keyboard_double_arrow_left</span></span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:1px;margin-top:16px">
+          <div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;background:#f4f7fc;color:#0645b1;font-size:14px;font-weight:500;cursor:pointer"><span style="font-family:'Material Symbols Outlined';font-size:18px">home</span>Home</div>
+          <div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;font-size:14px;color:#141413;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:18px;color:#535366">forum</span>Chats<span style="flex:1"></span><span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#91919e">23</span></div>
+          <div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;font-size:14px;color:#141413;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:18px;color:#535366">grid_view</span>Tools<span style="flex:1"></span><span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#91919e">7</span></div>
+          <div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;font-size:14px;color:#141413;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:18px;color:#535366">folder_open</span>Files</div>
+          <div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;font-size:14px;color:#141413;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:18px;color:#535366">monitoring</span>Activity</div>
+        </div>
+        <div style="margin-top:18px;padding:0 10px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:500;letter-spacing:0.08em;color:#91919e">RECENTS</div>
+        <div style="display:flex;flex-direction:column;gap:1px;margin-top:6px">
+          <div style="display:flex;align-items:center;gap:10px;height:30px;padding:0 10px;border-radius:8px;font-size:13px;color:#141413;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:16px;color:#91919e">chat_bubble</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Spin up anthropics/skills</span></div>
+          <div style="display:flex;align-items:center;gap:10px;height:30px;padding:0 10px;border-radius:8px;font-size:13px;color:#141413;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:16px;color:#91919e">chat_bubble</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Evals: citation extraction</span></div>
+          <div style="display:flex;align-items:center;gap:10px;height:30px;padding:0 10px;border-radius:8px;font-size:13px;color:#141413;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:16px;color:#91919e">chat_bubble</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">MCP for my Zotero library</span></div>
+          <div style="display:flex;align-items:center;gap:10px;height:30px;padding:0 10px;border-radius:8px;font-size:13px;color:#141413;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:16px;color:#91919e">chat_bubble</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">PDF → BibTeX converter</span></div>
+          <div style="display:flex;align-items:center;gap:10px;height:28px;padding:0 10px;font-size:13px;font-weight:500;color:#0645b1;cursor:pointer"><span style="font-family:'Material Symbols Outlined';font-size:16px;color:#91919e">more_horiz</span>More</div>
+        </div>
+        <div style="margin-top:16px;padding:0 10px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:500;letter-spacing:0.08em;color:#91919e">PINNED TOOLS</div>
+        <div style="display:flex;flex-direction:column;gap:1px;margin-top:6px">
+          <div style="display:flex;align-items:center;gap:10px;height:30px;padding:0 10px;border-radius:8px;font-size:13px;color:#141413;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:16px;color:#91919e">rocket_launch</span><span style="flex:1">GitHub Runner</span><span style="width:6px;height:6px;border-radius:50%;background:#05b01c"></span></div>
+          <div style="display:flex;align-items:center;gap:10px;height:30px;padding:0 10px;border-radius:8px;font-size:13px;color:#141413;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:16px;color:#91919e">extension</span><span style="flex:1">MCP Runner</span><span style="width:6px;height:6px;border-radius:50%;background:#05b01c"></span></div>
+          <div style="display:flex;align-items:center;gap:10px;height:30px;padding:0 10px;border-radius:8px;font-size:13px;color:#141413;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:16px;color:#91919e">science</span><span style="flex:1">LLM Evals</span><span style="width:6px;height:6px;border-radius:50%;background:#fecf4c"></span></div>
+        </div>
+        <div style="flex:1"></div>
+        <div style="display:flex;flex-direction:column;gap:1px;border-top:1px solid #ebebee;padding-top:10px">
+          <div style="display:flex;align-items:center;gap:10px;height:30px;padding:0 10px;border-radius:8px;font-size:13px;color:#141413;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:16px;color:#91919e">hard_drive</span><span style="font-family:'IBM Plex Mono',monospace;font-size:12px;flex:1">~/acabox</span><span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#91919e">SYNCED</span></div>
+          <div style="display:flex;align-items:center;gap:10px;height:30px;padding:0 10px;border-radius:8px;font-size:13px;color:#141413;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:16px;color:#91919e">settings</span>Settings</div>
+        </div>
+      </div>
+    </div>
+    <div id="rail-closed" style="display:none">
+      <div style="width:64px;flex:none;display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0;background:#ffffff;border-right:1px solid #dddde2">
+        <div style="width:28px;height:28px;border-radius:6px;background:#0645b1;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Outlined';font-size:16px;color:#ffffff">play_arrow</span></div>
+        <span onclick="toggleRail()" title="Expand" style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;color:#535366;cursor:pointer" style-hover="background:#f4f7fc;color:#0645b1"><span style="font-family:'Material Symbols Outlined';font-size:18px">keyboard_double_arrow_right</span></span>
+        <span title="Home" style="display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;background:#f4f7fc;color:#0645b1;cursor:pointer"><span style="font-family:'Material Symbols Outlined';font-size:20px">home</span></span>
+        <span title="Chats" style="display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#535366;cursor:pointer" style-hover="background:#f4f7fc;color:#0645b1"><span style="font-family:'Material Symbols Outlined';font-size:20px">forum</span></span>
+        <span title="Tools" style="display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#535366;cursor:pointer" style-hover="background:#f4f7fc;color:#0645b1"><span style="font-family:'Material Symbols Outlined';font-size:20px">grid_view</span></span>
+        <span title="Files" style="display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#535366;cursor:pointer" style-hover="background:#f4f7fc;color:#0645b1"><span style="font-family:'Material Symbols Outlined';font-size:20px">folder_open</span></span>
+        <span title="Activity" style="display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#535366;cursor:pointer" style-hover="background:#f4f7fc;color:#0645b1"><span style="font-family:'Material Symbols Outlined';font-size:20px">monitoring</span></span>
+        <div style="flex:1"></div>
+        <span title="Settings" style="display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;color:#535366;cursor:pointer" style-hover="background:#f4f7fc;color:#0645b1"><span style="font-family:'Material Symbols Outlined';font-size:20px">settings</span></span>
+      </div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;min-width:0;background:#ffffff">
+      <div style="display:flex;align-items:center;gap:12px;height:56px;padding:0 32px;border-bottom:1px solid #dddde2">
+        <span style="font-size:20px;line-height:24px;font-weight:700">Command desk</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#91919e">WED JUL 23 · 09:41</span>
+        <span style="flex:1"></span>
+        <div style="display:flex;align-items:center;gap:8px;width:280px;height:36px;padding:0 12px;border:1px solid #dddde2;border-radius:4px;color:#91919e;cursor:pointer"><span style="font-family:'Material Symbols Outlined';font-size:17px">search</span><span style="flex:1;font-size:14px">Search chats, tools, files…</span><span style="font-family:'IBM Plex Mono',monospace;font-size:10px;border:1px solid #ebebee;border-radius:4px;padding:2px 5px;color:#535366">⌘K</span></div>
+      </div>
+      <div style="flex:1;padding:24px 32px;overflow:hidden">
+        <div style="display:flex;align-items:baseline;justify-content:space-between"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.08em;color:#535366">INSTRUMENTS — 4 OF 7</span><span style="font-size:13px;font-weight:500;color:#0645b1;cursor:pointer">All tools</span></div>
+        <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
+          <div style="border:1px solid #dddde2;border-radius:8px;background:#ffffff;padding:16px;display:flex;flex-direction:column;gap:9px;cursor:pointer" style-hover="background:#f4f7fc">
+            <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-family:'Material Symbols Outlined';font-size:24px;color:#0645b1">rocket_launch</span><span style="display:flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.05em;color:#535366"><span style="width:6px;height:6px;border-radius:50%;background:#05b01c"></span>RUNNING</span></div>
+            <div style="font-size:15px;font-weight:600">GitHub Runner</div>
+            <div style="font-size:13px;line-height:18px;color:#535366">Two apps live on :4031 and :4033.</div>
+            <div style="display:flex;align-items:center;gap:8px"><span style="display:inline-flex;align-items:center;justify-content:center;height:32px;padding:0 12px;border:1px solid #141413;border-radius:8px;background:#ffffff;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:#141413;color:#ffffff">Open</span><span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#91919e">UP 6D 04H</span></div>
+          </div>
+          <div style="border:1px solid #dddde2;border-radius:8px;background:#ffffff;padding:16px;display:flex;flex-direction:column;gap:9px;cursor:pointer" style-hover="background:#f4f7fc">
+            <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-family:'Material Symbols Outlined';font-size:24px;color:#0645b1">extension</span><span style="display:flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.05em;color:#535366"><span style="width:6px;height:6px;border-radius:50%;background:#05b01c"></span>RUNNING</span></div>
+            <div style="font-size:15px;font-weight:600">MCP Runner</div>
+            <div style="font-size:13px;line-height:18px;color:#535366">Five servers up. Zotero wants a restart.</div>
+            <div style="display:flex;align-items:center;gap:8px"><span style="display:inline-flex;align-items:center;justify-content:center;height:32px;padding:0 12px;border:1px solid #141413;border-radius:8px;background:#ffffff;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:#141413;color:#ffffff">Open</span><span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#91919e">5 SERVERS</span></div>
+          </div>
+          <div style="border:1px solid #dddde2;border-radius:8px;background:#ffffff;padding:16px;display:flex;flex-direction:column;gap:9px;cursor:pointer" style-hover="background:#f4f7fc">
+            <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-family:'Material Symbols Outlined';font-size:24px;color:#0645b1">science</span><span style="display:flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.05em;color:#535366"><span style="width:6px;height:6px;border-radius:50%;background:#fecf4c"></span>BUSY</span></div>
+            <div style="font-size:15px;font-weight:600">LLM Evals</div>
+            <div style="font-size:13px;line-height:18px;color:#535366">Citation extraction — 4 models × 240 prompts.</div>
+            <div style="display:flex;align-items:center;gap:10px"><div style="flex:1;height:4px;border-radius:2px;background:#ebebee;overflow:hidden"><div style="width:38%;height:100%;background:#141413"></div></div><span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#535366">3/8 · ETA 41M</span></div>
+          </div>
+          <div style="border:1px solid #dddde2;border-radius:8px;background:#ffffff;padding:16px;display:flex;flex-direction:column;gap:9px;cursor:pointer" style-hover="background:#f4f7fc">
+            <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-family:'Material Symbols Outlined';font-size:24px;color:#0645b1">edit_note</span><span style="display:flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.05em;color:#535366"><span style="width:6px;height:6px;border-radius:50%;background:#c7c7cf"></span>SLEEPING</span></div>
+            <div style="font-size:15px;font-weight:600">Notes Collector</div>
+            <div style="font-size:13px;line-height:18px;color:#535366">Today's digest is ready — 3 things worth reading.</div>
+            <div style="display:flex;align-items:center;gap:8px"><span style="display:inline-flex;align-items:center;justify-content:center;height:32px;padding:0 12px;border:1px solid #141413;border-radius:8px;background:#ffffff;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:#141413;color:#ffffff">Open digest</span><span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#91919e">NEXT 06:00</span></div>
+          </div>
+          <div style="border:1px solid #dddde2;border-radius:8px;background:#fff2f2;padding:16px;display:flex;flex-direction:column;gap:9px;cursor:pointer">
+            <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-family:'Material Symbols Outlined';font-size:24px;color:#b60000">error</span><span style="display:flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.05em;color:#b60000">CRASHED 2H</span></div>
+            <div style="font-size:15px;font-weight:600">PDF → BibTeX</div>
+            <div style="font-size:13px;line-height:18px;color:#535366">Exit 137 — out of memory on a 900-page scan.</div>
+            <div style="display:flex;align-items:center;gap:8px"><span style="display:inline-flex;align-items:center;justify-content:center;height:32px;padding:0 12px;border:1px solid #141413;border-radius:8px;background:#ffffff;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:#141413;color:#ffffff">Revive</span><span style="font-size:13px;font-weight:500;color:#0645b1">Read the logs</span></div>
+          </div>
+          <div style="border:1px dashed #dddde2;border-radius:8px;padding:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;color:#0645b1;cursor:pointer" style-hover="background:#f4f7fc">
+            <span style="font-family:'Material Symbols Outlined';font-size:22px">add</span>
+            <span style="font-size:14px;font-weight:500">Build a new tool</span>
+            <span style="font-size:12px;color:#91919e">Describe it below — ACABOX scaffolds it</span>
+          </div>
+        </div>
+        <div style="margin-top:24px;display:grid;grid-template-columns:1.2fr 0.8fr;gap:24px">
+          <div>
+            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.08em;color:#535366">JUMP BACK IN</span><span style="font-size:13px;font-weight:500;color:#0645b1;cursor:pointer">All chats · 23</span></div>
+            <div style="border:1px solid #dddde2;border-radius:8px;overflow:hidden">
+              <div style="display:flex;align-items:center;gap:12px;height:42px;padding:0 16px;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:16px;color:#535366">chat_bubble</span><span style="flex:1;min-width:0;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Spin up anthropics/skills as an app</span><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#91919e">12M</span></div>
+              <div style="display:flex;align-items:center;gap:12px;height:42px;padding:0 16px;border-top:1px solid #ebebee;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:16px;color:#535366">chat_bubble</span><span style="flex:1;min-width:0;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Evals: citation extraction across 4 models</span><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#91919e">1H</span></div>
+              <div style="display:flex;align-items:center;gap:12px;height:42px;padding:0 16px;border-top:1px solid #ebebee;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:16px;color:#535366">chat_bubble</span><span style="flex:1;min-width:0;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">MCP for my Zotero library</span><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#91919e">1D</span></div>
+            </div>
+          </div>
+          <div>
+            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.08em;color:#535366">DRIVE — ~/ACABOX</span><span style="font-size:13px;font-weight:500;color:#0645b1;cursor:pointer">Browse</span></div>
+            <div style="border:1px solid #dddde2;border-radius:8px;overflow:hidden">
+              <div style="display:flex;align-items:center;gap:10px;height:42px;padding:0 16px;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:16px;color:#535366">database</span><span style="font-family:'IBM Plex Mono',monospace;font-size:12px;flex:1">papers.db</span><span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#91919e">1.1G</span></div>
+              <div style="display:flex;align-items:center;gap:10px;height:42px;padding:0 16px;border-top:1px solid #ebebee;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:16px;color:#535366">data_object</span><span style="font-family:'IBM Plex Mono',monospace;font-size:12px;flex:1">evals/run-07-22.json</span><span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#91919e">2M</span></div>
+              <div style="display:flex;align-items:center;gap:10px;height:42px;padding:0 16px;border-top:1px solid #ebebee;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:16px;color:#535366">description</span><span style="font-family:'IBM Plex Mono',monospace;font-size:12px;flex:1">notes/daily.md</span><span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#91919e">14K</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="border-top:1px solid #dddde2;padding:12px 24px;background:#ffffff">
+        <div style="display:flex;align-items:center;gap:10px;min-height:52px;padding:0 6px 0 16px;border:1px solid #dddde2;border-radius:8px;background:#ffffff" style-hover="border:1px solid #0645b1">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:15px;color:#0645b1">▸</span>
+          <span style="flex:1;font-size:15px;color:#91919e">What are we building? — describe a tool, paste a repo, or ask</span>
+          <span style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;color:#535366;cursor:pointer" style-hover="background:#f4f7fc"><span style="font-family:'Material Symbols Outlined';font-size:19px">attach_file</span></span>
+          <div style="display:flex;align-items:center;gap:5px;height:30px;padding:0 9px;border-radius:8px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#535366;cursor:pointer" style-hover="background:#f4f7fc">AUTO<span style="font-family:'Material Symbols Outlined';font-size:15px">expand_more</span></div>
+          <span style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;background:#0645b1;color:#ffffff;cursor:pointer" style-hover="background:#0c3b8d"><span style="font-family:'Material Symbols Outlined';font-size:19px">arrow_upward</span></span>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:20px;height:26px;padding:0 20px;border-top:1px solid #ebebee;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.04em;color:#91919e">
+        <span>CPU 12%</span><span>MEM 3.1/8.0G</span><span>DISK 34.2/80G</span><span>MODELS 3 WARM</span><span style="flex:1"></span><span>SNAPSHOT 04:12 ✓</span>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+function toggleRail(){
+  var o=document.getElementById('rail-open'),c=document.getElementById('rail-closed');
+  var open=o.style.display!=='none';
+  o.style.display=open?'none':'contents';
+  c.style.display=open?'contents':'none';
+}
+</script>
+</body>
+</html>

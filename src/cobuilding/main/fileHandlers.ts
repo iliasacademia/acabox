@@ -109,7 +109,7 @@ export function registerFileHandlers(getAllowedPaths: () => string[], getMainWin
         '.applications',
         '.academia',
       ]);
-      const results: { relPath: string; mtimeMs: number }[] = [];
+      const results: { relPath: string; path: string; mtimeMs: number; size: number }[] = [];
       function walk(dir: string, rootDir: string): void {
         let entries: fs.Dirent[];
         try {
@@ -128,7 +128,9 @@ export function registerFileHandlers(getAllowedPaths: () => string[], getMainWin
               const st = fs.statSync(full);
               results.push({
                 relPath: path.relative(rootDir, full),
+                path: full,
                 mtimeMs: st.mtimeMs,
+                size: st.size,
               });
             } catch { /* ignore */ }
           }

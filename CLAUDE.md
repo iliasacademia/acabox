@@ -118,9 +118,9 @@ to `PATH`.
 - Logs: `~/Library/Application Support/acabox/development/cobuilding.log`,
   plus the in-app Debug tab (command log + system log streams).
 - To kill stray dev instances:
-  `pkill -9 -f "Desktop-app-without-container/node_modules/electron"`.
+  `pkill -9 -f "Acabox/node_modules/electron"`.
 
-## Status (last updated 2026-07-22)
+## Status (last updated 2026-07-23)
 
 **Done & verified:**
 - Boots clean, `tsc --noEmit` clean, smoke-test exits 0.
@@ -148,6 +148,184 @@ to `PATH`.
   stays gated off (no academia egress). The academia backend client
   (`apiClient`, `academia:fetch`) is kept but optional — used only by mini-apps,
   degrades to 401 if invoked without a session.
+
+**Command Desk shell implemented (2026-07-23).** The Home design from
+`docs/design/design_handoff_acabox_home/` is now the app shell + home screen.
+Verified live via CDP screenshots (rail expand/collapse, nav, composer focus,
+fonts, real chats/files data). Key facts:
+- New components in `src/cobuilding/renderer/components/command-desk/`
+  (ChromeBar, Rail, StatusBar, CommandDesk, useHomeData, MSymbol) + all styles
+  and design tokens in `src/cobuilding/renderer/commandDesk.css`.
+- Shell layout: ChromeBar (real title bar — main window is now
+  `titleBarStyle: 'hiddenInset'`) → rail + content column → docked
+  GlobalComposer (rewritten to spec) → status bar. Legacy tabs (Chats, Tools,
+  Files, Debug, Settings) render unrestyled inside the new shell — restyling
+  them is future work with no design spec yet.
+- Fonts self-hosted (`renderer/assets/fonts/`, woff2 webpack asset rule):
+  DM Sans, IBM Plex Mono, Material Symbols. Old screens now get real DM Sans
+  (previously silently fell back to system fonts). Mini-app tool icons stay
+  lucide (manifests name lucide icons); everything else uses Material Symbols.
+- The old briefings Home (`HomePage.tsx`) moved to a new "Activity" nav tab.
+- Real data: chats via `sessionsAPI`, drive card via `files:findByExtension`
+  (handler now also returns `size` + absolute `path`), tools via
+  `miniAppsAPI`; app version via webpack `process.env.APP_VERSION` define.
+- Status bar shows real host stats via `stats:get` IPC
+  (`main/systemStats.ts`): CPU% (os.cpus() delta), memory (Activity-Monitor
+  formula via vm_stat: anonymous − purgeable + wired + compressed), disk
+  (statfs on homedir, decimal units to match Finder), running-agent count,
+  app uptime. Nothing in the status bar is mocked.
+- Dev menu bar says "Acabox": `scripts/rename-dev-electron.js` (runs in
+  prestart) rewrites CFBundleName/DisplayName of the dev
+  `node_modules/electron/dist/Electron.app` and ad-hoc re-signs it;
+  idempotent, self-heals a stale signature, re-applies after npm install.
+  Packaged builds were already named via packagerConfig.
+- Still deferred: tool run-status lifecycle (cards show RUNNING only while
+  the tool's tab is open, SLEEPING otherwise; busy/crashed/progress states
+  dormant), ⌘K opens the chats list instead of a real command palette.
+- Home tools grid (2026-07-23): section renamed "Instruments" → "Tools" and
+  it now shows the same inventory as the Tools page — real mini-apps first,
+  then the pre-built tools (shared source of truth:
+  `renderer/components/availableTools.ts`, extracted from ToolsPage's
+  hardcoded stub list). Pre-built cards navigate to the Tools page where
+  their real actions live; rail Tools badge counts apps + pre-built. Note:
+  several pre-built entries target dropped features (Grant Finder,
+  Peer Review→Word overlay) or are pure placeholders (Literature Synthesis,
+  Paper Monitor, Citation Alerts alert "placeholder for now") — candidates
+  for the next removal/re-point pass alongside the writing_agent hazard.
+
+**Design unification Phase A done (2026-07-23).** All legacy screens
+(Chats list, Tools, Files, Activity, Settings, modals/dropdowns) restyled
+into the Command Desk language via a palette sweep (warm/tan hexes → design
+tokens, Gupter → DM Sans) across App.css + component CSS, plus targeted
+rewrites (mono section labels/eyebrows, 8px card radii, blue primary/XS
+buttons, pale-blue hovers). Verified via CDP screenshots of every tab.
+Also removed per user directive ("no mocks in prod"): the blinking-cursor
+motif, and ToolsPage's fabricated stub timestamps/statuses ("ran this
+morning · 4 items" etc. — only the real Reactions enabled-state remains).
+Phase B (chat thread, mini-app viewer chrome, onboarding — screens needing
+real design decisions) is briefed in `docs/design/phase-b-design-brief.md`,
+to be run through the design tool; implement its handoffs when they land.
+
+**Design unification Phase B done (2026-07-23).** The three Phase-B handoff
+screens (`docs/design/design_handoff_acabox_phase_b/`) are implemented and
+verified live via CDP screenshots. All styles in
+`renderer/phaseB.css` (zero new tokens; `cd*` classes off commandDesk.css).
+- **Chat view** — new `command-desk/ChatHeader.tsx` (back · title · mono
+  model meta · GENERATING chip · Open-tool when the chat owns a mini-app,
+  found by scanning `.applications/*/manifest.json` for `chatSessionId` ·
+  rename · delete) + a full rewrite of `assistant-ui/thread.tsx` into the
+  Command Desk language: 760px centered column, right-aligned user bubbles
+  with attachment chips + timestamps, plain assistant blocks with a mono
+  meta line (`N TOOL CALLS · HH:MM`), day separators, working indicator
+  (`THINKING…`/`WORKING — …`), streaming heartbeat dot (CSS `::after`, not a
+  cursor), empty state ("Where to?" + profile-seeded chips), jump-to-latest
+  pill. `turnAnchor` default flipped `top`→`bottom` so short threads bottom-
+  anchor with no phantom scroll/stray pill. Markdown restyled in
+  `.cdAsst .auiMd`. Message `createdAt` now threaded through
+  `historyMessageConverter` so timestamps/day-separators are real.
+- **Tool-call cards** — `assistant-ui/tool-fallback.tsx` rewritten as
+  instrument readouts (status dot · MSymbol · mono name · key args · right
+  meta · chevron; error tint + auto-expand). Name/icon/args mapping in
+  `assistant-ui/tool-card-display.ts`. `progressStore` gained
+  `useToolFinalElapsed` for completed-card durations.
+- **Tool viewer** — new `command-desk/ToolWorkspace.tsx` (tab bar with
+  per-tool status dots + close/middle-click, viewer header, drag-resizable
+  320–560 chat side panel persisted to localStorage, collapsed 44px strip
+  with vertical label + unread dot, more-menu). `MiniAppViewer.tsx` header
+  restyled + first-boot dependency interstitial and build-error state
+  redesigned to spec; live per-tool status flows through new
+  `toolStatusStore.ts`. Replaces the old react-resizable-panels layout in
+  `index.tsx`.
+- **Onboarding** — new `command-desk/Onboarding.tsx` is a single 5-step
+  component (welcome · API key + validation error · workspace dirs with
+  read-only toggles · live scanning · scan review) rendered in the chrome +
+  `StatusBar firstRun` frame, no rail. Replaces WelcomeScreen /
+  ApiKeyOnboarding / WorkspaceOnboarding / ScanningProgress /
+  ScanResultsReview (all deleted) and the `App()` step machine in
+  `index.tsx` (now a 3-state boot gate). Esc-to-stop wired via `EscStopsRun`.
+- Deleted with their screens: the 5 onboarding components + CSS,
+  `assistant-ui/overlay-file-picker.tsx`,
+  `assistant-ui/find-and-replace-suggestion.tsx`, and ~700 lines of stale
+  thread/message/tool CSS from App.css. `chat-composer.tsx` is now the
+  narrow side-panel composer only (attach + model picker live in the docked
+  GlobalComposer). `tsc --noEmit` clean; jest green except the pre-existing
+  `fileMonitorIntegration` failure (fails identically on a clean tree).
+- Known gap (not a mock): per-directory FILES·SIZE meta in onboarding step 3
+  is omitted — the workspace-directory API doesn't expose counts, and
+  fabricating them would violate "no mocks in prod"; needs a new stat IPC.
+
+**Model lineup refreshed (2026-07-23).** Chat picker (`ModelSelector.tsx`)
+now offers Fable 5 / Opus 4.8 / Sonnet 5 / Haiku 4.5 (default Opus 4.8;
+stale localStorage selections sanitized on init). Agent-server default
+bumped to `claude-opus-4-8` (`AgentInfrastructureController.ts`); mini-app
+proxy allowlist (`ANTHROPIC_ALLOWED_MODELS` in `main/index.ts`) extended
+with the new IDs, old ones kept. Decision: **Claude-only** — no LiteLLM /
+Cloudflare gateway / multi-provider; the Agent SDK harness is
+Claude-specific, and `ANTHROPIC_BASE_URL` already exists as the power-user
+proxy hook. Caveat: Fable 5 needs 30-day org data retention (400s on ZDR)
+and may return `stop_reason: refusal` on bio/cyber-adjacent content.
+
+**Suggested-tasks feature fully removed (2026-07-23).** Per user directive
+(simplify; remove unneeded upstream features), the entire "suggested tasks"
+vertical is gone: the quick + in-depth task-suggestion scan agents
+(`directoryScanner/agents/taskSuggestion.ts`), the hourly
+BriefingsController re-scan cycle (was ≤$5 of Sonnet per hour on the user's
+API key), the `suggested-tasks` MCP server (host handlers + agent-server
+relay + allowedTools + workspace skill), the notification bell UI +
+`notifications` DB writes (`NotificationsController`/`notificationsRepository`
+deleted; DB migration v26 left in place, table now orphaned/harmless), the
+Home/Tools suggestion cards, the suggestion→tool attribution plumbing
+(`tool:setThreadAttribution`, renderer pending-attribution queue;
+`tool.created` now always `creation_source: 'chat'`), and the dead
+`paper`/`citation`/`grant` briefing card branches (no producers since the
+fork). What remains: the initial workspace scan runs the research-profile +
+file-tagging agents only; briefings are now only `writing_agent` manuscript
+cards (from file tagging); the chat agent's `mcp__notification__show_notification`
+desktop-toast tool is unchanged. `BriefingsController` shrank to just
+`runInitialWorkspaceScan`. Verified: tsc clean, smoke test exits 0 with all
+boot-healthy signals, stale skill auto-pruned from the workspace on boot.
+
+**FIXED (2026-07-23): "Not logged in · Please run /login" on chat turns.**
+Root cause: the bundled Claude Code binary only honors an env
+`ANTHROPIC_API_KEY` when the key is "approved" — interactive Claude prompts
+and stores the key's LAST 20 CHARS in `customApiKeyResponses.approved` of
+`.claude.json` (CLAUDE_CONFIG_DIR). Headless SDK runs can never answer that
+prompt, so any user-supplied key was refused (reproduced with the raw binary;
+approval-entry format verified from the binary: `RS(H){return H.slice(-20)}`).
+Fix: `shared/claudeConfigApproval.ts` (`ensureApiKeyApproved`) writes the
+approval before every SDK invocation — called in `agent-server/index.ts`
+startQuery() and `directoryScanner/shared.ts` buildCommonQueryOptions() (the
+scanner had the same latent bug). Verified end-to-end: real chat turn
+round-tripped ("Reply with exactly: ACABOX WORKS" → "ACABOX WORKS",
+is_error:false) and title generation named the session.
+Also fixed in the same pass: TitleGen crashed post-save on a dead upstream
+`require('../../server/events/wordPollEventBus')` (removed), and its failure
+log printed the RAW API KEY into cobuilding.log (now `hasApiKey=` boolean;
+existing log files scrubbed). "A real chat turn" can move out of the
+"NOT yet tested" list below.
+
+**Brand "B-box" mark + app icon implemented (2026-07-23).** The new logo
+(rounded blue `#0645b1` tile, white B-box glyph that reads as **B** and as a
+box + prompt-wedge) replaces the old academia/`play_arrow` marks everywhere.
+Sources of truth are three SVGs in `src/assets/brand/` (mark-master for ≥64px,
+optically-corrected mark-small for ≤32px, glyph-template for the menu bar) plus
+`acabox-wordmark.svg` (the only sanctioned lockup). `scripts/gen-icons.mjs`
+(Node + `@resvg/resvg-js`, a new dev dep, + macOS `iconutil`) rasterizes each
+size DIRECTLY from SVG — small classes from the small master, ≥64px from the
+large master — and emits, into `src/assets/icons/`: `dock-icon.icns` (all 10
+size classes), `dock-icon.png` (1024 master, for the tray/dock compositor),
+and `trayTemplate.png`/`@2x` (menu-bar template image). Rerun with
+`node scripts/gen-icons.mjs` whenever the mark changes. In-app: new
+`AcaboxMark` component (renderer/components/command-desk) renders the mark as an
+`<img>`; swapped into the rail chip (28px), chrome bar (16px), and onboarding
+step 1 badge (48px master). `tray.ts` now uses the glyph as an `isTemplate`
+menu-bar image (auto light/dark/tint); the old pixel-compositing tray helper
+and the stale `tray.icns` were removed (dev dock icon still cyan-tinted).
+Verified: tsc clean, dev smoke test boots all services + tray created, `.icns`
+round-trips to all 10 sizes, and the three in-app placements were screenshotted
+in real Chromium (real CSS + SVGs) and look correct. Caveat: `prune:false`
+means `@resvg/resvg-js` ships in packaged builds as dead weight (dev-only tool,
+never required at runtime) — negligible next to the other bundled devDeps.
 
 **NOT yet tested at runtime (highest priority next):**
 - A real chat turn — agent doing Bash/Read/Write against a shared dir.
@@ -185,3 +363,10 @@ to `PATH`.
   no-op and nothing is posted to academia. `coscientistAnalytics` +
   `apiClient`/`apiCall` are kept but dormant; re-enable against a fork-owned
   backend if ever wanted.
+- **`writing_agent` briefings target the dropped Word overlay.** File tagging
+  still creates "review your manuscript intro" cards (one Haiku call per
+  manuscript found during a scan), and clicking them calls
+  `fileMonitorAPI.openFile(..., 'com.microsoft.Word')` + overlay docking —
+  a flow from the upstream Word-overlay feature this fork nominally dropped.
+  Candidate for the next removal pass (or re-point at an in-app chat flow);
+  parts of the overlay plumbing evidently still exist.

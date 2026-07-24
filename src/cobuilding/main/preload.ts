@@ -112,6 +112,10 @@ contextBridge.exposeInMainWorld('settingsAPI', {
   setReactionsEnabled: (enabled: boolean) => ipcRenderer.invoke('settings:setReactionsEnabled', enabled),
 });
 
+contextBridge.exposeInMainWorld('systemStatsAPI', {
+  get: () => ipcRenderer.invoke('stats:get'),
+});
+
 contextBridge.exposeInMainWorld('containerAPI', {
   start: () => ipcRenderer.invoke('container:start'),
   stop: () => ipcRenderer.invoke('container:stop'),
@@ -205,7 +209,6 @@ contextBridge.exposeInMainWorld('debugAPI', {
   log: (msg: string) => ipcRenderer.invoke('debug:log', msg),
   telemetryTest: (kind: string, subsystem?: string) =>
     ipcRenderer.invoke('debug:telemetry-test', kind, subsystem),
-  triggerInDepthSuggestions: () => ipcRenderer.invoke('debug:triggerInDepthSuggestions'),
 });
 
 contextBridge.exposeInMainWorld('calendarAPI', {
@@ -304,12 +307,6 @@ contextBridge.exposeInMainWorld('briefingsAPI', {
     ipcRenderer.on('briefings:changed', handler);
     return () => { ipcRenderer.removeListener('briefings:changed', handler); };
   },
-});
-
-contextBridge.exposeInMainWorld('notificationsAPI', {
-  list: (limit?: number) => ipcRenderer.invoke('notifications:list', limit),
-  unreadCount: () => ipcRenderer.invoke('notifications:unreadCount'),
-  markAllAsRead: () => ipcRenderer.invoke('notifications:markAllAsRead'),
 });
 
 contextBridge.exposeInMainWorld('scannedFilesAPI', {
@@ -666,10 +663,6 @@ contextBridge.exposeInMainWorld('toolAnalyticsAPI', {
       open_count_so_far: number;
       days_since_created: number;
     } | null>,
-  setThreadAttribution: (
-    threadId: string,
-    attribution: { source: 'suggestion'; briefing_id: string },
-  ) => ipcRenderer.invoke('tool:setThreadAttribution', threadId, attribution),
   setThreadCreationPrompt: (threadId: string, prompt: string) =>
     ipcRenderer.invoke('tool:setThreadCreationPrompt', threadId, prompt),
 });

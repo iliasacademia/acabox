@@ -7,7 +7,7 @@ import type {
 import { useAui } from '@assistant-ui/react';
 import type { ChatStreamMessage, ChatMessageStream, IPCAttachment } from '../shared/types';
 import { setToolProgress, clearToolProgress, resetProgress, setSubagentStarted, updateSubagentProgress, setSubagentDone, setProcessingLabel } from './progressStore';
-import { track as trackAnalytics, shiftPendingAttribution } from './coscientistAnalytics';
+import { track as trackAnalytics } from './coscientistAnalytics';
 
 export function toAsyncIterable(
   stream: ChatMessageStream,
@@ -85,19 +85,6 @@ function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefObject<(
           name: 'chat.thread_created',
           metadata: { thread_id: threadId },
         });
-        // Bind any pending suggestion-attribution (from a Build-it click that
-        // initiated this thread) to threadId. Main process indexes attributions
-        // by thread_id; tool:opened resolves the tool's creating thread via
-        // manifest.chatSessionId at first-open time.
-        const pendingAttr = shiftPendingAttribution();
-        if (pendingAttr) {
-          window.toolAnalyticsAPI
-            .setThreadAttribution(threadId, {
-              source: pendingAttr.source,
-              briefing_id: pendingAttr.briefing_id,
-            })
-            .catch(() => {});
-        }
       }
       trackAnalytics({
         name: 'chat.message_sent',

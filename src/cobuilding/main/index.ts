@@ -9,6 +9,7 @@ import * as path from 'path';
 import { pathToFileURL } from 'url';
 import Anthropic from '@anthropic-ai/sdk';
 import { registerFileHandlers, assertWithinAllowedDirs } from './fileHandlers';
+import { registerSystemStatsHandlers } from './systemStats';
 import { randomUUID } from 'crypto';
 import log from 'electron-log';
 import { createAgentSession } from './agentSession';
@@ -27,7 +28,6 @@ import {
   type BriefingStatus,
   type ListBriefingsFilter,
 } from './db/briefingsRepository';
-import { NotificationsController } from './controllers/NotificationsController';
 import { getScannedFilesByType, getScannedFiles, updateFileTag, removeFileTag } from './db/scannedFilesRepository';
 import { kernelGatewayService } from './kernelGatewayService';
 import { initDatabase, getDatabase, closeDatabase } from './db/database';
@@ -336,14 +336,8 @@ async function refreshAndPushCredentials(): Promise<boolean> {
   return inflightCredentialRefresh;
 }
 
-const notificationsController = new NotificationsController({
-  workspaceController,
-  onDesktopNotificationClick: () => handleNotificationNavigation({ type: 'sidebar', tab: 'home' }),
-});
-
 const briefingsController = new BriefingsController({
   workspaceController,
-  notificationsController,
   getCredentials,
   ensureCredentials: () => { loadCredentialsIntoStore(); return Promise.resolve(); },
   onBriefingsChanged: () => {
@@ -363,11 +357,6 @@ const agentInfrastructure = new AgentInfrastructureController({
   containerService,
   refreshCredentials: refreshCredentialsForSession,
   onNotificationClick: handleNotificationNavigation,
-  onBriefingsChanged: () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('briefings:changed');
-    }
-  },
 });
 
 // Shared edit state store — keyed by toolCallId, synced between overlay and desktop
@@ -480,6 +469,9 @@ function createMainWindow(): void {
     height: 900,
     title: 'Acabox',
     show: false,
+    // The renderer draws its own 40px window-chrome bar (Command Desk design);
+    // native traffic lights sit inset inside it. The bar is the drag region.
+    titleBarStyle: 'hiddenInset',
     webPreferences: {
       preload: COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY,
       nodeIntegration: false,
@@ -589,6 +581,7 @@ app.whenReady().then(async () => {
     createMainWindow();
 
     registerFileHandlers(() => workspaceController.allAllowedPaths, () => mainWindow);
+    registerSystemStatsHandlers();
     initFileMonitor(() => workspaceController.workspacePath);
     initActivityQuery(() => workspaceController.workspacePath);
     initSessionFiles(() => workspaceController.workspacePath);
@@ -631,7 +624,6 @@ app.whenReady().then(async () => {
       const { buildMiniApp } = await import('./miniAppBuilder');
       return buildMiniApp(workspacePath, dirName);
     });
-    ipcMain.handle('debug:triggerInDepthSuggestions', () => briefingsController.trigger());
     registerWorkspaceHandlers(workspaceController, () => mainWindow, containerService);
     registerReactionsHandlers(() => workspaceController.activeWorkspace, rebuildTrayMenu);
     setupUpdaterIpcHandlers();
@@ -671,8 +663,6 @@ app.whenReady().then(async () => {
       if (rTask && !rTask.enabled) setTaskEnabled(rTask.id, true);
     }
     startScheduledTasks(handleNotificationNavigation);
-    briefingsController.startScheduledBriefings();
-
 
     if (isSmokeTest) {
       log.info('[SMOKE TEST] All services started — shutting down');
@@ -775,20 +765,6 @@ ipcMain.handle(
     }
   },
 );
-
-// ─── Notifications IPC ─────────────────────────────────────────
-
-ipcMain.handle('notifications:list', (_event, limit?: number) => {
-  return notificationsController.list(limit);
-});
-
-ipcMain.handle('notifications:unreadCount', () => {
-  return notificationsController.getUnreadCount();
-});
-
-ipcMain.handle('notifications:markAllAsRead', () => {
-  notificationsController.markAllAsRead();
-});
 
 // ─── Scanned Files IPC ──────────────────────────────────────────
 
@@ -1194,32 +1170,22 @@ ipcMain.handle('sessions:findForApp', async (_event, dirName: string) => {
   return sessionId;
 });
 
-// Per-thread attribution and creation_prompt slots. Indexed by chat thread_id
-// (== sessionId in this codebase, see chat:send). Populated by the renderer:
-//   - tool:setThreadAttribution at the brand-new-thread first send if a
-//     Build-it click pushed an attribution onto the renderer-side queue.
-//   - tool:setThreadCreationPrompt when chatAdapter detects manage_mini_app.mjs
-//     in the agent's tool-call args, with the user message that triggered it.
+// Per-thread creation_prompt slots. Indexed by chat thread_id (== sessionId
+// in this codebase, see chat:send). Populated by the renderer via
+// tool:setThreadCreationPrompt when chatAdapter detects manage_mini_app.mjs
+// in the agent's tool-call args, with the user message that triggered it.
 // Consumed by tool:opened when creation_pending=true: it resolves the tool's
 // creating thread via manifest.chatSessionId (using findSessionForApp as a
-// fallback if the manifest doesn't have it yet) and looks up both maps by
-// that id. Per-thread keying is what makes concurrent background builds work
-// — each thread carries its own attribution.
+// fallback if the manifest doesn't have it yet) and looks up the map by
+// that id. Per-thread keying is what makes concurrent background builds work.
 //
-// 30-min freshness window covers the click → chat → agent → manifest →
+// 30-min freshness window covers the chat → agent → manifest →
 // user-opens-tool path. Stale entries are dropped lazily on read.
 const PENDING_TIMEOUT_MS = 30 * 60 * 1000;
-type CreationSource = 'chat' | 'suggestion';
-interface ThreadAttribution {
-  source: 'suggestion';
-  briefing_id: string;
-  set_at: number;
-}
 interface ThreadPrompt {
   prompt: string;
   set_at: number;
 }
-const attributionByThread = new Map<string, ThreadAttribution>();
 const promptByThread = new Map<string, ThreadPrompt>();
 
 function takeFresh<T extends { set_at: number }>(
@@ -1231,22 +1197,6 @@ function takeFresh<T extends { set_at: number }>(
   map.delete(key);
   return Date.now() - entry.set_at <= PENDING_TIMEOUT_MS ? entry : null;
 }
-
-ipcMain.handle(
-  'tool:setThreadAttribution',
-  (_event, threadId: string, attribution: { source: 'suggestion'; briefing_id: string }) => {
-    if (typeof threadId !== 'string' || !threadId) return;
-    if (attribution?.source !== 'suggestion' || typeof attribution.briefing_id !== 'string') {
-      log.warn('[tool:setThreadAttribution] ignoring invalid attribution', attribution);
-      return;
-    }
-    attributionByThread.set(threadId, {
-      source: 'suggestion',
-      briefing_id: attribution.briefing_id,
-      set_at: Date.now(),
-    });
-  },
-);
 
 const MAX_PROMPT_BYTES = 16 * 1024;
 ipcMain.handle('tool:setThreadCreationPrompt', (_event, threadId: string, prompt: string) => {
@@ -1271,11 +1221,11 @@ ipcMain.handle('tool:setThreadCreationPrompt', (_event, threadId: string, prompt
 // on their first post-upgrade open. Pre-existing tools now get a lazy-minted
 // tool_id silently, no tool.created fired.
 //
-// Attribution is keyed by the creating chat thread_id: tool:opened resolves
-// the tool's chatSessionId (== thread_id) by reading the manifest, falling
-// back to findSessionForApp (which searches messages for the dirName) if
-// the link hasn't been written yet. attributionByThread/promptByThread are
-// looked up by that id and consumed.
+// The creation prompt is keyed by the creating chat thread_id: tool:opened
+// resolves the tool's chatSessionId (== thread_id) by reading the manifest,
+// falling back to findSessionForApp (which searches messages for the dirName)
+// if the link hasn't been written yet. promptByThread is looked up by that
+// id and consumed.
 ipcMain.handle('tool:opened', async (_event, dirName: string) => {
   const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace || !dirName) return null;
@@ -1338,23 +1288,19 @@ ipcMain.handle('tool:opened', async (_event, dirName: string) => {
   );
 
   if (creationPending) {
-    const attribution = chatSessionId ? takeFresh(attributionByThread, chatSessionId) : null;
     const promptEntry = chatSessionId ? takeFresh(promptByThread, chatSessionId) : null;
 
     const toolType = manifest.preBuilt === true
       ? 'prebuilt'
       : (typeof manifest.tool_type === 'string' ? manifest.tool_type : 'user');
 
-    const creationSource: CreationSource = attribution?.source ?? 'chat';
-    const sourceBriefingId = attribution?.briefing_id;
     const creationPrompt = promptEntry?.prompt ?? '';
 
     trackAnalyticsEvent({
       name: 'tool.created',
       metadata: {
         tool_id,
-        creation_source: creationSource,
-        ...(sourceBriefingId ? { source_briefing_id: sourceBriefingId } : {}),
+        creation_source: 'chat',
         name: typeof manifest.name === 'string' ? manifest.name : '',
         description: typeof manifest.description === 'string' ? manifest.description : '',
         creation_prompt: creationPrompt,
@@ -1397,12 +1343,10 @@ async function generateSessionTitle(sessionId: string, firstMessage: string): Pr
       updateSessionTitle(sessionId, title);
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sessions:titleUpdated', sessionId, title);
       notifySessionsChanged();
-      const { wordPollEventBus } = require('../../server/events/wordPollEventBus');
-      wordPollEventBus.emit('change', 'session-title-updated');
     }
   } catch (err: any) {
     const { apiKey, baseURL } = getCredentials();
-    log.warn(`[TitleGen] Failed sessionId=${sessionId} apiKey=${apiKey} baseURL=${baseURL ?? '(default)'}`);
+    log.warn(`[TitleGen] Failed sessionId=${sessionId} hasApiKey=${!!apiKey} baseURL=${baseURL ?? '(default)'}`);
     log.warn(`[TitleGen] error:`, err);
     if (err?.cause) log.warn(`[TitleGen] cause:`, err.cause);
   }
@@ -1566,9 +1510,13 @@ ipcMain.handle('edit-state:get-all', () => {
 // always gets a sensible default without breaking.
 const ANTHROPIC_ALLOWED_MODELS = new Set([
   'claude-haiku-4-5-20251001',
+  'claude-haiku-4-5',
   'claude-sonnet-4-6',
+  'claude-sonnet-5',
   'claude-opus-4-6',
   'claude-opus-4-7',
+  'claude-opus-4-8',
+  'claude-fable-5',
 ]);
 
 // Hard limits applied regardless of what the caller sends. The token cap
@@ -2036,7 +1984,6 @@ app.on('before-quit', () => {
     ['globalShortcut.unregisterAll', () => globalShortcut.unregisterAll()],
     ['stopFileMonitor', stopFileMonitor],
     ['stopScheduledTasks', stopScheduledTasks],
-    ['stopBriefingsController', () => briefingsController.stopScheduledBriefings()],
     ['backgroundBuilder.dispose', () => backgroundBuilder.dispose()],
     ['destroyTokenManager', destroyTokenManager],
     ['destroyAllSessions', destroyAllSessions],
