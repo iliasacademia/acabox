@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
+import { checkSelfUpdateSupported, runSelfUpdate, UpdateFileInfo } from './selfUpdater';
 
 declare const COBUILD_UPDATE_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILD_UPDATE_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -25,6 +26,10 @@ let updateWindow: BrowserWindow | null = null;
 let updaterConfigured = false;
 let isManualCheck = false;
 let pendingUpdateVersion: string | null = null;
+// The manifest entry for the pending update. electron-updater hands us the
+// parsed `latest-mac.yml`; we install from it ourselves (see selfUpdater.ts),
+// so we hold onto the payload list rather than letting Squirrel fetch it.
+let pendingUpdateFiles: UpdateFileInfo[] = [];
 
 function createUpdateWindow(version: string) {
   if (updateWindow) {
@@ -58,6 +63,7 @@ function createUpdateWindow(version: string) {
   updateWindow.on('closed', () => {
     updateWindow = null;
     pendingUpdateVersion = null;
+    pendingUpdateFiles = [];
   });
 }
 
@@ -73,7 +79,11 @@ export function setupUpdater(onRebuildTrayMenu: (statusLabel?: string) => void) 
   }
 
   autoUpdater.autoDownload = false; // prompt the user before downloading
-  autoUpdater.autoInstallOnAppQuit = true;
+  // electron-updater is used for DETECTION ONLY. Squirrel.Mac cannot install
+  // onto an ad-hoc-signed build (see selfUpdater.ts), so nothing may hand it a
+  // payload — including the quit-time install path, which would otherwise fire
+  // silently and fail.
+  autoUpdater.autoInstallOnAppQuit = false;
 
   // GitHub Releases feed. The default channel ('latest') matches the
   // `latest-mac.yml` / `latest.yml` metadata that scripts/release.mjs
@@ -88,6 +98,7 @@ export function setupUpdater(onRebuildTrayMenu: (statusLabel?: string) => void) 
 
   autoUpdater.on('update-available', (info) => {
     log.info('[UPDATER] Update available:', info.version);
+    pendingUpdateFiles = (info.files ?? []) as UpdateFileInfo[];
     createUpdateWindow(info.version);
     onRebuildTrayMenu(`Update available: v${info.version}`);
   });
@@ -112,18 +123,9 @@ export function setupUpdater(onRebuildTrayMenu: (statusLabel?: string) => void) 
     }
   });
 
-  autoUpdater.on('download-progress', (progress) => {
-    log.info(`[UPDATER] Download progress: ${Math.round(progress.percent)}% (${progress.transferred}/${progress.total})`);
-    updateWindow?.webContents.send('cobuild:download-progress', { percent: progress.percent });
-  });
-
-  autoUpdater.on('update-downloaded', () => {
-    log.info('[UPDATER] Update downloaded, quitting and installing.');
-    // NOTE (macOS): Squirrel.Mac only applies updates to a Developer-ID-signed
-    // + notarized build. On an unsigned/ad-hoc build this step fails and
-    // surfaces via the 'error' handler below — expected until signing is set up.
-    autoUpdater.quitAndInstall(true, true);
-  });
+  // No 'download-progress' / 'update-downloaded' handlers: we never call
+  // autoUpdater.downloadUpdate(), so neither ever fires. Progress for the
+  // self-update download is emitted from the IPC handler below.
 
   autoUpdater.on('error', (err) => {
     log.error('[UPDATER] Error:', err.message);
@@ -133,6 +135,13 @@ export function setupUpdater(onRebuildTrayMenu: (statusLabel?: string) => void) 
 
   updaterConfigured = true;
 
+  // Report installability at boot rather than after a user has sat through a
+  // ~180MB download. Not fatal — detection still has value if the swap can't run.
+  void checkSelfUpdateSupported().then((support) => {
+    if (support.ok) log.info(`[UPDATER] Self-update available for ${support.bundlePath}`);
+    else log.warn(`[UPDATER] Self-update unavailable: ${support.reason}`);
+  });
+
   // Silent check shortly after launch. Any failure (no release yet, offline,
   // private-repo 404, unsigned-install on macOS) is caught by the 'error'
   // handler above and logged — it never blocks or crashes the app.
@@ -141,18 +150,30 @@ export function setupUpdater(onRebuildTrayMenu: (statusLabel?: string) => void) 
 
 export function setupUpdaterIpcHandlers() {
   ipcMain.handle('cobuild:download-and-restart', async () => {
-    if (updaterConfigured) {
-      log.info('[UPDATER] Starting update download...');
-      try {
-        const result = await autoUpdater.downloadUpdate();
-        log.info('[UPDATER] downloadUpdate() resolved:', result);
-        return result;
-      } catch (err) {
-        log.error('[UPDATER] downloadUpdate() failed:', (err as Error).message);
-        throw err;
-      }
+    if (!updaterConfigured || !pendingUpdateVersion) return null;
+
+    log.info(`[UPDATER] Starting self-update to v${pendingUpdateVersion}...`);
+    try {
+      // Resolves only by quitting the app; a return means it did not install.
+      await runSelfUpdate({
+        version: pendingUpdateVersion,
+        files: pendingUpdateFiles,
+        owner: UPDATE_OWNER,
+        repo: UPDATE_REPO,
+        onProgress: (percent) => {
+          updateWindow?.webContents.send('cobuild:download-progress', { percent });
+        },
+      });
+      return null;
+    } catch (err) {
+      const message = (err as Error).message;
+      log.error('[UPDATER] Self-update failed:', message);
+      // Reported to the update window rather than thrown: a rejected invoke
+      // reaches the renderer wrapped in "Error invoking remote method …",
+      // which would put IPC plumbing in front of the actual reason.
+      updateWindow?.webContents.send('cobuild:update-error', { message });
+      return null;
     }
-    return null;
   });
 
   ipcMain.handle('cobuild:get-update-version', () => {

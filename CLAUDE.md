@@ -122,6 +122,46 @@ to `PATH`.
 
 ## Status (last updated 2026-07-27)
 
+**macOS auto-update works without a Developer ID (2026-07-27).** v0.1.2 shipped
+and the tray "Check for Updates…" reached the install step and died there:
+
+    Code signature at URL file:///…/com.electron.acabox.ShipIt/update.wdWeDhW/
+    Acabox.app/ did not pass validation: code failed to satisfy specified code
+    requirement(s)
+
+That is the predicted ad-hoc/cdhash failure (see Known hazards) and it is
+unfixable by configuration — the check is inside Squirrel's ShipIt binary.
+Rather than block on an Apple Developer ID, the install step is now ours:
+- **New `main/selfUpdater.ts`.** electron-updater still does **detection only**
+  (it reads `latest-mac.yml` off the release and compares versions — that part
+  always worked). On accept we download the zip the manifest names, verify the
+  manifest's **sha512**, `ditto -x -k` it into a staging dir **beside** the
+  installed bundle (same volume, so the final move is a rename not a 180MB
+  copy), validate the unpacked bundle (CFBundleIdentifier,
+  CFBundleShortVersionString == the expected version, `codesign --verify
+  --strict` to catch transit corruption), then spawn a **detached bash script**
+  that waits for our pid to exit and swaps the bundles.
+- **Swap safety.** The old bundle is *moved aside*, never deleted first, so
+  there is no window with nothing installed; any failure rolls it back. If the
+  app is somehow still alive after 60s the script **aborts** rather than
+  replace a running bundle. Swap log: `~/Library/Logs/Acabox/update-swap.log`.
+- `autoUpdater.autoInstallOnAppQuit` is now **false** and the
+  `update-downloaded`/`download-progress` handlers are gone — nothing may hand
+  Squirrel a payload, including the quit-time path, which would fail silently.
+- Preflight (`checkSelfUpdateSupported`) runs at boot and logs whether a swap
+  is possible: refuses non-darwin, dev mode, an unresolvable bundle, an
+  **App Translocation** path (a quarantined app runs from a read-only shadow
+  copy — swapping it would silently do nothing), or an unwritable parent dir.
+- Verified before shipping: 15/15 sandbox assertions against the **real**
+  extracted swap script (happy path, rollback when the new bundle vanishes
+  mid-swap, refusal while the pid is alive, paths containing spaces) using fake
+  bundles in a temp dir; and the whole download→validate pipeline against the
+  **real published v0.1.2 artifact** — sha512 base64 matches the manifest,
+  `ditto` yields `Acabox.app`, bundle id / version / `codesign --verify` all
+  pass.
+- **Delete this module once there's a Developer ID** — plain Squirrel beats
+  anything hand-rolled. It is self-contained for exactly that reason.
+
 **Model/effort pinned per chat + many chats per tool (2026-07-27).** Two
 user-requested features, both verified live over CDP against a running app.
 - **Model + effort are now pinned to the conversation and displayed.** They
@@ -642,7 +682,10 @@ always boots straight into the Command Desk shell.
   matters. `setFeedURL` means the yml is only consulted for that cache dir.
   Two gotchas for the record: a brand-new release repo must be **seeded with
   one commit** before `gh release create` works (empty repo → 422 "Repository
-  is empty"; done once); and **macOS auto-*install* needs a Developer ID**.
+  is empty"; done once); and **Squirrel.Mac auto-*install* needs a Developer
+  ID** — which is why the install step is no longer Squirrel's (see
+  `main/selfUpdater.ts` and the Status entry). The underlying constraint still
+  governs any return to Squirrel:
   Concretely: `codesign -d -r- /Applications/Acabox.app` →
   `designated => cdhash H"…"`, i.e. the ad-hoc DR is a hash of that exact
   build. Squirrel.Mac validates the downloaded bundle against the **running**
