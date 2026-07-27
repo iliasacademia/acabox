@@ -590,7 +590,11 @@ export function registerDebugHandlers() {
     initObservationsDatabase(userDataPath);
     initSchedulingDatabase(userDataPath);
 
-    log.warn('[Debug] Hard reset: deleted and recreated all databases');
+    log.warn('[Debug] Hard reset: deleted and recreated all databases — relaunching');
+    // Relaunch through the normal quit path so before-quit cleanup runs;
+    // boot then creates a fresh blank workspace.
+    app.relaunch();
+    app.quit();
     return { ok: true };
   });
 }

@@ -43,7 +43,6 @@ interface FilesAPI {
 
 interface WorkspacesAPI {
   getActive(): Promise<Workspace | null>;
-  create(data: { name: string; directoryPaths: string[] }): Promise<Workspace>;
   selectDirectory(): Promise<string | undefined>;
   listDirectories(): Promise<WorkspaceDirectory[]>;
 }
@@ -53,8 +52,19 @@ interface SessionData {
   title: string;
   source: string | null;
   document_path: string | null;
+  /** Mini-app this chat belongs to, or null for a general chat. */
+  app_dir_name: string | null;
+  /** Model the conversation is pinned to; null until its first turn records one. */
+  model: string | null;
+  /** Reasoning-effort level pinned to the conversation; null on pre-existing chats. */
+  effort: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** A chat plus the timestamp of its newest message (null when it has none). */
+interface AppSessionData extends SessionData {
+  last_message_at: string | null;
 }
 
 interface MessageData {
@@ -74,6 +84,8 @@ interface SessionsAPI {
   delete(id: string): Promise<void>;
   listMessages(sessionId: string): Promise<MessageData[]>;
   findForApp(dirName: string): Promise<string | null>;
+  listForApp(dirName: string): Promise<AppSessionData[]>;
+  createForApp(dirName: string): Promise<string | null>;
   onTitleUpdated(callback: (sessionId: string, title: string) => void): () => void;
   onSessionsChanged(callback: () => void): () => void;
   onForeignTurnDone(callback: (sessionId: string) => void): () => void;
@@ -182,7 +194,6 @@ declare global {
 
   interface WorkspacesAPI {
     getActive(): Promise<Workspace | null>;
-    create(data: { name: string; directoryPaths: string[] }): Promise<Workspace>;
     selectDirectory(): Promise<string | undefined>;
     listDirectories(): Promise<WorkspaceDirectory[]>;
     addDirectory(directoryPath: string): Promise<WorkspaceDirectory>;
@@ -195,8 +206,19 @@ declare global {
     title: string;
     source: string | null;
     document_path: string | null;
+    /** Mini-app this chat belongs to, or null for a general chat. */
+    app_dir_name: string | null;
+    /** Model the conversation is pinned to; null until its first turn records one. */
+    model: string | null;
+    /** Reasoning-effort level pinned to the conversation; null on pre-existing chats. */
+    effort: string | null;
     created_at: string;
     updated_at: string;
+  }
+
+  /** A chat plus the timestamp of its newest message (null when it has none). */
+  interface AppSessionData extends SessionData {
+    last_message_at: string | null;
   }
 
   interface MessageData {
@@ -217,6 +239,8 @@ declare global {
     delete(id: string): Promise<void>;
     listMessages(sessionId: string): Promise<MessageData[]>;
     findForApp(dirName: string): Promise<string | null>;
+    listForApp(dirName: string): Promise<AppSessionData[]>;
+    createForApp(dirName: string): Promise<string | null>;
     onTitleUpdated(callback: (sessionId: string, title: string) => void): () => void;
     onSessionsChanged(callback: () => void): () => void;
     onForeignTurnDone(callback: (sessionId: string) => void): () => void;
@@ -380,7 +404,6 @@ declare global {
     exportWorkspace(): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean; error?: string }>;
     importWorkspace(): Promise<{ ok: boolean; workspaceName?: string; workspaceDir?: string; workspaceId?: string; canceled?: boolean; error?: string }>;
     hardResetWorkspace(): Promise<{ ok: boolean; error?: string }>;
-    restartOnboarding(): Promise<void>;
     pruneImages(): Promise<void>;
     syncOverlay(): Promise<{ durationMs: number }>;
     isOverlayEnabled(): Promise<boolean>;
@@ -408,6 +431,7 @@ declare global {
     icon: string | null;
     lastOpened: string | null;
     preBuilt: boolean;
+    archived: boolean;
     hasManifest: boolean;
   }
 
@@ -416,7 +440,26 @@ declare global {
     importApp(): Promise<{ ok: boolean; dirName?: string; canceled?: boolean; error?: string }>;
     list(): Promise<MiniAppEntry[]>;
     touch(dirName: string): Promise<{ ok: boolean; error?: string }>;
+    setArchived(dirName: string, archived: boolean): Promise<{ ok: boolean; error?: string }>;
+    /** Delete a tool's code, preserving its input/output under tool-data. */
+    delete(dirName: string): Promise<{ ok: boolean; error?: string }>;
     build(dirName: string): Promise<{ ok: boolean; outfile?: string; error?: string; exitCode: number }>;
+  }
+
+  interface ToolDataEntry {
+    dirName: string;
+    name: string;
+    /** True when no tool with this dirName exists anymore (data outlived its tool). */
+    orphaned: boolean;
+    deletedAt: string | null;
+    fileCount: number;
+    sizeBytes: number;
+    lastModified: number | null;
+  }
+
+  interface ToolDataAPI {
+    list(): Promise<ToolDataEntry[]>;
+    delete(dirName: string): Promise<{ ok: boolean; error?: string }>;
   }
 
   interface MiniAppToolDef {
@@ -720,6 +763,7 @@ declare global {
     fileMonitorAPI: FileMonitorAPI;
     debugAPI: DebugAPI;
     miniAppsAPI: MiniAppsAPI;
+    toolDataAPI: ToolDataAPI;
     miniAppMcpAPI: MiniAppMcpAPI;
     reportsAPI: ReportsAPI;
     scannerAPI: ScannerAPI;

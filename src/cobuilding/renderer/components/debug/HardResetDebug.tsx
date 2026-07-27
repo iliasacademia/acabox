@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-export const HardResetDebug: React.FC<{ onRestartOnboarding?: () => void }> = ({ onRestartOnboarding }) => {
+export const HardResetDebug: React.FC = () => {
   const [confirming, setConfirming] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -9,18 +9,13 @@ export const HardResetDebug: React.FC<{ onRestartOnboarding?: () => void }> = ({
     setResetting(true);
     setError(null);
     try {
+      // On success the main process relaunches the app into a fresh blank
+      // workspace, so this promise usually never settles.
       const res = await window.debugAPI.hardResetWorkspace();
       if (!res.ok) {
         setError(res.error ?? 'Unknown error');
         setResetting(false);
         setConfirming(false);
-        return;
-      }
-      await window.debugAPI.restartOnboarding();
-      if (onRestartOnboarding) {
-        onRestartOnboarding();
-      } else {
-        window.location.reload();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -45,7 +40,7 @@ export const HardResetDebug: React.FC<{ onRestartOnboarding?: () => void }> = ({
       }}>
         <strong>Warning: This action is permanent and cannot be undone.</strong>
         <br />
-        Deletes all data for the current workspace and returns to onboarding.
+        Deletes all data for the current workspace and relaunches the app with a fresh, empty workspace.
       </div>
 
       {!confirming ? (

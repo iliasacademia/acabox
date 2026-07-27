@@ -133,6 +133,24 @@ module.exports = {
         }
       }
     },
+    // Without a Developer ID, electron-packager + the fuses flip leave an
+    // INVALID ad-hoc signature (Info.plist not bound), which macOS reports as
+    // "…is damaged and can't be opened" on any downloaded copy. Re-sign the
+    // whole bundle ad-hoc here — after packaging/fuses, before the dmg/zip
+    // makers run — so the distributed app has a VALID signature (downloaders
+    // get "unidentified developer" → right-click Open, not "damaged").
+    // Developer ID + notarization (set APPLE_IDENTITY / APPLE_ID / …) is still
+    // required for a clean download experience and for macOS auto-update, so
+    // skip ad-hoc re-signing when a real signing identity is configured.
+    postPackage: async (_config, options) => {
+      if (codeSignIdentity || platform !== 'darwin') return;
+      for (const outPath of options.outputPaths || []) {
+        const appPath = path.join(outPath, `${packagerConfig.name}.app`);
+        if (!fs.existsSync(appPath)) continue;
+        console.log(`Ad-hoc signing (no Developer ID): ${appPath}`);
+        execSync(`codesign --force --deep --sign - "${appPath}"`, { stdio: 'inherit' });
+      }
+    },
   },
   makers: [
     {

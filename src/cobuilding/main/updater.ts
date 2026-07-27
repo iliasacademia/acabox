@@ -1,10 +1,25 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
-const { validateCloudFrontDomain } = require('../../utils/validateCloudFrontDomain');
 
 declare const COBUILD_UPDATE_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILD_UPDATE_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
+
+// --- Release feed configuration -------------------------------------------
+// Acabox publishes packaged binaries + electron-updater metadata to GitHub
+// Releases (see scripts/release.mjs). The app SOURCE repo can stay private,
+// but for the *installed* app to download updates without shipping a token,
+// the RELEASE repo must be PUBLIC. Recommended: a dedicated public repo that
+// holds only built artifacts:
+//     gh repo create iliasacademia/acabox-releases --public
+//
+// The baked-in defaults below are what production builds use. The env
+// overrides exist only for testing against a different repo.
+const UPDATE_OWNER = process.env.ACABOX_UPDATE_OWNER || 'iliasacademia';
+const UPDATE_REPO = process.env.ACABOX_UPDATE_REPO || 'acabox-releases';
+// Set ONLY if the release repo is PRIVATE — NOT recommended: the token ships
+// inside the app bundle and is extractable. Prefer a public release repo.
+const UPDATE_TOKEN = process.env.ACABOX_UPDATE_TOKEN || undefined;
 
 let updateWindow: BrowserWindow | null = null;
 let updaterConfigured = false;
@@ -52,27 +67,24 @@ export function setupUpdater(onRebuildTrayMenu: (statusLabel?: string) => void) 
     return;
   }
 
-  const cloudFrontDomain = process.env.CLOUDFRONT_DOMAIN;
-  if (!cloudFrontDomain || !validateCloudFrontDomain(cloudFrontDomain)) {
-    log.warn('[UPDATER] Skipping updater setup (missing or invalid CLOUDFRONT_DOMAIN).');
+  if (!UPDATE_OWNER || !UPDATE_REPO) {
+    log.warn('[UPDATER] Skipping updater setup (no release repo configured).');
     return;
   }
 
-  // Fork-scoped channel: the original Academia Coscientist app publishes to
-  // /cobuild on its CloudFront distribution. Pointing there would offer (and
-  // download) the other product as an "update". Acabox has no release feed
-  // yet, so update checks against /acabox simply 404 until one exists.
-  autoUpdater.channel = 'acabox';
-  autoUpdater.autoDownload = false;
+  autoUpdater.autoDownload = false; // prompt the user before downloading
   autoUpdater.autoInstallOnAppQuit = true;
 
-  const arch = process.arch;
-  const feedUrl = process.platform === 'darwin'
-    ? `https://${cloudFrontDomain}/acabox/${arch}`
-    : `https://${cloudFrontDomain}/acabox`;
+  // GitHub Releases feed. The default channel ('latest') matches the
+  // `latest-mac.yml` / `latest.yml` metadata that scripts/release.mjs
+  // attaches to each release. Fork isolation is inherent — we point at the
+  // Acabox release repo, never the upstream Coscientist feed.
+  const feed: Parameters<typeof autoUpdater.setFeedURL>[0] = UPDATE_TOKEN
+    ? { provider: 'github', owner: UPDATE_OWNER, repo: UPDATE_REPO, private: true, token: UPDATE_TOKEN }
+    : { provider: 'github', owner: UPDATE_OWNER, repo: UPDATE_REPO };
 
-  autoUpdater.setFeedURL({ provider: 'generic', url: feedUrl });
-  log.info('[UPDATER] Configured with feed URL:', feedUrl);
+  autoUpdater.setFeedURL(feed);
+  log.info(`[UPDATER] Configured GitHub Releases feed: ${UPDATE_OWNER}/${UPDATE_REPO}`);
 
   autoUpdater.on('update-available', (info) => {
     log.info('[UPDATER] Update available:', info.version);
@@ -107,6 +119,9 @@ export function setupUpdater(onRebuildTrayMenu: (statusLabel?: string) => void) 
 
   autoUpdater.on('update-downloaded', () => {
     log.info('[UPDATER] Update downloaded, quitting and installing.');
+    // NOTE (macOS): Squirrel.Mac only applies updates to a Developer-ID-signed
+    // + notarized build. On an unsigned/ad-hoc build this step fails and
+    // surfaces via the 'error' handler below — expected until signing is set up.
     autoUpdater.quitAndInstall(true, true);
   });
 
@@ -117,6 +132,11 @@ export function setupUpdater(onRebuildTrayMenu: (statusLabel?: string) => void) 
   });
 
   updaterConfigured = true;
+
+  // Silent check shortly after launch. Any failure (no release yet, offline,
+  // private-repo 404, unsigned-install on macOS) is caught by the 'error'
+  // handler above and logged — it never blocks or crashes the app.
+  setTimeout(() => checkForUpdates(false), 10_000);
 }
 
 export function setupUpdaterIpcHandlers() {

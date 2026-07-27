@@ -8,6 +8,7 @@ import log from 'electron-log';
 import type { WorkspaceController } from './WorkspaceController';
 import type { containerService as containerServiceInstance } from '../containerService';
 import { getCredentials } from '../cobuildingTokenManager';
+import { updateManifest } from '../manifestIO';
 import { getScannedFilesByType, getScannedFiles } from '../db/scannedFilesRepository';
 import { getLatestReport } from '../db/reportRepository';
 import { AGENT_MEMORY_SUBDIR, REFERENCES_SUBDIR, REFERENCES_INDEX } from '../../shared/paths';
@@ -219,7 +220,10 @@ export class AgentInfrastructureController {
       mcpServers: {},
       anthropicApiKey: agentApiKey ?? '',
       ...(agentBaseURL ? { anthropicBaseURL: agentBaseURL } : {}),
-      model: 'claude-opus-4-8',
+      model: 'claude-opus-5',
+      // Default thinking level; per-turn overrides come from the chat UI via
+      // the session-create override (see mergeSessionConfig).
+      effort: 'high',
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       allowedTools: [
         'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'Agent',
@@ -354,6 +358,8 @@ Output JSON only. No prose, no code fences.`,
     lastOpened: null,
   };
 
-  await fsPromises.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+  // Merge under the generated fields: anything another writer minted since
+  // the missing-manifest check (tool_id, open_count, …) wins over defaults.
+  await updateManifest(manifestPath, (m) => ({ ...manifest, ...m }));
   log.info(`[ManifestMigration] Wrote manifest for ${dirName}: ${manifest.name} / ${manifest.icon}`);
 }

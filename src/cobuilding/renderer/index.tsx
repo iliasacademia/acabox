@@ -26,7 +26,6 @@ import { Rail, type RailTab } from './components/command-desk/Rail';
 import { StatusBar } from './components/command-desk/StatusBar';
 import { CommandDesk } from './components/command-desk/CommandDesk';
 import { useHomeData } from './components/command-desk/useHomeData';
-import { AVAILABLE_TOOLS_STUB } from './components/availableTools';
 import { ReactionsToolView } from './components/ReactionsToolView';
 import { resolveWorkspacePath } from './utils/resolveWorkspacePath';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
@@ -37,7 +36,6 @@ import { createAttachmentAdapter } from './attachmentAdapter';
 import { useSessionSubscription } from './useSessionSubscription';
 import { reloadThreadHistory } from './reloadThreadHistory';
 import DirectoryPermissions from './components/DirectoryPermissions';
-import { Onboarding } from './components/command-desk/Onboarding';
 import { ChatHeader } from './components/command-desk/ChatHeader';
 import { ToolWorkspace } from './components/command-desk/ToolWorkspace';
 import { ToolFallback } from './components/assistant-ui/tool-fallback';
@@ -601,7 +599,7 @@ function OpenMiniAppHandler({ onOpen }: { onOpen: (dirName: string, opts?: { for
 /** File extensions that need full-width viewing (tables, PDFs). */
 const WIDE_VIEWER_RE = /\.(csv|tsv|xlsx?|pdf)$/i;
 
-function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { workspace: Workspace; onWorkspaceUpdated: (ws: Workspace) => void; onRestartOnboarding: () => void }) {
+function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onWorkspaceUpdated: (ws: Workspace) => void }) {
   useEffect(() => {
     trackEvent('Cobuilding Session');
   }, []);
@@ -774,6 +772,10 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
   // Live data for the Command Desk home + rail (sessions, mini-apps, drive).
   const { sessions, apps, driveFiles, refreshApps, refreshDrive } = useHomeData();
 
+  // Archived tools only appear in the Tools page's "Archived" section — the
+  // home grid, rail badge, and pinned list all show active tools only.
+  const activeApps = useMemo(() => apps.filter((a) => !a.archived), [apps]);
+
   // Apps/drive have no change events from the host — refresh when the user
   // lands somewhere that displays them.
   useEffect(() => {
@@ -849,8 +851,31 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
   // Suppress thread reset when opening a file from chat (so we can return to the same thread)
   const suppressThreadResetRef = useRef(false);
 
-  // In-memory cache: dirName → sessionId
+  // Which of a tool's chats its side panel is currently showing: dirName →
+  // sessionId. Populated lazily from sessions:findForApp (most recently active)
+  // and updated whenever the user picks a different chat from the switcher, so
+  // the choice survives switching between tool tabs.
   const appSessionCacheRef = useRef<Map<string, string>>(new Map());
+
+  /** Point a tool's side panel at one of its existing chats. */
+  const handleSelectAppChat = useCallback((dirName: string, sessionId: string) => {
+    appSessionCacheRef.current.set(dirName, sessionId);
+    suppressThreadDeactivateRef.current = true;
+    try {
+      runtime.threads.switchToThread(sessionId);
+    } catch (err) {
+      console.error('[AppChat] switchToThread failed:', err);
+    }
+  }, [runtime]);
+
+  /** Start a new chat for a tool (the host reuses an unused one if present). */
+  const handleNewAppChat = useCallback((dirName: string) => {
+    window.sessionsAPI.createForApp(dirName).then((sessionId) => {
+      if (sessionId) handleSelectAppChat(dirName, sessionId);
+    }).catch((err) => {
+      console.error('[AppChat] createForApp failed:', err);
+    });
+  }, [handleSelectAppChat]);
 
   // Determine the active miniapp tab (for chat session switching)
   const activeTab = tabs.find((t) => t.id === activeTabId);
@@ -870,7 +895,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
 
   const pinnedTools = useMemo(
     () =>
-      [...apps]
+      [...activeApps]
         .sort(
           (a, b) =>
             (b.lastOpened ? Date.parse(b.lastOpened) : 0) -
@@ -883,7 +908,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
           icon: a.icon,
           live: liveToolDirNames.has(a.dirName),
         })),
-    [apps, liveToolDirNames],
+    [activeApps, liveToolDirNames],
   );
 
   const workspaceName = workspace.directory_path.split('/').filter(Boolean).pop() ?? 'workspace';
@@ -929,7 +954,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
             <Rail
               activeTab={sidebarTab}
               chatCount={sessions.length}
-              toolCount={apps.length + AVAILABLE_TOOLS_STUB.length}
+              toolCount={activeApps.length}
               recents={sessions.slice(0, 5).map((s) => ({ id: s.id, title: s.title }))}
               pinned={pinnedTools}
               workspaceName={workspaceName}
@@ -943,7 +968,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
             <div style={{ display: sidebarTab === 'home' ? 'flex' : 'none', flex: 1, minWidth: 0 }}>
               <CommandDesk
                 sessions={sessions}
-                apps={apps}
+                apps={activeApps}
                 driveFiles={driveFiles}
                 liveToolDirNames={liveToolDirNames}
                 workspaceName={workspaceName}
@@ -989,6 +1014,8 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
                     setSidebarTab('chats');
                     setChatViewMode('detail');
                   }}
+                  onSelectAppChat={handleSelectAppChat}
+                  onNewAppChat={handleNewAppChat}
                 />
               ) : toolsViewMode === 'paper-monitor' ? (
                 <div className="toolDetailContent">
@@ -1065,10 +1092,9 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
               ) : (
                 <ToolsPage
                   workspacePath={workspace.directory_path}
-                  userDirectoryPaths={workspace.user_directory_paths}
                   onSelectApp={handleSelectApp}
                   onSwitchToChat={() => setSidebarTab('chats')}
-                  onOpenReactions={() => setToolsViewMode('reactions')}
+                  onAppsChanged={refreshApps}
                 />
               )}
             </div>
@@ -1128,7 +1154,6 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
               {chatViewMode === 'detail' ? (
                 <>
                   <ChatHeader
-                    workspacePath={workspace.directory_path}
                     onBack={() => { setChatViewMode('list'); }}
                     onOpenTool={handleSelectApp}
                   />
@@ -1152,7 +1177,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
                 <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
                 <Panel id="debugMain" order={2} defaultSize={82} minSize={30}>
                   <div className="mainPanel">
-                    <DebugContent activeSection={debugSection} onRestartOnboarding={onRestartOnboarding} />
+                    <DebugContent activeSection={debugSection} />
                   </div>
                 </Panel>
               </PanelGroup>
@@ -1168,7 +1193,6 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
                   onWorkspaceUpdated(ws);
                   setSidebarTab('home');
                 }}
-                onRestartOnboarding={onRestartOnboarding}
                 onDirectoriesChanged={setUserDirectories}
                 inline
               />
@@ -1185,67 +1209,36 @@ function ChatView({ workspace, onWorkspaceUpdated, onRestartOnboarding }: { work
   );
 }
 
-type BootState = 'loading' | 'onboarding-welcome' | 'onboarding-workspace' | 'ready';
-
 function App() {
-  const [state, setState] = useState<BootState>('loading');
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
 
   useEffect(() => {
-    // No login: the gate is "do we have an Anthropic API key?" (env or the
-    // Settings-saved key), not an academia session. A missing key starts
-    // onboarding from Welcome; a present key with no workspace starts at the
-    // directories step (an env-var key can't be changed from the UI, so we
-    // never route back through the key step in that case).
-    Promise.all([window.workspacesAPI.getActive(), window.authAPI.getApiKeyStatus()])
-      .then(([ws, { hasKey }]) => {
-        if (!hasKey) {
-          setState('onboarding-welcome');
-        } else if (ws) {
-          setWorkspace(ws);
-          setState('ready');
-        } else {
-          setState('onboarding-workspace');
-        }
+    // No onboarding: the main process guarantees an active workspace exists
+    // (it creates a blank one at boot when needed), so this resolves on the
+    // first try. A missing API key just degrades chat/scans with a
+    // "add one in Settings" error — the app still boots.
+    window.workspacesAPI
+      .getActive()
+      .then((ws) => {
+        if (ws) setWorkspace(ws);
+        else console.error('[App] No active workspace — main should have created one');
       })
-      .catch(() => setState('onboarding-welcome'));
+      .catch((err) => console.error('[App] getActive failed:', err));
   }, []);
 
-  if (state === 'ready') {
+  if (!workspace) {
+    // Momentary boot frame — one IPC round-trip. The window has no native
+    // title bar (titleBarStyle: 'hiddenInset'), so keep the chrome bar as
+    // the drag region.
     return (
-      <ChatView
-        workspace={workspace!}
-        onWorkspaceUpdated={setWorkspace}
-        onRestartOnboarding={() => {
-          setWorkspace(null);
-          setState('onboarding-workspace');
-        }}
-      />
+      <div className="appRoot">
+        <ChromeBar />
+        <StatusBar />
+      </div>
     );
   }
 
-  // The window has no native title bar (titleBarStyle: 'hiddenInset'), so
-  // onboarding also renders the chrome bar as its drag region. First-run
-  // frame: chrome bar + status bar, no rail (Phase B spec).
-  return (
-    <div className="appRoot">
-      <ChromeBar />
-      {state !== 'loading' && (
-        <Onboarding
-          initialStep={state === 'onboarding-welcome' ? 1 : 3}
-          onFinished={() => {
-            window.workspacesAPI.getActive().then((ws) => {
-              if (ws) {
-                setWorkspace(ws);
-                setState('ready');
-              }
-            });
-          }}
-        />
-      )}
-      <StatusBar firstRun />
-    </div>
-  );
+  return <ChatView workspace={workspace} onWorkspaceUpdated={setWorkspace} />;
 }
 
 // Wrap ResizeObserver callbacks in requestAnimationFrame so they never fire

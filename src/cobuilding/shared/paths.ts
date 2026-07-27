@@ -15,6 +15,13 @@ export const ACADEMIA_DIR = '.academia';
 export const APPLICATIONS_DIR = '.applications';
 export const CLAUDE_DIR = '.claude';
 
+// Durable per-tool data root. A mini-app's working files (inputs/outputs) live
+// under `tool-data/<dirName>/` while its code lives under `.applications/<dirName>/`.
+// The code dir's `input`/`output` entries are symlinks into here, so deleting a
+// tool (removing `.applications/<dirName>/`) leaves its data untouched.
+export const TOOL_DATA_DIR = 'tool-data';
+export const TOOL_DATA_SUBDIRS = ['input', 'output'] as const;
+
 export const AGENT_MEMORY_DIR = 'agent-memory';
 export const AGENT_MEMORY_SUBDIR = `${ACADEMIA_DIR}/${AGENT_MEMORY_DIR}`;
 

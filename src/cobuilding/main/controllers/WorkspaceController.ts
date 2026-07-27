@@ -7,7 +7,6 @@ import {
   createWorkspace,
   getActiveWorkspace,
   touchWorkspace,
-  deactivateAllWorkspaces,
   addWorkspaceDirectory,
   removeWorkspaceDirectory,
   listWorkspaceDirectories,
@@ -166,12 +165,6 @@ export class WorkspaceController {
     updateWorkspaceDirectoryPermission(directoryId, readOnly);
     this._userDirectories = listWorkspaceDirectories(this._activeWorkspace.id);
     return this._userDirectories.find(d => d.id === directoryId)!;
-  }
-
-  deactivateAll(): void {
-    deactivateAllWorkspaces();
-    this._activeWorkspace = null;
-    this._userDirectories = [];
   }
 
   validateDirectoryPath(directoryPath: string): string {

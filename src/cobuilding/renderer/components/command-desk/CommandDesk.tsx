@@ -3,7 +3,6 @@ import { MSymbol } from './MSymbol';
 import { resolveToolIcon } from './toolIcon';
 import { relTimeShort, formatSize, headerDate } from './format';
 import type { DriveFile } from './useHomeData';
-import { AVAILABLE_TOOLS_STUB } from '../availableTools';
 
 const MAX_TOOL_CARDS = 5; // + the "build a new tool" card = 6 grid cells
 const MAX_RECENT_CHATS = 3;
@@ -24,12 +23,10 @@ function focusComposer() {
 }
 
 /**
- * Home screen ("Command Desk"). The Tools grid shows the user's mini-apps
- * first, then the pre-built tools (same inventory as the Tools page). A
+ * Home screen ("Command Desk"). The Tools grid shows the user's mini-apps. A
  * mini-app shows RUNNING while its viewer tab is open this session, SLEEPING
  * otherwise — there is no host-side tool lifecycle yet, so busy/crashed
- * states and progress bars stay dormant until one exists. Pre-built cards
- * navigate to the Tools page, where their real actions live.
+ * states and progress bars stay dormant until one exists.
  */
 export function CommandDesk({
   sessions,
@@ -63,8 +60,7 @@ export function CommandDesk({
   }, []);
 
   const appCards = apps.slice(0, MAX_TOOL_CARDS);
-  const stubCards = AVAILABLE_TOOLS_STUB.slice(0, MAX_TOOL_CARDS - appCards.length);
-  const totalTools = apps.length + AVAILABLE_TOOLS_STUB.length;
+  const totalTools = apps.length;
   const recentChats = sessions.slice(0, MAX_RECENT_CHATS);
 
   return (
@@ -83,7 +79,7 @@ export function CommandDesk({
       <div className="cdHome__content">
         <div className="cdSectionRow">
           <span className="cdSectionLabel">
-            Tools — {appCards.length + stubCards.length} of {totalTools}
+            Tools — {appCards.length} of {totalTools}
           </span>
           <button className="cdTextLink" onClick={onNavigateTools}>All tools</button>
         </div>
@@ -121,35 +117,6 @@ export function CommandDesk({
                   <span className="cdCard__metric">
                     {app.lastOpened ? `LAST ${relTimeShort(app.lastOpened)}` : app.preBuilt ? 'PRE-BUILT' : 'NEW'}
                   </span>
-                </div>
-              </div>
-            );
-          })}
-          {stubCards.map((stub) => {
-            const Icon = resolveToolIcon(null);
-            return (
-              <div
-                key={`stub:${stub.name}`}
-                className="cdCard"
-                role="button"
-                tabIndex={0}
-                onClick={onNavigateTools}
-                onKeyDown={(e) => { if (e.key === 'Enter') onNavigateTools(); }}
-              >
-                <div className="cdCard__top">
-                  <Icon className="cdCard__icon" style={{ width: 24, height: 24 }} />
-                  <span className="cdCard__status">{stub.tag}</span>
-                </div>
-                <div className="cdCard__title">{stub.name}</div>
-                <div className="cdCard__desc">{stub.description}</div>
-                <div className="cdCard__footer">
-                  <button
-                    className="cdBtnXs"
-                    onClick={(e) => { e.stopPropagation(); onNavigateTools(); }}
-                  >
-                    Open
-                  </button>
-                  <span className="cdCard__metric">PRE-BUILT</span>
                 </div>
               </div>
             );

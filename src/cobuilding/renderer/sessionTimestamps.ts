@@ -16,6 +16,7 @@ export function dateFromSessionStoredAt(stored: string): Date {
 
 const createdAtByRemoteId = new Map<string, string>();
 const documentPathByRemoteId = new Map<string, string | null>();
+const appDirNameByRemoteId = new Map<string, string | null>();
 
 export function getSessionCreatedAt(remoteId: string | undefined): string | undefined {
   if (!remoteId) return undefined;
@@ -27,15 +28,32 @@ export function getSessionDocumentPath(remoteId: string | undefined): string | n
   return documentPathByRemoteId.get(remoteId);
 }
 
+/** Mini-app a chat belongs to, or null for a general chat. */
+export function getSessionAppDirName(remoteId: string | undefined): string | null | undefined {
+  if (!remoteId) return undefined;
+  return appDirNameByRemoteId.get(remoteId);
+}
+
 export function replaceSessionTimestampsFromList(
-  sessions: readonly { id: string; created_at: string; document_path?: string | null }[],
+  sessions: readonly {
+    id: string;
+    created_at: string;
+    document_path?: string | null;
+    app_dir_name?: string | null;
+  }[],
 ): void {
   createdAtByRemoteId.clear();
   documentPathByRemoteId.clear();
+  appDirNameByRemoteId.clear();
   for (const s of sessions) {
     createdAtByRemoteId.set(s.id, s.created_at);
     documentPathByRemoteId.set(s.id, s.document_path ?? null);
+    appDirNameByRemoteId.set(s.id, s.app_dir_name ?? null);
   }
+}
+
+export function setSessionAppDirName(remoteId: string, appDirName: string | null): void {
+  appDirNameByRemoteId.set(remoteId, appDirName);
 }
 
 export function setSessionCreatedAt(remoteId: string, createdAt: string): void {

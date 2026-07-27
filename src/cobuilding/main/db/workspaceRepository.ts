@@ -50,12 +50,6 @@ export function touchWorkspace(id: string): void {
     .run(id);
 }
 
-export function deactivateAllWorkspaces(): void {
-  getDatabase()
-    .prepare("UPDATE workspaces SET deleted_at = strftime('%Y-%m-%dT%H:%M:%f', 'now') WHERE deleted_at IS NULL")
-    .run();
-}
-
 // --- workspace_directories CRUD ---
 
 export function addWorkspaceDirectory(

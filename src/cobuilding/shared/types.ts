@@ -81,7 +81,7 @@ export interface ChatAPI {
    *  takeover force-subscribes mid-turn and replaces this iterator, the
    *  caller's release is a no-op on the takeover's iterator rather than
    *  terminating it. */
-  sendMessage(threadId: string, text: string, attachments?: IPCAttachment[], model?: string, documentPath?: string, messageId?: string): { stream: ChatMessageStream; release: () => void };
+  sendMessage(threadId: string, text: string, attachments?: IPCAttachment[], model?: string, documentPath?: string, messageId?: string, effort?: string): { stream: ChatMessageStream; release: () => void };
   /** `force: true` evicts any existing primary stream iterator and creates
    *  a fresh one. The evicted iterator's pending `next()` resolves with
    *  `done: true`, terminating its consumer cleanly. Needed when reattaching

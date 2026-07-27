@@ -493,6 +493,19 @@ const migrations = [
     version: 30,
     sql: `ALTER TABLE workspace_directories ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0;`,
   },
+  {
+    // Per-conversation model pinning. `model` is the id the SDK actually
+    // resolved (captured from the system/init event), `effort` is the level we
+    // sent. Both are written once, on the session's first turn, and reused for
+    // every later turn — the chat UI shows them and cannot change them.
+    // NULL on rows that predate this migration; the UI shows no chip rather
+    // than guessing a value.
+    version: 31,
+    sql: `
+      ALTER TABLE sessions ADD COLUMN model TEXT DEFAULT NULL;
+      ALTER TABLE sessions ADD COLUMN effort TEXT DEFAULT NULL;
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database, userDataPath: string) {

@@ -20,15 +20,6 @@ contextBridge.exposeInMainWorld('authAPI', {
 
 contextBridge.exposeInMainWorld('workspacesAPI', {
   getActive: () => ipcRenderer.invoke('workspaces:getActive'),
-  create: (data: { name: string; directoryPaths: string[] }) => {
-    if (!data || typeof data.name !== 'string' || !Array.isArray(data.directoryPaths)) {
-      throw new Error('Invalid workspace creation data');
-    }
-    if (data.directoryPaths.some(p => typeof p !== 'string' || !p.trim())) {
-      throw new Error('Invalid directory paths provided');
-    }
-    return ipcRenderer.invoke('workspaces:create', data);
-  },
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
   listDirectories: () => ipcRenderer.invoke('workspaces:listDirectories'),
   addDirectory: (directoryPath: string) => ipcRenderer.invoke('workspaces:addDirectory', directoryPath),
@@ -77,8 +68,15 @@ contextBridge.exposeInMainWorld('miniAppsAPI', {
   importApp: () => ipcRenderer.invoke('miniApps:import'),
   list: () => ipcRenderer.invoke('miniApps:list'),
   touch: (dirName: string) => ipcRenderer.invoke('miniApps:touch', dirName),
+  setArchived: (dirName: string, archived: boolean) => ipcRenderer.invoke('miniApps:setArchived', dirName, archived),
+  delete: (dirName: string) => ipcRenderer.invoke('miniApps:delete', dirName),
   build: (dirName: string): Promise<{ ok: boolean; outfile?: string; error?: string; exitCode: number }> =>
     ipcRenderer.invoke('miniApps:build', dirName),
+});
+
+contextBridge.exposeInMainWorld('toolDataAPI', {
+  list: () => ipcRenderer.invoke('toolData:list'),
+  delete: (dirName: string) => ipcRenderer.invoke('toolData:delete', dirName),
 });
 
 contextBridge.exposeInMainWorld('miniAppMcpAPI', {
@@ -201,7 +199,6 @@ contextBridge.exposeInMainWorld('debugAPI', {
   exportWorkspace: () => ipcRenderer.invoke('debug:exportWorkspace'),
   importWorkspace: () => ipcRenderer.invoke('debug:importWorkspace'),
   hardResetWorkspace: () => ipcRenderer.invoke('debug:hardResetWorkspace'),
-  restartOnboarding: () => ipcRenderer.invoke('debug:restartOnboarding'),
   exportLogs: () => ipcRenderer.invoke('debug:exportLogs'),
   pruneImages: () => ipcRenderer.invoke('debug:pruneImages'),
   syncOverlay: () => ipcRenderer.invoke('debug:syncOverlay'),
@@ -340,6 +337,8 @@ contextBridge.exposeInMainWorld('sessionsAPI', {
   delete: (id: string) => ipcRenderer.invoke('sessions:delete', id),
   listMessages: (sessionId: string) => ipcRenderer.invoke('messages:list', sessionId),
   findForApp: (dirName: string) => ipcRenderer.invoke('sessions:findForApp', dirName) as Promise<string | null>,
+  listForApp: (dirName: string) => ipcRenderer.invoke('sessions:listForApp', dirName),
+  createForApp: (dirName: string) => ipcRenderer.invoke('sessions:createForApp', dirName) as Promise<string | null>,
   onTitleUpdated: (callback: (sessionId: string, title: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, sessionId: string, title: string) => callback(sessionId, title);
     ipcRenderer.on('sessions:titleUpdated', handler);
@@ -546,7 +545,7 @@ contextBridge.exposeInMainWorld('chatAPI', {
     ipcRenderer.on('quick-chat:inject', handler);
     return () => { ipcRenderer.removeListener('quick-chat:inject', handler); };
   },
-  sendMessage: (threadId: string, text: string, attachments?: any[], model?: string, documentPath?: string, messageId?: string) => {
+  sendMessage: (threadId: string, text: string, attachments?: any[], model?: string, documentPath?: string, messageId?: string, effort?: string) => {
     // Fire-and-forget invoke for the ack/dedup round-trip. We can't await it
     // here because contextBridge doesn't proxy nested methods through a
     // resolved Promise — the renderer would receive a structured-cloned
@@ -554,7 +553,7 @@ contextBridge.exposeInMainWorld('chatAPI', {
     // Errors are routed to the chat:error IPC channel so the stream iterator
     // (which already listens for that) surfaces them the same way it
     // surfaces in-stream errors.
-    ipcRenderer.invoke('chat:send', { threadId, text, attachments, model, documentPath, messageId })
+    ipcRenderer.invoke('chat:send', { threadId, text, attachments, model, documentPath, messageId, effort })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         ipcRenderer.emit('chat:error', null, threadId, message);

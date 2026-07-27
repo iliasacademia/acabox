@@ -1,13 +1,27 @@
 import { getDatabase } from './database';
 
+/** Placeholder title a session row is created with (matches the schema default). */
+export const DEFAULT_SESSION_TITLE = 'New Chat';
+
 export interface Session {
   id: string;
   sdk_session_id: string | null;
   title: string;
   source: string | null;
   document_path: string | null;
+  /** Mini-app this chat belongs to, or null for a general chat. */
+  app_dir_name: string | null;
+  /** Model the first turn actually ran on; null until that turn completes. */
+  model: string | null;
+  /** Reasoning-effort level sent on the first turn; null for pre-existing rows. */
+  effort: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** A session plus the timestamp of its most recent message (null when empty). */
+export interface SessionWithActivity extends Session {
+  last_message_at: string | null;
 }
 
 export interface Message {
@@ -24,10 +38,42 @@ export function createSession(
   workspaceId: string,
   source: string | null = null,
   documentPath: string | null = null,
+  appDirName: string | null = null,
 ): void {
   getDatabase()
-    .prepare('INSERT OR IGNORE INTO sessions (id, workspace_id, source, document_path) VALUES (?, ?, ?, ?)')
-    .run(id, workspaceId, source, documentPath);
+    .prepare(
+      'INSERT OR IGNORE INTO sessions (id, workspace_id, source, document_path, app_dir_name) VALUES (?, ?, ?, ?, ?)',
+    )
+    .run(id, workspaceId, source, documentPath, appDirName);
+}
+
+/**
+ * Link an existing session to a mini-app. Only fills a NULL `app_dir_name`, so
+ * a chat can't be silently re-homed to a different tool — used to backfill the
+ * link for chats created before `app_dir_name` was populated.
+ */
+export function setSessionAppDirName(id: string, appDirName: string): void {
+  getDatabase()
+    .prepare('UPDATE sessions SET app_dir_name = ? WHERE id = ? AND app_dir_name IS NULL')
+    .run(appDirName, id);
+}
+
+/**
+ * Pin the model/effort a conversation runs on. Write-once per column: a value
+ * already recorded is never overwritten, so later turns can't silently change
+ * what the chat claims (and what it actually uses) mid-conversation.
+ */
+export function setSessionModelInfo(
+  id: string,
+  info: { model?: string | null; effort?: string | null },
+): void {
+  const db = getDatabase();
+  if (info.model) {
+    db.prepare('UPDATE sessions SET model = ? WHERE id = ? AND model IS NULL').run(info.model, id);
+  }
+  if (info.effort) {
+    db.prepare('UPDATE sessions SET effort = ? WHERE id = ? AND effort IS NULL').run(info.effort, id);
+  }
 }
 
 /**
@@ -85,6 +131,35 @@ export function listSessionsByDocPathLike(workspaceId: string | undefined, sourc
   if (source !== undefined) params.push(source);
   params.push(documentPathLike);
   return getDatabase().prepare(sql).all(...params) as Session[];
+}
+
+/**
+ * Every chat belonging to a mini-app, most recently active first.
+ *
+ * Ordered by the timestamp of the newest message rather than `updated_at`:
+ * `updateSessionTitle` also bumps `updated_at`, so renaming a chat would
+ * otherwise jump it to the top of the list. Chats with no messages yet fall
+ * back to their creation time.
+ */
+export function listSessionsForApp(workspaceId: string, appDirName: string): SessionWithActivity[] {
+  return getDatabase()
+    .prepare(`
+      SELECT s.*, MAX(m.created_at) AS last_message_at
+      FROM sessions s
+      LEFT JOIN messages m ON m.session_id = s.id
+      WHERE s.workspace_id = ? AND s.app_dir_name = ?
+      GROUP BY s.id
+      ORDER BY COALESCE(MAX(m.created_at), s.created_at) DESC
+    `)
+    .all(workspaceId, appDirName) as SessionWithActivity[];
+}
+
+/** Number of persisted messages in a session. 0 means the chat has never run a turn. */
+export function countMessages(sessionId: string): number {
+  const row = getDatabase()
+    .prepare('SELECT COUNT(*) AS n FROM messages WHERE session_id = ?')
+    .get(sessionId) as { n: number } | undefined;
+  return row?.n ?? 0;
 }
 
 export function updateSessionTitle(id: string, title: string): void {

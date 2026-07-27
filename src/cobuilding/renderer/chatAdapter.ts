@@ -8,6 +8,7 @@ import { useAui } from '@assistant-ui/react';
 import type { ChatStreamMessage, ChatMessageStream, IPCAttachment } from '../shared/types';
 import { setToolProgress, clearToolProgress, resetProgress, setSubagentStarted, updateSubagentProgress, setSubagentDone, setProcessingLabel } from './progressStore';
 import { track as trackAnalytics } from './coscientistAnalytics';
+import { getSelectedEffort, getSelectedModel } from './components/ModelSelector';
 
 export function toAsyncIterable(
   stream: ChatMessageStream,
@@ -56,7 +57,15 @@ function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefObject<(
         .map((part) => part.text)
         .join('');
 
-      const model = context?.config?.modelName;
+      // The assistant-ui model context is only registered while ModelSelector
+      // is mounted, and it isn't in the tool side panel (that composer has no
+      // picker) — so a chat started there would send no model at all and
+      // silently get the agent-server default. Fall back to the stored
+      // selection, which is the same value the picker would have provided.
+      const model = context?.config?.modelName ?? getSelectedModel();
+      // Thinking level (SDK `effort`), read at send time from localStorage —
+      // sibling of the model selection, both set in ModelSelector.
+      const effort = getSelectedEffort();
 
       // One-shot: callers (e.g. Writing-Agent flow) set this on the window
       // before triggering composer.send so the not-yet-existent session row
@@ -128,7 +137,7 @@ function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefObject<(
       // listens on. Awaiting across contextBridge would break the stream's
       // `next()` proxying — see preload's sendMessage comment.
       const { stream, release } = window.chatAPI.sendMessage(
-        threadId, userText, attachments, model, pendingDocPath, messageId,
+        threadId, userText, attachments, model, pendingDocPath, messageId, effort,
       );
       const responseStream = toAsyncIterable(stream);
 

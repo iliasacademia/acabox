@@ -41,7 +41,7 @@ node \
 The script prints `{ name, dir_name, dir }` to stdout and creates:
 - `<dir>/src/index.html` — HTML shell with Tailwind
 - `<dir>/src/index.tsx` — React mount boilerplate with error boundary
-- `<dir>/dist/`, `<dir>/output/`, `<dir>/input/` directories
+- `<dir>/dist/` directory, plus `<dir>/output/` and `<dir>/input/` — these two are symlinks into `tool-data/<dir_name>/`, a **durable** data area that is preserved when the tool is deleted (deleting a tool only removes its code dir). Keep writing to `.applications/<dir_name>/input|output/...` as usual; the paths are unchanged and resolve through the symlinks. Do **not** write user data loosely into `<dir>/` itself — that is code and is destroyed on delete.
 - `<dir>/notebook.ipynb` — canonical notebook with a `parameters` cell + cobuild metadata; default kernel is `python3` (override with `--kernel ir` for R)
 - `<dir>/manifest.json` — `{ name, description, icon, lastOpened }`. The Tools page uses `name` as the title, `description` as the subtitle, `icon` to render the app's Lucide icon, and orders apps by `lastOpened` (most recent first). `lastOpened` is initialized to the current time when the app is created and is updated by the host each time the app is opened — do not set it yourself.
 

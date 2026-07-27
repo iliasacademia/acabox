@@ -10,8 +10,10 @@ import { MessageSquareIcon, MoreVerticalIcon, PencilIcon, TrashIcon, SearchIcon 
 import type { FC } from 'react';
 import {
   dateFromSessionStoredAt,
+  getSessionAppDirName,
   getSessionCreatedAt,
 } from '../../sessionTimestamps';
+import { resolveToolIcon } from '../command-desk/toolIcon';
 import { isSessionRunning } from '../../sessionListAdapter';
 import { formatRelativeDate as formatRelativeDateFromDate } from '../../../../shared/utils';
 
@@ -95,6 +97,38 @@ function useMessagePreview(sessionId: string | undefined): PreviewData | null {
   return preview;
 }
 
+// --- Owning-tool chip ---
+//
+// App chats live in the same list as general ones, so each row that belongs to
+// a mini app is tagged with it. The dirName → tool lookup is fetched once per
+// mount and shared by every row; a tool that no longer exists (deleted, its
+// chats kept) falls back to the raw dirName rather than dropping the chip.
+
+function useToolsByDirName(): Map<string, MiniAppEntry> {
+  const [tools, setTools] = useState<Map<string, MiniAppEntry>>(new Map());
+  useEffect(() => {
+    let cancelled = false;
+    window.miniAppsAPI.list().then((apps) => {
+      if (!cancelled) setTools(new Map(apps.map((a) => [a.dirName, a])));
+    }).catch(() => { /* chip degrades to the dirName */ });
+    return () => { cancelled = true; };
+  }, []);
+  return tools;
+}
+
+const ToolsByDirNameContext = createContext<Map<string, MiniAppEntry>>(new Map());
+
+const ChatToolChip: FC<{ dirName: string }> = ({ dirName }) => {
+  const tool = useContext(ToolsByDirNameContext).get(dirName);
+  const Icon = resolveToolIcon(tool?.icon ?? null);
+  return (
+    <span className="chatListItemToolChip" title={`Chat for ${tool?.name ?? dirName}`}>
+      <Icon style={{ width: 11, height: 11 }} />
+      {tool?.name ?? dirName}
+    </span>
+  );
+};
+
 // --- Search highlighting ---
 
 function highlightMatch(text: string, query: string): React.ReactNode {
@@ -174,8 +208,10 @@ const StableThreadItems: FC = () => {
 
 export const ThreadList: FC<ThreadListProps> = ({ onSelectThread }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const toolsByDirName = useToolsByDirName();
 
   return (
+    <ToolsByDirNameContext.Provider value={toolsByDirName}>
     <SearchQueryContext.Provider value={searchQuery}>
       <SelectThreadContext.Provider value={onSelectThread}>
         <ThreadListPrimitive.Root className="pageShell">
@@ -212,6 +248,7 @@ export const ThreadList: FC<ThreadListProps> = ({ onSelectThread }) => {
         </ThreadListPrimitive.Root>
       </SelectThreadContext.Provider>
     </SearchQueryContext.Provider>
+    </ToolsByDirNameContext.Provider>
   );
 };
 
@@ -225,6 +262,7 @@ const ThreadListItem: FC = () => {
   const remoteId = runtime.getState().remoteId;
   const title = runtime.getState().title ?? 'New Chat';
   const createdAt = getSessionCreatedAt(remoteId);
+  const appDirName = getSessionAppDirName(remoteId);
   const preview = useMessagePreview(remoteId);
   const running = remoteId ? isSessionRunning(remoteId) : false;
 
@@ -285,8 +323,11 @@ const ThreadListItem: FC = () => {
         className="chatListItemTrigger"
         onClick={() => onSelectThread?.()}
       >
-        <span className="chatListItemTitle">
-          {searchQuery ? highlightMatch(title, searchQuery) : title}
+        <span className="chatListItemTitleRow">
+          <span className="chatListItemTitle">
+            {searchQuery ? highlightMatch(title, searchQuery) : title}
+          </span>
+          {appDirName ? <ChatToolChip dirName={appDirName} /> : null}
         </span>
         {previewText ? (
           <span className="chatListItemPreview">

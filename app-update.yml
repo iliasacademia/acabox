@@ -1,2 +1,3 @@
-provider: generic
-url: https://d111111abcdef8.cloudfront.net/stable
+provider: github
+owner: iliasacademia
+repo: acabox-releases

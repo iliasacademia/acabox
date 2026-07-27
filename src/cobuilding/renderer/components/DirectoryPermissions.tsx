@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { Workspace, WorkspaceDirectory } from '../../shared/types';
 import { SOUL_MD, MEMORY_PATH_ABOUT_YOU, MEMORY_PATH_WORKING_ON, MAX_WORKSPACE_DIRECTORIES } from '../../shared/paths';
-import { kernelRegistry } from './notebook/kernelRegistry';
 import { XIcon, PlusIcon } from 'lucide-react';
 import DirectoryPermBadge from './DirectoryPermBadge';
 import ApiKeySettings from './ApiKeySettings';
@@ -13,12 +12,11 @@ interface DirectoryPermissionsProps {
   userDirectories: WorkspaceDirectory[];
   onClose: () => void;
   onSaved: (ws: Workspace) => void;
-  onRestartOnboarding: () => void;
   onDirectoriesChanged?: (dirs: WorkspaceDirectory[]) => void;
   inline?: boolean;
 }
 
-const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, userDirectories, onClose, onRestartOnboarding, onDirectoriesChanged, inline }) => {
+const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, userDirectories, onClose, onDirectoriesChanged, inline }) => {
   const [localDirs, setLocalDirs] = useState<WorkspaceDirectory[]>(userDirectories);
   const [dirError, setDirError] = useState<string | null>(null);
   const [togglingDirId, setTogglingDirId] = useState<string | null>(null);
@@ -41,7 +39,8 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
   const [soulError, setSoulError] = useState<string | null>(null);
   const [isSavingSoul, setIsSavingSoul] = useState(false);
 
-  const [isRestartingOnboarding, setIsRestartingOnboarding] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
 
   useEffect(() => {
     window.academiaFileAPI.read(SOUL_MD).then(({ content }) => {
@@ -312,25 +311,31 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
           <div className="wsSettings__sectionCard">
             <div className="wsSettings__dirRow" style={{ marginBottom: 12 }}>
               <div style={{ flex: 1 }}>
-                <div className="wsSettings__integrationName">Restart onboarding</div>
+                <div className="wsSettings__integrationName">Rescan workspace</div>
                 <div className="wsSettings__integrationDesc">
-                  Beginning again with a fresh scan of your workspace.
+                  Re-scan your folders to refresh your research profile and file tags.
                 </div>
               </div>
               <button
                 type="button"
                 className="gsStep__btn gsStep__btn--secondary"
-                disabled={isRestartingOnboarding}
+                disabled={isScanning || localDirs.length === 0}
                 onClick={async () => {
-                  setIsRestartingOnboarding(true);
-                  await window.debugAPI.restartOnboarding();
-                  kernelRegistry.clearAll().catch(() => {});
-                  onRestartOnboarding();
+                  setIsScanning(true);
+                  setScanError(null);
+                  try {
+                    await window.scannerAPI.start();
+                  } catch (err) {
+                    setScanError(err instanceof Error ? err.message : String(err));
+                  } finally {
+                    setIsScanning(false);
+                  }
                 }}
               >
-                {isRestartingOnboarding ? 'Restarting...' : 'Restart Onboarding'}
+                {isScanning ? 'Scanning...' : 'Rescan'}
               </button>
             </div>
+            {scanError && <p className="wsSettings__dirError">{scanError}</p>}
 
             <ApiKeySettings />
           </div>

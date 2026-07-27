@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, globalShortcut, ipcMain, net, protocol, she
 import { WorkspaceController } from './controllers/WorkspaceController';
 import { AgentInfrastructureController } from './controllers/AgentInfrastructureController';
 import { miniAppMcpRegistry } from './miniAppMcpRegistry';
+import { readManifest, updateManifest } from './manifestIO';
 import { registerWorkspaceHandlers } from './ipc/workspaceIpc';
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
@@ -43,6 +44,11 @@ import {
   getMessages,
   findSessionForApp,
   findMessageByMessageId,
+  listSessionsForApp,
+  setSessionAppDirName,
+  setSessionModelInfo,
+  countMessages,
+  DEFAULT_SESSION_TITLE,
 } from './db/chatRepository';
 import { listWorkspaceDirectories } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
@@ -67,6 +73,7 @@ import { startScheduledTasks, stopScheduledTasks, getTaskScheduler } from './sch
 import { runScheduledTask } from './scheduledTasks/runner';
 import type { CreateTaskData, UpdateTaskData, NotificationNavigationAction } from '../shared/types';
 import { migrateWorkspaceFiles } from './migrateWorkspaceFiles';
+import { ensureToolDataLayout } from './toolDataMigration';
 import { BackgroundBuilder } from './backgroundBuilder';
 import { getEnvironmentInfo, getInstallSteps } from './environmentGenerator';
 import { packageInstaller, installStepsToRequests, type Registry, type PackageState } from './packageInstaller';
@@ -300,11 +307,17 @@ let activeApiBaseUrl: string = (() => {
   return BASE_URL;
 })();
 
+// The one user-facing "you have no key" sentence. Acabox has no login, so the
+// only correct instruction is Settings — never the bundled Claude Code binary's
+// own "Please run /login". Keep it free of "401"/"token"/"unauthorized" so
+// agentSession's isAuthError() can't misread it as a retryable auth failure.
+const NO_API_KEY_MESSAGE = 'No Anthropic API key configured. Add one in Settings.';
+
 async function refreshCredentialsForSession(): Promise<{ apiKey: string; baseURL?: string }> {
   // Re-read the user's key (env → settings) so a key updated in Settings
   // mid-session is picked up. No academia gateway anymore.
   const { apiKey, baseURL } = loadCredentialsIntoStore();
-  if (!apiKey) throw new Error('No Anthropic API key configured. Add one in Settings.');
+  if (!apiKey) throw new Error(NO_API_KEY_MESSAGE);
   return { apiKey, baseURL };
 }
 
@@ -570,13 +583,22 @@ app.whenReady().then(async () => {
     log.info('[APP] Database initialized.');
 
     log.info('[APP] Loading active workspace...');
-    const activeWorkspace = workspaceController.loadActiveWorkspace();
+    let activeWorkspace = workspaceController.loadActiveWorkspace();
+    if (!activeWorkspace) {
+      // No onboarding flow: the app always boots straight into the shell, so
+      // a workspace must exist. Create a blank one (no shared directories) —
+      // the user adds folders and an API key from Settings.
+      log.info('[APP] No active workspace — creating a blank one.');
+      activeWorkspace = await workspaceController.create([], bootCreds.apiKey ?? '');
+    }
     log.info('[APP] Active workspace:', activeWorkspace ? activeWorkspace.name : 'none');
 
+    migrateWorkspaceFiles(workspaceController.workspacePath);
+    ensureToolDataLayout(workspaceController.workspacePath);
     if (activeWorkspace) {
-      migrateWorkspaceFiles(workspaceController.workspacePath);
-      provisionWorkspace(workspaceController.workspacePath);
+      await backfillAllAppChatLinks(activeWorkspace.id, workspaceController.workspacePath);
     }
+    provisionWorkspace(workspaceController.workspacePath);
 
     createMainWindow();
 
@@ -685,42 +707,6 @@ app.on('activate', () => {
   if (!mainWindow) {
     createMainWindow();
   }
-});
-
-ipcMain.handle(
-  'workspaces:create',
-  async (_event, data: { name: string; directoryPaths: string[] }) => {
-    let apiKey = getCredentials().apiKey ?? '';
-    if (!apiKey) {
-      apiKey = loadCredentialsIntoStore().apiKey ?? '';
-    }
-    const activeWorkspace = await workspaceController.create(data.directoryPaths, apiKey);
-    if (activeWorkspace) {
-      if (getReactionsEnabled()) {
-        ensureReactionsTask(activeWorkspace.id);
-      }
-      const scheduler = getTaskScheduler();
-      scheduler?.stop();
-      scheduler?.start();
-      // Directory scan is triggered separately via scanner:start IPC
-    }
-    if (!activeWorkspace) return null;
-    return {
-      ...activeWorkspace,
-      directory_path: workspaceController.workspacePath,
-      user_directory_paths: workspaceController.userDirectoryPaths,
-    };
-  },
-);
-
-ipcMain.handle('debug:restartOnboarding', async () => {
-  backgroundBuilder.dispose();
-  ensuredApps.clear();
-  packageInstaller.reset();
-  await agentInfrastructure.stop();
-  containerService.stop();
-  getTaskScheduler()?.stop();
-  workspaceController.deactivateAll();
 });
 
 ipcMain.handle('workspaces:listDirectories', () => {
@@ -1121,51 +1107,137 @@ ipcMain.handle('sessions:delete', (_event, id: string) => {
 });
 ipcMain.handle('messages:list', (_event, sessionId: string) => getMessages(sessionId));
 
-// Find or create a session associated with a mini app
+/** Rejects path traversal and dotfiles in an agent/renderer-supplied app dir name. */
+function isValidAppDirName(dirName: string): boolean {
+  return Boolean(dirName) && !dirName.includes('/') && !dirName.includes('\\') && !dirName.startsWith('.');
+}
+
+/**
+ * Ensures every chat we already know about for `dirName` carries the
+ * `sessions.app_dir_name` link, which is the source of truth for the per-tool
+ * chat list. Two legacy sources are backfilled: the tool's
+ * `manifest.chatSessionId` (the creating chat) and the message-scanning
+ * `findSessionForApp` fallback. Idempotent — `setSessionAppDirName` only fills
+ * a NULL, so a chat is never re-homed to a different tool.
+ *
+ * Returns the manifest's creating-chat id when it points at a real session.
+ */
+function backfillAppChatLinks(
+  workspaceId: string,
+  dirName: string,
+  manifest: Record<string, unknown> | null,
+): string | null {
+  const manifestSessionId = typeof manifest?.chatSessionId === 'string' ? manifest.chatSessionId : null;
+  const creatingId = manifestSessionId && getSession(manifestSessionId) ? manifestSessionId : null;
+  if (creatingId) setSessionAppDirName(creatingId, dirName);
+
+  // Only worth scanning messages when nothing is linked yet — this is the
+  // pre-manifest path and it is the expensive one.
+  if (!creatingId && listSessionsForApp(workspaceId, dirName).length === 0) {
+    const legacyId = findSessionForApp(workspaceId, dirName);
+    if (legacyId) setSessionAppDirName(legacyId, dirName);
+  }
+  return creatingId;
+}
+
+/**
+ * Boot sweep that links every tool's existing chat to it via
+ * `sessions.app_dir_name`. Without this the link is only established the first
+ * time a tool is opened, so a pre-existing chat opened from the Chats list
+ * wouldn't know which tool it belongs to (no "Open tool" button, no chip).
+ * Idempotent and bounded by the number of installed tools.
+ */
+async function backfillAllAppChatLinks(workspaceId: string, workspacePath: string): Promise<void> {
+  const appsDir = path.join(workspacePath, '.applications');
+  let entries: string[];
+  try {
+    entries = (await fsPromises.readdir(appsDir, { withFileTypes: true }))
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+      .map((e) => e.name);
+  } catch {
+    return; // No .applications yet — nothing to link.
+  }
+
+  let linked = 0;
+  for (const dirName of entries) {
+    try {
+      const manifest = await readManifest(path.join(appsDir, dirName, 'manifest.json'));
+      const before = listSessionsForApp(workspaceId, dirName).length;
+      backfillAppChatLinks(workspaceId, dirName, manifest);
+      linked += listSessionsForApp(workspaceId, dirName).length - before;
+    } catch (err) {
+      log.warn(`[AppChatLinks] Backfill failed for ${dirName}:`, err);
+    }
+  }
+  if (linked > 0) log.info(`[AppChatLinks] Linked ${linked} existing chat(s) to their tool`);
+}
+
+// Resolve which of a mini app's chats to open: the most recently active one,
+// creating a first chat if the tool has none.
 ipcMain.handle('sessions:findForApp', async (_event, dirName: string) => {
   const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return null;
-  if (!dirName || dirName.includes('/') || dirName.includes('\\') || dirName.startsWith('.')) {
-    return null;
-  }
+  if (!isValidAppDirName(dirName)) return null;
 
   const manifestPath = path.join(workspaceController.workspacePath!, '.applications', dirName, 'manifest.json');
 
-  let manifest: Record<string, unknown> | null = null;
-  try {
-    const raw = await fsPromises.readFile(manifestPath, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object') manifest = parsed as Record<string, unknown>;
-  } catch {
-    // Missing or unreadable manifest — fall through to legacy search/create.
-  }
+  // Missing or unreadable manifest — fall through to legacy search/create.
+  const manifest = await readManifest(manifestPath);
+  backfillAppChatLinks(activeWorkspace.id, dirName, manifest);
 
-  // Prefer the chatSessionId stored in the manifest when it points to a real session.
-  const manifestSessionId = typeof manifest?.chatSessionId === 'string' ? manifest.chatSessionId : null;
-  if (manifestSessionId && getSession(manifestSessionId)) {
-    return manifestSessionId;
-  }
+  // Most recently active chat for this tool (ordered by last message).
+  const linked = listSessionsForApp(activeWorkspace.id, dirName);
+  if (linked.length > 0) return linked[0].id;
 
-  // Fall back to the legacy search (assistant tool call or synthetic user message).
-  const existingId = findSessionForApp(activeWorkspace.id, dirName);
-  if (existingId) return existingId;
-
-  // No existing session — create one and link it via the manifest.
+  // Tool has no chats yet — create its first one and record it in the manifest
+  // as the creating chat (still used for the chat → tool reverse lookup).
   const sessionId = randomUUID();
   const manifestName = typeof manifest?.name === 'string' && manifest.name.trim() ? manifest.name.trim() : null;
   const title = manifestName ?? dirName.replace(/[-_]/g, ' ');
-  createSession(sessionId, activeWorkspace.id);
+  createSession(sessionId, activeWorkspace.id, null, null, dirName);
   updateSessionTitle(sessionId, title);
 
   if (manifest) {
-    manifest.chatSessionId = sessionId;
     try {
-      await fsPromises.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+      await updateManifest(manifestPath, (m) => {
+        m.chatSessionId = sessionId;
+        return m;
+      });
     } catch (err) {
       log.warn('[sessions:findForApp] Failed to write chatSessionId to manifest:', err);
     }
   }
 
+  notifySessionsChanged();
+  return sessionId;
+});
+
+// Every chat belonging to a mini app, most recently active first.
+ipcMain.handle('sessions:listForApp', async (_event, dirName: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
+  if (!activeWorkspace) return [];
+  if (!isValidAppDirName(dirName)) return [];
+
+  const manifestPath = path.join(workspaceController.workspacePath!, '.applications', dirName, 'manifest.json');
+  backfillAppChatLinks(activeWorkspace.id, dirName, await readManifest(manifestPath));
+
+  return listSessionsForApp(activeWorkspace.id, dirName);
+});
+
+// Start an additional chat for a mini app. An existing chat that has never run
+// a turn is reused instead of stacking up empty rows when "New chat" is
+// clicked repeatedly.
+ipcMain.handle('sessions:createForApp', (_event, dirName: string) => {
+  const activeWorkspace = workspaceController.activeWorkspace;
+  if (!activeWorkspace) return null;
+  if (!isValidAppDirName(dirName)) return null;
+
+  const existing = listSessionsForApp(activeWorkspace.id, dirName);
+  const blank = existing.find((s) => s.last_message_at === null);
+  if (blank) return blank.id;
+
+  const sessionId = randomUUID();
+  createSession(sessionId, activeWorkspace.id, null, null, dirName);
   notifySessionsChanged();
   return sessionId;
 });
@@ -1234,49 +1306,52 @@ ipcMain.handle('tool:opened', async (_event, dirName: string) => {
 
   const manifestPath = path.join(workspaceController.workspacePath, '.applications', dirName, 'manifest.json');
 
+  // The whole mint-and-merge cycle runs inside updateManifest so a concurrent
+  // manifest writer (miniApps:touch, sessions:findForApp — both fire around
+  // the same open) can't interleave. A missing manifest reaches the mutator
+  // as {} — a fresh tool, mint everything.
+  let tool_id = '';
+  let creationPending = false;
+  let createdAtMs = 0;
+  let openCountSoFar = 0;
+  let chatSessionId: string | null = null;
   let manifest: Record<string, unknown> = {};
-  try {
-    const raw = await fsPromises.readFile(manifestPath, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object') manifest = parsed as Record<string, unknown>;
-  } catch {
-    // Missing or unreadable — treat as a fresh tool and mint everything.
-  }
-
-  const existingToolId = typeof manifest.tool_id === 'string' ? manifest.tool_id : null;
-  const tool_id = existingToolId ?? randomUUID();
-  if (!existingToolId) manifest.tool_id = tool_id;
-
-  // Strip creation_pending synchronously so a race-y second open can't double-fire.
-  const creationPending = manifest.creation_pending === true;
-  if (creationPending) delete manifest.creation_pending;
-
-  const existingCreatedAt = typeof manifest.created_at === 'string' ? manifest.created_at : null;
-  const createdAtMs = existingCreatedAt ? new Date(existingCreatedAt).getTime() : Date.now();
-  if (!existingCreatedAt) manifest.created_at = new Date(createdAtMs).toISOString();
-
-  const priorOpenCount = typeof manifest.open_count === 'number' ? manifest.open_count : 0;
-  const openCountSoFar = priorOpenCount + 1;
-  manifest.open_count = openCountSoFar;
-
-  // Resolve chatSessionId for attribution lookup. Prefer manifest, fall back
-  // to findSessionForApp (matches assistant open_mini_application messages or
-  // synthetic user "connected to the application" markers). Persist the
-  // resolved id back to the manifest so future opens skip the search.
-  let chatSessionId = typeof manifest.chatSessionId === 'string' ? manifest.chatSessionId : null;
-  if (!chatSessionId) {
-    const found = findSessionForApp(activeWorkspace.id, dirName);
-    if (found) {
-      chatSessionId = found;
-      manifest.chatSessionId = found;
-    }
-  }
 
   // If the write fails, mint/flag/counter mutations don't persist; emitting
   // analytics anyway would mean the next open re-fires tool.created with a
   // fresh UUID, duplicating the event.
   try {
-    await fsPromises.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    manifest = await updateManifest(manifestPath, (m) => {
+      const existingToolId = typeof m.tool_id === 'string' ? m.tool_id : null;
+      tool_id = existingToolId ?? randomUUID();
+      if (!existingToolId) m.tool_id = tool_id;
+
+      // Strip creation_pending synchronously so a race-y second open can't double-fire.
+      creationPending = m.creation_pending === true;
+      if (creationPending) delete m.creation_pending;
+
+      const existingCreatedAt = typeof m.created_at === 'string' ? m.created_at : null;
+      createdAtMs = existingCreatedAt ? new Date(existingCreatedAt).getTime() : Date.now();
+      if (!existingCreatedAt) m.created_at = new Date(createdAtMs).toISOString();
+
+      const priorOpenCount = typeof m.open_count === 'number' ? m.open_count : 0;
+      openCountSoFar = priorOpenCount + 1;
+      m.open_count = openCountSoFar;
+
+      // Resolve chatSessionId for attribution lookup. Prefer manifest, fall
+      // back to findSessionForApp (matches assistant open_mini_application
+      // messages or synthetic user "connected to the application" markers).
+      // Persist the resolved id back so future opens skip the search.
+      chatSessionId = typeof m.chatSessionId === 'string' ? m.chatSessionId : null;
+      if (!chatSessionId) {
+        const found = findSessionForApp(activeWorkspace.id, dirName);
+        if (found) {
+          chatSessionId = found;
+          m.chatSessionId = found;
+        }
+      }
+      return m;
+    });
   } catch (err) {
     log.warn('[tool:opened] Failed to write manifest, suppressing analytics:', err);
     return null;
@@ -1352,13 +1427,33 @@ async function generateSessionTitle(sessionId: string, firstMessage: string): Pr
   }
 }
 
-ipcMain.handle('chat:send', (event, { threadId, text, attachments, model, documentPath, messageId }: { threadId: string; text: string; attachments?: IPCAttachment[]; model?: string; documentPath?: string; messageId?: string }) => {
+ipcMain.handle('chat:send', (event, { threadId, text, attachments, model, documentPath, messageId, effort }: { threadId: string; text: string; attachments?: IPCAttachment[]; model?: string; documentPath?: string; messageId?: string; effort?: string }) => {
   const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) {
     throw new Error('No active workspace');
   }
 
   log.info(`[chat:send] messageId=${messageId ?? '(none)'} threadId=${threadId} textLen=${text.length}`);
+
+  // No key → refuse the turn rather than run it. Without this the agent server
+  // is handed anthropicApiKey:'' and the bundled Claude Code binary answers
+  // "Not logged in · Please run /login" — nonsense in a build that has no login.
+  //
+  // Store first (it stays populated even if the settings file was wiped from
+  // the Debug tab), then a fresh env → settings resolve so a key added
+  // out-of-band still counts. Same two-step as the reference-file converter.
+  //
+  // Reported over 'chat:error' rather than thrown: Electron wraps a rejected
+  // invoke as "Error invoking remote method 'chat:send': …" and preload
+  // forwards that message verbatim, which would put IPC plumbing in front of
+  // the user's instructions.
+  let { apiKey: chatApiKey } = getCredentials();
+  if (!chatApiKey) ({ apiKey: chatApiKey } = loadCredentialsIntoStore());
+  if (!chatApiKey) {
+    log.warn(`[chat:send] Refusing turn for ${threadId} — no Anthropic API key configured`);
+    event.sender.send('chat:error', threadId, NO_API_KEY_MESSAGE);
+    return { messageId };
+  }
 
   // Dedup: if this messageId has already been persisted for this session, the
   // renderer is re-firing a send that already landed (typical cause: reload
@@ -1387,7 +1482,23 @@ ipcMain.handle('chat:send', (event, { threadId, text, attachments, model, docume
 
   if (!hasSession(threadId)) {
     const existingDbSession = getSession(threadId);
-    isFirstMessage = !existingDbSession;
+    // "First message" is about the conversation, not the row: app chats are
+    // pre-created (sessions:findForApp / :createForApp) so a row already
+    // exists before the user has said anything. Title generation is also
+    // skipped for a row that already carries a real title — that's the
+    // tool-named first chat of a mini app, which keeps its name.
+    isFirstMessage =
+      countMessages(threadId) === 0 &&
+      (!existingDbSession || existingDbSession.title === DEFAULT_SESSION_TITLE);
+
+    // Model and effort are pinned to the conversation on its first turn. Once
+    // recorded they win over whatever the composer's picker currently says —
+    // without this, leaving the chat evicts the in-memory session and the next
+    // turn silently adopts a different model than the one the chat displays.
+    const pinnedModel = existingDbSession?.model ?? undefined;
+    const pinnedEffort = existingDbSession?.effort ?? undefined;
+    const effectiveModel = pinnedModel ?? model;
+    const effectiveEffort = pinnedEffort ?? effort;
 
     if (isCalendarSession) {
       const { apiKey: calApiKey, baseURL: calBaseURL } = getCredentials();
@@ -1427,15 +1538,22 @@ ipcMain.handle('chat:send', (event, { threadId, text, attachments, model, docume
         existingDbSession?.sdk_session_id ?? undefined,
         undefined,
         handleNotificationNavigation,
-        model,
+        effectiveModel,
         undefined,
         documentPath,
         refreshAndPushCredentials,
+        effectiveEffort,
       );
 
       // Default 'ui': subscriber tracking via ensureForwarding handles
       // destroy when every surface detaches.
       registerSession(threadId, session);
+
+      // createAgentSession has now inserted the row, so the pin can be
+      // recorded. Write-once: only the first turn's effort sticks. The model
+      // is pinned separately from the SDK's init event (the id it actually
+      // resolved), which may differ from what we asked for.
+      setSessionModelInfo(threadId, { effort: effectiveEffort });
     }
   }
 
@@ -1516,6 +1634,7 @@ const ANTHROPIC_ALLOWED_MODELS = new Set([
   'claude-opus-4-6',
   'claude-opus-4-7',
   'claude-opus-4-8',
+  'claude-opus-5',
   'claude-fable-5',
 ]);
 
@@ -1700,7 +1819,7 @@ async function validateAnthropicParams(params: unknown, allowedDirs: string[]): 
 ipcMain.handle('anthropic:complete', async (_event, params: unknown) => {
   const activeWorkspace = workspaceController.activeWorkspace;
   const { apiKey: completeApiKey, baseURL: completeBaseURL } = getCredentials();
-  if (!completeApiKey) throw new Error('No Anthropic API key configured. Add one in Settings.');
+  if (!completeApiKey) throw new Error(NO_API_KEY_MESSAGE);
   if (!activeWorkspace) throw new Error('No active workspace');
   const validated = await validateAnthropicParams(params, workspaceController.allAllowedPaths);
   log.info('[anthropic:complete] workspace=%s model=%s max_tokens=%d messages=%d',
@@ -1730,7 +1849,7 @@ ipcMain.on('anthropic:stream', async (event, { streamKey, params }: { streamKey:
   }
   const { apiKey: streamApiKey, baseURL: streamBaseURL } = getCredentials();
   if (!streamApiKey) {
-    event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: 'No Anthropic API key configured. Add one in Settings.' });
+    event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: NO_API_KEY_MESSAGE });
     return;
   }
   const activeWorkspace = workspaceController.activeWorkspace;

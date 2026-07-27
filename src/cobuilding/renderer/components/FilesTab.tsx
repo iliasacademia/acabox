@@ -25,9 +25,19 @@ function fileTreeRowPaddingLeft(depth: number): number {
   return FILE_TREE_INDENT_BASE + depth * FILE_TREE_INDENT_STEP;
 }
 
-/** Hide Office lock files (`~$Manuscript.docx`) created while a doc is open in Word. */
+/**
+ * Entries hidden from the file tree so it reflects only user-facing content —
+ * matching what the rest of the app treats as "files":
+ *  - Office lock files (`~$Manuscript.docx`) created while a doc is open in Word.
+ *  - Dotfiles / dot-dirs. At the workspace root these are Acabox's internal
+ *    folders (`.applications`, `.claude`, `.academia`); inside research folders
+ *    they're incidental (`.git`, `.DS_Store`, …). The Home "Drive" card
+ *    (`files:findByExtension`) already skips all dotfiles at every level, so
+ *    hiding them here keeps the Files tab and the Home card consistent — the
+ *    tree no longer looks populated by system files while Home shows "none".
+ */
 function isHiddenWorkspaceEntry(name: string): boolean {
-  return name.startsWith('~$');
+  return name.startsWith('~$') || name.startsWith('.');
 }
 
 interface TreeNode {

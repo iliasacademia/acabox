@@ -24,7 +24,9 @@ The wrapper does two things atomically: (1) installs the package live, and (2) r
 
 **Never run `pip install`, `npm install`, `apt-get install`, `Rscript -e 'install.packages(...)'`, or `conda install` directly.** All of these invocations are blocked by a PreToolUse hook. Running an install directly does the live install but silently fails to update the dependency file, so the package is lost on the next container rebuild or when the app is shared.
 
-**Downloading data files into the app folder does NOT require the wrapper.** Use `curl` or `wget` to write directly into `.applications/<app_dir_name>/` — those are app-local files (model weights, datasets, fixtures), not global installs.
+**Downloading data files does NOT require the wrapper.** Use `curl` or `wget` to write them directly — these are app-local files (model weights, datasets, fixtures), not global installs.
+
+**Put working files in the durable data dirs, not loose in the app folder.** Each app has `.applications/<app_dir_name>/input/` and `.../output/`, which are symlinks into `tool-data/<app_dir_name>/`. Anything the user should keep — downloaded datasets, model weights, generated results — belongs under `input/` (fetched/reference data) or `output/` (results). Files written loosely into `.applications/<app_dir_name>/` are treated as code and are **deleted when the tool is deleted**; files under `input/`/`output/` survive.
 
 See the **manage-mini-application** skill (`.claude/skills/manage-mini-application/SKILL.md`) for the full per-registry reference.
 

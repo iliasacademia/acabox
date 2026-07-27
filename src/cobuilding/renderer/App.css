@@ -583,8 +583,14 @@ body.cobuild-resizing webview {
   margin-left: 12px;
 }
 
+.chatListItemTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 .chatListItemTitle {
-  flex: 1;
+  flex: 0 1 auto;
   font-family: 'DM Sans', sans-serif;
   font-weight: 600;
   font-size: 14px;
@@ -593,6 +599,25 @@ body.cobuild-resizing webview {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+/* Marks a chat as belonging to a mini app, so tool chats are distinguishable
+   from general ones in the shared list. */
+.chatListItemToolChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  max-width: 160px;
+  padding: 1px 7px;
+  border: 1px solid var(--cd-border);
+  border-radius: 999px;
+  background: var(--cd-pale);
+  font-family: var(--cd-mono);
+  font-size: 10px;
+  color: var(--cd-text2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chatListItemDate {
@@ -1339,6 +1364,83 @@ body.cobuild-resizing webview {
   font-size: 11px;
   color: #888;
 }
+
+/* Model + effort picker (Command Desk nested dropdown, mirrors Claude Desktop) */
+.modelSelectorTriggerModel { white-space: nowrap; }
+.modelSelectorTriggerEffort { opacity: 0.6; }
+/* Material Symbols are lowercase ligatures — the composer trigger uppercases
+   its text, which would break the glyph. Force the icon back to lowercase. */
+.modelSelectorTrigger .msi { text-transform: none; letter-spacing: normal; }
+
+.modelMenuContent {
+  min-width: 232px;
+  background: #fff;
+  border: 1px solid var(--cd-border);
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.16);
+  font-family: var(--cd-sans);
+  text-transform: none;
+  letter-spacing: normal;
+  z-index: 1000;
+}
+.modelMenuWide { min-width: 300px; max-width: 340px; }
+
+.modelMenuCurrent {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px 10px;
+}
+.modelMenuCurrentText { display: flex; flex-direction: column; gap: 2px; }
+.modelMenuCurrentLabel { font-size: 15px; color: var(--cd-ink); }
+.modelMenuCheck { color: var(--cd-blue); flex-shrink: 0; margin-top: 2px; }
+
+.modelMenuSep { height: 1px; background: var(--cd-border-soft); margin: 2px 4px 4px; }
+
+.modelMenuItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--cd-ink);
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+}
+.modelMenuItem[data-highlighted],
+.modelMenuItem[data-state="open"] { background: var(--cd-pale); }
+
+.modelMenuItemLabel { display: inline-flex; align-items: center; gap: 8px; }
+.modelMenuItemRight { display: inline-flex; align-items: center; gap: 4px; color: var(--cd-text3); }
+.modelMenuValue { font-size: 13px; color: var(--cd-text2); }
+
+.modelMenuBlurb {
+  padding: 8px 10px 10px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--cd-text2);
+}
+
+.modelMenuBadge {
+  font-size: 11px;
+  color: var(--cd-text2);
+  background: var(--cd-pale);
+  border: 1px solid var(--cd-border-soft);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+.modelMenuInfo { display: inline-flex; color: var(--cd-text3); }
+.modelMenuIndicator { color: var(--cd-blue); display: inline-flex; flex-shrink: 0; }
+
+.modelMenuRadio { padding-right: 8px; }
+.modelMenuModelItem { align-items: flex-start; }
+.modelMenuModelText { display: flex; flex-direction: column; gap: 2px; }
+.modelMenuItemDesc { font-size: 12px; color: var(--cd-text2); }
 
 .composerAttachmentItem {
   display: inline-flex;
@@ -3589,6 +3691,13 @@ body.cobuild-resizing webview {
   color: #91919e;
 }
 
+.toolsSection__note {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8125rem;
+  color: #535366;
+  margin: -4px 0 10px;
+}
+
 /* Tool row */
 
 .toolRow {
@@ -3798,6 +3907,23 @@ body.cobuild-resizing webview {
   background: #ffffff;
 }
 
+.toolRow__settingsActions {
+  display: flex;
+  gap: 8px;
+}
+
+.toolRow--archived .toolRow__icon,
+.toolRow--archived .toolRow__info {
+  opacity: 0.55;
+}
+
+.toolRow__name--static {
+  cursor: default;
+}
+.toolRow__name--static:hover {
+  text-decoration: none;
+}
+
 .toolRow__deleteBtn {
   font-family: 'DM Sans', sans-serif;
   font-size: 0.8125rem;
@@ -3991,6 +4117,81 @@ body.cobuild-resizing webview {
 .createToolModal__createBtn:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* Saved-data browse list */
+
+.savedFilesList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.savedFilesList__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.75rem;
+  color: #141413;
+  text-align: left;
+  transition: background-color 0.12s ease-out;
+}
+
+.savedFilesList__row:hover {
+  background: #f4f7fc;
+  color: #0645b1;
+}
+
+.savedFilesList__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Saved-data file viewer modal */
+
+.savedFileViewer {
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  width: 860px;
+  max-width: 94vw;
+  height: 80vh;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.savedFileViewer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid #f4f7fc;
+  flex-shrink: 0;
+}
+
+.savedFileViewer__title {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.8125rem;
+  color: #141413;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.savedFileViewer__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 /* File picker modal */

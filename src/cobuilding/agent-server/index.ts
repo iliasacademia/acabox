@@ -370,6 +370,20 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
   const sessionConfig = mergeSessionConfig(config, overrides);
 
   async function startQuery(resume?: string): Promise<void> {
+    // Defence in depth behind the host's chat:send guard. The key is snapshotted
+    // into sessionConfig at createSession() time and POST /credentials only
+    // updates currentConfig, so a session born before the key landed stays
+    // keyless. Handing '' to the SDK blanks any inherited ANTHROPIC_API_KEY
+    // (see the env spread below) and the CLI replies "Not logged in · Please
+    // run /login". Refuse instead — the throw is caught by the caller and
+    // broadcast as an 'error' SSE, which the host forwards to chat:error.
+    // Wording must stay 401/token-free so isAuthError() doesn't swallow it as a
+    // retryable auth failure. Keep in sync with NO_API_KEY_MESSAGE in
+    // main/index.ts (separate bundle — no shared import).
+    if (!sessionConfig.anthropicApiKey?.trim()) {
+      throw new Error('No Anthropic API key configured. Add one in Settings.');
+    }
+
     state.running = true;
     console.log(`[AgentServer] Starting query() with model=${sessionConfig.model}${resume ? `, resuming ${resume}` : ''}`);
 
@@ -393,6 +407,9 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
         },
         model: sessionConfig.model,
         thinking: { type: 'adaptive' },
+        // Thinking level from the chat UI. Guides how much the model reasons
+        // alongside adaptive thinking. Omitted → SDK/model default.
+        ...(sessionConfig.effort ? { effort: sessionConfig.effort as any } : {}),
         systemPrompt: buildSystemPrompt(sessionConfig) as any,
         ...(resume && { resume }),
         includePartialMessages: true,
@@ -627,6 +644,8 @@ function startServer(initialConfig: AgentConfig): void {
           soulMd: body.soulMd,
           hostGuidance: body.hostGuidance,
           workspaceDirectoriesGuidance: body.workspaceDirectoriesGuidance,
+          model: body.model,
+          effort: body.effort,
         };
         createSession(sessionId, currentConfig, resumeSessionId, sessionOverrides);
         sendJSON(res, 201, { sessionId });

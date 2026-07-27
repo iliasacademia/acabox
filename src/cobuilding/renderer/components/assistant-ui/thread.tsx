@@ -122,8 +122,8 @@ const ThreadEmpty: FC<{ variant: 'full' | 'panel' }> = ({ variant }) => {
     return (
       <div className="cdChatEmpty">
         <span className="cdChatEmpty__title">{setup.message || 'Setting up environment…'}</span>
-        <div className="cdOnb__progressBar" style={{ width: 260, alignSelf: 'center' }}>
-          <div className="cdOnb__progressFill" style={{ width: `${setup.percent}%` }} />
+        <div className="cdProgressBar" style={{ width: 260, alignSelf: 'center' }}>
+          <div className="cdProgressBar__fill" style={{ width: `${setup.percent}%` }} />
         </div>
         <span className="cdChatEmpty__sub">This may take a few minutes on first launch.</span>
       </div>

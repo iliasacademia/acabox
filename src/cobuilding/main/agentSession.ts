@@ -1,7 +1,7 @@
 
 import { type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatStreamMessage, IPCAttachment, Workspace, NotificationNavigationAction } from '../shared/types';
-import { createSession, setSdkSessionId, insertMessage, cleanupOrphanTurnRows, getSession } from './db/chatRepository';
+import { createSession, setSdkSessionId, setSessionModelInfo, insertMessage, cleanupOrphanTurnRows, getSession } from './db/chatRepository';
 import { listWorkspaceDirectories } from './db/workspaceRepository';
 import * as fs from 'fs';
 import path from 'path';
@@ -97,6 +97,7 @@ export function createAgentSession(
   messagePreprocessor?: (text: string) => string,
   documentPath?: string,
   refreshAndPushCredentials?: () => Promise<boolean>,
+  effort?: string,
 ): AgentSession {
   const listeners = new Set<Partial<ChatCallbacks>>();
   let running = true;
@@ -290,6 +291,7 @@ export function createAgentSession(
           sessionId,
           resumeSessionId: resumeId,
           model: model || undefined,
+          effort: effort || undefined,
           soulMd: soulMdContent,
           hostGuidance,
           workspaceDirectoriesGuidance,
@@ -299,7 +301,13 @@ export function createAgentSession(
         const createRes = await httpPost(`${agentBaseUrl}/sessions`, createBody);
         const createData = JSON.parse(createRes);
         agentSessionId = createData.sessionId;
-        log.debug(`[AgentSession] Session created: ${agentSessionId}${resumeId ? ` (resumed from ${resumeId})` : ''}`);
+        // Model/effort are logged because they are pinned per conversation and
+        // reused across restarts — this line is how you confirm which one a
+        // given turn actually ran on.
+        log.info(
+          `[AgentSession] Session created: ${agentSessionId} model=${model ?? '(default)'} ` +
+          `effort=${effort ?? '(default)'}${resumeId ? ` (resumed from ${resumeId})` : ''}`,
+        );
 
         // Reset the SSE cursor on (re)start. The agent-server's eventSeq
         // restarts from 0 for a fresh session, so a stale Last-Event-Id
@@ -683,6 +691,13 @@ async function connectSSE(
 
               if (message.type === 'system') {
                 setSdkSessionId(sessionId, (message as any).session_id);
+                // The init event carries the model the SDK actually resolved —
+                // ground truth, as opposed to what we asked for. Pinned on the
+                // first turn (write-once) and reused for every later turn.
+                const resolvedModel = (message as any).model;
+                if ((message as any).subtype === 'init' && typeof resolvedModel === 'string' && resolvedModel) {
+                  setSessionModelInfo(sessionId, { model: resolvedModel });
+                }
               }
               if (message.type === 'assistant' && (message as any).message?.content) {
                 insertMessage(sessionId, 'assistant', JSON.stringify((message as any).message.content), turnState.currentMessageId ?? undefined);

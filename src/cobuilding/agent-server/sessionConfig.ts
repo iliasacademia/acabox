@@ -5,6 +5,8 @@ export interface AgentConfig {
   anthropicApiKey: string;
   anthropicBaseURL?: string;
   model: string;
+  /** Reasoning-effort level (SDK `query()` option): low|medium|high|xhigh|max. */
+  effort?: string;
   systemPrompt: unknown;
   allowedTools: string[];
   settingSources: string[];
@@ -18,6 +20,10 @@ export interface SessionOverrides {
   soulMd?: string;
   hostGuidance?: string;
   workspaceDirectoriesGuidance?: string;
+  /** Per-session model chosen in the chat UI (else the config default). */
+  model?: string;
+  /** Per-session reasoning-effort level chosen in the chat UI. */
+  effort?: string;
 }
 
 export function filterMcpServers(
@@ -39,6 +45,8 @@ export function mergeSessionConfig(config: AgentConfig, overrides?: SessionOverr
   return {
     ...config,
     allowedTools: sessionAllowedTools,
+    model: overrides?.model ?? config.model,
+    effort: overrides?.effort ?? config.effort,
     soulMd: overrides?.soulMd ?? config.soulMd,
     docxGuidance: overrides?.hostGuidance ?? config.docxGuidance,
     workspaceDirectoriesGuidance: overrides?.workspaceDirectoriesGuidance ?? config.workspaceDirectoriesGuidance,

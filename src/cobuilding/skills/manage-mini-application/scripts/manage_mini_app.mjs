@@ -2,7 +2,7 @@
 
 import { parseArgs } from "util";
 import { join } from "path";
-import { mkdirSync, writeFileSync, readFileSync, existsSync, cpSync, readdirSync } from "fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, cpSync, readdirSync, symlinkSync } from "fs";
 import { randomUUID } from "crypto";
 
 const { values } = parseArgs({
@@ -66,8 +66,25 @@ const miniAppDir = join(workspaceDir, ".applications", dirName);
 
 mkdirSync(join(miniAppDir, "src"), { recursive: true });
 mkdirSync(join(miniAppDir, "dist"), { recursive: true });
-mkdirSync(join(miniAppDir, "output"), { recursive: true });
-mkdirSync(join(miniAppDir, "input"), { recursive: true });
+
+// Working files (inputs/outputs) live OUTSIDE the code dir, under
+// `tool-data/<dirName>/`, so deleting the tool (removing this app dir) never
+// destroys the user's data. The code dir reaches them through relative symlinks
+// (`input` -> ../../tool-data/<dirName>/input, likewise `output`), which keeps
+// every existing path convention (`.applications/<dirName>/output/...`) working
+// transparently. `mkdirSync` is a no-op if the data dir already exists, so a
+// tool recreated with a prior name re-adopts its earlier data.
+for (const sub of ["input", "output"]) {
+  mkdirSync(join(workspaceDir, "tool-data", dirName, sub), { recursive: true });
+  try {
+    symlinkSync(join("..", "..", "tool-data", dirName, sub), join(miniAppDir, sub), "dir");
+  } catch (err) {
+    // If a stale entry exists, fall back to a plain dir so writes still work.
+    if (err && err.code !== "EEXIST") {
+      mkdirSync(join(miniAppDir, sub), { recursive: true });
+    }
+  }
+}
 
 // Scaffold index.html
 const indexHtml = `<!DOCTYPE html>
@@ -159,9 +176,10 @@ const docMarkdown = [
   `This notebook backs the mini-app \`${dirName}\`.\n`,
   "\n",
   "Edit params via the app UI, or directly in the parameters cell below.\n",
-  `Input files live under \`./input/<slot>/\` (i.e. inside this directory).\n`,
-  "Paths in `params_json` are workspace-relative (`.applications/<dir>/...`),\n",
-  "which is what the cobuild kernel and React app expect.\n",
+  "Input files live under `./input/<slot>/` and outputs under `./output/`.\n",
+  "Those are symlinks into `tool-data/<dir>/`, so they survive if the tool is\n",
+  "deleted. Paths in `params_json` are workspace-relative\n",
+  "(`.applications/<dir>/...`), which is what the cobuild kernel and app expect.\n",
 ];
 const paramsSource = `params_json ${assignmentOp} '{}'`;
 const notebook = {

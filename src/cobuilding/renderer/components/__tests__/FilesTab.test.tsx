@@ -120,6 +120,27 @@ describe('FilesTab – Open in Word button', () => {
     expect(container.querySelector('[title="Open in Word"]')).not.toBeNull();
   });
 
+  it('hides internal dot-dirs (.applications/.claude/.academia) but shows real files', async () => {
+    mockReadDirectory.mockResolvedValueOnce([
+      { name: '.applications', path: '/workspace/.applications', isDirectory: true },
+      { name: '.claude', path: '/workspace/.claude', isDirectory: true },
+      { name: '.academia', path: '/workspace/.academia', isDirectory: true },
+      { name: 'Data.csv', path: '/workspace/Data.csv', isDirectory: false },
+    ]);
+    mockGetAll.mockResolvedValueOnce([]);
+
+    await act(async () => {
+      root.render(<FilesTab workspacePath="/workspace" onSelectFile={jest.fn()} />);
+    });
+    await flushPromises();
+
+    const names = Array.from(container.querySelectorAll('.fileTreeName')).map((el) => el.textContent);
+    expect(names).toContain('Data.csv');
+    expect(names).not.toContain('.applications');
+    expect(names).not.toContain('.claude');
+    expect(names).not.toContain('.academia');
+  });
+
   it('shows "Open in Word" for .docx files tagged as grant', async () => {
     mockReadDirectory.mockResolvedValueOnce([
       { name: 'Proposal.docx', path: '/workspace/Proposal.docx', isDirectory: false },

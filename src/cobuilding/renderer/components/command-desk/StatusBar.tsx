@@ -33,7 +33,7 @@ function formatUptime(sec: number): string {
  * currently-running agent sessions. Segments render only once real data is in;
  * nothing here is mocked.
  */
-export function StatusBar({ firstRun }: { firstRun?: boolean } = {}) {
+export function StatusBar() {
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [agentCount, setAgentCount] = useState<number | null>(null);
 
@@ -65,9 +65,9 @@ export function StatusBar({ firstRun }: { firstRun?: boolean } = {}) {
           )}
         </>
       )}
-      {!firstRun && agentCount != null && <span>AGENTS {agentCount} LIVE</span>}
+      {agentCount != null && <span>AGENTS {agentCount} LIVE</span>}
       <span className="cdStatusBar__spacer" />
-      {firstRun ? <span>FIRST RUN</span> : stats && <span>UP {formatUptime(stats.appUptimeSec)}</span>}
+      {stats && <span>UP {formatUptime(stats.appUptimeSec)}</span>}
     </div>
   );
 }

@@ -1061,12 +1061,39 @@
 }
 .cdSidePanel__header {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 40px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
   flex: none;
-  padding: 0 8px 0 12px;
+  padding: 6px 8px 6px 12px;
   border-bottom: 1px solid var(--cd-border);
+}
+.cdSidePanel__headerRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+/* Title doubles as the switcher trigger — flat until hovered so the header
+   still reads as a label rather than a control. */
+.cdSidePanel__titleBtn {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  margin-left: -4px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--cd-text3);
+  cursor: pointer;
+  text-align: left;
+}
+.cdSidePanel__titleBtn:hover,
+.cdSidePanel__titleBtn[data-state='open'] {
+  background: var(--cd-pale);
 }
 .cdSidePanel__title {
   flex: 1;
@@ -1078,6 +1105,76 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+.cdSidePanel__meta {
+  font-family: var(--cd-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cd-text3);
+  padding-left: 0;
+}
+
+/* Per-tool chat switcher */
+.cdChatMenu {
+  min-width: 240px;
+  max-width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid var(--cd-border);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.12);
+  z-index: 60;
+}
+.cdChatMenu__label {
+  font-family: var(--cd-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cd-text3);
+  padding: 4px 8px 6px;
+}
+.cdChatMenu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  font-family: var(--cd-sans);
+  font-size: 13px;
+  color: var(--cd-ink);
+  cursor: pointer;
+  outline: none;
+}
+.cdChatMenu__item[data-highlighted] {
+  background: var(--cd-pale);
+}
+.cdChatMenu__item--active .cdChatMenu__itemTitle {
+  font-weight: 600;
+}
+.cdChatMenu__itemTitle {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.cdChatMenu__itemTime {
+  flex: none;
+  font-family: var(--cd-mono);
+  font-size: 10px;
+  color: var(--cd-text3);
+}
+.cdChatMenu__sep {
+  height: 1px;
+  margin: 5px 0;
+  background: var(--cd-border);
+}
+.cdChatMenu__item--new {
+  color: var(--cd-blue);
+  font-weight: 500;
 }
 .cdPanelCollapsed {
   width: 44px;
@@ -1130,342 +1227,18 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   Screen 3 — Onboarding (first run; no rail)
+   Shared progress bar (chat empty-state environment setup)
    ═══════════════════════════════════════════════════════════════════ */
 
-.cdOnb {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  justify-content: center;
-  overflow-y: auto;
-  background: #ffffff;
-}
-.cdOnb__col {
-  width: 560px;
-  max-width: calc(100% - 48px);
-  display: flex;
-  flex-direction: column;
-  padding-top: 150px;
-  padding-bottom: 48px;
-  position: relative;
-}
-.cdOnb__progress {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.cdOnb__progressLabel {
-  font-family: var(--cd-mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  color: var(--cd-text3);
-}
-.cdOnb__seg {
-  width: 26px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--cd-border);
-  flex: none;
-}
-.cdOnb__seg--done { background: var(--cd-ink); }
-.cdOnb__progressSpacer { flex: 1; }
-.cdOnb__progressCount {
-  font-family: var(--cd-mono);
-  font-size: 10px;
-  color: var(--cd-text3);
-}
-.cdOnb__back { margin-left: -38px; margin-right: 0; flex: none; }
-.cdOnb__logo {
-  width: 48px;
-  height: 48px;
-  border-radius: 10px;
-  background: var(--cd-blue);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  color: #ffffff;
-  margin-top: 56px;
-}
-.cdOnb__title {
-  font-size: 22px;
-  line-height: 28px;
-  font-weight: 700;
-  color: var(--cd-ink);
-  margin-top: 56px;
-}
-.cdOnb__title--hero {
-  font-size: 30px;
-  line-height: 36px;
-  margin-top: 22px;
-}
-.cdOnb__sub {
-  font-size: 14px;
-  line-height: 21px;
-  color: var(--cd-text2);
-  margin-top: 10px;
-  max-width: 470px;
-}
-.cdOnb__sub--hero { font-size: 15px; line-height: 22px; margin-top: 12px; }
-.cdOnb__features {
-  display: flex;
-  flex-direction: column;
-  gap: 11px;
-  margin-top: 26px;
-}
-.cdOnb__feature {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 14px;
-  color: var(--cd-ink);
-}
-.cdOnb__feature .msi { color: var(--cd-text2); }
-.cdOnb__actions {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-top: 28px;
-}
-.cdOnb__actions--hero { margin-top: 32px; }
-.cdOnb__footnote {
-  font-family: var(--cd-mono);
-  font-size: 10px;
-  letter-spacing: 0.05em;
-  color: var(--cd-idle);
-  margin-top: 20px;
-  text-transform: uppercase;
-}
-.cdOnb__fieldLabel {
-  font-family: var(--cd-mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  color: var(--cd-text2);
-  margin-top: 28px;
-  text-transform: uppercase;
-}
-.cdOnb__inputWrap {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 40px;
-  padding: 0 14px;
-  border: 1px solid var(--cd-border);
-  border-radius: 4px;
-  margin-top: 8px;
-  transition: border-color 150ms ease-out;
-}
-.cdOnb__inputWrap:focus-within { border-color: var(--cd-blue); }
-.cdOnb__inputWrap--error,
-.cdOnb__inputWrap--error:focus-within { border-color: var(--cd-error); }
-.cdOnb__inputWrap .msi { color: var(--cd-text3); }
-.cdOnb__inputWrap--error .msi { color: var(--cd-error); }
-.cdOnb__input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  outline: none;
-  background: none;
-  font-family: var(--cd-mono);
-  font-size: 13px;
-  color: var(--cd-ink);
-}
-.cdOnb__input::placeholder { color: var(--cd-text3); }
-.cdOnb__errorStrip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 8px 12px;
-  background: var(--cd-error-bg);
-  border-radius: 4px;
-  font-family: var(--cd-mono);
-  font-size: 11px;
-  letter-spacing: 0.03em;
-  color: var(--cd-error);
-  text-transform: uppercase;
-}
-.cdOnb__helper {
-  font-size: 12px;
-  color: var(--cd-text2);
-  margin-top: 10px;
-}
-.cdOnb__helper a,
-.cdOnb__helper .cdTextLink { font-size: 12px; }
-
-/* Directory list (step 3) */
-.cdDirCard {
-  border: 1px solid var(--cd-border);
-  border-radius: 8px;
-  margin-top: 24px;
-  overflow: hidden;
-}
-.cdDirRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 46px;
-  padding: 0 14px;
-}
-.cdDirRow + .cdDirRow { border-top: 1px solid var(--cd-border-soft); }
-.cdDirRow .msi { color: var(--cd-text2); }
-.cdDirRow__path {
-  font-family: var(--cd-mono);
-  font-size: 13px;
-  color: var(--cd-ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-.cdDirRow__spacer { flex: 1; }
-.cdDirRow__roLabel {
-  font-family: var(--cd-mono);
-  font-size: 9px;
-  letter-spacing: 0.06em;
-  color: var(--cd-text3);
-  text-transform: uppercase;
-  flex: none;
-}
-.cdToggle {
-  position: relative;
-  width: 34px;
-  height: 18px;
-  border-radius: 9px;
-  background: var(--cd-idle);
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  flex: none;
-  transition: background 150ms ease-out;
-}
-.cdToggle--on { background: var(--cd-blue); }
-.cdToggle__knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #ffffff;
-  transition: transform 150ms ease-out;
-}
-.cdToggle--on .cdToggle__knob { transform: translateX(16px); }
-.cdAddRow {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  height: 40px;
-  width: 100%;
-  border: 1px dashed var(--cd-border);
-  border-radius: 8px;
-  margin-top: 8px;
-  background: none;
-  color: var(--cd-blue);
-  font-family: var(--cd-sans);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 150ms ease-out;
-}
-.cdAddRow:hover { background: var(--cd-pale); }
-.cdOnb__inlineNote {
-  font-family: var(--cd-mono);
-  font-size: 10px;
-  letter-spacing: 0.03em;
-  color: var(--cd-error);
-  margin-top: 8px;
-  text-transform: uppercase;
-}
-
-/* Scanning (step 4) */
-.cdScanStatus {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 32px;
-}
-.cdScanStatus__label {
-  font-family: var(--cd-mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.05em;
-  color: var(--cd-text2);
-  text-transform: uppercase;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cdScanStatus__spacer { flex: 1; }
-.cdScanStatus__count {
-  font-family: var(--cd-mono);
-  font-size: 11px;
-  color: var(--cd-text3);
-}
-.cdOnb__progressBar {
+.cdProgressBar {
   height: 4px;
   border-radius: 2px;
   background: var(--cd-border-soft);
   overflow: hidden;
   margin-top: 10px;
 }
-.cdOnb__progressFill {
+.cdProgressBar__fill {
   height: 100%;
   background: var(--cd-ink);
   transition: width 400ms ease-out;
-}
-.cdScanFile {
-  font-family: var(--cd-mono);
-  font-size: 11px;
-  color: var(--cd-text3);
-  margin-top: 10px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cdScanTally {
-  font-family: var(--cd-mono);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  color: var(--cd-text2);
-  margin-top: 22px;
-  text-transform: uppercase;
-}
-
-/* Scan review (step 5) */
-.cdOnbCards {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 24px;
-}
-.cdOnbCard {
-  border: 1px solid var(--cd-border);
-  border-radius: 8px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.cdOnbCard__label {
-  font-family: var(--cd-mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  color: var(--cd-text3);
-  text-transform: uppercase;
-}
-.cdOnbCard__count {
-  font-size: 26px;
-  line-height: 30px;
-  font-weight: 700;
-  color: var(--cd-ink);
-}
-.cdOnbCard__detail {
-  font-size: 12px;
-  color: var(--cd-text2);
 }

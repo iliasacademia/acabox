@@ -1,83 +1,44 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAssistantRuntime, useAuiState } from '@assistant-ui/react';
 import { MSymbol } from './MSymbol';
-import { getSelectedModelLabel } from '../ModelSelector';
+import { formatSessionModelMeta, useSessionMeta } from './useSessionMeta';
 import type { FC } from 'react';
 
 /**
  * Chat view header (56px, Phase B spec): back to the chat list, title,
  * mono meta, GENERATING chip while a turn runs, and per-chat actions —
- * "Open tool" (when the chat owns a mini-app), rename, delete.
+ * "Open tool" (when the chat belongs to a mini-app), rename, delete.
  */
 
-// sessionId → owning tool dirName (or null when the scan found none).
-const toolBySession = new Map<string, string | null>();
-
-/** Finds the mini-app whose manifest.chatSessionId names this session. */
-function useSessionTool(remoteId: string | undefined, workspacePath: string, rescanKey: unknown): string | null {
-  const [dirName, setDirName] = useState<string | null>(
-    remoteId ? toolBySession.get(remoteId) ?? null : null,
-  );
-
-  useEffect(() => {
-    if (!remoteId) { setDirName(null); return; }
-    const cached = toolBySession.get(remoteId);
-    if (cached) { setDirName(cached); return; }
-    let cancelled = false;
-    (async () => {
-      try {
-        const appsDir = `${workspacePath}/.applications`;
-        const entries = await window.filesAPI.readDirectory(appsDir);
-        for (const entry of entries) {
-          if (!entry.isDirectory || entry.name.startsWith('.')) continue;
-          const manifest = await window.filesAPI.readFile(`${entry.path}/manifest.json`).catch(() => null);
-          if (!manifest || 'error' in manifest || manifest.type !== 'text') continue;
-          try {
-            const parsed = JSON.parse(manifest.content);
-            if (parsed?.chatSessionId === remoteId) {
-              if (!cancelled) {
-                toolBySession.set(remoteId, entry.name);
-                setDirName(entry.name);
-              }
-              return;
-            }
-          } catch { /* unparseable manifest — skip */ }
-        }
-        if (!cancelled) setDirName(null);
-      } catch {
-        if (!cancelled) setDirName(null);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [remoteId, workspacePath, rescanKey]);
-
-  return dirName;
-}
-
 export interface ChatHeaderProps {
-  workspacePath: string;
   onBack: () => void;
   onOpenTool: (dirName: string) => void;
 }
 
-export const ChatHeader: FC<ChatHeaderProps> = ({ workspacePath, onBack, onOpenTool }) => {
+export const ChatHeader: FC<ChatHeaderProps> = ({ onBack, onOpenTool }) => {
   const runtime = useAssistantRuntime();
   const remoteId = useAuiState((s: any) => s.threadListItem?.remoteId) as string | undefined;
   const title = useAuiState((s: any) => s.threadListItem?.title) as string | undefined;
   const isRunning = useAuiState((s: any) => s.thread?.isRunning ?? false) as boolean;
   const isEmpty = useAuiState((s: any) => s.thread?.isEmpty ?? true) as boolean;
 
-  // Model label mirrors the composer's picker; updates on cd:model-changed.
-  const [modelLabel, setModelLabel] = useState(getSelectedModelLabel);
-  useEffect(() => {
-    const handler = () => setModelLabel(getSelectedModelLabel());
-    window.addEventListener('cd:model-changed', handler);
-    return () => window.removeEventListener('cd:model-changed', handler);
-  }, []);
+  // Refetched when a turn ends: the first turn is what records the model pin,
+  // and it may also be the turn whose agent created the tool this chat owns.
+  const meta = useSessionMeta(remoteId, isRunning);
+  const toolDirName = meta.appDirName;
 
-  // Rescan the manifest → session mapping when a turn ends (the agent may
-  // have just created the tool this chat owns).
-  const toolDirName = useSessionTool(remoteId, workspacePath, isRunning);
+  // An empty chat has no pin yet and falls back to the picker's selection —
+  // re-render so that fallback tracks the picker.
+  const [pickerNonce, setPickerNonce] = useState(0);
+  useEffect(() => {
+    const handler = () => setPickerNonce((n) => n + 1);
+    window.addEventListener('cd:model-changed', handler);
+    window.addEventListener('cd:effort-changed', handler);
+    return () => {
+      window.removeEventListener('cd:model-changed', handler);
+      window.removeEventListener('cd:effort-changed', handler);
+    };
+  }, []);
 
   const [renaming, setRenaming] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
@@ -109,6 +70,9 @@ export const ChatHeader: FC<ChatHeaderProps> = ({ workspacePath, onBack, onOpenT
   }, [remoteId, runtime, onBack]);
 
   const isNewChat = !title || isEmpty;
+  // pickerNonce is read so the empty-chat fallback re-evaluates on picker changes.
+  void pickerNonce;
+  const modelMeta = formatSessionModelMeta(meta, isEmpty);
 
   return (
     <div className="cdChatHeader">
@@ -133,7 +97,9 @@ export const ChatHeader: FC<ChatHeaderProps> = ({ workspacePath, onBack, onOpenT
         </span>
       )}
       <span className="cdChatHeader__meta">
-        {isNewChat ? `${modelLabel} · NAMES ITSELF AFTER THE FIRST REPLY` : modelLabel}
+        {[modelMeta, isNewChat ? 'NAMES ITSELF AFTER THE FIRST REPLY' : null]
+          .filter(Boolean)
+          .join(' · ')}
       </span>
       {isRunning && (
         <span className="cdStatusChip">

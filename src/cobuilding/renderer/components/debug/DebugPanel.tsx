@@ -46,7 +46,7 @@ export const DebugSidebar: React.FC<{
   );
 };
 
-export const DebugContent: React.FC<{ activeSection: DebugSection; onRestartOnboarding?: () => void }> = ({ activeSection, onRestartOnboarding }) => {
+export const DebugContent: React.FC<{ activeSection: DebugSection }> = ({ activeSection }) => {
   return (
     <div className="debugContent">
       {activeSection === 'apps' && <AppsDebug />}
@@ -58,7 +58,7 @@ export const DebugContent: React.FC<{ activeSection: DebugSection; onRestartOnbo
       {activeSection === 'scanned-files' && <ScannedFilesDebug />}
       {activeSection === 'telemetry' && <TelemetryDebug />}
       {activeSection === 'export' && <ExportDebug />}
-      {activeSection === 'hard-reset' && <HardResetDebug onRestartOnboarding={onRestartOnboarding} />}
+      {activeSection === 'hard-reset' && <HardResetDebug />}
     </div>
   );
 };

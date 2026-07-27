@@ -1,10 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuiState } from '@assistant-ui/react';
+import { DropdownMenu } from 'radix-ui';
 import { MSymbol } from './MSymbol';
 import { resolveToolIcon } from './toolIcon';
+import { relTimeShort } from './format';
+import { formatSessionModelMeta, useSessionMeta } from './useSessionMeta';
 import { MiniAppViewer } from '../MiniAppViewer';
 import { Thread } from '../assistant-ui/thread';
 import { useToolStatuses, type ToolRuntimeStatus } from '../../toolStatusStore';
+import { dateFromSessionStoredAt } from '../../sessionTimestamps';
 import type { TabDescriptor } from '../../tabs/types';
 import type { FC } from 'react';
 
@@ -55,6 +59,10 @@ export interface ToolWorkspaceProps {
   onCloseTab: (id: string) => void;
   onBack: () => void;
   onExpandChat: () => void;
+  /** Show an existing chat of this tool in the side panel. */
+  onSelectAppChat: (dirName: string, sessionId: string) => void;
+  /** Start (or reuse an unused) chat for this tool and show it. */
+  onNewAppChat: (dirName: string) => void;
 }
 
 export const ToolWorkspace: FC<ToolWorkspaceProps> = ({
@@ -68,6 +76,8 @@ export const ToolWorkspace: FC<ToolWorkspaceProps> = ({
   onCloseTab,
   onBack,
   onExpandChat,
+  onSelectAppChat,
+  onNewAppChat,
 }) => {
   const statuses = useToolStatuses();
   const miniappTabs = tabs.filter((t) => t.kind === 'miniapp' && t.data.kind === 'miniapp');
@@ -213,6 +223,9 @@ export const ToolWorkspace: FC<ToolWorkspaceProps> = ({
             </div>
             <div className="cdSidePanel" style={{ width: panelWidth }}>
               <SidePanelHeader
+                dirName={activeDirName}
+                onSelectChat={(sessionId) => onSelectAppChat(activeDirName, sessionId)}
+                onNewChat={() => onNewAppChat(activeDirName)}
                 onExpand={onExpandChat}
                 onCollapse={() => setPanelOpen(activeDirName, false)}
               />
@@ -250,25 +263,91 @@ export const ToolWorkspace: FC<ToolWorkspaceProps> = ({
   );
 };
 
-/** Panel header: chat title · GENERATING chip · pop-out · collapse. */
-const SidePanelHeader: FC<{ onExpand: () => void; onCollapse: () => void }> = ({ onExpand, onCollapse }) => {
+/**
+ * Panel header: two rows. Row one is the chat title as a dropdown trigger over
+ * this tool's other chats, the GENERATING chip, and new-chat / pop-out /
+ * collapse actions. Row two is the mono model · effort line for the chat the
+ * panel is showing.
+ */
+const SidePanelHeader: FC<{
+  dirName: string;
+  onSelectChat: (sessionId: string) => void;
+  onNewChat: () => void;
+  onExpand: () => void;
+  onCollapse: () => void;
+}> = ({ dirName, onSelectChat, onNewChat, onExpand, onCollapse }) => {
+  const remoteId = useAuiState((s: any) => s.threadListItem?.remoteId) as string | undefined;
   const title = useAuiState((s: any) => s.threadListItem?.title) as string | undefined;
   const isRunning = useAuiState((s: any) => s.thread?.isRunning ?? false) as boolean;
+  const isEmpty = useAuiState((s: any) => s.thread?.isEmpty ?? true) as boolean;
+  const meta = useSessionMeta(remoteId, isRunning);
+  const modelMeta = formatSessionModelMeta(meta, isEmpty);
+
+  const [chats, setChats] = useState<AppSessionData[]>([]);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // Refetched when the menu opens and when a turn ends — a turn is what
+  // generates a new chat's title and moves it to the top of the ordering.
+  useEffect(() => {
+    let cancelled = false;
+    window.sessionsAPI.listForApp(dirName)
+      .then((rows) => { if (!cancelled) setChats(rows); })
+      .catch(() => { if (!cancelled) setChats([]); });
+    return () => { cancelled = true; };
+  }, [dirName, menuOpen, isRunning]);
+
   return (
     <div className="cdSidePanel__header">
-      <span className="cdSidePanel__title">{title ?? 'Chat'}</span>
-      {isRunning && (
-        <span className="cdStatusChip">
-          <span className="cdDot cdDot--busy cdDot--pulse" />
-          GENERATING
-        </span>
-      )}
-      <button type="button" className="cdIconBtn cdIconBtn--26" title="Open as full chat" onClick={onExpand}>
-        <MSymbol name="open_in_full" size={15} />
-      </button>
-      <button type="button" className="cdIconBtn cdIconBtn--26" title="Collapse panel" onClick={onCollapse}>
-        <MSymbol name="keyboard_double_arrow_right" size={16} />
-      </button>
+      <div className="cdSidePanel__headerRow">
+        <DropdownMenu.Root open={menuOpen} onOpenChange={setMenuOpen}>
+          <DropdownMenu.Trigger asChild>
+            <button type="button" className="cdSidePanel__titleBtn" title="Switch chat">
+              <span className="cdSidePanel__title">{title || 'New chat'}</span>
+              <MSymbol name="expand_more" size={16} />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content className="cdChatMenu" align="start" sideOffset={4}>
+              <div className="cdChatMenu__label">Chats for this tool</div>
+              {chats.map((chat) => (
+                <DropdownMenu.Item
+                  key={chat.id}
+                  className={`cdChatMenu__item${chat.id === remoteId ? ' cdChatMenu__item--active' : ''}`}
+                  onSelect={() => onSelectChat(chat.id)}
+                >
+                  <span className="cdChatMenu__itemTitle">{chat.title || 'New chat'}</span>
+                  <span className="cdChatMenu__itemTime">
+                    {chat.last_message_at
+                      ? relTimeShort(dateFromSessionStoredAt(chat.last_message_at).getTime())
+                      : 'EMPTY'}
+                  </span>
+                </DropdownMenu.Item>
+              ))}
+              <DropdownMenu.Separator className="cdChatMenu__sep" />
+              <DropdownMenu.Item className="cdChatMenu__item cdChatMenu__item--new" onSelect={onNewChat}>
+                <MSymbol name="add" size={16} />
+                New chat
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+        {isRunning && (
+          <span className="cdStatusChip">
+            <span className="cdDot cdDot--busy cdDot--pulse" />
+            GENERATING
+          </span>
+        )}
+        <button type="button" className="cdIconBtn cdIconBtn--26" title="New chat for this tool" onClick={onNewChat}>
+          <MSymbol name="add" size={16} />
+        </button>
+        <button type="button" className="cdIconBtn cdIconBtn--26" title="Open as full chat" onClick={onExpand}>
+          <MSymbol name="open_in_full" size={15} />
+        </button>
+        <button type="button" className="cdIconBtn cdIconBtn--26" title="Collapse panel" onClick={onCollapse}>
+          <MSymbol name="keyboard_double_arrow_right" size={16} />
+        </button>
+      </div>
+      {modelMeta && <div className="cdSidePanel__meta">{modelMeta}</div>}
     </div>
   );
 };

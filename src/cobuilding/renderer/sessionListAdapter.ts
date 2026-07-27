@@ -1,5 +1,10 @@
 import type { RemoteThreadListAdapter } from '@assistant-ui/react';
-import { replaceSessionTimestampsFromList, setSessionCreatedAt, setSessionDocumentPath } from './sessionTimestamps';
+import {
+  replaceSessionTimestampsFromList,
+  setSessionAppDirName,
+  setSessionCreatedAt,
+  setSessionDocumentPath,
+} from './sessionTimestamps';
 
 // Tracks which session IDs are currently running (processing).
 // Updated on every list() call and on sessions:changed events.
@@ -58,6 +63,7 @@ export const sessionListAdapter: RemoteThreadListAdapter = {
     if (session) {
       setSessionCreatedAt(session.id, session.created_at);
       setSessionDocumentPath(session.id, session.document_path ?? null);
+      setSessionAppDirName(session.id, session.app_dir_name ?? null);
     }
     return {
       status: 'regular' as const,

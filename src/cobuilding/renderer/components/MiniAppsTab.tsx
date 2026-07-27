@@ -70,8 +70,10 @@ export function MiniAppsTab({
 
   const handleDeleteApp = useCallback(async (app: MiniAppsTabApp) => {
     try {
-      const appDir = `${workspacePath}/.applications/${app.dirName}`;
-      await window.filesAPI.deleteFile(appDir);
+      // Removes only the tool's code; its input/output files are preserved
+      // under tool-data and remain browsable in the Tools page "Saved data".
+      const result = await window.miniAppsAPI.delete(app.dirName);
+      if (!result.ok) throw new Error(result.error);
       setApps(prev => prev.filter(a => a.dirName !== app.dirName));
       onDeleteApp?.(app.dirName);
     } catch (err) {
@@ -79,7 +81,7 @@ export function MiniAppsTab({
     } finally {
       setPendingDelete(null);
     }
-  }, [workspacePath]);
+  }, [onDeleteApp]);
 
   const handleImportApp = useCallback(async () => {
     setImporting(true);
