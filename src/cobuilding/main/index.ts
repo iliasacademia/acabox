@@ -563,7 +563,21 @@ app.whenReady().then(async () => {
       if (!response.ok) {
         log.warn(`[local-file] Fetch failed (${response.status}): ${fileUrl}`);
       }
-      return response;
+      // Everything behind this protocol is a live file the agent or a mini-app
+      // rewrites in place: dist/bundle.js after a rebuild, output/plot.png
+      // after a re-run. Blink caches custom-scheme SUBRESOURCES in memory, so
+      // without no-store a remounted iframe re-fetches index.html (a
+      // navigation) but keeps serving the OLD bundle.js — the stale content
+      // survives webContents.reload() and even session.clearCache(), clearing
+      // only on app restart. Headers from net.fetch are immutable, so rebuild
+      // the Response.
+      const headers = new Headers(response.headers);
+      headers.set('cache-control', 'no-store');
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
     } catch (err) {
       log.error(`[local-file] Error fetching "${fileUrl}":`, err);
       return new Response('Not Found', { status: 404 });

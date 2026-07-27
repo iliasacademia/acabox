@@ -260,10 +260,23 @@ class HostProcessService {
       });
       return { stdout, stderr, exitCode: 0 };
     } catch (err: any) {
+      // A NUMERIC `code` is a real process exit status. A STRING one
+      // (ENOENT/EACCES/ENOTDIR) means the process never launched at all — and
+      // in that case err.message is the only diagnosis that exists (it names
+      // the binary and, inside a packaged build, the asar archive). Dropping it
+      // used to turn "the binary isn't there" into a bare `exitCode: 1` that
+      // callers rendered as a compiler error. Keep it, and use 127
+      // (shell convention for "command not found") so callers can tell the two
+      // apart.
+      const spawnFailed = typeof err.code !== 'number';
+      const stderr: string = err.stderr ?? '';
+      const reason = err.killed
+        ? `timed out or was killed (signal ${err.signal ?? 'unknown'})`
+        : `failed to launch: ${err.message}`;
       return {
         stdout: err.stdout ?? '',
-        stderr: err.stderr ?? '',
-        exitCode: typeof err.code === 'number' ? err.code : 1,
+        stderr: spawnFailed && !stderr ? `${bin} ${reason}` : stderr,
+        exitCode: spawnFailed ? 127 : err.code,
       };
     }
   }

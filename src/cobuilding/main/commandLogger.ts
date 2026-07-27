@@ -3,7 +3,7 @@ import * as path from 'path';
 import { app } from 'electron';
 import log from 'electron-log';
 
-export type CommandSource = 'agent' | 'iframe';
+export type CommandSource = 'agent' | 'iframe' | 'build';
 
 export interface CommandLogEntry {
   id: number;

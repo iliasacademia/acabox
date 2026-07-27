@@ -67,6 +67,25 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
   const appDir = `${workspacePath}/.applications/${dirName}`;
   const composerRuntime = useComposerRuntime();
 
+  // A bumped reloadNonce means an external actor — the agent's
+  // build_and_open_mini_application / open_mini_application tool — is asserting
+  // that a fresh bundle is on disk. Drop any latched build error so the
+  // nonce-keyed <MiniAppContent> below can actually mount and re-read it.
+  //
+  // Without this, `rebuildState` is a one-way latch: `showBuildError` gates
+  // AHEAD of the nonce-keyed content, so the whole forceReload pipeline
+  // re-keys an element that isn't in the tree. The agent would fix the app,
+  // rebuild it successfully, and the user would keep staring at the stale
+  // BUILD FAILED screen until the viewer unmounted (quitting the app, closing
+  // the tab, or navigating away) — and the fix-it-in-chat flow keeps you
+  // inside the tool's side panel, so it never unmounts on its own.
+  //
+  // No-op on mount (state is already idle) and only touches 'error', so an
+  // in-flight build can't be stomped.
+  useEffect(() => {
+    setRebuildState((s) => (s.kind === 'error' ? { kind: 'idle' } : s));
+  }, [reloadNonce]);
+
   // Surface build state to the shared tool-status store (tab dots, etc.).
   useEffect(() => {
     if (rebuildState.kind === 'building') {
@@ -122,7 +141,11 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
     try {
       const result = await window.miniAppsAPI.build(dirName);
       if (!result.ok) {
-        const errorMsg = (result.error || `esbuild exited with code ${result.exitCode}`).trim();
+        // buildMiniApp always supplies `error` (spawn failures included), so
+        // this fallback should be unreachable — keep it honest rather than
+        // re-inventing the old "esbuild exited with code N" phrasing, which
+        // reads as a compiler error even when esbuild never ran.
+        const errorMsg = (result.error || `Build failed (exit ${result.exitCode}) with no output.`).trim();
         if (toolIdForBuild) {
           trackAnalytics({
             name: 'tool.build_failed',

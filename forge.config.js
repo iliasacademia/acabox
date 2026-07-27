@@ -68,6 +68,38 @@ function resolveRuntimeDeps(roots) {
 const codeSignIdentity = process.env.APPLE_IDENTITY || undefined;
 const platform = os.platform();
 
+/**
+ * Path to the REAL esbuild executable for the build host's platform/arch.
+ *
+ * esbuild ships its binary in a per-platform optional dependency
+ * (`@esbuild/darwin-arm64`, `@esbuild/win32-x64`, …); `node_modules/esbuild/bin/esbuild`
+ * is a hardlink to it on POSIX and a JS shim on Windows, and
+ * `node_modules/.bin/esbuild` is a symlink that must never be shipped. Prefer
+ * the platform package, fall back to esbuild/bin.
+ *
+ * NOTE: this binds the artifact to the build host's architecture. A universal
+ * or cross-arch build needs both slices (lipo, or a per-arch make).
+ */
+function resolveEsbuildBinary() {
+  const pkg = `@esbuild/${platform}-${os.arch()}`;
+  const candidates = platform === 'win32'
+    ? [path.join('node_modules', pkg, 'esbuild.exe')]
+    : [
+        path.join('node_modules', pkg, 'bin', 'esbuild'),
+        path.join('node_modules', 'esbuild', 'bin', 'esbuild'),
+      ];
+  const found = candidates.find((c) => fs.existsSync(path.join(__dirname, c)));
+  if (!found) {
+    throw new Error(
+      `Cannot package: esbuild binary not found for ${platform}-${arch}. Looked in:\n  ${candidates.join('\n  ')}\n` +
+      'Mini-app builds would be dead in the packaged app. Run `npm install` and retry.',
+    );
+  }
+  return found;
+}
+
+const esbuildBinary = resolveEsbuildBinary();
+
 const packagerConfig = {
   name: 'Acabox',
   icon: './src/assets/icons/dock-icon',
@@ -81,6 +113,13 @@ const packagerConfig = {
   },
   extraResource: [
     'dist/agent-server.js',
+    // Mini-app bundler. MUST be the real binary under esbuild/bin, not the
+    // node_modules/.bin symlink (extraResource copies it verbatim, and a
+    // dangling symlink in Resources/ is worse than nothing). Lands at
+    // <Resources>/esbuild; miniAppBuilder.resolveEsbuildBin() looks there when
+    // app.isPackaged. Without this every mini-app build fails in packaged
+    // builds — the webpack plugin never puts node_modules/esbuild in the asar.
+    esbuildBinary,
     'src/cobuilding/prebuilt-apps',
     'src/assets/icons',
     'app-update.yml',

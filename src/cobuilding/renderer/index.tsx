@@ -535,16 +535,24 @@ function OpenMiniAppToolUI({
  * Variant for `build_and_open_mini_application`: the host runs esbuild during
  * the tool call, so we must NOT reload the iframe until the build has succeeded
  * — otherwise the iframe loads the pre-build (stale) bundle and never picks up
- * the rebuild. Fires onOpen only on a successful complete transition; on
- * `incomplete` (build error / cancelled), no UI change happens.
+ * the rebuild. Fires onOpen only on a successful complete transition.
+ *
+ * `isError` is load-bearing, not belt-and-braces: a FAILED build does not
+ * arrive as `incomplete`. assistant-ui's toMessagePartStatus marks any
+ * tool-call part with a truthy result as complete and never inspects isError,
+ * and the host's fail() always returns non-empty content — so without this
+ * check a failed build passes the guard below and remounts the iframe onto
+ * exactly the stale bundle this component exists to avoid.
  */
 function BuildAndOpenMiniAppToolUI({
   args,
   status,
+  isError,
   onOpen,
 }: {
   args: { dir_name?: string };
   status: { type: string };
+  isError?: boolean;
   onOpen: (dirName: string, opts?: { forceReload?: boolean }) => void;
 }) {
   const openedRef = useRef<string | null>(null);
@@ -561,13 +569,14 @@ function BuildAndOpenMiniAppToolUI({
     if (
       dirName &&
       status.type === 'complete' &&
+      !isError &&
       sawRunningRef.current &&
       dirName !== openedRef.current
     ) {
       openedRef.current = dirName;
       onOpen(dirName, { forceReload: true });
     }
-  }, [args?.dir_name, status.type, onOpen]);
+  }, [args?.dir_name, status.type, isError, onOpen]);
 
   return null;
 }
@@ -586,7 +595,7 @@ function OpenMiniAppHandler({ onOpen }: { onOpen: (dirName: string, opts?: { for
     toolName: 'mcp__mini-apps__build_and_open_mini_application',
     render: (props: any) => (
       <>
-        <BuildAndOpenMiniAppToolUI args={props.args} status={props.status} onOpen={onOpen} />
+        <BuildAndOpenMiniAppToolUI args={props.args} status={props.status} isError={props.isError} onOpen={onOpen} />
         <ToolFallback {...props} />
       </>
     ),
