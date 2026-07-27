@@ -61,10 +61,41 @@ class ImageAttachmentAdapter implements AttachmentAdapter {
   async remove(): Promise<void> {}
 }
 
+/** Text documents are inlined verbatim into the prompt, so their size is a
+ *  token budget, not a transfer budget. 256 KB of dense text already costs
+ *  ~70-90k tokens — a large slice of even a 200k-token context — and past that
+ *  inlining buys nothing over letting the agent read the file off disk. A real
+ *  data file blows the window outright: a 5 MB CSV of URLs is well over 1M
+ *  tokens and the API rejects the turn with "Prompt is too long". */
+const MAX_INLINE_TEXT_BYTES = 256 * 1024;
+
+/** PDFs earn their tokens (the model sees page layout and figures), so they get
+ *  a looser ceiling — but the same context math applies past a couple of MB. */
+const MAX_INLINE_PDF_BYTES = 2 * 1024 * 1024;
+
+function inlineLimitFor(file: File): number {
+  return file.type === 'application/pdf' ? MAX_INLINE_PDF_BYTES : MAX_INLINE_TEXT_BYTES;
+}
+
+/** Inlines small documents as prompt content. Anything over the inline ceiling
+ *  is delegated to the file-reference adapter, which copies the file into the
+ *  workspace and hands the agent a path instead — the agent then reads or
+ *  processes it with a script, which is what you want for a data file anyway.
+ *
+ *  The delegation has to live here rather than in CompositeAttachmentAdapter:
+ *  that dispatches on the FIRST adapter whose `accept` matches the file, with
+ *  no way to fall through, and `text/csv` matches this one before the trailing
+ *  wildcard adapter ever gets a look. */
 class DocumentAttachmentAdapter implements AttachmentAdapter {
   accept = 'application/pdf,text/plain,text/html,text/markdown,text/csv';
 
+  constructor(private oversized: FileReferenceAttachmentAdapter) {}
+
   async add(state: { file: File }): Promise<PendingAttachment> {
+    if (state.file.size > inlineLimitFor(state.file)) {
+      return this.oversized.add(state);
+    }
+
     return {
       id: state.file.name,
       type: 'document',
@@ -76,6 +107,10 @@ class DocumentAttachmentAdapter implements AttachmentAdapter {
   }
 
   async send(attachment: PendingAttachment): Promise<CompleteAttachment> {
+    if (attachment.file.size > inlineLimitFor(attachment.file)) {
+      return this.oversized.send(attachment);
+    }
+
     const base64 = await readFileAsBase64(attachment.file);
     return {
       ...attachment,
@@ -143,9 +178,10 @@ class FileReferenceAttachmentAdapter implements AttachmentAdapter {
 }
 
 export function createAttachmentAdapter(workspacePath: string) {
+  const fileReference = new FileReferenceAttachmentAdapter(workspacePath);
   return new CompositeAttachmentAdapter([
     new ImageAttachmentAdapter(),
-    new DocumentAttachmentAdapter(),
-    new FileReferenceAttachmentAdapter(workspacePath),
+    new DocumentAttachmentAdapter(fileReference),
+    fileReference,
   ]);
 }

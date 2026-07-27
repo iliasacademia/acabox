@@ -13,7 +13,7 @@ module.exports = {
     // Whitelist ESM packages that need transforming. html-react-parser pulls
     // in domhandler/domelementtype/domutils as ESM via its src/index.ts; the
     // others are pre-existing entries.
-    'node_modules/(?!(axios-cookiejar-support|http-cookie-agent|tough-cookie-file-store|html-react-parser|domhandler|domelementtype|domutils|entities|htmlparser2)/)',
+    'node_modules/(?!(axios-cookiejar-support|http-cookie-agent|tough-cookie-file-store|html-react-parser|domhandler|domelementtype|domutils|entities|htmlparser2|@assistant-ui)/)',
   ],
   transform: {
     '^.+\\.tsx?$': ['ts-jest', {
