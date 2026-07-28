@@ -1,10 +1,12 @@
 # Bridge API Reference
 
-The scaffolded `index.tsx` imports a bridge that sets up `window.filesAPI`, `window.kernel`, and `window.containerAPI` as postMessage wrappers. The mini-app can use these to communicate with the electron app.
+The scaffolded `index.tsx` imports a bridge that sets up `window.filesAPI`, `window.kernel`, and `window.hostAPI` as postMessage wrappers. The mini-app can use these to communicate with the electron app.
+
+Everything below runs **on the user's machine**. Acabox has no container — the kernel, `hostAPI.exec`, and every installed package live in the user's home directory.
 
 ## Kernel API (primary — for notebook-backed computation)
 
-- `window.kernel.connect(kernelName)` — Connect to a Jupyter kernel. Use `"ir"` for R or `"python3"` for Python. Starts the kernel gateway container automatically if needed.
+- `window.kernel.connect(kernelName)` — Connect to a Jupyter kernel. Pass `"python3"`. Starts the kernel gateway automatically if needed (a host process from Acabox's Python venv).
 - `window.kernel.executeCode(code)` — Execute code in the connected kernel. Returns an array of cell outputs, each with an `output_type` field:
   - `"stream"` — stdout/stderr text (`name`, `text` fields)
   - `"execute_result"` — result data (`data`, `metadata`, `execution_count` fields)
@@ -27,9 +29,23 @@ The scaffolded `index.tsx` imports a bridge that sets up `window.filesAPI`, `win
 - `window.filesAPI.selectDirectory()` — Open native directory picker. Returns the selected path.
 - `window.filesAPI.readDirectory(path)` — List directory contents. Returns `{ name, isDirectory }[]`.
 
-## Container API (alternative — for one-shot script execution)
+## Host API (alternative — for one-shot script execution)
 
-- `window.containerAPI.exec(command, args)` — Execute a command in the Podman container and return `{ stdout, stderr, exitCode }`. Use this for simple one-shot script execution that doesn't need kernel state. Example: `window.containerAPI.exec("Rscript", [".claude/skills/.../script.R", "--arg", "value"])`. Timeout is 10 minutes.
+- `window.hostAPI.exec(command, args)` — Run a command as a child process on the user's machine and return `{ stdout, stderr, exitCode }`. Use this for one-shot script execution that doesn't need kernel state; use `window.kernel` when state has to persist between runs.
+
+  ```typescript
+  const { stdout, stderr, exitCode } = await window.hostAPI.exec(
+    "python3",
+    [".applications/myApp/scripts/analyze.py", "--input", "input/data.csv"],
+  );
+  ```
+
+  - **Working directory is the workspace root**, so relative paths work for both app files (`.applications/<dir_name>/…`) and the user's shared research folders (`MyResearch/data.csv`). Do not pass absolute paths.
+  - **PATH includes Acabox's Python venv and npm prefix**, so `python3` and anything installed via `.applications/install` resolves by bare name. Nothing else is guaranteed — this is the user's own machine, not a fixed image, so probe with `command -v <binary>` before depending on a tool you did not install.
+  - **`exitCode: 127` means the process never launched** (binary not found or not executable) — `stderr` names it. Any other non-zero value is the command's real exit status. Distinguishing the two matters: 127 is a missing dependency, not a failed analysis.
+  - Timeout is 10 minutes; combined stdout+stderr is capped at 50 MB.
+
+  `window.containerAPI` is a deprecated alias for the same object, left over from when Acabox ran a Podman container. Use `window.hostAPI` in new code.
 
 ## Anthropic API
 
@@ -93,4 +109,4 @@ const msg = await window.anthropicAPI.complete({
 
 ## Utilities
 
-- `window.getWorkspacePath()` — Returns the host filesystem path of the workspace. Use this to convert absolute host paths (from file pickers) to relative workspace paths: `"./" + hostPath.slice(workspacePath.length + 1)`. Relative paths resolve correctly both on the host and inside the container.
+- `window.getWorkspacePath()` — Returns the filesystem path of the workspace. Use this to convert absolute paths (from file pickers) to relative workspace paths: `"./" + hostPath.slice(workspacePath.length + 1)`. Store and pass relative paths everywhere — `filesAPI`, `hostAPI.exec`, and the kernel all resolve them against the workspace root. The absolute form is only needed for `local-file://` image `src` attributes.

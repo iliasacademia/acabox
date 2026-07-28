@@ -437,7 +437,7 @@ export function registerFileHandlers(getAllowedPaths: () => string[], getMainWin
         .map(async (e) => {
           const dirName = e.name;
           const manifestPath = path.join(appsDir, dirName, 'manifest.json');
-          let manifest: { name?: unknown; description?: unknown; icon?: unknown; lastOpened?: unknown; preBuilt?: unknown; archived?: unknown } | null = null;
+          let manifest: { name?: unknown; description?: unknown; icon?: unknown; lastOpened?: unknown; lastRun?: unknown; preBuilt?: unknown; archived?: unknown } | null = null;
           try {
             const raw = await fsPromises.readFile(manifestPath, 'utf-8');
             manifest = JSON.parse(raw);
@@ -451,6 +451,7 @@ export function registerFileHandlers(getAllowedPaths: () => string[], getMainWin
             description: typeof manifest?.description === 'string' ? manifest.description : null,
             icon: typeof manifest?.icon === 'string' ? manifest.icon : null,
             lastOpened: typeof manifest?.lastOpened === 'string' ? manifest.lastOpened : null,
+            lastRun: typeof manifest?.lastRun === 'string' ? manifest.lastRun : null,
             preBuilt: manifest?.preBuilt === true,
             archived: manifest?.archived === true,
             hasManifest: manifest !== null,
@@ -474,6 +475,26 @@ export function registerFileHandlers(getAllowedPaths: () => string[], getMainWin
     try {
       await updateManifest(manifestPath, (manifest) => {
         manifest.lastOpened = new Date().toISOString();
+        return manifest;
+      });
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, error: String(e?.message ?? e) };
+    }
+  });
+
+  // Stamped when a tool finishes executing something (kernel/shell/Claude call,
+  // or an agent MCP invocation), which is what the home card's "LAST RUN" means
+  // — distinct from `lastOpened`, which only records the user looking at it.
+  ipcMain.handle('miniApps:markRun', async (_event, dirName: string) => {
+    const allowedPaths = requireAllowedPaths(getAllowedPaths);
+    if (!dirName || dirName.includes('/') || dirName.includes('\\') || dirName.startsWith('.')) {
+      return { ok: false, error: 'Invalid app name' };
+    }
+    const manifestPath = path.join(allowedPaths[0], '.applications', dirName, 'manifest.json');
+    try {
+      await updateManifest(manifestPath, (manifest) => {
+        manifest.lastRun = new Date().toISOString();
         return manifest;
       });
       return { ok: true };

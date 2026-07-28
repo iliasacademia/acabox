@@ -99,25 +99,25 @@ Tool names must match `[A-Za-z0-9_]+`, server names `[A-Za-z0-9_-]+`. Keep `desc
 
 If `--template` is specified, the template tree at `.applications/_templates/<name>/` is mirrored into the new app — anything inside `<template>/src/` lands in the new app's `src/`, anything else lands at the app root. So a template can ship `src/App.tsx`, `notebook.ipynb`, `scripts/foo.py`, `requirements.txt`, `setup/*.sh`, etc., and each file ends up where it belongs.
 
-**Dependencies install asynchronously — do not wait for them.** The host has a BackgroundBuilder that watches `.applications/<app>/requirements.txt`, `package.json`, `r-packages.txt`, `apt-packages.txt`, and `setup/*.sh`. The moment those files appear, it runs a live install in the running container AND rebuilds the container image so the deps survive restarts. Templates therefore declare both their code and their installable dependencies (including model-checkpoint downloads written as idempotent `setup/*.sh` scripts), and the install pipeline picks them up automatically — no agent action required.
+**Dependencies install asynchronously — do not wait for them.** The host has a BackgroundBuilder that watches `.applications/<app>/requirements.txt`, `package.json`, and `setup/*.sh`. The moment those files appear it runs the install, into Acabox's own Python venv and npm prefix, which persist across restarts. Templates therefore declare both their code and their installable dependencies (including model-checkpoint downloads written as idempotent `setup/*.sh` scripts), and the install pipeline picks them up automatically — no agent action required.
 
 **Hard rules for the agent when scaffolding from a template:**
 
 - Do NOT run `.applications/install` yourself — BackgroundBuilder is already running it. A second concurrent install races for bandwidth and slows everything down.
-- Do NOT use `Monitor`, `ScheduleWakeup`, or polling loops to wait for installs to finish. The install can take 5–15 minutes on cold containers; blocking the chat turn on it produces a bad UX (silent agent, opaque "thinking" state).
+- Do NOT use `Monitor`, `ScheduleWakeup`, or polling loops to wait for installs to finish. A cold install can take 5–15 minutes; blocking the chat turn on it produces a bad UX (silent agent, opaque "thinking" state).
 - After running the manage script, immediately call `build_and_open_mini_application` — it runs esbuild and opens the app in one atomic tool call.
 - The mini-app's own "Installing software…" view surfaces live install progress to the user when they open the app — they will see it there, not in the chat. Tell the user once that you've opened the app and that deps are still installing in the background, and let the in-app UI take over from there.
 
 Each template also ships with a colocated `template.md` describing its parameters, output contract, and design rationale; read that before editing the template's code. The `template.md` itself is excluded from the per-app copy. Available templates:
 
-- `differentialExpression` — DESeq2 analysis with interactive volcano/MA plots. See `.applications/_templates/differentialExpression/template.md`.
+- `differentialExpression` — **currently non-functional, do not scaffold it.** DESeq2 analysis with interactive volcano/MA plots. Its notebook and `src/App.tsx` both request the `ir` (R) kernel, which Acabox does not have — the Python venv registers only `python3`, and R cannot be installed. An app scaffolded from it builds but fails the moment the user clicks Run. See the note in `.claude/skills/differential-expression/SKILL.md`.
 - `westernBlotAnnotator` — interactive Western blot annotation: GelGenie-based band/lane detection, LLM-assisted band filtering, click-to-edit labels, and PNG figure export. Ships with a Python pipeline and a `setup/download_model.sh` that pulls the TorchScript GelGenie checkpoint from HuggingFace. See `.applications/_templates/westernBlotAnnotator/template.md`.
 
 ### Step 2: Write `src/App.tsx`
 
 Write the React component to `<dir>/src/App.tsx`.
 
-Available packages (pre-installed in the container):
+Available packages (already installed — import them directly, no wrapper call needed):
 - `react`, `react-dom`
 - `react-plotly.js` — Plotly charts. See the **react-plotly** skill (`.claude/skills/react-plotly/SKILL.md`) for responsive container patterns, design system, trace types, and complete examples.
 - `lucide-react` — Icons
@@ -342,31 +342,31 @@ esbuild \
   --loader:.tsx=tsx \
   --loader:.ts=ts \
   --format=iife \
-  --alias:@reusable=/data/.applications/_reusable
+  --alias:@reusable=$PWD/.applications/_reusable
 ```
+
+The alias target must be **absolute** — esbuild does not resolve a relative alias against the working directory, so `--alias:@reusable=.applications/_reusable` fails with "Could not resolve @reusable/…". `$PWD` expands correctly because the working directory is always the workspace root.
 
 ## Installing software
 
 Two cases. Pick the right one:
 
-- **Modifies the container environment** (a binary, library, or package other processes look up by name) → use the install wrapper.
+- **Adds a package or binary that other processes look up by name** → use the install wrapper.
 - **Produces a file in the app folder that the app code reads** (model weights, datasets, fixtures) → direct download with `curl`/`wget`, no wrapper.
 
-### Case 1: Install wrapper (pip / npm / R / apt / manual)
+### Case 1: Install wrapper (pip / npm / manual)
 
-All container-environment installs go through `.applications/install`:
+All installs go through `.applications/install`:
 
 ```bash
 .applications/install pip seaborn --app <dir_name>
 .applications/install pip 'pandas>=2.0' scipy --app <dir_name>
 .applications/install npm d3 --app <dir_name>
 .applications/install npm 'd3@^7.0' --app <dir_name>
-.applications/install R ggplot2 --app <dir_name>
-.applications/install apt ffmpeg --app <dir_name>
-.applications/install manual .applications/<dir_name>/setup/install-miniconda.sh --app <dir_name>
+.applications/install manual .applications/<dir_name>/setup/fetch-model.sh --app <dir_name>
 ```
 
-The wrapper atomically (1) runs the live install in the running container so the package is usable immediately, and (2) records it in the app's per-registry file so it persists across rebuilds and travels when the app is shared.
+The wrapper atomically (1) runs the live install so the package is usable immediately, and (2) records it in the app's per-registry file so it travels when the app is shared. pip installs land in Acabox's own Python venv, npm in Acabox's own npm prefix — the user's system Python and global npm are never touched.
 
 Per-registry files — the single source of truth for each registry. Do not write to them directly; always use the wrapper.
 
@@ -374,66 +374,68 @@ Per-registry files — the single source of truth for each registry. Do not writ
 |---|---|---|
 | pip    | `.applications/<dir_name>/requirements.txt` | Standard pip format, version specs supported (`pandas>=2.0`) |
 | npm    | `.applications/<dir_name>/package.json`     | Standard `package.json` `dependencies` field |
-| R      | `.applications/<dir_name>/r-packages.txt`   | One package per line |
-| apt    | `.applications/<dir_name>/apt-packages.txt` | One package per line |
 | manual | `.applications/<dir_name>/setup/*.sh`       | Check-then-install scripts (see below) |
 
-**Never call `pip install` / `npm install` / `apt-get install` / `Rscript -e 'install.packages(...)'` yourself — not on the host, not via `podman exec`.** All of these are blocked by a PreToolUse hook. A direct install does the live install but doesn't update the dependency file, so the package is silently lost on rebuild or share.
+**`apt`, `R`, and `conda` are not available.** Acabox runs directly on the user's machine and will not install into their system package manager — the wrapper refuses those registries with an error, and the PreToolUse hook blocks the raw commands. There is no workaround: find a pip/npm alternative, or tell the user what to install themselves and stop. Do not retry through the wrapper.
+
+**Never call `pip install` / `npm install` / `apt-get install` / `Rscript -e 'install.packages(...)'` yourself.** All of these are blocked by a PreToolUse hook. A direct pip/npm install does work live but doesn't update the dependency file, so the package is silently lost when the app is shared.
 
 **`--app <dir_name>` is required** so installs are associated with the app that needs them.
 
-**npm in cobuild is always global.** Even with a per-app `package.json`, there is no local `node_modules` — packages go into the container's global `node_modules` (alongside `react`, `react-plotly.js`, etc.) and esbuild resolves them via `NODE_PATH`. Treat `package.json` here as a declarative manifest, not a real npm project.
+**npm is always global.** Even with a per-app `package.json`, there is no local `node_modules` — packages go into Acabox's shared npm prefix (alongside `react`, `react-plotly.js`, etc.) and esbuild resolves them via `NODE_PATH`. Treat `package.json` here as a declarative manifest, not a real npm project.
 
-**apt and manual are elevated-risk** — apt requires root, manual runs arbitrary shell. Verify with the user before running either.
-
-**apt binaries may not be on PATH.** Debian puts some packages in `/usr/games/` or other non-standard locations. After installing an apt package, run `which <binary>` or `dpkg -L <package> | grep bin` to find the full path, and always use the **full path** (e.g., `/usr/games/cowsay`) in `containerAPI.exec()` calls and scripts. Do not assume the binary name alone will resolve.
+**`manual` is elevated-risk** — it runs arbitrary shell as the user, on the user's own machine, with no container to contain it. Verify with the user before running one.
 
 ### Writing a manual install script
 
 Use `manual` when no standard package manager can install what you need (binary releases, conda, building from source).
 
-Scripts must live under `.applications/<dir_name>/setup/` — the wrapper refuses scripts elsewhere so the image build can find them. Pick a descriptive name like `install-miniconda.sh`.
+Scripts must live under `.applications/<dir_name>/setup/` — the wrapper refuses scripts elsewhere, and that location is what makes the script travel with the app. Pick a descriptive name like `fetch-model.sh`.
 
-The same script runs **live in the current container** when you invoke the wrapper, and **at image build time** when the image is rebuilt. In both cases it must succeed whether or not the tool is already installed — a script that errors on "already present" breaks iteration during development and rebuilds in production.
+The script runs **as the user, on the user's own machine**. There is no container and no root. Two rules follow:
 
-**Pattern: check first, then install.** Detect if the tool is already present; if so, exit 0 immediately.
+- **Write only inside the app folder** (`.applications/<dir_name>/…`) or the durable data dirs. Never `/opt`, `/usr/local`, `~/.bashrc`, or anywhere else on the user's system — Acabox is a tool they installed, not a package manager, and a script that scatters files outside the app folder cannot be undone by deleting the app.
+- **It must be idempotent.** It re-runs whenever the app is opened on a machine that hasn't run it yet, so it must succeed whether or not the work is already done. A script that errors on "already present" breaks every subsequent open.
+
+**Pattern: check first, then install.** Detect if the work is already done; if so, exit 0 immediately.
 
 ```bash
 #!/usr/bin/env bash
-# Install Miniconda into /opt/miniconda and put conda on the PATH.
+# Fetch the model checkpoint into the app's own folder.
 set -euo pipefail
 
-INSTALL_DIR=/opt/miniconda
+APP_DIR=".applications/myApp"
+MODEL="$APP_DIR/input/model.pt"
 
-# Check first: if conda is already available, we're done.
-if command -v conda >/dev/null 2>&1; then
-  echo "conda already installed at $(command -v conda) — skipping"
+# Check first: if the checkpoint is already there, we're done.
+if [ -f "$MODEL" ]; then
+  echo "model already present at $MODEL — skipping"
   exit 0
 fi
 
-# Install.
-INSTALLER=$(mktemp /tmp/miniconda-XXXXXX.sh)
-trap 'rm -f "$INSTALLER"' EXIT
+# Download to a temp file and move into place, so an interrupted run does not
+# leave a truncated file that the check above would accept next time.
+mkdir -p "$(dirname "$MODEL")"
+TMP=$(mktemp "$APP_DIR/.model-XXXXXX")
+trap 'rm -f "$TMP"' EXIT
 
-curl -fsSL -o "$INSTALLER" \
-  https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-bash "$INSTALLER" -b -p "$INSTALL_DIR"
-ln -sf "$INSTALL_DIR/bin/conda" /usr/local/bin/conda
+curl -fsSL -o "$TMP" https://example.com/model.pt
+mv "$TMP" "$MODEL"
 
-echo "installed conda at $INSTALL_DIR"
+echo "fetched model to $MODEL"
 ```
 
-Key techniques: `set -euo pipefail` for fail-fast; `command -v` as the cheapest presence check (alternatives: `[ -d /some/path ]`, `pkg-config --exists`, `<tool> --version`); `mktemp` + `trap` for installer cleanup; a final step that makes the tool reachable (the symlink) so `conda` is on the PATH. Run it with:
+Key techniques: `set -euo pipefail` for fail-fast; a cheap presence check (`[ -f … ]`, `command -v <tool>`, `<tool> --version`); `mktemp` + `trap` for cleanup; and download-to-temp-then-`mv` so the presence check can never be satisfied by a partial file. Paths are relative to the workspace root — the wrapper runs the script from there. Run it with:
 
 ```bash
-.applications/install manual .applications/myApp/setup/install-miniconda.sh --app myApp
+.applications/install manual .applications/myApp/setup/fetch-model.sh --app myApp
 ```
 
 The script's presence in `setup/` is the record — nothing else needs updating.
 
 ### Case 2: Downloading data into the app folder
 
-App data (model weights, datasets, fixtures) is not a container install. Write directly into the app folder — no wrapper needed.
+App data (model weights, datasets, fixtures) is not a package install. Write directly into the app folder — no wrapper needed.
 
 ```bash
 mkdir -p .applications/<dir_name>/data
@@ -512,7 +514,7 @@ Do NOT use `document.createElement('a')` with blob URLs — it does not work rel
 
 ### Image tags
 
-Mini-apps run inside an iframe on the Electron host. The `<img>` tag `src` attribute cannot use relative paths or container paths — it must use the `local-file://` protocol with an absolute host path built from the workspace path.
+Mini-apps run inside an iframe on the Electron host. The `<img>` tag `src` attribute cannot use relative paths — it must use the `local-file://` protocol with an absolute path built from the workspace path. This is the one place absolute paths are correct; everywhere else (`filesAPI`, `hostAPI.exec`, the kernel) uses workspace-relative paths.
 
 Construct image `src` values by combining `window.getWorkspacePath()` with the path to the image in the application's output directory:
 
@@ -533,7 +535,7 @@ const src = `local-file://${workspacePath}/.applications/${dirName}/output/${ima
 
 **For img tags do NOT use:**
 - Relative paths (`./output/image.png`) — won't resolve in the iframe context
-- Container paths (`/data/.applications/...`) — the Electron host cannot access container-internal paths
+- A bare absolute path (`/Users/.../output/plot.png`) without the `local-file://` scheme
 - Blob URLs or data URIs for files that already exist on disk
 
 ### Error display
@@ -542,7 +544,7 @@ Runtime errors are captured automatically by the bridge and shown in a floating 
 
 ### Calling Claude from a mini-app
 
-Use `window.anthropicAPI` — **do NOT pass `ANTHROPIC_API_KEY` into the container, read it from env, or make direct API calls from notebook cells.** The key is managed by the host; the bridge handles auth transparently.
+Use `window.anthropicAPI` — **do NOT read `ANTHROPIC_API_KEY` from env, pass it into a subprocess, or make direct API calls from notebook cells.** The key is the user's own and is managed by the host; the bridge handles auth transparently and never exposes the key to the iframe.
 
 ```tsx
 // Non-streaming — await the full response
@@ -586,4 +588,4 @@ const msg = await window.anthropicAPI.complete({
 
 ### Bridge API
 
-See [bridge-api.md](bridge-api.md) for the full API reference (`window.filesAPI`, `window.kernel`, `window.containerAPI`, `window.anthropicAPI`, `window.getWorkspacePath()`).
+See [bridge-api.md](bridge-api.md) for the full API reference (`window.filesAPI`, `window.kernel`, `window.hostAPI`, `window.anthropicAPI`, `window.getWorkspacePath()`).

@@ -287,10 +287,10 @@ if (values.template) {
 
   // NOTE: the script intentionally does NOT install template dependencies.
   // The host's BackgroundBuilder watches `.applications/<app>/requirements.txt`,
-  // `package.json`, `r-packages.txt`, `apt-packages.txt`, and `setup/*.sh` and
-  // runs the appropriate live install + container image rebuild as soon as those
-  // files appear. Doing pip / setup runs here would race with that pipeline AND
-  // block the agent's tool call for several minutes on cold containers. The
+  // `package.json`, and `setup/*.sh` and runs the install into Acabox's Python
+  // venv / npm prefix as soon as those files appear. Doing pip / setup runs here
+  // would race with that pipeline AND block the agent's tool call for several
+  // minutes on a first-time install. The
   // mini-app's own "Installing software…" UI surfaces install progress to the
   // user while the agent moves on to building the bundle and opening the app.
 }

@@ -1,0 +1,383 @@
+/* Settings → Connectors.
+   Command Desk language: design tokens from commandDesk.css, DM Sans for
+   prose, IBM Plex Mono for anything the user could paste into a terminal. */
+
+.connectors {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── Configured connector rows ─────────────────────────────────── */
+
+.connectorList {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--cd-border-soft, #ebebee);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.connectorRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--cd-border-soft, #ebebee);
+  background: #fff;
+}
+
+.connectorRow:last-child { border-bottom: none; }
+.connectorRow--off { opacity: 0.55; }
+
+.connectorDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  margin-top: 6px;
+}
+
+.connectorDot--ok { background: var(--cd-success, #05b01c); }
+.connectorDot--warn { background: var(--cd-busy, #fecf4c); }
+.connectorDot--error { background: var(--cd-error, #b60000); }
+.connectorDot--idle { background: var(--cd-idle, #c7c7cf); }
+.connectorDot--pending {
+  background: var(--cd-busy, #fecf4c);
+  animation: connectorPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes connectorPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connectorDot--pending { animation: none; }
+}
+
+.connectorRow__main { flex: 1; min-width: 0; }
+
+.connectorRow__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--cd-ink, #141413);
+}
+
+.connectorRow__chip {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--cd-text3, #91919e);
+  border: 1px solid var(--cd-border, #dddde2);
+  border-radius: 2px;
+  padding: 1px 4px;
+}
+
+.connectorRow__target {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 11px;
+  color: var(--cd-text2, #535366);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connectorRow__status {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 11.5px;
+  color: var(--cd-text3, #91919e);
+  margin-top: 4px;
+  line-height: 1.45;
+}
+
+.connectorRow__status em { font-style: italic; }
+
+.connectorRow__actions {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────── */
+
+.connectorBtn {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--cd-text2, #535366);
+  background: none;
+  border: 1px solid var(--cd-border, #dddde2);
+  border-radius: 3px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.connectorBtn:hover:not(:disabled) {
+  background: var(--cd-pale, #f4f7fc);
+  border-color: var(--cd-blue, #0645b1);
+  color: var(--cd-blue, #0645b1);
+}
+
+.connectorBtn:disabled { opacity: 0.45; cursor: default; }
+
+.connectorBtn--danger:hover:not(:disabled) {
+  background: var(--cd-error-bg, #fff2f2);
+  border-color: var(--cd-error, #b60000);
+  color: var(--cd-error, #b60000);
+}
+
+.connectorLink {
+  align-self: flex-start;
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--cd-blue, #0645b1);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.connectorLink:hover { text-decoration: underline; }
+
+/* ── Status meta line ──────────────────────────────────────────── */
+
+.connectorStatusMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  color: var(--cd-text3, #91919e);
+}
+
+.connectorNotice {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 12.5px;
+  color: var(--cd-success, #05b01c);
+  margin: 0;
+}
+
+/* ── Catalog picker ────────────────────────────────────────────── */
+
+.connectorPicker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--cd-border, #dddde2);
+  border-radius: 4px;
+  padding: 14px;
+  background: #fcfcfd;
+}
+
+.connectorPicker__label {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cd-text3, #91919e);
+}
+
+.connectorPicker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.connectorCard {
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--cd-border, #dddde2);
+  border-radius: 4px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.connectorCard:hover:not(:disabled) {
+  border-color: var(--cd-blue, #0645b1);
+  background: var(--cd-pale, #f4f7fc);
+}
+
+.connectorCard:disabled { opacity: 0.5; cursor: default; }
+
+.connectorCard--custom { border-style: dashed; }
+
+.connectorCard__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cd-ink, #141413);
+}
+
+.connectorCard__added {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cd-text3, #91919e);
+}
+
+.connectorCard__desc {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 11.5px;
+  color: var(--cd-text2, #535366);
+  line-height: 1.4;
+  margin-top: 3px;
+}
+
+.connectorCard__auth {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cd-text3, #91919e);
+  margin-top: 6px;
+}
+
+/* ── Add / edit form ───────────────────────────────────────────── */
+
+.connectorForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--cd-border, #dddde2);
+  border-radius: 4px;
+  padding: 16px;
+  background: #fcfcfd;
+}
+
+.connectorForm__title {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--cd-ink, #141413);
+}
+
+.connectorForm__note {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 12px;
+  color: var(--cd-text2, #535366);
+  line-height: 1.5;
+  background: var(--cd-pale, #f4f7fc);
+  border-left: 2px solid var(--cd-blue, #0645b1);
+  padding: 8px 10px;
+  border-radius: 0 3px 3px 0;
+}
+
+.connectorField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.connectorField__label {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cd-text3, #91919e);
+}
+
+.connectorField__input {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 13px;
+  color: var(--cd-ink, #141413);
+  background: #fff;
+  border: 1px solid var(--cd-border, #dddde2);
+  border-radius: 3px;
+  padding: 7px 9px;
+  width: 100%;
+}
+
+.connectorField__input--mono {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 12px;
+}
+
+.connectorField__input:focus {
+  outline: none;
+  border-color: var(--cd-blue, #0645b1);
+  box-shadow: 0 0 0 2px rgba(6, 69, 177, 0.1);
+}
+
+.connectorField__help {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 11px;
+  color: var(--cd-text3, #91919e);
+  line-height: 1.45;
+  display: block;
+}
+
+.connectorField__help code,
+.connectorWarn__body code {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 10.5px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 2px;
+  padding: 1px 3px;
+}
+
+.connectorHeaderRow {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.connectorCheck {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 12.5px;
+  color: var(--cd-ink, #141413);
+  cursor: pointer;
+}
+
+.connectorCheck input { margin-top: 3px; flex: none; }
+
+.connectorForm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ── Unmanaged .mcp.json warning ───────────────────────────────── */
+
+.connectorWarn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  border: 1px solid rgba(182, 0, 0, 0.25);
+  background: var(--cd-error-bg, #fff2f2);
+  border-radius: 4px;
+  padding: 12px 14px;
+}
+
+.connectorWarn__title {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cd-error, #b60000);
+}
+
+.connectorWarn__body {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 12px;
+  color: var(--cd-text2, #535366);
+  line-height: 1.5;
+  word-break: break-word;
+}

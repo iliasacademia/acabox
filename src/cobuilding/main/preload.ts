@@ -18,6 +18,15 @@ contextBridge.exposeInMainWorld('authAPI', {
   setEndpoint: (endpoint: string) => ipcRenderer.invoke('auth:setEndpoint', endpoint),
 });
 
+contextBridge.exposeInMainWorld('connectorsAPI', {
+  list: () => ipcRenderer.invoke('connectors:list'),
+  save: (connector: unknown, originalId?: string) => ipcRenderer.invoke('connectors:save', connector, originalId),
+  remove: (id: string) => ipcRenderer.invoke('connectors:remove', id),
+  setEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke('connectors:setEnabled', id, enabled),
+  getStatus: () => ipcRenderer.invoke('connectors:getStatus'),
+  removeUnmanaged: () => ipcRenderer.invoke('connectors:removeUnmanaged'),
+});
+
 contextBridge.exposeInMainWorld('workspacesAPI', {
   getActive: () => ipcRenderer.invoke('workspaces:getActive'),
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
@@ -68,6 +77,7 @@ contextBridge.exposeInMainWorld('miniAppsAPI', {
   importApp: () => ipcRenderer.invoke('miniApps:import'),
   list: () => ipcRenderer.invoke('miniApps:list'),
   touch: (dirName: string) => ipcRenderer.invoke('miniApps:touch', dirName),
+  markRun: (dirName: string) => ipcRenderer.invoke('miniApps:markRun', dirName),
   setArchived: (dirName: string, archived: boolean) => ipcRenderer.invoke('miniApps:setArchived', dirName, archived),
   delete: (dirName: string) => ipcRenderer.invoke('miniApps:delete', dirName),
   build: (dirName: string): Promise<{ ok: boolean; outfile?: string; error?: string; exitCode: number }> =>

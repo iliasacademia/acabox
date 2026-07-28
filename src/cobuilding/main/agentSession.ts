@@ -13,6 +13,7 @@ import http from 'http';
 import { type HostApp } from './hostApps';
 import { IDENTITY_PREAMBLE } from './hostApps/identityPreamble';
 import { ACADEMIA_DIR, SOUL_MD } from '../shared/paths';
+import { recordConnectorStatus } from './connectorsStore';
 
 class AuthRetryError extends Error {
   constructor(public originalError: string) {
@@ -697,6 +698,20 @@ async function connectSSE(
                 const resolvedModel = (message as any).model;
                 if ((message as any).subtype === 'init' && typeof resolvedModel === 'string' && resolvedModel) {
                   setSessionModelInfo(sessionId, { model: resolvedModel });
+                }
+                // The init event also carries the real connection state of
+                // every MCP server the session ended up with. Record it so
+                // Settings → Connectors can show observed status instead of a
+                // guess, without having to hold a session open itself.
+                const mcpServers = (message as any).mcp_servers;
+                if ((message as any).subtype === 'init' && Array.isArray(mcpServers)) {
+                  recordConnectorStatus(mcpServers.map((s: any) => ({
+                    name: s?.name,
+                    status: s?.status ?? 'unknown',
+                    error: s?.error,
+                    toolCount: Array.isArray(s?.tools) ? s.tools.length : undefined,
+                    scope: s?.scope,
+                  })));
                 }
               }
               if (message.type === 'assistant' && (message as any).message?.content) {

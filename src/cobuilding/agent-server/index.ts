@@ -63,6 +63,13 @@ interface SessionState {
   // the timer. Throttles re-arming so a streaming turn doesn't pay
   // clearTimeout+setTimeout on every SSE event.
   lastBumpAt: number;
+  // Acabox's own MCP relay servers for this session, already filtered by
+  // allowedTools. Kept on the session because `setMcpServers` REPLACES the
+  // whole dynamic set — see applyConnectorsToSession.
+  mcpRelayServers: Record<string, unknown>;
+  // User connectors (Settings → Connectors) currently applied to this session,
+  // in the SDK's McpServerConfig shape.
+  mcpConnectors: Record<string, Record<string, unknown>>;
 }
 
 // Server-side idle eviction window. Host-side visibility cleanup is the
@@ -107,6 +114,18 @@ function loadConfig(): AgentConfig {
 
 function getWorkspaceRoot(): string {
   return process.env.COSCIENTIST_WORKSPACE || '/data';
+}
+
+/**
+ * Claude Code's config dir — approved API keys, MCP OAuth tokens, session
+ * transcripts. The host injects it (userData, outside the workspace) because
+ * the agent has Read/Write/Bash on the workspace and must not be able to read
+ * connector OAuth tokens. The fallback is the pre-2026-07-28 in-workspace
+ * location, so a standalone run of this bundle still works.
+ */
+function getClaudeConfigDir(): string {
+  return process.env.COSCIENTIST_CLAUDE_CONFIG_DIR
+    || `${getWorkspaceRoot()}/.academia/claude-config`;
 }
 
 // ---------------------------------------------------------------------------
@@ -361,6 +380,8 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
     pendingMcpCalls: new Map(),
     idleTimer: null,
     lastBumpAt: 0,
+    mcpRelayServers: {},
+    mcpConnectors: {},
   };
 
   console.log(`[AgentServer] Creating session ${sessionId}`);
@@ -368,6 +389,12 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
   const mcpRelayServers = createMcpRelayServers(state);
 
   const sessionConfig = mergeSessionConfig(config, overrides);
+
+  // Snapshot both halves of the MCP server set onto the session. The relay
+  // half is fixed for the session's lifetime; the connector half is replaced
+  // live by POST /connectors.
+  state.mcpRelayServers = filterMcpServers(mcpRelayServers, sessionConfig.allowedTools);
+  state.mcpConnectors = config.mcpServers ?? {};
 
   async function startQuery(resume?: string): Promise<void> {
     // Defence in depth behind the host's chat:send guard. The key is snapshotted
@@ -390,7 +417,7 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
     // Claude Code ignores an env ANTHROPIC_API_KEY it hasn't "approved" and
     // reports "Not logged in" — headless runs can't answer the interactive
     // approval prompt, so record the approval before every query.
-    ensureApiKeyApproved(`${getWorkspaceRoot()}/.academia/claude-config`, sessionConfig.anthropicApiKey);
+    ensureApiKeyApproved(getClaudeConfigDir(), sessionConfig.anthropicApiKey);
 
     // Create a fresh generator each time — if we're retrying after a failed
     // resume, the previous generator was consumed by the failed query.
@@ -419,14 +446,17 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
           ANTHROPIC_API_KEY: sessionConfig.anthropicApiKey,
           ...(sessionConfig.anthropicBaseURL ? { ANTHROPIC_BASE_URL: sessionConfig.anthropicBaseURL } : {}),
           MINI_APP_WORKSPACE_DIR: getWorkspaceRoot(),
-          CLAUDE_CONFIG_DIR: `${getWorkspaceRoot()}/.academia/claude-config`,
+          CLAUDE_CONFIG_DIR: getClaudeConfigDir(),
         },
         settingSources: sessionConfig.settingSources as any[],
         settings: {
           autoMemoryEnabled: true,
           autoMemoryDirectory: `${getWorkspaceRoot()}/${AGENT_MEMORY_SUBDIR}`,
         },
-        mcpServers: filterMcpServers(mcpRelayServers, sessionConfig.allowedTools) as any,
+        // Acabox's relay servers plus the user's connectors. Connector ids are
+        // validated host-side against RESERVED_CONNECTOR_IDS, so a connector
+        // cannot shadow a relay server here.
+        mcpServers: { ...state.mcpRelayServers, ...state.mcpConnectors } as any,
         allowedTools: sessionConfig.allowedTools,
       },
     });
@@ -459,7 +489,7 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
       let validResume = resumeSessionId;
       if (validResume) {
         const fileExists = existsSync, readDir = readdirSync;
-        const configDir = `${getWorkspaceRoot()}/.academia/claude-config`;
+        const configDir = getClaudeConfigDir();
         // SDK stores sessions in {CLAUDE_CONFIG_DIR}/projects/{projectKey}/{sessionId}.jsonl
         let found = false;
         const projectsDir = `${configDir}/projects`;
@@ -603,11 +633,86 @@ function parseRoute(url: string): { path: string; sessionId?: string; action?: s
   const parts = url.split('/').filter(Boolean);
   if (parts[0] === 'health') return { path: 'health' };
   if (parts[0] === 'credentials') return { path: 'credentials' };
+  if (parts[0] === 'connectors') {
+    if (parts.length === 1) return { path: 'connectors' };
+    if (parts.length === 2 && parts[1] === 'status') return { path: 'connectors-status' };
+  }
   if (parts[0] === 'sessions') {
     if (parts.length === 1) return { path: 'sessions' };
     if (parts.length === 3) return { path: 'session-action', sessionId: parts[1], action: parts[2] };
   }
   return { path: 'unknown' };
+}
+
+/**
+ * Push a new connector set into one live session.
+ *
+ * `setMcpServers` REPLACES the entire set of dynamically-added MCP servers,
+ * and Acabox's relay servers (activity, mini-apps, workspace, notification,
+ * reaction) were themselves added dynamically via the `mcpServers` option —
+ * so sending only the connectors silently disconnects the relays and the
+ * agent loses the ability to open mini-apps or query the workspace. Measured:
+ * `setMcpServers({hex})` against a session holding a relay returned
+ * `{added:['hex'], removed:['relaydemo']}`.
+ *
+ * Always send both halves. That is the whole reason this function exists;
+ * do not call `setMcpServers` directly anywhere else.
+ */
+async function applyConnectorsToSession(
+  state: SessionState,
+  connectors: Record<string, Record<string, unknown>>,
+): Promise<{ added: string[]; removed: string[]; errors: Record<string, string> } | null> {
+  const previous = Object.keys(state.mcpConnectors);
+  state.mcpConnectors = connectors;
+
+  // No live query (session created but idle, or between turns after a close):
+  // the next startQuery() reads state.mcpConnectors, so we're already done.
+  const q = state.queryInstance;
+  if (!q || typeof (q as any).setMcpServers !== 'function') return null;
+
+  const result = await (q as any).setMcpServers({
+    ...state.mcpRelayServers,
+    ...state.mcpConnectors,
+  });
+
+  // setMcpServers does not always drop a server it wasn't given. Measured
+  // against the bundled SDK: a server supplied in the original `mcpServers`
+  // option that never got past `needs-auth` survives `setMcpServers({})` with
+  // `removed: []` and stays in mcpServerStatus(). (One that was itself ADDED
+  // by a previous setMcpServers call removes cleanly, as does a connected
+  // one — it is specifically the option-passed, never-connected case.)
+  //
+  // `toggleMcpServer(name, false)` does move it to `disabled`, so use that as
+  // the backstop, and only for names WE previously supplied — never a relay
+  // server, and never a `.mcp.json` server the user set up themselves.
+  const stillExpected = new Set(Object.keys(connectors));
+  const dropped = previous.filter((name) => !stillExpected.has(name) && !(name in state.mcpRelayServers));
+  if (dropped.length && typeof (q as any).toggleMcpServer === 'function') {
+    let present: Set<string>;
+    try {
+      const status = await (q as any).mcpServerStatus();
+      present = new Set((status ?? []).map((s: any) => s?.name));
+    } catch {
+      present = new Set(dropped); // can't tell — try them all
+    }
+    for (const name of dropped) {
+      if (!present.has(name)) continue;
+      try {
+        await (q as any).toggleMcpServer(name, false);
+        result.removed = [...(result.removed ?? []), name];
+        console.log(`[AgentServer] Force-disabled lingering connector "${name}" on ${state.sessionId}`);
+      } catch (err) {
+        console.warn(`[AgentServer] Could not disable "${name}" on ${state.sessionId}:`, err);
+      }
+    }
+  }
+
+  console.log(
+    `[AgentServer] Connectors applied to ${state.sessionId}: `
+    + `added=[${result?.added ?? []}] removed=[${result?.removed ?? []}] `
+    + `errors=${JSON.stringify(result?.errors ?? {})}`,
+  );
+  return result;
 }
 
 function startServer(initialConfig: AgentConfig): void {
@@ -618,7 +723,16 @@ function startServer(initialConfig: AgentConfig): void {
 
     try {
       if (route.path === 'health' && req.method === 'GET') {
-        sendJSON(res, 200, { status: 'ok', sessions: sessions.size });
+        // `instance` and `workspace` let the host tell ITS agent server apart
+        // from another Acabox install's on the shared 23200-23299 range.
+        // Without this a dev instance happily adopts the packaged app's
+        // server and drives the wrong workspace with the wrong API key.
+        sendJSON(res, 200, {
+          status: 'ok',
+          sessions: sessions.size,
+          instance: process.env.COSCIENTIST_AGENT_INSTANCE ?? null,
+          workspace: getWorkspaceRoot(),
+        });
         return;
       }
 
@@ -632,6 +746,49 @@ function startServer(initialConfig: AgentConfig): void {
         }
         console.log('[AgentServer] Credentials updated');
         sendJSON(res, 200, { ok: true });
+        return;
+      }
+
+      // Replace the user's connector set. Applies to every live session
+      // immediately (no new chat needed) and becomes the default for sessions
+      // created afterwards.
+      if (route.path === 'connectors' && req.method === 'POST') {
+        const body = JSON.parse(await readBody(req));
+        const connectors = (body.mcpServers ?? {}) as Record<string, Record<string, unknown>>;
+        currentConfig = { ...currentConfig, mcpServers: connectors };
+
+        const applied: Array<{ sessionId: string; added: string[]; removed: string[]; errors: Record<string, string> }> = [];
+        for (const [sessionId, state] of sessions) {
+          try {
+            const result = await applyConnectorsToSession(state, connectors);
+            if (result) applied.push({ sessionId, ...result });
+          } catch (err) {
+            // One wedged session must not block the rest, and the config
+            // update above already stands for future sessions.
+            console.error(`[AgentServer] Failed to apply connectors to ${sessionId}:`, err);
+          }
+        }
+        console.log(`[AgentServer] Connectors updated: [${Object.keys(connectors).join(', ')}] across ${applied.length} live session(s)`);
+        sendJSON(res, 200, { ok: true, applied });
+        return;
+      }
+
+      // Real connection status straight from the SDK. Reported per live
+      // session; with none running there is nothing observed to report and
+      // the caller renders "unknown" rather than inventing a state.
+      if (route.path === 'connectors-status' && req.method === 'GET') {
+        for (const state of sessions.values()) {
+          const q = state.queryInstance as any;
+          if (!q || typeof q.mcpServerStatus !== 'function') continue;
+          try {
+            const servers = await q.mcpServerStatus();
+            sendJSON(res, 200, { live: true, sessionId: state.sessionId, servers });
+            return;
+          } catch (err) {
+            console.warn(`[AgentServer] mcpServerStatus failed for ${state.sessionId}:`, err);
+          }
+        }
+        sendJSON(res, 200, { live: false, servers: [] });
         return;
       }
 
@@ -784,8 +941,8 @@ function startServer(initialConfig: AgentConfig): void {
 // ---------------------------------------------------------------------------
 
 // Set CLAUDE_CONFIG_DIR at the process level so the SDK parent process
-// (which handles session load/resume) uses the persistent workspace mount.
+// (which handles session load/resume) uses the same persistent directory.
 // The subprocess also receives it via the query() env option.
-process.env.CLAUDE_CONFIG_DIR = `${getWorkspaceRoot()}/.academia/claude-config`;
+process.env.CLAUDE_CONFIG_DIR = getClaudeConfigDir();
 
 startServer(loadConfig());

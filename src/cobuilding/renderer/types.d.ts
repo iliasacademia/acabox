@@ -118,6 +118,41 @@ interface AuthAPI {
   setEndpoint(endpoint: string): Promise<{ success: boolean; endpoint: string }>;
 }
 
+/**
+ * Settings → Connectors. Shapes come from `shared/connectors.ts`; imported as
+ * types only so this ambient file stays declaration-only.
+ */
+type ConnectorConfigT = import('../shared/connectors').ConnectorConfig;
+type CatalogEntryT = import('../shared/connectors').CatalogEntry;
+type ConnectorStatusReportT = import('../shared/connectors').ConnectorStatusReport;
+
+interface ConnectorMutationResultT {
+  success: boolean;
+  error?: string;
+  connectors: ConnectorConfigT[];
+  /** Whether the new set reached a running agent server (false = none up). */
+  pushed: boolean;
+}
+
+interface ConnectorsAPI {
+  list(): Promise<{
+    connectors: ConnectorConfigT[];
+    catalog: CatalogEntryT[];
+    /** An agent-written `.mcp.json` at the workspace root, if any. */
+    unmanaged: { path: string; serverNames: string[] } | null;
+  }>;
+  save(connector: ConnectorConfigT, originalId?: string): Promise<ConnectorMutationResultT>;
+  remove(id: string): Promise<ConnectorMutationResultT>;
+  setEnabled(id: string, enabled: boolean): Promise<ConnectorMutationResultT>;
+  /** `live: false` means no session is running, so nothing was observed. */
+  getStatus(): Promise<{
+    live: boolean;
+    reports: ConnectorStatusReportT[];
+    observedAt: number | null;
+  }>;
+  removeUnmanaged(): Promise<{ success: boolean; error?: string }>;
+}
+
 interface ElectronAPI {
   on(channel: string, callback: (...args: any[]) => void): void;
   removeListener(channel: string, callback: (...args: any[]) => void): void;
@@ -430,6 +465,8 @@ declare global {
     description: string | null;
     icon: string | null;
     lastOpened: string | null;
+    /** When the tool last finished executing something. Null if it never has. */
+    lastRun: string | null;
     preBuilt: boolean;
     archived: boolean;
     hasManifest: boolean;
@@ -440,6 +477,8 @@ declare global {
     importApp(): Promise<{ ok: boolean; dirName?: string; canceled?: boolean; error?: string }>;
     list(): Promise<MiniAppEntry[]>;
     touch(dirName: string): Promise<{ ok: boolean; error?: string }>;
+    /** Stamp `lastRun` — the tool just finished executing something. */
+    markRun(dirName: string): Promise<{ ok: boolean; error?: string }>;
     setArchived(dirName: string, archived: boolean): Promise<{ ok: boolean; error?: string }>;
     /** Delete a tool's code, preserving its input/output under tool-data. */
     delete(dirName: string): Promise<{ ok: boolean; error?: string }>;
@@ -755,6 +794,7 @@ declare global {
     systemLogAPI: SystemLogAPI;
     jupyterAPI: JupyterAPI;
     authAPI: AuthAPI;
+    connectorsAPI: ConnectorsAPI;
     electronAPI: ElectronAPI;
     reactionPromptAPI: ReactionPromptAPI;
     reactionSourcesAPI: ReactionSourcesAPI;

@@ -3,11 +3,16 @@
 #
 # Blocks ALL direct package-manager install invocations. The install wrapper
 # (.applications/install) is the only sanctioned path: it runs the live
-# install AND records the dependency in the app's per-registry file so it
-# persists across container rebuilds and travels with the app.
+# install AND records the dependency in the app's per-registry file so the
+# install travels with the app folder when it is shared.
 #
 # Only commands the agent types into the Bash tool are scanned. The wrapper's
 # internal install calls do not go through the agent's Bash tool.
+#
+# The apt/conda/R patterns below are still blocked even though the wrapper
+# cannot install those either — Acabox runs on the user's own machine and must
+# not touch its system package managers. The message says so, rather than
+# redirecting to a wrapper invocation that would just be refused again.
 
 set -euo pipefail
 
@@ -57,16 +62,18 @@ Use the install wrapper to ensure dependencies are tracked:
 
   .applications/install pip <package> --app <app_dir_name>
   .applications/install npm <package> --app <app_dir_name>
-  .applications/install R   <package> --app <app_dir_name>
-  .applications/install apt <package> --app <app_dir_name>
   .applications/install manual .applications/<app>/setup/<script>.sh --app <app_dir_name>
 
 The wrapper installs the package AND records the dependency in the app's
-per-registry file (requirements.txt, package.json, r-packages.txt,
-apt-packages.txt, or setup/*.sh) so it persists across container rebuilds and
-travels when the app folder is shared. Running pip/npm/apt/Rscript directly
-does the live install but does not update the dependency file, so the install
-is silently lost on rebuild or share.
+per-registry file (requirements.txt, package.json, or setup/*.sh) so it travels
+when the app folder is shared. Running pip/npm directly does the live install
+but does not update the dependency file, so the install is silently lost when
+the app is shared.
+
+apt, R, and conda have NO wrapper equivalent. Acabox runs on the user's own
+machine, so it will not install into their system package manager. If a task
+needs one of those, either find a pip/npm alternative or tell the user what to
+install themselves — do not retry through the wrapper, it refuses them too.
 
 For downloading DATA (model weights, datasets, etc.) into the app folder, use
 curl or wget to write directly into .applications/<app_dir_name>/. Those are

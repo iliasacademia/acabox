@@ -23,7 +23,7 @@ interface BridgeKernelAPI {
   executeCode(code: string): Promise<unknown>;
 }
 
-interface BridgeContainerAPI {
+interface BridgeHostAPI {
   exec(command: string, args: string[]): Promise<unknown>;
 }
 
@@ -113,9 +113,16 @@ const kernel: BridgeKernelAPI = {
   executeCode: (code: string) => request("executeCode", { code }),
 };
 
-const containerAPI: BridgeContainerAPI = {
+const hostAPI: BridgeHostAPI = {
   exec: (command: string, args: string[]) => request("executeCommand", { command, args }),
 };
+
+// Deprecated alias. `containerAPI` is the name from before Acabox dropped its
+// Podman container; commands now run as host child processes. Kept so an app
+// exported from an older build still runs — this file is force-overwritten in
+// every workspace on boot, so there is no per-app opt-out. Remove once no
+// shared app references it.
+const containerAPI = hostAPI;
 
 const errorAPI: BridgeErrorAPI = {
   requestFix: (error) => request("requestFix", { error }),
@@ -167,4 +174,4 @@ window.addEventListener("message", (event) => {
   }
 });
 
-Object.assign(window, { filesAPI, kernel, containerAPI, errorAPI, academiaAPI, anthropicAPI, getWorkspacePath: () => _workspacePath });
+Object.assign(window, { filesAPI, kernel, hostAPI, containerAPI, errorAPI, academiaAPI, anthropicAPI, getWorkspacePath: () => _workspacePath });

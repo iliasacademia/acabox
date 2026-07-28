@@ -10,6 +10,7 @@ function getCobuildingSourceDir(): string {
 }
 
 const SKILLS = [
+  'acabox',
   'academic-writing-agent',
   'activity-summary',
   'alphafold-database-access',
@@ -121,6 +122,8 @@ export function copyClaudeSettingsToWorkspace(workspaceDir: string): void {
   if (fs.existsSync(src)) {
     fs.cpSync(src, dest);
   } else {
+    // Fallback only — settings.json is normally copied from source above.
+    // Keep in sync with src/cobuilding/settings.json.
     const defaultSettings = {
       hooks: {
         PreToolUse: [
@@ -130,6 +133,19 @@ export function copyClaudeSettingsToWorkspace(workspaceDir: string): void {
               {
                 type: 'command',
                 command: 'bash .claude/hooks/block-host-installs.sh',
+              },
+              {
+                type: 'command',
+                command: 'bash .claude/hooks/block-secret-reads.sh',
+              },
+            ],
+          },
+          {
+            matcher: 'Read|Edit|Write',
+            hooks: [
+              {
+                type: 'command',
+                command: 'bash .claude/hooks/block-secret-reads.sh',
               },
             ],
           },

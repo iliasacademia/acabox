@@ -4,25 +4,25 @@
 
 Your working directory contains agent-managed files (`.claude/`, `.applications/`, `.academia/`). User research directories are mounted as subdirectories (e.g. `MyResearch/`, `LabData/`).
 
-**Always use relative file paths.** To access user files: `MyResearch/paper.docx`. To access skills: `.claude/skills/...`. Never use absolute paths like `/data/...`.
+**Always use relative file paths.** To access user files: `MyResearch/paper.docx`. To access skills: `.claude/skills/...`. Do not hardcode absolute paths — the workspace lives somewhere different on every machine, so an absolute path stops working the moment the app or notebook is shared.
 
 **Never use `cd`** — the working directory is already set to the workspace root. Just run commands directly with relative paths.
 
 ## Installing packages
 
-**All software installation must go through the install wrapper at `.applications/install`.** This applies to `pip`, `npm`, `R`, `apt`, and any manual/bespoke install script.
+**All software installation must go through the install wrapper at `.applications/install`.** It supports `pip`, `npm`, and manual/bespoke install scripts.
 
 ```bash
 .applications/install pip <package> --app <app_dir_name>
 .applications/install npm <package> --app <app_dir_name>
-.applications/install R   <package> --app <app_dir_name>
-.applications/install apt <package> --app <app_dir_name>
 .applications/install manual .applications/<app_dir_name>/setup/<script>.sh --app <app_dir_name>
 ```
 
-The wrapper does two things atomically: (1) installs the package live, and (2) records the dependency in the app's per-registry file (`requirements.txt`, `package.json`, `r-packages.txt`, `apt-packages.txt`, or `setup/*.sh`) so the install persists across container rebuilds and travels with the app folder when shared.
+The wrapper does two things atomically: (1) installs the package live, and (2) records the dependency in the app's per-registry file (`requirements.txt`, `package.json`, or `setup/*.sh`) so the install travels with the app folder when it is shared. pip installs go into Acabox's own Python venv and npm into Acabox's own npm prefix — never the user's system Python or a global `node_modules`.
 
-**Never run `pip install`, `npm install`, `apt-get install`, `Rscript -e 'install.packages(...)'`, or `conda install` directly.** All of these invocations are blocked by a PreToolUse hook. Running an install directly does the live install but silently fails to update the dependency file, so the package is lost on the next container rebuild or when the app is shared.
+**`apt`, `R`, and `conda` are not available.** Acabox runs directly on the user's machine and will not install into their system package manager; the wrapper refuses these registries. If a task seems to need one, find a pip/npm alternative or tell the user what to install themselves.
+
+**Never run `pip install`, `npm install`, `apt-get install`, `Rscript -e 'install.packages(...)'`, or `conda install` directly.** All of these invocations are blocked by a PreToolUse hook. A direct pip/npm install does work live but silently fails to update the dependency file, so the package is lost when the app is shared.
 
 **Downloading data files does NOT require the wrapper.** Use `curl` or `wget` to write them directly — these are app-local files (model weights, datasets, fixtures), not global installs.
 

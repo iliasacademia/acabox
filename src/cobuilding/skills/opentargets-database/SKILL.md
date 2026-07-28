@@ -11,9 +11,9 @@ source: jaechang-hits/SciAgent-Skills
 
 # Open Targets Platform
 
-## Running in the container
+## Running queries
 
-Open Targets uses GraphQL (POST-only). Write scripts to the workspace and execute via:
+Open Targets uses GraphQL (POST-only), so `WebFetch` cannot reach it. Scripts run directly on the user's machine — there is no container — from the workspace root. Write them to the workspace and execute via:
 
 ```bash
 python3 ./opentargets_query.py
@@ -28,11 +28,11 @@ curl -s -X POST \
   https://api.platform.opentargets.org/api/v4/graphql
 ```
 
-`requests` and `pandas` are pre-installed in the container.
+`pandas`, `numpy`, and `matplotlib` are always available in Acabox's Python environment, and `requests` is normally present too. Anything else must be installed with `.applications/install pip <package> --app <app_dir_name>`.
 
 ## Prerequisites
 
-- `requests`, `pandas` — pre-installed in container
+- `requests`, `pandas` — available in Acabox's Python environment
 - No API key required
 - Rate limit: generous; no explicit limit for reasonable usage
 

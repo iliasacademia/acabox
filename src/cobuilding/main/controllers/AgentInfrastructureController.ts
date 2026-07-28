@@ -16,6 +16,8 @@ import { queryActivity } from '../activityQuery';
 import { createSession as createDbSession, insertMessage as insertDbMessage, updateSessionTitle } from '../db/chatRepository';
 import { buildMiniApp } from '../miniAppBuilder';
 import { ensurePythonVenv } from '../pythonSetup';
+import { listConnectorsWithSecrets } from '../connectorsStore';
+import { buildMcpServers, connectorAllowedTools } from '../../shared/connectors';
 
 export interface AgentInfrastructureDeps {
   workspaceController: WorkspaceController;
@@ -215,9 +217,20 @@ export class AgentInfrastructureController {
     this.registerHostMcpServers(activeWorkspace, workspacePath, this.deps.workspaceController.userDirectoryPaths);
 
     const { apiKey: agentApiKey, baseURL: agentBaseURL } = getCredentials();
+    // User-configured MCP connectors (Settings → Connectors). Host-owned, in
+    // userData, so the agent can't provision one for itself.
+    // Decrypted view: this config is what the agent server hands to the SDK,
+    // so auth headers have to be real. The masked `listConnectors()` is for
+    // IPC/UI only.
+    const connectors = listConnectorsWithSecrets();
+    const connectorServers = buildMcpServers(connectors);
+    const connectorTools = connectorAllowedTools(connectors);
+    if (connectorTools.length) {
+      log.info(`[AgentInfrastructure] Connectors enabled: ${Object.keys(connectorServers).join(', ')}`);
+    }
     const agentConfig = {
       port: 8080,
-      mcpServers: {},
+      mcpServers: connectorServers,
       anthropicApiKey: agentApiKey ?? '',
       ...(agentBaseURL ? { anthropicBaseURL: agentBaseURL } : {}),
       model: 'claude-opus-5',
@@ -227,7 +240,12 @@ export class AgentInfrastructureController {
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       allowedTools: [
         'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'Agent',
-        'WebSearch', 'Skill', 'TodoWrite',
+        // WebSearch finds pages; WebFetch reads them. Several skills
+        // (database-lookup, reaction) instruct the agent to call WebFetch
+        // directly, so it has to be auto-approved here — there is no
+        // `canUseTool` handler in this app, so anything left off this list
+        // falls to the default permission path with nothing to answer it.
+        'WebSearch', 'WebFetch', 'Skill', 'TodoWrite',
         'EnterPlanMode', 'ExitPlanMode',
         'mcp__activity__query_activity',
         'mcp__mini-apps__open_mini_application',
@@ -238,7 +256,17 @@ export class AgentInfrastructureController {
         'mcp__reaction__create_reaction_thread',
         'mcp__workspace__get_scanned_files',
         'mcp__workspace__get_research_profile',
+        // `mcp__<id>` auto-approves every tool on a user connector. Note this
+        // list is auto-approve, not a restriction (the SDK's restriction
+        // option is `tools`, which this app never sets) — an unlisted MCP tool
+        // still runs, because nothing here supplies a `canUseTool` handler.
+        // These entries are what makes that correct rather than accidental.
+        ...connectorTools,
       ],
+      // 'project' loads CLAUDE.md — required. It also makes the SDK read a
+      // project `.mcp.json`, which the agent can write, so Settings surfaces
+      // any such file via detectUnmanagedMcpJson rather than leaving it
+      // invisible. Connectors themselves come from `mcpServers` above.
       settingSources: ['project'],
     };
 

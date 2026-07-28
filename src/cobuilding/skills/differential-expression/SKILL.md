@@ -14,6 +14,18 @@ description: >
 
 # Differential Expression Analysis (DESeq2)
 
+> **This skill does not currently run.** It needs R and DESeq2, and Acabox has
+> neither: there is no R interpreter, no `ir` Jupyter kernel, and no way to add
+> them — the install wrapper refuses the `R` registry and the PreToolUse hook
+> blocks `install.packages()`. Every command below will fail with
+> `Rscript: command not found`.
+>
+> Do not attempt to work around this. If the user asks for differential
+> expression, say plainly that Acabox cannot run DESeq2 today, and offer the
+> Python route instead (`pydeseq2` via
+> `.applications/install pip pydeseq2 --app <app_dir_name>`) — which is a
+> different tool with different defaults, so say that too.
+
 This skill runs a pre-built R script that performs differential expression analysis using DESeq2.
 
 ## How to run
@@ -34,7 +46,7 @@ Rscript .claude/skills/differential-expression/scripts/differential_expression_c
 
 ## Using in an R notebook
 
-The library script can be sourced into an R notebook running inside the container. It defines functions without any side effects, so only the `run_differential_expression()` function is loaded.
+The library script can be sourced into an R notebook. It defines functions without any side effects, so only the `run_differential_expression()` function is loaded. (Acabox has no R kernel — see the note at the top of this file.)
 
 ```r
 source(".claude/skills/differential-expression/scripts/differential_expression.R")

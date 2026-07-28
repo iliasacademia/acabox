@@ -11,9 +11,9 @@ source: jaechang-hits/SciAgent-Skills
 
 # RCSB Protein Data Bank (PDB)
 
-## Running in the container
+## Running queries
 
-`requests`, `pandas`, and `rcsb-api` are pre-installed in the container. Write scripts to the workspace and execute via:
+Scripts run directly on the user's machine — there is no container — from the workspace root. Write them to the workspace and execute via:
 
 ```bash
 python3 ./pdb_query.py
@@ -23,7 +23,8 @@ All output files should be written to relative paths within the workspace (e.g. 
 
 ## Prerequisites
 
-- `requests`, `pandas`, `rcsb-api` — pre-installed in container
+- `pandas`, `numpy`, `matplotlib` are always available in Acabox's Python environment, and `requests` is normally present too.
+- **`rcsb-api` is NOT installed.** Install it before use with `.applications/install pip rcsb-api --app <app_dir_name>`, or use the plain REST/Search endpoints below via `requests`, which need nothing extra.
 - No API key required
 - REST API: `https://data.rcsb.org/rest/v1/`
 - Search API: `https://search.rcsb.org/rcsbsearch/v2/query`

@@ -10,7 +10,7 @@ description: >
 
 # React-Plotly Visualization Guide
 
-Import `Plot` from `"react-plotly.js"` (pre-installed in the Docker container along with `plotly.js`).
+Import `Plot` from `"react-plotly.js"` (already installed in Acabox's shared npm prefix along with `plotly.js` — no install wrapper call needed).
 
 ```tsx
 import Plot from "react-plotly.js";

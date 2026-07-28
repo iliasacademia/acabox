@@ -9,11 +9,11 @@
 
 import { execFile, spawn, type ChildProcess } from 'child_process';
 import { promisify } from 'util';
+import { randomUUID } from 'crypto';
 import { app } from 'electron';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as net from 'net';
 import * as http from 'http';
 import log from 'electron-log';
 import { commandLogger, parseAppDirFromArgs, type CommandSource } from './commandLogger';
@@ -21,28 +21,38 @@ import { captureError } from '../shared/telemetry';
 import { ensurePythonVenv, getVenvDir as getPythonVenvDir } from './pythonSetup';
 import { getNpmPrefix, getNpmNodeModulesPath } from './nodeSetup';
 import { getLoginShellPath, prewarmLoginShellPath } from './shellPath';
+import { getClaudeConfigDir, migrateClaudeConfigDir } from './claudeConfigDir';
+import { findFreePort, isPortBindable, LOOPBACK } from './freePort';
 
 const execFileAsync = promisify(execFile);
 
-function findFreePort(start: number, end: number): Promise<number> {
-  return new Promise((resolve, reject) => {
-    let port = start;
-    const tryNext = () => {
-      if (port > end) {
-        reject(new Error(`No free port in range ${start}-${end}`));
-        return;
-      }
-      const server = net.createServer();
-      server.listen(port, '0.0.0.0', () => {
-        server.close(() => resolve(port));
-      });
-      server.on('error', () => {
-        port++;
-        tryNext();
-      });
-    };
-    tryNext();
-  });
+// Port probing lives in ./freePort so it can be unit-tested without electron.
+
+/**
+ * Where the agent server's start config is written.
+ *
+ * userData, NOT the workspace: this file holds the raw Anthropic API key and
+ * the decrypted connector auth headers (it is the SDK's own input, so it can't
+ * be encrypted the way settings.json is). Leaving it under the agent's cwd
+ * would make encrypting settings.json pointless — one `cat` away.
+ */
+function getAgentConfigPath(): string {
+  return path.join(app.getPath('userData'), 'agent.json');
+}
+
+/**
+ * Delete the pre-2026-07-28 in-workspace copy. Builds before this wrote a live
+ * API key to `<workspace>/.academia/agent.json`, so an upgrading install has
+ * one sitting there until we remove it.
+ */
+async function removeLegacyAgentConfig(workspacePath: string): Promise<void> {
+  const legacy = path.join(workspacePath, '.academia', 'agent.json');
+  try {
+    await fs.promises.unlink(legacy);
+    log.info(`[HostProcess] Removed legacy ${legacy} (held a plaintext API key inside the workspace)`);
+  } catch {
+    // Already gone — the normal case after the first run.
+  }
 }
 
 type ProgressCallback = (stage: string, message: string, percent?: number) => void;
@@ -104,6 +114,11 @@ class HostProcessService {
 
   private kernelGatewayProc: ChildProcess | null = null;
   private agentServerProc: ChildProcess | null = null;
+
+  // Identifies agent servers spawned by THIS app run. Echoed by /health so we
+  // never adopt another Acabox install's server (or our own orphan from a
+  // previous run) just because something answers on the port.
+  private readonly instanceToken = randomUUID();
 
   private agentPort: number | null = null;
   private kernelPort: number | null = null;
@@ -373,9 +388,30 @@ class HostProcessService {
 
     await this.stopAgentServer({ preserveCache: true });
 
-    const configPath = path.join(agentDir, '.academia', 'agent.json');
+    // Our own process is gone but the cached port may since have been taken by
+    // something else (commonly the other Acabox install). Spawning onto it
+    // would fail to bind, so re-pick rather than start a server that dies.
+    if (!(await isPortBindable(this.agentPort))) {
+      const previous = this.agentPort;
+      this.agentPort = await findFreePort(23200, 23299);
+      log.warn(`[HostProcess] Port ${previous} is now taken; moved agent server to ${this.agentPort}`);
+    }
+
+    // One-time move of Claude Code's config dir (approved keys, MCP OAuth
+    // tokens, transcripts) out of the agent-writable workspace. Must happen
+    // before the server starts so it opens the migrated directory.
+    migrateClaudeConfigDir(agentDir);
+    await fs.promises.mkdir(getClaudeConfigDir(), { recursive: true });
+
+    // The agent config carries the raw Anthropic API key and decrypted
+    // connector auth headers — it is the SDK's input, so it cannot be
+    // encrypted. It therefore must not live in the workspace, which is the
+    // agent's own cwd. The agent server reads it from COSCIENTIST_AGENT_CONFIG
+    // (an absolute path), so moving it costs nothing. Written 0600.
+    const configPath = getAgentConfigPath();
     await fs.promises.mkdir(path.dirname(configPath), { recursive: true });
-    await fs.promises.writeFile(configPath, configJson, 'utf-8');
+    await fs.promises.writeFile(configPath, configJson, { encoding: 'utf-8', mode: 0o600 });
+    await removeLegacyAgentConfig(agentDir);
 
     const bundlePath = path.join(agentDir, '.academia', 'agent-server.js');
     // The install wrapper and the agent's Bash tool both inherit these.
@@ -391,6 +427,13 @@ class HostProcessService {
       COSCIENTIST_AGENT_PORT: String(this.agentPort),
       COSCIENTIST_AGENT_CONFIG: configPath,
       COSCIENTIST_WORKSPACE: agentDir,
+      // Echoed back by /health so we can tell our own server apart from
+      // another Acabox install's on the shared 23200-23299 range.
+      COSCIENTIST_AGENT_INSTANCE: this.instanceToken,
+      // Claude Code's config dir (approved-key list, MCP OAuth tokens, session
+      // transcripts). Deliberately in userData, NOT under the workspace: the
+      // workspace is the agent's cwd and it has Write + Bash there.
+      COSCIENTIST_CLAUDE_CONFIG_DIR: getClaudeConfigDir(),
     };
 
     const proc = spawn(process.execPath, [
@@ -461,20 +504,52 @@ class HostProcessService {
     throw new Error('Agent server failed to become healthy within 15s');
   }
 
+  /**
+   * Is OUR agent server healthy on the current port?
+   *
+   * "Ours" is load-bearing. A 200 from /health only proves *some* agent server
+   * is listening — and dev and packaged Acabox share the 23200-23299 range on
+   * one machine, so it could easily be the other install's. Adopting it means
+   * driving the wrong workspace with the wrong API key (observed: a dev
+   * instance served chat turns from the packaged app's agent, and its
+   * /connectors route 404'd because that build predates it).
+   *
+   * So the server echoes the instance token we spawned it with, and we only
+   * adopt it when the token matches. A stranger's server, or an orphan left by
+   * a previous run of this same app, both fail the check and are replaced
+   * rather than driven.
+   */
   private async isAgentServerHealthy(timeoutMs = 1500): Promise<boolean> {
     const port = this.agentPort;
     if (!port) return false;
     return new Promise<boolean>((resolve) => {
       const req = http.request({
-        hostname: 'localhost',
+        // Loopback literal, not 'localhost': the latter can resolve to ::1
+        // first while the server is bound to 127.0.0.1.
+        hostname: LOOPBACK,
         port,
         path: '/health',
         method: 'GET',
         timeout: timeoutMs,
       }, (res) => {
-        const ok = res.statusCode === 200;
-        res.resume();
-        resolve(ok);
+        if (res.statusCode !== 200) { res.resume(); resolve(false); return; }
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => {
+          try {
+            const body = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+            const mine = body?.instance === this.instanceToken;
+            if (!mine) {
+              log.warn(
+                `[HostProcess] Port ${port} is serving another Acabox instance `
+                + `(instance=${body?.instance ?? 'none'}, workspace=${body?.workspace ?? 'unknown'}) — not adopting it.`,
+              );
+            }
+            resolve(mine);
+          } catch {
+            resolve(false);
+          }
+        });
       });
       req.on('error', () => resolve(false));
       req.on('timeout', () => { req.destroy(); resolve(false); });
@@ -506,6 +581,79 @@ class HostProcessService {
       req.on('error', () => resolve(false));
       req.on('timeout', () => { req.destroy(); resolve(false); });
       req.write(body);
+      req.end();
+    });
+  }
+
+  /**
+   * Push the user's MCP connector set to the running agent server. Applies to
+   * live sessions immediately, so a connector added in Settings works in the
+   * chat the user already has open.
+   *
+   * `mcpServers` is the SDK-shaped record from
+   * `shared/connectors.ts#buildMcpServers`.
+   */
+  async updateAgentConnectors(mcpServers: Record<string, unknown>): Promise<boolean> {
+    const port = this.agentPort;
+    if (!port) return false;
+    return new Promise<boolean>((resolve) => {
+      const body = JSON.stringify({ mcpServers });
+      const req = http.request({
+        hostname: 'localhost',
+        port,
+        path: '/connectors',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+        // Connecting a remote MCP server can involve a network round-trip per
+        // server, so allow more than the 2s the credentials push uses.
+        timeout: 15000,
+      }, (res) => {
+        const ok = (res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300;
+        res.resume();
+        resolve(ok);
+      });
+      req.on('error', () => resolve(false));
+      req.on('timeout', () => { req.destroy(); resolve(false); });
+      req.write(body);
+      req.end();
+    });
+  }
+
+  /**
+   * Ask the agent server for real MCP connection status. Returns `live: false`
+   * when no session is running — there is nothing observed to report, and the
+   * caller must not substitute a guess.
+   */
+  async getAgentConnectorStatus(): Promise<{ live: boolean; servers: unknown[] }> {
+    const port = this.agentPort;
+    if (!port) return { live: false, servers: [] };
+    return new Promise((resolve) => {
+      const req = http.request({
+        hostname: 'localhost',
+        port,
+        path: '/connectors/status',
+        method: 'GET',
+        timeout: 10000,
+      }, (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+            // Normalize: an agent server from an older build has no
+            // /connectors route and answers `{"error":"Not found"}`, which
+            // would otherwise yield `live: undefined` downstream.
+            resolve({
+              live: parsed?.live === true,
+              servers: Array.isArray(parsed?.servers) ? parsed.servers : [],
+            });
+          } catch {
+            resolve({ live: false, servers: [] });
+          }
+        });
+      });
+      req.on('error', () => resolve({ live: false, servers: [] }));
+      req.on('timeout', () => { req.destroy(); resolve({ live: false, servers: [] }); });
       req.end();
     });
   }

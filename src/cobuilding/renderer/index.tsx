@@ -44,6 +44,7 @@ import { GlobalComposer } from './components/GlobalComposer';
 import { useTabs } from './tabs/useTabs';
 import type { TabDescriptor } from './tabs/types';
 import { kernelRegistry } from './components/notebook/kernelRegistry';
+import { onToolRunEnded } from './toolStatusStore';
 import type { Workspace, WorkspaceDirectory } from '../shared/types';
 import { trackEvent } from './utils/fullstory';
 import { initSentryRenderer } from './sentry';
@@ -61,6 +62,9 @@ initSentryRenderer();
 // and subscribes to auth-state changes. Fire-and-forget; track() calls
 // before init resolves are no-ops, which is correct (we're pre-login anyway).
 initCoScientistAnalytics();
+
+/** Trailing-edge window for collapsing a burst of `lastRun` manifest writes. */
+const RUN_STAMP_FLUSH_MS = 3000;
 
 /** Listens for quick-chat:inject IPC and creates a new thread with the message + context. */
 function QuickChatInjector({ onSwitchToChat }: { onSwitchToChat: () => void }) {
@@ -796,6 +800,35 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
     }
   }, [sidebarTab, refreshApps, refreshDrive]);
 
+  // Stamp `lastRun` on the manifest each time a tool finishes doing something,
+  // so the home card can say LAST RUN rather than inferring it from the last
+  // time the user opened the tool. Writes are collapsed on a trailing edge: an
+  // app that fires many short operations in a burst produces one manifest
+  // write, and the final run always lands.
+  useEffect(() => {
+    const pending = new Set<string>();
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const flush = () => {
+      flushTimer = null;
+      const dirNames = [...pending];
+      pending.clear();
+      Promise.all(dirNames.map((dirName) => window.miniAppsAPI.markRun(dirName)))
+        .then(refreshApps)
+        .catch((err) => console.error('[ToolStatus] markRun failed:', err));
+    };
+
+    const unsubscribe = onToolRunEnded((dirName) => {
+      pending.add(dirName);
+      if (flushTimer === null) flushTimer = setTimeout(flush, RUN_STAMP_FLUSH_MS);
+    });
+
+    return () => {
+      unsubscribe();
+      if (flushTimer !== null) clearTimeout(flushTimer);
+    };
+  }, [refreshApps]);
+
   const handleChatsClick = useCallback(() => {
     setSidebarTab('chats');
     setChatViewMode('list');
@@ -890,18 +923,6 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const activeMiniAppDirName = activeTab?.kind === 'miniapp' && activeTab.data.kind === 'miniapp' ? activeTab.data.dirName : null;
 
-  // A tool counts as "running" while its viewer tab is open this session —
-  // there is no host-side mini-app lifecycle yet.
-  const liveToolDirNames = useMemo(
-    () =>
-      new Set(
-        tabs
-          .filter((t) => t.kind === 'miniapp' && t.data.kind === 'miniapp')
-          .map((t) => (t.data as { kind: 'miniapp'; dirName: string }).dirName),
-      ),
-    [tabs],
-  );
-
   const pinnedTools = useMemo(
     () =>
       [...activeApps]
@@ -915,9 +936,8 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
           dirName: a.dirName,
           name: a.name,
           icon: a.icon,
-          live: liveToolDirNames.has(a.dirName),
         })),
-    [activeApps, liveToolDirNames],
+    [activeApps],
   );
 
   const workspaceName = workspace.directory_path.split('/').filter(Boolean).pop() ?? 'workspace';
@@ -979,7 +999,6 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                 sessions={sessions}
                 apps={activeApps}
                 driveFiles={driveFiles}
-                liveToolDirNames={liveToolDirNames}
                 workspaceName={workspaceName}
                 onOpenChat={openChatById}
                 onOpenTool={handleSelectApp}

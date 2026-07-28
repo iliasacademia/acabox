@@ -10,6 +10,7 @@ import * as path from 'path';
 import { pathToFileURL } from 'url';
 import Anthropic from '@anthropic-ai/sdk';
 import { registerFileHandlers, assertWithinAllowedDirs } from './fileHandlers';
+import { installExternalLinkGuards } from './externalLinks';
 import { registerSystemStatsHandlers } from './systemStats';
 import { randomUUID } from 'crypto';
 import log from 'electron-log';
@@ -20,6 +21,20 @@ import { registerSession, unregisterSession, getRegisteredSession, hasSession, d
 import type { IPCAttachment } from '../shared/types';
 import { provisionWorkspace } from './skills';
 import { containerService } from './containerService';
+import {
+  listConnectors,
+  listConnectorsWithSecrets,
+  migratePlaintextConnectorSecrets,
+  upsertConnector,
+  removeConnector,
+  setConnectorEnabled,
+  detectUnmanagedMcpJson,
+  removeUnmanagedMcpJson,
+  recordConnectorStatus,
+  getConnectorStatus,
+} from './connectorsStore';
+import { buildMcpServers, CONNECTOR_CATALOG, type ConnectorConfig } from '../shared/connectors';
+import { decryptSecret, encryptSecret, isEncrypted, isEncryptionAvailable } from './secretStore';
 import { processCpuMonitor } from '../../utils/processCpuMonitor';
 import { convertReferenceFile } from './directoryScanner/agents/fileTagging';
 import { getReport, getLatestReport, updateReportData } from './db/reportRepository';
@@ -125,10 +140,17 @@ function setMaxAttachmentSizeMB(sizeMB: number): void {
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
+/**
+ * The saved Anthropic key, decrypted. Stored as an `enc:v1:` envelope
+ * (OS keychain); a value written by a build before that is plain text and
+ * passes through untouched, then gets encrypted on the next write.
+ */
 function getCustomAnthropicKey(): string | null {
   try {
     const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
-    return data.customAnthropicApiKey ?? null;
+    const stored = data.customAnthropicApiKey;
+    if (!stored) return null;
+    return decryptSecret(stored) || null;
   } catch {
     return null;
   }
@@ -140,9 +162,28 @@ function setCustomAnthropicKey(key: string, baseURL?: string): void {
   try {
     data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
   } catch { }
-  data.customAnthropicApiKey = key;
+  data.customAnthropicApiKey = encryptSecret(key);
   data.customAnthropicBaseURL = baseURL || null;
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+/**
+ * Re-encrypt a legacy plaintext key in place, once, at boot. Without this the
+ * key a user saved before this change sits in the clear until they happen to
+ * re-enter it — which they never would.
+ */
+function migratePlaintextApiKey(): void {
+  try {
+    const settingsPath = getSettingsPath();
+    const data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    const stored = data.customAnthropicApiKey;
+    if (!stored || isEncrypted(stored) || !isEncryptionAvailable()) return;
+    data.customAnthropicApiKey = encryptSecret(stored);
+    fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+    log.info('[SecretStore] Encrypted the stored Anthropic API key at rest.');
+  } catch {
+    // No settings file, or unreadable — nothing to migrate.
+  }
 }
 
 function getCustomAnthropicBaseURL(): string | undefined {
@@ -517,8 +558,18 @@ function createMainWindow(): void {
   });
 }
 
+// Route every link to the user's default browser. Registered before
+// `whenReady` because `web-contents-created` only sees WebContents created
+// after the listener is attached — the main window included.
+installExternalLinkGuards();
+
 app.whenReady().then(async () => {
   processCpuMonitor.start();
+
+  // Encrypt secrets that predate encryption-at-rest. Must run after
+  // whenReady (safeStorage throws before it) and before the key is read.
+  migratePlaintextApiKey();
+  migratePlaintextConnectorSecrets();
 
   // No login: load the user's Anthropic API key (env → settings) into the
   // credential store before anything spawns the agent, so getCredentials() is
@@ -1958,6 +2009,92 @@ ipcMain.handle('auth:setApiKey', async (_event, key: string, baseURL?: string) =
   await refreshAndPushCredentials().catch((err) => log.warn('[Auth] push new key to agent failed:', err));
   log.info('[Auth] Anthropic API key updated from Settings');
   return { success: true };
+});
+
+// ─── Connectors IPC (user-configured MCP servers) ─────────────────
+//
+// Connectors live in cobuilding-settings.json under userData, NOT in the
+// workspace — the agent has Write + Bash on the workspace, so a workspace file
+// would let it provision its own remote MCP server. See shared/connectors.ts.
+
+/**
+ * Recompute the connector set and push it to the running agent server. Live
+ * sessions pick it up immediately (the agent server calls setMcpServers on
+ * each one), so a connector added in Settings works in the chat that's already
+ * open — no new chat, no app restart.
+ *
+ * Returns whether the push landed. `false` just means no agent server is up
+ * yet; the set is still persisted and every future session reads it.
+ */
+async function pushConnectorsToAgent(): Promise<boolean> {
+  // Secrets must be real here — this is the payload the agent server hands to
+  // the SDK. `listConnectors()` is the masked, IPC-safe view and would send
+  // empty auth headers.
+  const servers = buildMcpServers(listConnectorsWithSecrets());
+  const ok = await containerService.updateAgentConnectors(servers);
+  log.info(`[Connectors] Pushed ${Object.keys(servers).length} connector(s) to agent server: ${ok ? 'ok' : 'no live agent server'}`);
+  return ok;
+}
+
+ipcMain.handle('connectors:list', () => {
+  const workspacePath = workspaceController.workspacePath;
+  return {
+    connectors: listConnectors(),
+    catalog: CONNECTOR_CATALOG,
+    unmanaged: workspacePath ? detectUnmanagedMcpJson(workspacePath) : null,
+  };
+});
+
+ipcMain.handle('connectors:save', async (_event, connector: ConnectorConfig, originalId?: string) => {
+  const result = upsertConnector(connector, originalId);
+  if (!result.success) return { ...result, pushed: false };
+  const pushed = await pushConnectorsToAgent();
+  return { ...result, pushed };
+});
+
+ipcMain.handle('connectors:remove', async (_event, id: string) => {
+  const result = removeConnector(id);
+  const pushed = await pushConnectorsToAgent();
+  return { ...result, pushed };
+});
+
+ipcMain.handle('connectors:setEnabled', async (_event, id: string, enabled: boolean) => {
+  const result = setConnectorEnabled(id, enabled);
+  if (!result.success) return { ...result, pushed: false };
+  const pushed = await pushConnectorsToAgent();
+  return { ...result, pushed };
+});
+
+// Real connection state from the SDK. `live: false` means no chat session is
+// running, so nothing has been observed — the UI shows "unknown" rather than
+// inventing a status.
+ipcMain.handle('connectors:getStatus', async () => {
+  const status = await containerService.getAgentConnectorStatus();
+  // Be tolerant of an unexpected response body. An agent server from an older
+  // build has no /connectors route and answers `{"error":"Not found"}` — which
+  // happens for real when a dev instance latches onto a packaged app's agent
+  // server (see the findFreePort hazard in CLAUDE.md). Surfacing that as a
+  // thrown IPC error would put plumbing in front of the user.
+  const reports = (Array.isArray(status.servers) ? status.servers : []).map((s: any) => ({
+    name: s?.name,
+    status: s?.status ?? 'unknown',
+    error: s?.error,
+    toolCount: Array.isArray(s?.tools) ? s.tools.length : undefined,
+    scope: s?.scope,
+  }));
+  if (status.live) recordConnectorStatus(reports);
+  const cached = getConnectorStatus();
+  return {
+    live: status.live,
+    reports: status.live ? reports : cached.reports,
+    observedAt: cached.observedAt,
+  };
+});
+
+ipcMain.handle('connectors:removeUnmanaged', () => {
+  const workspacePath = workspaceController.workspacePath;
+  if (!workspacePath) return { success: false, error: 'No active workspace.' };
+  return removeUnmanagedMcpJson(workspacePath);
 });
 
 ipcMain.handle('auth:setEndpoint', (_event, endpoint: string) => {

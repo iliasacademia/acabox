@@ -100,6 +100,20 @@ to `PATH`.
 - `src/cobuilding/skills/manage-mini-application/assets/install` — the
   `.applications/install` wrapper the agent uses. Host pip/npm only; reads
   `COSCIENTIST_VENV_DIR` / `COSCIENTIST_NPM_PREFIX`.
+- `src/cobuilding/main/freePort.ts` — loopback port probing for the agent
+  server + kernel gateway. Electron-free so it can be unit-tested; see the
+  header for why the probe address is load-bearing.
+- `src/cobuilding/main/secretStore.ts` — `safeStorage` encryption-at-rest for
+  the API key and connector auth values, plus the mask/decrypt helpers that
+  keep secrets off the IPC boundary.
+- `src/cobuilding/main/claudeConfigDir.ts` — resolves + migrates
+  `CLAUDE_CONFIG_DIR` (MCP OAuth tokens, transcripts) to userData.
+- `src/cobuilding/shared/connectors.ts` — user-configured MCP connectors: the
+  catalog (add a service = one entry), id/URL validation, and conversion to the
+  SDK's `mcpServers` shape. Shared by main, agent-server, and renderer.
+- `src/cobuilding/main/connectorsStore.ts` — connector persistence in
+  `cobuilding-settings.json` (host-owned, outside the workspace), observed
+  status, and `.mcp.json` detection.
 - `src/cobuilding/main/controllers/WorkspaceController.ts` — workspace + shared
   dir management. Dedups directories by `realpath`.
 - `forge.config.js` — packaging. Ships `dist/agent-server.js` + skills + hooks
@@ -120,7 +134,296 @@ to `PATH`.
 - To kill stray dev instances:
   `pkill -9 -f "Acabox/node_modules/electron"`.
 
-## Status (last updated 2026-07-27)
+## Status (last updated 2026-07-28)
+
+**Port isolation + secrets at rest (2026-07-28).** Two hazards the connector
+work surfaced, both fixed and verified live.
+
+*Dev no longer hijacks the packaged app's agent server.* `findFreePort` probed
+`0.0.0.0` while both host servers bind `127.0.0.1`; on macOS the wildcard bind
+succeeds while loopback is held, so a dev instance called 23200 "free" while
+the packaged app served on it, then `isAgentServerHealthy()` saw a 200 and
+adopted it — wrong workspace, wrong key, wrong channel.
+- Probe moved to `main/freePort.ts` (electron-free, so it is unit-testable)
+  and binds `127.0.0.1`. **The rule is that the probe must perform exactly the
+  bind the server performs.** Measured: wildcard and loopback do *not* collide
+  in either direction on macOS, so loopback probing is not "stricter" — it is
+  simply the same question `listen()` asks. An earlier comment claiming it was
+  strictly stricter was wrong and the test that disproved it is kept.
+- `/health` now returns `instance` (a per-app-run token passed as
+  `COSCIENTIST_AGENT_INSTANCE`) and `workspace`; adoption requires a token
+  match, so a stranger's server *or our own orphan from a crashed run* is
+  replaced rather than driven. Probe host is the `127.0.0.1` literal, not
+  `localhost` (which can resolve to `::1` first). If the cached port is taken
+  after our process dies, we re-pick instead of spawning onto a dead bind.
+- Verified live: with the packaged app holding 23200, dev now starts on
+  **23201** and both coexist.
+
+*Secrets are encrypted at rest and out of the agent's reach.* The trigger is
+in the user's own transcript: the agent read `cobuilding-settings.json` while
+answering a question and printed the API key into the chat.
+- New `main/secretStore.ts` wraps Electron `safeStorage` (macOS Keychain) with
+  an `enc:v1:<base64>` envelope. Applied to `customAnthropicApiKey` **and**
+  connector headers/env. Legacy plaintext reads through untouched and is
+  re-encrypted once at boot (`migratePlaintextApiKey`,
+  `migratePlaintextConnectorSecrets`, both after `whenReady` — `safeStorage`
+  throws before it). Falls back to plaintext with a warning where the OS has
+  no keyring rather than refusing to save.
+- **Secrets never cross IPC.** `listConnectors()` returns header *keys* with
+  blank values; `listConnectorsWithSecrets()` (main-only) is what builds the
+  agent config. A blank value on save means "keep the stored one", so editing
+  a URL doesn't wipe the token; deleting the row removes it.
+- `CLAUDE_CONFIG_DIR` moved from `<workspace>/.academia/claude-config` to
+  userData (`main/claudeConfigDir.ts`, with migration). It holds `mcpOAuth` —
+  access/refresh tokens for every connector the user signs in to — and was
+  sitting in the agent's own cwd. Session resume is unaffected (the SDK keys
+  projects off `cwd`, which didn't change).
+- **`agent.json` moved too, and this one mattered most.** It is the SDK's
+  input, so it holds the *raw* key and *decrypted* headers and cannot be
+  encrypted — and it was being written to `<workspace>/.academia/agent.json`.
+  Encrypting settings.json while leaving that would have been theatre. Now
+  userData, mode 0600, with the legacy in-workspace copy deleted on boot.
+- New `hooks/block-secret-reads.sh` (PreToolUse on `Bash` and
+  `Read|Edit|Write`) denies those paths. Honest scope: with unrestricted Bash
+  this is a guardrail against incidental leakage, **not** a security boundary;
+  the encryption is the real control.
+- Verified: 11/11 secretStore assertions against the **real macOS keychain**
+  in a real Electron main process (jest can't — `ELECTRON_RUN_AS_NODE` has no
+  `safeStorage`); 12/12 over CDP on the live app (ciphertext on disk, no
+  plaintext anywhere in the file, blank-on-IPC, secret preserved across an
+  edit, replaced when retyped, dropped when the row is deleted); a **real chat
+  turn** round-tripped "ENCRYPTION OK" proving the decrypt path still feeds
+  the SDK; and the screenshot scenario re-run against the live agent — asked
+  to `cat` the settings file it was blocked and answered without any secret in
+  the transcript. jest 150/150 (15 new), tsc clean, smoke exits 0.
+
+**Tool status states are now truthful; RUNNING is gone (2026-07-28).** Every
+tool the user had ever opened claimed **RUNNING** on the home grid while doing
+nothing. There were two disjoint status systems both using that word:
+`liveToolDirNames` (home + rail) was literally "a viewer tab is open this
+session", while `toolStatusStore`'s `running` was the *else-branch* of the
+build/install lifecycle — never set deliberately, and the default for any tool
+with no entry. Neither had any notion of the tool executing something.
+- **One vocabulary, one store.** `toolStatusStore.ts` now merges *lifecycle*
+  (`installing` / `building` / `buildFailed`, pushed by MiniAppViewer via the
+  renamed `setToolLifecycle`) with *activity* (`working`, ref-counted). `idle`
+  is the resting state and the default. Precedence: buildFailed > building >
+  installing > working > idle. Idle tools are **absent** from the snapshot map,
+  so surfaces that only signal news render nothing on a miss.
+- **WORKING is derived from operations the host already brokers** — no new
+  mini-app API, so tools built before today report it. `ACTIVITY_BRIDGE_TYPES`
+  in MiniAppViewer wraps `executeCode`, `executeCommand`, `anthropic:complete`
+  and `anthropic:stream` (the stream closes its episode on done/error, not when
+  the handler returns), plus agent→mini-app MCP invocations (opened at the
+  `mcp:invoke` postMessage, closed at the matching `mcp:result`). File I/O and
+  `mcp:callTool` are **deliberately excluded** — millisecond-scale, would strobe.
+- **Anti-flicker: 200ms delay-in, 800ms minimum-visible.** A sub-200ms op never
+  shows; a shown op stays readable; a new op inside the hold-out keeps WORKING
+  continuously instead of blinking.
+- **Home cards and the rail carry a chip/dot only when non-idle.** An idle tool
+  shows nothing at all, so any chip means something is genuinely happening.
+  The viewer header always has a chip and spells `IDLE` out.
+- **Real `lastRun`.** The card metric said "LAST 22M" sourced from
+  `lastOpened` — the same class of lie. New `miniApps:markRun` IPC stamps
+  `manifest.lastRun` when an activity episode ends (trailing-edge collapsed 3s
+  in the renderer so a burst of short ops is one write). Cards read
+  `LAST RUN …`, falling back to `OPENED …`, then `NEW`.
+- Verified live over CDP against a running app with a throwaway fixture tool
+  driving a **real** `executeCommand` through the bridge: baseline `IDLE` →
+  `WORKING` at 214ms → held across the whole 3s → `IDLE` at 3060ms; a 50ms op
+  never showed; `BUILDING` caught at 10ms and cleared at 44ms (a 34ms build —
+  coarser sampling misses it); `BUILD FAILED` observed on a genuinely broken
+  build; `lastRun` landed on disk and the card read `LAST RUN NOW`; and
+  `RUNNING`/`SLEEPING` appear nowhere in the rendered document. 19 new jest
+  cases against the real store (timing, precedence, ref-counting, stale-end
+  safety) plus one that renders `useToolStatus` through React. tsc clean;
+  jest 133/134 (only the pre-existing `fileMonitorIntegration`).
+- **Known gap:** navigating away from a tool unmounts its viewer and destroys
+  the iframe (verified: 0 iframe CDP targets after nav), which fires
+  `clearToolStatus`. So a home card can never *actually* light up today — for
+  `working` that is semantically right (nothing can run without an iframe), but
+  it also means `BUILD FAILED` disappears from the grid the moment you leave the
+  tool. The home/rail chip code is correct but currently unreachable; it becomes
+  live either by keeping the workspace mounted or by the host-side lifecycle
+  under "Deferred" below. Also unchanged: `building`/`installing` are written
+  directly with no delay-in, so a 34ms build still flashes.
+
+**De-Podman'd the agent-facing docs; `containerAPI` → `hostAPI` (2026-07-28).**
+The mini-app bridge still exposed `window.containerAPI.exec` documented as
+"execute a command in the Podman container", and the drift ran much wider than
+that one line. Three defects were **actively wrong**, not merely dated:
+- **The PreToolUse hook's rejection message was a trap.** `block-host-installs.sh`
+  told the agent to use `.applications/install R` / `install apt` — which the
+  wrapper hard-refuses (`assets/install:70`, `packageInstaller.ts:366`). Agent
+  runs `apt-get install` → blocked, redirected to the wrapper → wrapper refuses.
+  Two guaranteed wasted turns. The message now states plainly that apt/R/conda
+  have no wrapper equivalent and must not be retried. Same fix in
+  `src/cobuilding/CLAUDE.md` and `manage-mini-application/SKILL.md`.
+- **The documented esbuild snippet could not work.** It passed
+  `--alias:@reusable=/data/.applications/_reusable`, a container path. Verified
+  against the real production workspace: the absolute `$PWD/...` form builds
+  clean (exit 0, 14.5 MB bundle), while both the container path and a relative
+  path fail — esbuild does not resolve a relative alias against cwd. Corrected,
+  with the reason recorded so nobody "simplifies" it back.
+- **Two skills claimed packages that are not installed.** `geo-database` claimed
+  `GEOparse`, `pdb-database` claimed `rcsb-api`; neither is in the venv (checked
+  with real `pip list`). Both now say so and give the install command. Across the
+  10 database skills, "pre-installed in the container" is replaced with the
+  guaranteed set (`pandas`/`numpy`/`matplotlib` = `REQUIRED_PACKAGES`), noting
+  `requests` is present only **transitively** via jupyter-kernel-gateway, so an
+  app that depends on it should declare it.
+- **`window.hostAPI` is the new bridge name**, with `containerAPI` kept as a
+  one-line alias to the same object (mini-apps can be exported/imported, so the
+  full consumer set isn't enumerable; the shared `_bridge/` is force-overwritten
+  on every boot, so there's no per-app opt-out). The postMessage wire type was
+  already correctly named `executeCommand`, so nothing host-side changed. Delete
+  the alias once no shared app references it. `bridge-api.md` now documents what
+  `exec` really does: host child process, cwd = workspace root, venv + npm-prefix
+  `bin/` on PATH, and **exitCode 127 = never launched** (a missing dependency,
+  not a failed analysis) — a distinction callers kept getting wrong.
+- **Found dead, flagged not deleted:** the `differential-expression` skill and
+  the `differentialExpression` mini-app template are both unrunnable. The
+  template hardcodes `kernel: "ir"`; verified against the real gateway that only
+  `python3` is registered and there is no R binary on the machine, and R cannot
+  be installed. Both are now marked non-functional in the docs the agent reads
+  (so no turn is wasted scaffolding a tool that fails on first Run) and point at
+  `pydeseq2` as the Python route. **Deleting them is a product call — not made.**
+  Likewise `scripts/bench-build.sh`, which benchmarks building a `Dockerfile.base`
+  that no longer exists and which nothing references.
+- Verified: `tsc --noEmit` clean; jest 114/115 (only the pre-existing
+  `fileMonitorIntegration`); the edited hook re-tested end-to-end (exit 2 +
+  new message on `apt-get install`, exit 0 on a harmless command); and the
+  renamed bridge bundled with the **real** esbuild and executed in JSDOM —
+  7/7 assertions incl. `hostAPI === containerAPI` and both posting identical
+  `executeCommand` messages. Note `bridge.ts` is **not** in the tsc project
+  (it ships as source, bundled per-app), so a clean typecheck proves nothing
+  about it — hence the execution test.
+
+**Connectors: user-configured MCP servers (2026-07-28).** Settings → Connectors
+lets the user attach external MCP services (Hex, Sentry, Notion, Linear,
+GitHub, or Custom). Every behavioural claim below was measured against the
+bundled SDK/CLI, not inferred from docs.
+- **What was already true.** `settingSources: ['project']` (needed for
+  CLAUDE.md) *also* loads a project `.mcp.json`, so the workspace could always
+  have grown connectors. What silently does **not** work is `claude mcp add` —
+  its default (**local**) and `--scope user` writes land in `.claude.json`,
+  which `['project']` never reads. Measured: `['project']`→`[]`,
+  `['project','local']`→`[hexlocal]`, `['user','project','local']`→both.
+- **Host-owned, not workspace-owned.** Connectors live in a `connectors` array
+  in `cobuilding-settings.json` (userData), *not* in the workspace — the agent
+  has Write+Bash on the workspace, and an agent that can add an arbitrary
+  remote MCP server can exfiltrate it. `.mcp.json` can't be turned off without
+  losing CLAUDE.md, so `detectUnmanagedMcpJson` surfaces one in Settings with a
+  Remove button instead.
+- **Live apply, no new chat.** New `POST /connectors` on the agent server calls
+  `query.setMcpServers()` on every live session. **Trap, verified:**
+  `setMcpServers` *replaces* the whole dynamic set, and Acabox's relay servers
+  (activity, mini-apps, workspace, notification, reaction) are themselves
+  dynamic — sending only the connectors returned `removed:['relaydemo']` and
+  killed them. `applyConnectorsToSession` always sends relay+connectors
+  together; nothing else may call `setMcpServers`.
+- **Second trap, verified:** a server passed in the original `mcpServers`
+  option that never got past `needs-auth` is *not* dropped by
+  `setMcpServers({})` (returns `removed:[]`, stays in `mcpServerStatus()`).
+  `toggleMcpServer(name, false)` does disable it, so that's the backstop —
+  applied only to names we ourselves supplied, never a relay or a `.mcp.json`
+  server.
+- **OAuth works headlessly.** A needs-auth server exposes
+  `mcp__<id>__authenticate` / `..._complete_authentication`; the first returns a
+  real authorize URL with a `http://localhost:<port>/callback` redirect. It
+  works end-to-end because links already open in the system browser
+  (2026-07-27), the CLI subprocess survives across turns (streaming
+  `userMessageGenerator`), and tokens persist to `mcpOAuth` in `.claude.json`
+  under `CLAUDE_CONFIG_DIR`.
+- **`allowedTools` is not what gates this.** Measured: with Acabox's exact list
+  and hex omitted, `mcp__hex__authenticate` still ran; `allowedTools: []` still
+  ran `Bash`. It is auto-approve, not a restriction, and there is no
+  `canUseTool` handler anywhere. `connectorAllowedTools()` adds `mcp__<id>`
+  per connector so this is correct rather than accidental.
+- Status shown in the UI is observed only — captured from the SDK `system`/
+  `init` event (`mcp_servers`) and `mcpServerStatus()`. No session yet → the row
+  says "Unknown", never a fabricated "Connected".
+- New files: `shared/connectors.ts` (types + catalog + validation + SDK
+  serialization; **adding a service is one entry in `CONNECTOR_CATALOG`**),
+  `main/connectorsStore.ts`, `renderer/components/ConnectorsSettings.{tsx,css}`.
+  Touched: agent-server `index.ts`/`sessionConfig.ts`, `containerService.ts`,
+  `AgentInfrastructureController.ts`, `main/index.ts`, `preload.ts`,
+  `types.d.ts`, `DirectoryPermissions.tsx`, `skills/acabox/SKILL.md`.
+- Verified: `tsc --noEmit` clean; jest **115/115** (24 new); **11/11** against
+  the REAL built `dist/agent-server.js` on its own port and workspace (relay
+  survival, live add, live removal, clear); **14/14** driving the real app over
+  CDP (IPC round-trip, main-side rejection of bad ids / remote plaintext http /
+  reserved names, enable-disable persistence, UI rendering, catalog picker,
+  custom form) plus screenshots; smoke test exits 0.
+- Secrets note: connector headers are stored **plaintext** in settings.json,
+  same as `customAnthropicApiKey`. The UI says so. `safeStorage` is the upgrade
+  if that ever needs to change — for both, together.
+- **The `findFreePort` hazard bit this during testing** and is worth fixing: a
+  running packaged Acabox owned `127.0.0.1:23200`, the dev instance's
+  `0.0.0.0` probe called it free, and dev then drove the *packaged* app's agent
+  server — which has no `/connectors` route, so status came back
+  `{"error":"Not found"}`. Both connector read paths now tolerate that, but the
+  one-word fix (probe `127.0.0.1`) is still not applied.
+
+## Earlier status (last updated 2026-07-27)
+
+**Links open in the system browser; agent got `WebFetch` (2026-07-27).** Two
+things, after an evaluation of embedding a Chromium browsing surface concluded
+**don't** (Electron 37 = Chromium 138, EOL 2026-01-13, so browsing the open web
+would run 13 months of unpatched Chromium; and authenticated interactive
+automation would close the prompt-injection trifecta against an agent that has
+auto-approved `Bash` with no `canUseTool` gate anywhere in the app).
+- **`WebFetch` added to `allowedTools`** (`AgentInfrastructureController.ts`).
+  It was missing while `database-lookup/SKILL.md` and `reaction/SKILL.md` both
+  instruct the agent to call it. Note `allowedTools` is **auto-approve, not a
+  restriction** — the SDK's restriction option is `tools`, which this app never
+  sets, so with the `claude_code` preset the agent has the full toolset and
+  anything off the list just falls to the default permission path with no
+  handler to answer it. Also de-Podman'd the two stale skills (they still said
+  "Running in the container" / "use `podman exec`") and corrected their
+  "`requests` and `pandas` pre-installed in the container" line.
+- **Every surfaced link now opens in the default browser.** New
+  `main/externalLinks.ts`, installed on **every** WebContents via
+  `app.on('web-contents-created')` before `whenReady`, so it also covers code
+  not yet written. `setWindowOpenHandler` denies all `window.open`/`_blank` and
+  hands remote http(s) to `shell.openExternal`; `will-frame-navigate` cancels
+  remote navigation and does the same. Deliberately **not** also listening to
+  `will-navigate` — it is main-frame-only and would double-fire, opening two
+  tabs. Both reuse `validateExternalUrl`, so guards can't become a looser
+  second door to `shell.openExternal` than the existing IPC.
+  `shared/urlTargets.ts` holds the one definition of "internal" (`file:`,
+  `local-file:`, `about:`/`data:`/`blob:`, devtools, and http(s) on loopback).
+  This fixed two live bugs: `XlsxView.tsx`'s `target="_blank"` hyperlinks and
+  `PaperMonitorView.tsx`'s `window.open` both spawned a bare BrowserWindow
+  inheriting our preload, and any stray `<a href>` navigated the whole app away
+  with no back button.
+- **Mini-app links needed a different mechanism, established by testing not
+  inference.** Two dead ends, both ruled out live: (1) a listener attached from
+  MiniAppViewer can't work — a mini-app frame is `local-file://` while the host
+  is `localhost:3000`/`file://`, so `iframe.contentDocument` is cross-origin and
+  null (an interceptor written this way was built, proven inert, and deleted);
+  (2) letting the frame navigate so the main guard catches it can't work either
+  — the host CSP `frame-src local-file: http://localhost:*` makes Chromium
+  refuse it ("Refused to frame 'https://…'") *before* `will-frame-navigate`
+  fires, so the click silently did nothing. Note the CSP violation report is
+  also useless as a signal: it strips the path (`https://example.com/`).
+  Fix: `main/miniAppLinkShim.ts`, a script injected into every `local-file:`
+  subframe on `did-frame-navigate` via `webFrameMain.executeJavaScript`, which
+  routes clicks through the `{type:'openExternal', id, url}` bridge
+  MiniAppViewer already exposes (and which validates `event.source`).
+- Verified live over CDP against the running app, not just read: chat-style
+  anchor click and `window.open` both logged `[ExternalLinks] Opening in default
+  browser (navigation | window.open)` with the app never navigating away and
+  `window.open` returning null; and a real `local-file:` fixture frame produced
+  the bridge message with the **full URL incl. path**, with the four
+  `frame-src` CSP violations that the same fixture produced beforehand dropping
+  to zero. `tsc --noEmit` clean; jest 90/91 (only the pre-existing
+  `fileMonitorIntegration`), including 9 cases on the shared predicate and 8
+  that evaluate the **actual shipped shim string** in a fresh JSDOM window per
+  case rather than a reimplementation; smoke test exits 0.
+- Not done (deliberately, see the evaluation): no in-app reader view, no
+  headless browsing tool for the agent, no browser tab. Those were staged 1–3
+  and are not started.
 
 **macOS auto-update works without a Developer ID (2026-07-27).** v0.1.2 shipped
 and the tray "Check for Updates…" reached the install step and died there:
@@ -429,9 +732,11 @@ fonts, real chats/files data). Key facts:
   `node_modules/electron/dist/Electron.app` and ad-hoc re-signs it;
   idempotent, self-heals a stale signature, re-applies after npm install.
   Packaged builds were already named via packagerConfig.
-- Still deferred: tool run-status lifecycle (cards show RUNNING only while
-  the tool's tab is open, SLEEPING otherwise; busy/crashed/progress states
-  dormant), ⌘K opens the chats list instead of a real command palette.
+- Superseded 2026-07-28: the RUNNING/SLEEPING tab-open heuristic is gone — see
+  the tool-status entry at the top of Status. Still deferred: a **host-side**
+  tool lifecycle (so a tool can report state with no viewer mounted, and so
+  crashed/progress states become expressible), and ⌘K opens the chats list
+  instead of a real command palette.
 - Tool archiving (2026-07-23): `archived: true`/`archivedAt` in the app's
   manifest.json (travels with the folder on export). `miniApps:setArchived`
   IPC + preload; Tools page grew an "Archived" section (hidden when empty)
@@ -650,17 +955,15 @@ always boots straight into the Command Desk shell.
   `workspaceDirectoriesGuidance` text, but `Write`/`Edit` still hit the
   filesystem. Real enforcement would need a PreToolUse hook that checks the
   DB read-only flag.
-- **`findFreePort` probes the wrong interface — dev can hijack prod's agent
-  server.** `findFreePort` (containerService.ts:36) binds `0.0.0.0:<port>` to
-  test availability, but the agent server binds `127.0.0.1:<port>`. On macOS
-  the wildcard bind *succeeds* while 127.0.0.1 is occupied, so with the
-  packaged app running on 23200 a dev instance picks 23200 too, its
-  `isAgentServerHealthy()` GET hits the **packaged app's** agent server, logs
-  "[HostProcess] Agent server already healthy", and drives it — wrong
-  workspace, wrong API key, wrong channel. Reproduced 2026-07-27 (a keyless
-  dev boot happily served a chat turn using the packaged app's key). Fix is
-  one word: probe `127.0.0.1` instead of `0.0.0.0`. Same root cause as the
-  old "check-then-bind race" note; the race is real too but secondary.
+- ~~**`findFreePort` probes the wrong interface — dev can hijack prod's agent
+  server.**~~ **FIXED 2026-07-28** — see the Status entry. The probe now binds
+  `127.0.0.1` (`main/freePort.ts`, extracted so it is unit-testable), and
+  `/health` echoes a per-app-run instance token that `isAgentServerHealthy()`
+  requires before adopting a server. Note the rule that matters if this is
+  ever touched again: the probe must perform **exactly** the bind the server
+  performs, not a stricter one — measured on macOS, wildcard and loopback
+  binds do not collide in *either* direction, so "probe the wildcard to be
+  safe" is not conservative, it is just wrong.
 - **Mid-session directory changes don't refresh agent context** — new dirs
   only surface to the next chat session (guidance is set at session create).
 - **ContainerTests debug panel is stale** — it runs old container commands

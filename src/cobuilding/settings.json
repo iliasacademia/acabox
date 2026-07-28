@@ -7,6 +7,19 @@
           {
             "type": "command",
             "command": "bash .claude/hooks/block-host-installs.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/block-secret-reads.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/block-secret-reads.sh"
           }
         ]
       }

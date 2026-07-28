@@ -12,9 +12,9 @@ source: jaechang-hits/SciAgent-Skills
 
 # gnomAD Database
 
-## Running in the container
+## Running queries
 
-gnomAD uses GraphQL (POST-only). Use `podman exec` with curl or Python:
+gnomAD uses GraphQL (POST-only), so `WebFetch` cannot reach it. Use curl or Python:
 
 ```bash
 # curl approach
@@ -27,11 +27,12 @@ curl -s -X POST \
 python3 ./gnomad_query.py
 ```
 
-`requests` and `pandas` are pre-installed in the container.
+`pandas` and `numpy` are pre-installed; install anything else with
+`.applications/install pip <package> --app <app_dir_name>`.
 
 ## Prerequisites
 
-- `requests`, `pandas` — pre-installed in container
+- `pandas` pre-installed; `requests` via the install wrapper if not already present
 - No API key required
 - No strict rate limit; add `time.sleep(1)` between queries as courtesy
 

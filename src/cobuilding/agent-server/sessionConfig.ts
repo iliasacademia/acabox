@@ -1,7 +1,15 @@
 export interface AgentConfig {
   port: number;
   claudeBinaryPath?: string;
-  mcpServers: Record<string, { type: 'http'; url: string }>;
+  /**
+   * User-configured MCP connectors (Settings → Connectors), already in the
+   * SDK's McpServerConfig shape — http/sse `{type,url,headers?}` or stdio
+   * `{type:'stdio',command,args?,env?}`. Built by
+   * `shared/connectors.ts#buildMcpServers` in the host and handed to `query()`
+   * alongside Acabox's own relay servers. Replaceable at runtime via
+   * `POST /connectors`.
+   */
+  mcpServers: Record<string, Record<string, unknown>>;
   anthropicApiKey: string;
   anthropicBaseURL?: string;
   model: string;

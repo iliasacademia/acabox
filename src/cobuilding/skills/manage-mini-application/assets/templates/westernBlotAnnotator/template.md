@@ -14,8 +14,7 @@ the actual code, see `src/App.tsx`, `notebook.ipynb`, `scripts/analyze.py`,
 
 The mirrored template tree is copied into the new app at scaffold time. The
 host's BackgroundBuilder picks up the dep files asynchronously and installs
-them in the live container while rebuilding the image — the agent should
-not run installs itself.
+them into Acabox's Python venv — the agent should not run installs itself.
 
 | Path                               | Why it ships                                                                                                |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------- |
@@ -49,8 +48,8 @@ frontend. One deliberate exception:
   (`filterBandsLLM` in `src/App.tsx`). This is treated as a UI helper,
   not core compute — it runs once per analysis, has no conversational
   context, and falls back gracefully (keep all bands, no ladders) if the
-  call fails. **Don't try to fold this into the action cell unless you
-  also wire Anthropic credentials into the kernel container.**
+  call fails. **Don't try to fold this into the action cell — the kernel
+  has no Anthropic credentials, and the key must not be handed to it.**
 
 ## Pipeline contract
 
@@ -144,11 +143,11 @@ node \
 The manage script just mirrors the template tree into
 `.applications/<dirName>/` and exits. The host's BackgroundBuilder takes
 over from there: it sees `requirements.txt` and runs
-`pip install torch numpy scipy Pillow` in the live container, and it sees
-`setup/download_model.sh` and runs it as a manual install (downloading the
-GelGenie model into `models/unet_dec_21_finetune_epoch_590.pt`). Both
+`pip install torch numpy scipy Pillow` into Acabox's Python venv, and it
+sees `setup/download_model.sh` and runs it as a manual install (downloading
+the GelGenie model into `models/unet_dec_21_finetune_epoch_590.pt`). Both
 happen in parallel with the agent's next steps and can take 5–15 minutes
-on a cold container.
+the first time — torch alone is a large download.
 
 **Do not block on the install.** Call `build_and_open_mini_application`
 immediately — it builds with esbuild (Node packages only, not Python)

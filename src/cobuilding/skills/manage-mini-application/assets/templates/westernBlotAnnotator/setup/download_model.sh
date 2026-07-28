@@ -3,7 +3,7 @@
 #
 # Required by scripts/analyze.py. ~57MB. Run automatically by the install
 # wrapper at app scaffold time (recorded by presence of this file under
-# setup/, so it re-runs on container rebuilds and travels with the app).
+# setup/, so it travels with the app and re-runs wherever the app is opened).
 # Safe to re-run: skips download if the file is already present and non-empty.
 
 set -euo pipefail

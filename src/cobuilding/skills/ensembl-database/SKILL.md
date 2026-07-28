@@ -11,9 +11,9 @@ source: jaechang-hits/SciAgent-Skills
 
 # Ensembl Genome Database
 
-## Running in the container
+## Running queries
 
-`requests` is pre-installed in the container. Write Python scripts to the workspace and run via:
+Scripts run directly on the user's machine — there is no container — from the workspace root. `requests` is normally available in Acabox's Python environment (as are `pandas`, `numpy`, and `matplotlib`); anything else must be installed with `.applications/install pip <package> --app <app_dir_name>`. Write Python scripts to the workspace and run via:
 
 ```bash
 python3 ./ensembl_query.py
@@ -33,7 +33,7 @@ print(r.json())
 
 ## Prerequisites
 
-- `requests` — pre-installed in container
+- `requests` — normally available in Acabox's Python environment
 - No API key required
 - Rate limit: ~15 req/sec; respect with `time.sleep(0.1)` in loops
 

@@ -10,7 +10,7 @@ import { track as trackAnalytics } from '../coscientistAnalytics';
 import { captureError } from '../../shared/telemetry';
 import { MSymbol } from './command-desk/MSymbol';
 import { resolveToolIcon } from './command-desk/toolIcon';
-import { setToolStatus, clearToolStatus, useToolStatus } from '../toolStatusStore';
+import { setToolLifecycle, clearToolStatus, useToolStatus, beginToolActivity } from '../toolStatusStore';
 
 interface RequestFixError {
   kind: string;
@@ -19,6 +19,20 @@ interface RequestFixError {
   source?: string;
   timestamp: number;
 }
+
+/**
+ * Bridge operations that mean the tool is genuinely computing, and so drive
+ * the WORKING status. Kernel code, shell commands and Claude calls — the
+ * things a user would describe as "the tool is running". Everything else the
+ * bridge brokers (file reads/writes, dialogs, `mcp:callTool`) is sub-second
+ * plumbing and is deliberately excluded.
+ */
+const ACTIVITY_BRIDGE_TYPES = new Set([
+  'executeCode',
+  'executeCommand',
+  'anthropic:complete',
+  'anthropic:stream',
+]);
 
 function buildFixPrompt(appName: string, err: RequestFixError): string {
   const lines: string[] = [
@@ -89,11 +103,11 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
   // Surface build state to the shared tool-status store (tab dots, etc.).
   useEffect(() => {
     if (rebuildState.kind === 'building') {
-      setToolStatus(dirName, { kind: 'building' });
+      setToolLifecycle(dirName, { kind: 'building' });
     } else if (rebuildState.kind === 'error') {
-      setToolStatus(dirName, { kind: 'buildFailed', message: rebuildState.message, at: rebuildState.at });
+      setToolLifecycle(dirName, { kind: 'buildFailed', message: rebuildState.message, at: rebuildState.at });
     } else {
-      setToolStatus(dirName, { kind: 'running' });
+      setToolLifecycle(dirName, { kind: 'idle' });
     }
   }, [dirName, rebuildState]);
   useEffect(() => () => clearToolStatus(dirName), [dirName]);
@@ -323,9 +337,13 @@ const MiniAppHeader: FC<{
   }, [dirName]);
 
   const status = useToolStatus(dirName);
+  // `rebuildState` is read directly rather than through the store for these
+  // two so the header flips on the same render as the build starts/fails; the
+  // store is one effect behind.
   const isBuilding = rebuildState.kind === 'building';
   const failed = rebuildState.kind === 'error';
   const installing = status.kind === 'installing';
+  const working = status.kind === 'working';
   const ToolIcon = resolveToolIcon(appIcon);
 
   return (
@@ -356,10 +374,15 @@ const MiniAppHeader: FC<{
           <span className="cdDot cdDot--busy cdDot--pulse" />
           FIRST BOOT
         </span>
+      ) : working ? (
+        <span className="cdStatusChip">
+          <span className="cdDot cdDot--busy cdDot--pulse" />
+          WORKING
+        </span>
       ) : (
         <span className="cdStatusChip">
-          <span className="cdDot cdDot--running" />
-          RUNNING
+          <span className="cdDot cdDot--sleeping" />
+          IDLE
         </span>
       )}
       <span className="cdToolHeader__spacer" />
@@ -726,9 +749,9 @@ const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dir
     if (depsReady === false) {
       const done = packages?.filter((p) => p.state === 'installed').length ?? 0;
       const total = packages?.length ?? 0;
-      setToolStatus(dirName, { kind: 'installing', done, total });
+      setToolLifecycle(dirName, { kind: 'installing', done, total });
     } else if (depsReady === true) {
-      setToolStatus(dirName, { kind: 'running' });
+      setToolLifecycle(dirName, { kind: 'idle' });
     }
   }, [depsReady, packages, dirName]);
 
@@ -753,6 +776,8 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
   const composerRuntime = useComposerRuntime();
   const iframeRouteKey = React.useMemo(() => `${dirName}::${Math.random().toString(36).slice(2)}`, [dirName]);
   const registeredServerRef = useRef<string | null>(null);
+  /** invocationId -> the activity-episode closer for that agent MCP call. */
+  const mcpActivityEndsRef = useRef(new Map<string, () => void>());
 
   // Register MCP server from manifest.json on mount; tear down on unmount.
   React.useEffect(() => {
@@ -788,6 +813,8 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
   }, [appDir, dirName, iframeRouteKey]);
 
   // Route agent / other-mini-app invocations to this iframe and relay results.
+  // An invocation is an activity episode for this tool: it opens here and is
+  // closed by the matching `mcp:result` in handleBridgeMessage below.
   React.useEffect(() => {
     const unsubscribe = window.miniAppMcpAPI.onInvoke((payload) => {
       if (payload.iframeRouteKey !== iframeRouteKey) return;
@@ -796,13 +823,24 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
         window.miniAppMcpAPI.sendResult({ invocationId: payload.invocationId, error: 'iframe is not mounted' });
         return;
       }
+      mcpActivityEndsRef.current.set(payload.invocationId, beginToolActivity(dirName));
       iframe.contentWindow.postMessage(
         { type: 'mcp:invoke', invocationId: payload.invocationId, toolName: payload.toolName, args: payload.args },
         '*',
       );
     });
     return unsubscribe;
-  }, [iframeRouteKey]);
+  }, [iframeRouteKey, dirName]);
+
+  // An iframe that never answers would otherwise leak a held-open episode.
+  // Main times the invocation out at 60s; release ours on unmount.
+  React.useEffect(() => {
+    const pending = mcpActivityEndsRef.current;
+    return () => {
+      for (const end of pending.values()) end();
+      pending.clear();
+    };
+  }, []);
 
   const handleIframeLoad = useCallback(() => {
     const iframe = iframeRef.current;
@@ -840,6 +878,11 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
       // returning a result for an invocation main initiated, so the id field
       // is `invocationId` instead of `id` and there's no response postback.
       if (event.data?.type === 'mcp:result' && typeof event.data?.invocationId === 'string') {
+        const endActivity = mcpActivityEndsRef.current.get(event.data.invocationId);
+        if (endActivity) {
+          mcpActivityEndsRef.current.delete(event.data.invocationId);
+          endActivity();
+        }
         window.miniAppMcpAPI.sendResult({
           invocationId: event.data.invocationId,
           result: event.data.result,
@@ -854,6 +897,14 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
       let result: unknown;
       let error: string | undefined;
       let skipResponse = false;
+
+      // Only the operations that represent the tool genuinely computing count
+      // as activity. File I/O and `mcp:callTool` are deliberately excluded:
+      // they are millisecond-scale and would strobe the chip without telling
+      // the user anything.
+      let endActivity: (() => void) | null =
+        ACTIVITY_BRIDGE_TYPES.has(type) ? beginToolActivity(dirName) : null;
+      let activityEndsAsync = false;
 
       try {
         switch (type) {
@@ -949,19 +1000,29 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
             // process. The iframe's original `id` is used only to route the
             // postMessage responses back to the correct pending promise.
             const streamKey = crypto.randomUUID();
+            // A stream outlives this handler, so its activity episode closes
+            // on done/error rather than in the finally below.
+            const finishStream = () => { endActivity?.(); endActivity = null; };
             (window as any).anthropicAPI.stream(
               streamKey,
               args,
               (text: string) =>
                 iframe.contentWindow?.postMessage({ type: 'anthropic:chunk', requestId: id, text }, '*'),
-              (message: unknown) =>
-                iframe.contentWindow?.postMessage({ type: 'anthropic:done', requestId: id, message }, '*'),
-              (err: string) =>
-                iframe.contentWindow?.postMessage({ type: 'anthropic:error', requestId: id, error: err }, '*'),
+              (message: unknown) => {
+                finishStream();
+                iframe.contentWindow?.postMessage({ type: 'anthropic:done', requestId: id, message }, '*');
+              },
+              (err: string) => {
+                finishStream();
+                iframe.contentWindow?.postMessage({ type: 'anthropic:error', requestId: id, error: err }, '*');
+              },
             );
             // skipResponse is set AFTER setup so that if anthropicAPI.stream()
             // throws synchronously, the outer catch can send the error back to
-            // the iframe rather than leaving its promise hanging forever.
+            // the iframe rather than leaving its promise hanging forever. The
+            // same ordering means a synchronous throw still closes the episode
+            // in the finally, since activityEndsAsync is not yet set.
+            activityEndsAsync = true;
             skipResponse = true;
             break;
           }
@@ -970,6 +1031,8 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
         }
       } catch (err) {
         error = err instanceof Error ? err.message : String(err);
+      } finally {
+        if (!activityEndsAsync) endActivity?.();
       }
 
       if (!skipResponse) {

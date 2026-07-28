@@ -7,7 +7,8 @@ import { relTimeShort } from './format';
 import { formatSessionModelMeta, useSessionMeta } from './useSessionMeta';
 import { MiniAppViewer } from '../MiniAppViewer';
 import { Thread } from '../assistant-ui/thread';
-import { useToolStatuses, type ToolRuntimeStatus } from '../../toolStatusStore';
+import { useToolStatuses } from '../../toolStatusStore';
+import { toolStatusDotClass } from './toolStatusDisplay';
 import { dateFromSessionStoredAt } from '../../sessionTimestamps';
 import type { TabDescriptor } from '../../tabs/types';
 import type { FC } from 'react';
@@ -39,14 +40,6 @@ function loadPanelOpenMap(): Record<string, boolean> {
   }
 }
 
-function statusDotClass(status: ToolRuntimeStatus): string {
-  switch (status.kind) {
-    case 'buildFailed': return 'cdDot--error';
-    case 'building':
-    case 'installing': return 'cdDot--busy cdDot--pulse';
-    default: return 'cdDot--running';
-  }
-}
 
 export interface ToolWorkspaceProps {
   tabs: TabDescriptor[];
@@ -158,7 +151,7 @@ export const ToolWorkspace: FC<ToolWorkspaceProps> = ({
           const app = appByDir.get(dirName);
           const Icon = resolveToolIcon(app?.icon ?? null);
           const isActive = tab.id === activeTabId;
-          const status = statuses.get(dirName) ?? { kind: 'running' as const };
+          const status = statuses.get(dirName) ?? { kind: 'idle' as const };
           return (
             <div
               key={tab.id}
@@ -170,7 +163,7 @@ export const ToolWorkspace: FC<ToolWorkspaceProps> = ({
             >
               <Icon className="cdTab__icon" style={{ width: 15, height: 15 }} />
               {app?.name ?? dirName}
-              <span className={`cdTab__dot cdDot ${statusDotClass(status)}`} style={{ width: 5, height: 5 }} />
+              <span className={`cdTab__dot cdDot ${toolStatusDotClass(status)}`} style={{ width: 5, height: 5 }} />
               <button
                 type="button"
                 className="cdTab__close"

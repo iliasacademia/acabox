@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { MSymbol } from './MSymbol';
 import { AcaboxMark } from './AcaboxMark';
 import { resolveToolIcon } from './toolIcon';
+import { useToolStatuses } from '../../toolStatusStore';
+import { toolStatusDotClass } from './toolStatusDisplay';
 
 export type RailTab = 'home' | 'chats' | 'tools' | 'files' | 'activity' | 'debug' | 'settings';
 
@@ -14,8 +16,6 @@ export interface RailPinnedTool {
   dirName: string;
   name: string;
   icon: string | null;
-  /** True when the tool's viewer tab is currently open in this session. */
-  live: boolean;
 }
 
 const NAV_ITEMS: { tab: RailTab; label: string; icon: string }[] = [
@@ -53,6 +53,7 @@ export function Rail({
   onOpenTool: (dirName: string) => void;
 }) {
   const [open, setOpen] = useState(() => localStorage.getItem(RAIL_OPEN_KEY) !== 'false');
+  const toolStatuses = useToolStatuses();
 
   const toggle = () => {
     setOpen((prev) => {
@@ -148,6 +149,9 @@ export function Rail({
           <div className="cdRail__list">
             {pinned.map((tool) => {
               const Icon = resolveToolIcon(tool.icon);
+              // Idle tools carry no dot at all — a dot here means the tool is
+              // busy or broken, not merely that it exists.
+              const status = toolStatuses.get(tool.dirName);
               return (
                 <button
                   key={tool.dirName}
@@ -156,7 +160,7 @@ export function Rail({
                 >
                   <Icon style={{ width: 16, height: 16, color: 'var(--cd-text3)', flex: 'none' }} />
                   <span className="cdRail__rowTitle">{tool.name}</span>
-                  <span className={`cdDot ${tool.live ? 'cdDot--running' : 'cdDot--sleeping'}`} />
+                  {status && <span className={`cdDot ${toolStatusDotClass(status)}`} />}
                 </button>
               );
             })}

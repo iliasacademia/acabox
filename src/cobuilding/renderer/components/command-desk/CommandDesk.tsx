@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { MSymbol } from './MSymbol';
 import { resolveToolIcon } from './toolIcon';
 import { relTimeShort, formatSize, headerDate } from './format';
+import { useToolStatuses } from '../../toolStatusStore';
+import { toolStatusDotClass, toolStatusLabel } from './toolStatusDisplay';
 import type { DriveFile } from './useHomeData';
 
 const MAX_TOOL_CARDS = 5; // + the "build a new tool" card = 6 grid cells
@@ -23,16 +25,29 @@ function focusComposer() {
 }
 
 /**
- * Home screen ("Command Desk"). The Tools grid shows the user's mini-apps. A
- * mini-app shows RUNNING while its viewer tab is open this session, SLEEPING
- * otherwise — there is no host-side tool lifecycle yet, so busy/crashed
- * states and progress bars stay dormant until one exists.
+ * The card's one line of history. `lastRun` is stamped when a tool actually
+ * finishes doing something; `lastOpened` only means the user looked at it, so
+ * the two are labelled differently rather than both reading "LAST".
+ */
+function toolCardMetric(app: MiniAppEntry): string {
+  if (app.lastRun) return `LAST RUN ${relTimeShort(app.lastRun)}`;
+  if (app.lastOpened) return `OPENED ${relTimeShort(app.lastOpened)}`;
+  return app.preBuilt ? 'PRE-BUILT' : 'NEW';
+}
+
+/**
+ * Home screen ("Command Desk"). The Tools grid shows the user's mini-apps.
+ *
+ * A card carries a status chip only when there is something to report —
+ * WORKING, BUILDING, FIRST BOOT or BUILD FAILED. An idle tool shows no chip at
+ * all, so any chip on this screen means the tool is genuinely doing something.
+ * (This used to read RUNNING for every tool with an open viewer tab, which is
+ * not the same thing as running.)
  */
 export function CommandDesk({
   sessions,
   apps,
   driveFiles,
-  liveToolDirNames,
   workspaceName,
   onOpenChat,
   onOpenTool,
@@ -44,7 +59,6 @@ export function CommandDesk({
   sessions: SessionData[];
   apps: MiniAppEntry[];
   driveFiles: DriveFile[];
-  liveToolDirNames: Set<string>;
   workspaceName: string;
   onOpenChat: (sessionId: string) => void;
   onOpenTool: (dirName: string) => void;
@@ -59,6 +73,7 @@ export function CommandDesk({
     return () => clearInterval(timer);
   }, []);
 
+  const statuses = useToolStatuses();
   const appCards = apps.slice(0, MAX_TOOL_CARDS);
   const totalTools = apps.length;
   const recentChats = sessions.slice(0, MAX_RECENT_CHATS);
@@ -86,7 +101,8 @@ export function CommandDesk({
         <div className="cdToolGrid">
           {appCards.map((app) => {
             const Icon = resolveToolIcon(app.icon);
-            const live = liveToolDirNames.has(app.dirName);
+            const status = statuses.get(app.dirName);
+            const statusLabel = status ? toolStatusLabel(status) : null;
             return (
               <div
                 key={app.dirName}
@@ -98,10 +114,12 @@ export function CommandDesk({
               >
                 <div className="cdCard__top">
                   <Icon className="cdCard__icon" style={{ width: 24, height: 24 }} />
-                  <span className="cdCard__status">
-                    <span className={`cdDot ${live ? 'cdDot--running' : 'cdDot--sleeping'}`} />
-                    {live ? 'RUNNING' : 'SLEEPING'}
-                  </span>
+                  {status && statusLabel && (
+                    <span className="cdCard__status">
+                      <span className={`cdDot ${toolStatusDotClass(status)}`} />
+                      {statusLabel}
+                    </span>
+                  )}
                 </div>
                 <div className="cdCard__title">{app.name}</div>
                 <div className="cdCard__desc">
@@ -114,9 +132,7 @@ export function CommandDesk({
                   >
                     Open
                   </button>
-                  <span className="cdCard__metric">
-                    {app.lastOpened ? `LAST ${relTimeShort(app.lastOpened)}` : app.preBuilt ? 'PRE-BUILT' : 'NEW'}
-                  </span>
+                  <span className="cdCard__metric">{toolCardMetric(app)}</span>
                 </div>
               </div>
             );

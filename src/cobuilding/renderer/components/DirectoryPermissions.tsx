@@ -4,6 +4,7 @@ import { SOUL_MD, MEMORY_PATH_ABOUT_YOU, MEMORY_PATH_WORKING_ON, MAX_WORKSPACE_D
 import { XIcon, PlusIcon } from 'lucide-react';
 import DirectoryPermBadge from './DirectoryPermBadge';
 import ApiKeySettings from './ApiKeySettings';
+import ConnectorsSettings from './ConnectorsSettings';
 import './DirectoryPermissions.css';
 import './shared-forms.css';
 
@@ -303,6 +304,13 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
                 {isSavingProfile ? 'Saving...' : 'Save'}
               </button>
             </div>
+          </div>
+        </section>
+
+        <section className="wsSettings__section">
+          <p className="wsSettings__sectionLabel">Connectors</p>
+          <div className="wsSettings__sectionCard">
+            <ConnectorsSettings />
           </div>
         </section>
 

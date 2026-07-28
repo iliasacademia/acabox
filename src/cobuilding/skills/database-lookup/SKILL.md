@@ -11,9 +11,9 @@ license: See source repo K-Dense-AI/scientific-agent-skills
 
 # Database Lookup — 78 Public Scientific Databases
 
-## Running in the container
+## Running queries
 
-All script execution must go through the Podman container. For curl-based API calls:
+Commands run directly on the host from the workspace root. For curl-based API calls:
 
 ```bash
 curl -s "https://api.example.org/..." | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))"
@@ -25,7 +25,9 @@ For Python scripts, write the script to the workspace (relative path) then execu
 python3 ./script.py
 ```
 
-`requests` and `pandas` are pre-installed in the container — no pip install needed.
+`pandas`, `numpy` and `matplotlib` are pre-installed. Anything else must be
+installed through the wrapper — `.applications/install pip <package> --app <app_dir_name>`
+— never with a bare `pip install` (a PreToolUse hook blocks it).
 
 ## Core Workflow
 
@@ -34,7 +36,7 @@ python3 ./script.py
 3. **Make API calls** — use WebFetch (Claude Code native) for GET endpoints; use `curl` for POST-only APIs (Open Targets, gnomAD, GDC/TCGA, RummaGEO)
 4. **Return results** — provide parsed output and document which databases were queried
 
-## POST-only APIs (must use curl via podman exec)
+## POST-only APIs (must use curl)
 
 ```bash
 # Open Targets GraphQL

@@ -12,9 +12,9 @@ source: jaechang-hits/SciAgent-Skills
 
 # GEO Gene Expression Omnibus
 
-## Running in the container
+## Running queries
 
-`GEOparse`, `requests`, and `pandas` are pre-installed in the container. Write scripts to the workspace and execute via:
+Scripts run directly on the user's machine — there is no container — from the workspace root. Write them to the workspace and execute via:
 
 ```bash
 python3 ./geo_query.py
@@ -24,7 +24,8 @@ All output files should be written to relative paths within the workspace (e.g. 
 
 ## Prerequisites
 
-- `GEOparse`, `requests`, `pandas` — pre-installed in container
+- `pandas`, `numpy`, `matplotlib` are always available in Acabox's Python environment, and `requests` is normally present too.
+- **`GEOparse` is NOT installed.** Install it before use with `.applications/install pip GEOparse --app <app_dir_name>`, or stick to the E-utilities/`requests` paths below, which need nothing extra.
 - No API key required (10 req/sec with free NCBI key via `NCBI_API_KEY` env var)
 
 ## Core API
