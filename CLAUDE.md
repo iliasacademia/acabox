@@ -136,6 +136,21 @@ to `PATH`.
 
 ## Status (last updated 2026-07-28)
 
+**Removed the stale signing scripts + the wrong release warning (2026-07-28).**
+`release.mjs` warned that "macOS auto-update will download but FAIL to install
+until Developer-ID signed + notarized (Squirrel.Mac refuses unsigned updates)"
+— untrue since `main/selfUpdater.ts` took over the install step precisely to
+remove that requirement. It now states what is actually true: auto-update
+works, and the only consequence of an ad-hoc build is Gatekeeper on a *fresh
+download* (right-click → Open). Also deleted the `codesign`, `package:sign`
+and `make:sign` npm scripts: they ran `codesign` **after** the dmg/zip were
+built, so they never reached the distributed artifact, and forge's
+`postPackage` hook already ad-hoc signs at the correct point (before the
+makers). They were dead and actively misleading — running `make:sign` would
+have produced an artifact no better than `make`, with the false impression it
+was signed. The Squirrel references left in `selfUpdater.ts`/`updater.ts` are
+accurate and explain why that module exists; they stay.
+
 **Port isolation + secrets at rest (2026-07-28).** Two hazards the connector
 work surfaced, both fixed and verified live.
 
@@ -595,8 +610,8 @@ replaced with GitHub Releases; the prod build no longer needs any secret env.
   `latest-mac.yml`), and added a silent check-on-launch. Gated on
   `app.isPackaged`; degrades gracefully (logs, no crash) when there's no
   release/repo.
-- **Release command.** `npm run release` (`scripts/release.mjs`): builds
-  (`make:sign` if `APPLE_IDENTITY` set, else `make`), reuses
+- **Release command.** `npm run release` (`scripts/release.mjs`): builds with
+  plain `npm run make` (see 2026-07-28 — `make:sign` was wrong and is gone), reuses
   `scripts/generate-update-manifest.js` to emit `latest-mac.yml`, and
   `gh release create v<version>` with the zip + dmg + yml. Supports
   `--dry-run` / `--skip-make` / `--repo`. Verified end-to-end in dry-run

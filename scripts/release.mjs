@@ -4,7 +4,7 @@
  * Build Acabox and publish a GitHub Release that electron-updater consumes.
  *
  * Pipeline:
- *   1. electron-forge make  (uses `make:sign` automatically if APPLE_IDENTITY is set)
+ *   1. electron-forge make  (signs during packaging — see the note at step 1)
  *   2. generate electron-updater metadata (latest-mac.yml / latest.yml) via
  *      scripts/generate-update-manifest.js
  *   3. create (or update) a GitHub Release tagged v<version> with the built
@@ -59,12 +59,15 @@ function sh(cmd) {
 
 // 1. Build ------------------------------------------------------------------
 if (!skipMake) {
-  const signed = Boolean(process.env.APPLE_IDENTITY);
-  if (!signed && platform === 'darwin') {
-    console.warn(
-      '\n⚠️  APPLE_IDENTITY is not set: building UNSIGNED.\n' +
-        '   macOS auto-update will download but FAIL to install until the build is\n' +
-        '   Developer-ID signed + notarized (Squirrel.Mac refuses unsigned updates).\n',
+  if (!process.env.APPLE_IDENTITY && platform === 'darwin') {
+    // Auto-update is unaffected: main/selfUpdater.ts does the install itself
+    // (verify sha512 → ditto extract → validate → swap the bundle), precisely
+    // so that a Developer ID isn't required. The only remaining consequence is
+    // Gatekeeper on a fresh download.
+    console.log(
+      '\nBuilding ad-hoc signed (APPLE_IDENTITY not set).\n' +
+        '  Auto-update: works — the in-app self-updater performs the install.\n' +
+        '  Fresh downloads: quarantined, so first launch needs right-click → Open.\n',
     );
   }
   // electron-forge make does not clean out/make, so stale artifacts from a
@@ -72,11 +75,11 @@ if (!skipMake) {
   // make the generated metadata reference the wrong (older) payload. Clear it.
   console.log('$ rm -rf out/make');
   if (!dryRun) rmSync('out/make', { recursive: true, force: true });
-  // Plain `make` is correct either way: with APPLE_IDENTITY set it signs +
-  // notarizes during packaging (packagerConfig.osxSign/osxNotarize); without
-  // it, forge.config's postPackage hook ad-hoc signs the bundle. The old
-  // `make:sign` codesign step runs *after* the dmg is built, so it never
-  // reaches the distributed artifact — don't use it.
+  // Plain `make` is correct either way, and is the only correct option: with
+  // APPLE_IDENTITY set it signs + notarizes during packaging
+  // (packagerConfig.osxSign/osxNotarize); without it, forge.config's
+  // postPackage hook ad-hoc signs the bundle. Both happen BEFORE the dmg/zip
+  // makers run, which is what makes them reach the distributed artifact.
   sh('npm run make');
 }
 
