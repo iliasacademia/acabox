@@ -1,7 +1,7 @@
 
 import { type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatStreamMessage, IPCAttachment, Workspace, NotificationNavigationAction } from '../shared/types';
-import { createSession, setSdkSessionId, setSessionModelInfo, insertMessage, cleanupOrphanTurnRows, getSession } from './db/chatRepository';
+import { createSession, setSdkSessionId, clearSdkSessionId, setSessionModelInfo, insertMessage, cleanupOrphanTurnRows, getSession } from './db/chatRepository';
 import { listWorkspaceDirectories } from './db/workspaceRepository';
 import * as fs from 'fs';
 import path from 'path';
@@ -26,6 +26,50 @@ function isAuthError(msg: string): boolean {
   const lower = msg.toLowerCase();
   return lower.includes('401') && (lower.includes('authenticat') || lower.includes('token') || lower.includes('unauthorized'));
 }
+
+/**
+ * A context-window rejection arrives as a `result` message with `is_error` set
+ * and the API's own wording as the result text — the SDK still reports
+ * `subtype: 'success'`, so the flag plus the text is the whole signal.
+ *
+ * The text has to be matched as well as the flag: an ordinary failed turn also
+ * sets `is_error`, and resetting the agent's memory of the conversation is far
+ * too destructive a response to a tool that happened to throw.
+ */
+export function isContextOverflowResult(message: SDKMessage): boolean {
+  const msg = message as any;
+  if (msg?.type !== 'result' || !msg.is_error) return false;
+  const text = typeof msg.result === 'string' ? msg.result : '';
+  return /prompt is too long|context (window|length) exceeded|too many (input )?tokens/i.test(text);
+}
+
+/**
+ * Shown once, in place of a bare "Prompt is too long", when a thread's history
+ * has outgrown the context window. Third person and impersonal to match the
+ * other host-authored refusals — the model did not write this, and did not see
+ * the turn that produced it. It states the loss (the agent's memory of the
+ * chat) plainly rather than letting the reset look like nothing happened.
+ */
+/** Mutable per-session turn state, shared by reference with the SSE reader. */
+interface TurnState {
+  /** Set by sendMessage so the SSE reader can stamp it on turn-complete for
+   *  renderer correlation. Null for callers that supply none (overlay,
+   *  scheduled tasks). */
+  currentMessageId: string | null;
+  /** Set by sendMessage, cleared on 'result'. Distinct from the
+   *  session-lifetime `running` flag; read by the registry to decide
+   *  destroy-now vs defer-until-turn-end. */
+  turnInProgress: boolean;
+  /** Set once this session's transcript has been rejected as too long, so the
+   *  loop stops resuming it. See the declaration site for why the DB column
+   *  alone is not sufficient. */
+  resumeDisabled: boolean;
+}
+
+const CONTEXT_OVERFLOW_MESSAGE =
+  "This conversation is too long for the model's context window, so the request was " +
+  'rejected before the model saw it. Its history has been reset — the next message will ' +
+  'start from a clean context, without the earlier turns in this chat.';
 
 export function resolveSessionHostApp(_documentPath: string | null | undefined): { hostApp: HostApp | null; matched: boolean } {
   return { hostApp: null, matched: false };
@@ -113,9 +157,17 @@ export function createAgentSession(
   //   turnInProgress — set by sendMessage, cleared on 'result'. Distinct
   //     from the session-lifetime `running` flag; read by the registry to
   //     decide destroy-now vs defer-until-turn-end.
-  const turnState: { currentMessageId: string | null; turnInProgress: boolean } = {
+  //   resumeDisabled — set when a turn is rejected for exceeding the context
+  //     window. The resumed transcript is the thing that no longer fits, so it
+  //     must not be resumed again. Clearing the DB column alone is not enough:
+  //     startLoop falls back to the constructor-time `sdkSessionId` when the
+  //     column is null, which would resurrect the poisoned id if the loop
+  //     restarts inside this same session object (a second message sent before
+  //     the registry destroys it, a 404 re-queue, an auth retry).
+  const turnState: TurnState = {
     currentMessageId: null,
     turnInProgress: false,
+    resumeDisabled: false,
   };
   // Cursor into the agent-server's per-session event sequence. Updated as we
   // parse `id:` lines from the SSE stream. On reconnect we send this as the
@@ -283,7 +335,9 @@ export function createAgentSession(
         // resume from the latest, not the one captured when this
         // AgentSession object was constructed.
         const dbSession = getSession(sessionId);
-        const resumeId = dbSession?.sdk_session_id ?? sdkSessionId;
+        const resumeId = turnState.resumeDisabled
+          ? undefined
+          : (dbSession?.sdk_session_id ?? sdkSessionId);
 
         // Sessions are persisted via a custom sessionStore that writes
         // JSONL files to /data/.academia/sessions/ on the workspace mount,
@@ -630,7 +684,7 @@ async function connectSSE(
   onRequest: (req: http.ClientRequest) => void,
   agentBaseUrl: string,
   agentSessionId: string,
-  turnState: { currentMessageId: string | null; turnInProgress: boolean },
+  turnState: TurnState,
   sseCursor: { lastEventId: number | null },
   canRetryAuth?: boolean,
 ): Promise<void> {
@@ -729,6 +783,28 @@ async function connectSSE(
               if (message.type === 'result') {
                 const completedMessageId = turnState.currentMessageId;
                 log.info(`[AgentSession:SSE] RESULT received, emitting turn-complete messageId=${completedMessageId ?? '(none)'}`);
+                // An overflow is fatal to the transcript, not to the thread.
+                // Every later turn resumes the same oversized history and is
+                // rejected identically, so without dropping the resume pointer
+                // the chat is dead permanently — typing "Hi" fails too. Handled
+                // BEFORE the result row is written: cleanupOrphanTurnRows sweeps
+                // assistant rows that land after the last result, so the
+                // explanation has to precede it to survive the next boot.
+                if (isContextOverflowResult(message)) {
+                  log.warn(
+                    `[AgentSession] Context window exceeded for sessionId=${sessionId}; ` +
+                    'dropping the resume pointer so the next turn starts a fresh agent session',
+                  );
+                  clearSdkSessionId(sessionId);
+                  turnState.resumeDisabled = true;
+                  insertMessage(
+                    sessionId,
+                    'assistant',
+                    JSON.stringify([{ type: 'text', text: CONTEXT_OVERFLOW_MESSAGE }]),
+                    completedMessageId ?? undefined,
+                  );
+                  emitEvent({ type: 'text', text: CONTEXT_OVERFLOW_MESSAGE });
+                }
                 insertMessage(sessionId, 'result', JSON.stringify({
                   subtype: (message as any).subtype,
                   result: (message as any).subtype === 'success' ? (message as any).result : undefined,

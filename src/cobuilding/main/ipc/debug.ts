@@ -14,6 +14,7 @@ import { WORKSPACE_DATA_DIR } from '../../shared/paths';
 import { systemLogger } from '../systemLogger';
 import { commandLogger } from '../commandLogger';
 import { captureError } from '../../shared/telemetry';
+import { sweepOrphanTranscripts } from '../transcriptStore';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const crossZip = require('cross-zip');
@@ -104,6 +105,11 @@ export function registerDebugHandlers() {
         const db = getDatabase();
         db.exec('DELETE FROM messages');
         db.exec('DELETE FROM sessions');
+        // Every chat is gone, so every SDK transcript is now unreachable.
+        // Sweeping with an empty live set clears the lot — without this a hard
+        // reset leaves the entire projects/ directory behind, which is the same
+        // leak as deleting one chat but for all of them at once.
+        sweepOrphanTranscripts([]);
         ok('Chat sessions');
       } catch (e) { fail('Chat sessions', (e as Error).message); }
     }

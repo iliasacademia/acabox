@@ -8,6 +8,7 @@ const crossZip = require('cross-zip');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const extractZip = require('extract-zip');
 import { execFile } from 'child_process';
+import { randomUUID } from 'crypto';
 import log from 'electron-log';
 import { updateManifest, readManifest } from './manifestIO';
 import { ensureToolDataLayoutForApp } from './toolDataMigration';
@@ -755,9 +756,18 @@ export function registerFileHandlers(getAllowedPaths: () => string[], getMainWin
     }
   });
 
+  // Re-encodes any image the Messages API cannot read (TIFF, HEIC, BMP, AVIF)
+  // to PNG. `sips` identifies the format from the file's contents, not its
+  // extension — verified — so the input temp name carries no format claim.
+  // It cannot rasterize vector art; an SVG makes this reject, and the caller
+  // falls back to handing the agent a workspace path.
   ipcMain.handle('image:convertToPng', async (_event, base64Data: string) => {
-    const tmpInput = path.join(require('os').tmpdir(), `convert-${Date.now()}.tiff`);
-    const tmpOutput = path.join(require('os').tmpdir(), `convert-${Date.now()}.png`);
+    // Unique per call, not per millisecond: attaching several photos at once
+    // converts them concurrently, and `Date.now()` alone collides — the two
+    // calls would then clobber each other's temp files.
+    const stem = path.join(os.tmpdir(), `convert-${randomUUID()}`);
+    const tmpInput = `${stem}.img`;
+    const tmpOutput = `${stem}.png`;
     try {
       await fsPromises.writeFile(tmpInput, Buffer.from(base64Data, 'base64'));
       await new Promise<void>((resolve, reject) => {

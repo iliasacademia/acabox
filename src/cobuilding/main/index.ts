@@ -73,6 +73,7 @@ import {
   createSession,
   updateSessionTitle,
   deleteSession,
+  listSdkSessionIds,
   getMessages,
   findSessionForApp,
   findMessageByMessageId,
@@ -106,6 +107,7 @@ import { runScheduledTask } from './scheduledTasks/runner';
 import type { CreateTaskData, UpdateTaskData, NotificationNavigationAction } from '../shared/types';
 import { migrateWorkspaceFiles } from './migrateWorkspaceFiles';
 import { ensureToolDataLayout } from './toolDataMigration';
+import { deleteTranscript, sweepOrphanTranscripts } from './transcriptStore';
 import { BackgroundBuilder } from './backgroundBuilder';
 import { getEnvironmentInfo, getInstallSteps } from './environmentGenerator';
 import { packageInstaller, installStepsToRequests, type Registry, type PackageState } from './packageInstaller';
@@ -687,6 +689,12 @@ app.whenReady().then(async () => {
     initDatabase(app.getPath('userData'));
     initObservationsDatabase(app.getPath('userData'));
     log.info('[APP] Database initialized.');
+
+    // Reclaim SDK transcripts no chat points at any more. Deliberately here:
+    // the session table is readable and nothing has started a query yet, so no
+    // transcript can be in use. The scanner and title generation both write
+    // transcripts mid-run, so this must not be moved onto a timer.
+    sweepOrphanTranscripts(listSdkSessionIds());
 
     log.info('[APP] Loading active workspace...');
     let activeWorkspace = workspaceController.loadActiveWorkspace();
@@ -1299,7 +1307,12 @@ ipcMain.handle('sessions:rename', (_event, id: string, title: string) => {
   notifySessionsChanged();
 });
 ipcMain.handle('sessions:delete', (_event, id: string) => {
+  // Read the transcript id BEFORE the row goes: it is the only thing that
+  // identifies the SDK's own JSONL history for this chat, and deleting the row
+  // first would leave that file (routinely megabytes) stranded forever.
+  const sdkSessionId = getSession(id)?.sdk_session_id;
   deleteSession(id);
+  deleteTranscript(sdkSessionId);
   if (getRegisteredSession(id)) {
     unregisterSession(id);
   }

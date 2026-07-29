@@ -176,6 +176,20 @@ export function setSdkSessionId(id: string, sdkSessionId: string): void {
     .run(sdkSessionId, id);
 }
 
+/**
+ * Drops the SDK conversation id so the next turn starts a fresh agent session
+ * instead of resuming. This is the only recovery from a transcript that no
+ * longer fits the context window: the oversized history lives in the file
+ * `resumeSessionId` points at, so every later turn replays it and is rejected
+ * identically no matter what the user types. The chat's own history (this
+ * table) is untouched — only the agent's memory of it is dropped.
+ */
+export function clearSdkSessionId(id: string): void {
+  getDatabase()
+    .prepare('UPDATE sessions SET sdk_session_id = NULL WHERE id = ?')
+    .run(id);
+}
+
 export function insertMessage(
   sessionId: string,
   type: string,
@@ -242,6 +256,19 @@ export function cleanupOrphanTurnRows(sessionId: string): number {
 
 export function deleteSession(id: string): void {
   getDatabase().prepare('DELETE FROM sessions WHERE id = ?').run(id);
+}
+
+/**
+ * Every SDK conversation id a chat still points at. This is the full set of
+ * transcripts that are still reachable — resume only ever names a value from
+ * this column — so anything on disk that is not in here is orphaned.
+ */
+export function listSdkSessionIds(): string[] {
+  return (
+    getDatabase()
+      .prepare('SELECT sdk_session_id FROM sessions WHERE sdk_session_id IS NOT NULL')
+      .all() as { sdk_session_id: string }[]
+  ).map((r) => r.sdk_session_id);
 }
 
 export function getMessages(sessionId: string): Message[] {
