@@ -136,6 +136,16 @@ to `PATH`.
 
 ## Status (last updated 2026-07-28)
 
+**Released v0.1.5 (2026-07-28).** Everything below through the tool-status work
+is shipped. Verified after publishing, not just from the release log: the three
+assets carry the right 0.1.5 names/sizes, `latest-mac.yml` is **anonymously
+downloadable** (the property the updater depends on — no embedded token), its
+sha512 matches the built zip byte-for-byte, and the packaged bundle is `valid on
+disk / satisfies its Designated Requirement` with `CFBundleShortVersionString`
+0.1.5 and id `com.electron.acabox`. Ad-hoc signed as usual (no Developer ID), so
+a fresh download still needs right-click → Open; auto-update installs via
+`main/selfUpdater.ts` rather than Squirrel.
+
 **Stop, build health, and an Activity surface (2026-07-28).** Closing the three
 gaps left by the job registry below. The framing that drove the design: all
 three are the same question at different moments — *what is my computer doing
