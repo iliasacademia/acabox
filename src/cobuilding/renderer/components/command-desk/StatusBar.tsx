@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useToolStatuses } from '../../toolStatusStore';
 
 const POLL_MS = 5_000;
 
@@ -36,6 +37,11 @@ function formatUptime(sec: number): string {
 export function StatusBar() {
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [agentCount, setAgentCount] = useState<number | null>(null);
+  const toolStatuses = useToolStatuses();
+  const workingToolNames = [...toolStatuses.entries()]
+    .filter(([, s]) => s.kind === 'working')
+    .map(([dirName]) => dirName);
+  const workingTools = workingToolNames.length;
 
   useEffect(() => {
     let alive = true;
@@ -66,6 +72,14 @@ export function StatusBar() {
         </>
       )}
       {agentCount != null && <span>AGENTS {agentCount} LIVE</span>}
+      {/* Tools can be working with no viewer open — this is the only place
+          that is visible from every screen. Hidden when nothing is running. */}
+      {workingTools > 0 && (
+        <span title={workingToolNames.join(', ')}>
+          <span className="cdDot cdDot--busy cdDot--pulse" style={{ display: 'inline-block', marginRight: 6 }} />
+          {workingTools} TOOL{workingTools === 1 ? '' : 'S'} WORKING
+        </span>
+      )}
       <span className="cdStatusBar__spacer" />
       {stats && <span>UP {formatUptime(stats.appUptimeSec)}</span>}
     </div>

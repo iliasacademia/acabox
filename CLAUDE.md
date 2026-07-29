@@ -136,6 +136,140 @@ to `PATH`.
 
 ## Status (last updated 2026-07-28)
 
+**Stop, build health, and an Activity surface (2026-07-28).** Closing the three
+gaps left by the job registry below. The framing that drove the design: all
+three are the same question at different moments — *what is my computer doing
+for me, and what happened while I wasn't looking?* — so they share one surface
+rather than being three patches.
+- **Stopping work was not a convenience, it was a missing emergency brake.**
+  There was no way to stop a running tool at all: not from the tool, not from
+  the app, and **not by quitting** (verified — the app exits and the work keeps
+  going). A tool stuck in a loop, burning CPU or the user's API key, survived
+  every gesture short of Activity Monitor. `cancelJob` now kills `command` work
+  outright and asks the owning renderer to interrupt `kernel`/`claude` work
+  (relayed via `jobs:cancelRequested`; the shell handles it so it works with no
+  viewer mounted). Stop lives in the tool header and on every Activity row.
+  Cancelled is its own status, distinct from `failed`, because half-written
+  output must not be adopted as a result — and it does **not** stamp `lastRun`.
+- **Kills walk the process tree, never `kill(-pid)`.** These children are
+  spawned without `detached`, so they share Acabox's own process group — a
+  negative-pid signal would kill the app itself. `descendantsOf` recurses via
+  `pgrep -P`, SIGTERM from the leaves up, SIGKILL to survivors after 3s. Covered
+  by a test that builds a real `sh → sh → sleep` tree and asserts every level
+  dies (a naive single-pid kill leaves the grandchild running).
+- **Quit warns instead of killing (user's call).** `before-quit` shows
+  Quit / Stop them and quit / Cancel when work is in flight, so the long-run
+  case (close the lid at 6pm, analysis finishes overnight) keeps working while
+  never being a silent surprise. Guarded against blocking a headless quit —
+  `--smoke-test` and a destroyed-window state skip the prompt.
+- **New `main/buildHealth.ts` — build failure is a health state, not a status.**
+  Statuses describe what's happening now and are rightly transient; "this tool
+  doesn't build" is a property of the tool that stays true while nobody is
+  looking. Recorded inside `buildMiniApp` so every build path (Rebuild button
+  and the agent's tool) reports identically, persisted to
+  `<userData>/tool-build-health.json` — deliberately **not** the manifest, which
+  travels on export, where a failure on this machine means nothing. Cleared on
+  tool delete so a later tool reusing the dir name doesn't inherit it.
+- **New `command-desk/ActivityPanel.tsx`** replaces the old briefings page on
+  the under-used Activity tab: *Needs attention* (unseen outcomes + broken
+  tools, each with **Ask Claude to fix it**, which composes the real build error
+  into a chat turn), *Running now* (with Stop and elapsed time), *Recently
+  finished* (24h). Empty sections aren't rendered. Wording never invents an
+  outcome — work that outlived a quit reads "result unknown", because we weren't
+  its parent and there is no exit code.
+- Verified live: a failed build put **BUILD FAILED on the home card with no
+  viewer mounted** (impossible before); Stop killed a real `sleep 300` and the
+  job read `cancelled`; the Activity panel rendered all three sections with the
+  right copy. Plus 19 registry cases (incl. the real process-tree kill) and 29
+  store cases. tsc clean; jest 178/179 (only the pre-existing
+  `fileMonitorIntegration`); smoke test exits 0.
+- **Still not done: notifications.** Deliberately deferred — the design is the
+  hard part, not the plumbing. The unit should be the *wait*, not the job (a
+  tool making 20 short kernel calls must not fire 20 toasts), tiered by where
+  the user is: in-app cue when they're elsewhere in Acabox, OS notification when
+  they've switched away, and a digest line on Home for work that finished while
+  it was closed. Only for user-started work that ran past ~30s or failed —
+  background dep installs must never toast.
+- Known nit: `buildFailed` outranks `working` in the chip precedence, so a
+  broken tool that is somehow also running shows BUILD FAILED. Activity shows
+  both, which is what it's for.
+
+**The host owns a tool's work; status survives navigation and restart
+(2026-07-28).** Follow-on to the status rewrite below, which left a real gap:
+`clearToolStatus` fired when a tool's viewer unmounted, so the status went dark
+while the work carried on. Established by test first: a mini-app's shell command
+**completes normally after Acabox has fully quit** (0 Electron processes left,
+marker file still written on schedule) — `exec` children aren't in the
+`before-quit` teardown and a POSIX child outlives its parent.
+- **New `main/jobRegistry.ts`** — a persisted, host-owned record of what each
+  tool is doing (`<userData>/tool-jobs.json`). `container:execLogged` opens a
+  job itself when `appDirName` is set (it owns the child process, and gets its
+  pid via the new `exec(..., {onSpawn})`); the renderer reports what main can't
+  see for itself — kernel runs and Claude calls — over `jobs:begin`/`jobs:end`,
+  tagged with the reporting WebContents so its death closes them out.
+- **Boot reconciliation is per-kind, because survival is per-kind.** A `command`
+  may genuinely still be running, so its pid is checked and the job re-adopted;
+  `kernel` dies with the app (the gateway is killed in `before-quit`) and
+  `claude` is an HTTP call from main, so both are reported **interrupted** and
+  never as running. An adopted job whose process is gone becomes
+  `finishedWhileAway` — it ran unsupervised, so claiming it succeeded would be
+  a guess. Adopted pids are polled (3s) since nothing will notify us.
+- **Bug caught by the test, not by reading:** the pid fingerprint originally
+  included the command line, but `sh -c "…"` **execs** into the program it runs,
+  so `ps` reports `/bin/sh -c sleep 30` at spawn and `sleep 30` moments later —
+  every shell command would have failed to re-adopt. The signature is now start
+  time only (pid + start time is unique; pid reuse gets a new start time).
+- **Consequences in the UI.** The home/rail chip is no longer unreachable: a
+  tool with work in flight reads **WORKING** with no viewer open. `StatusBar`
+  gained a "N TOOLS WORKING" segment (hidden at zero) — the only always-visible
+  surface. New `interrupted` status renders **RAN WHILE CLOSED** /
+  **INTERRUPTED**, cleared when the user opens the tool (`jobs:acknowledge`).
+  `lastRun` is now stamped by **main** on job completion, so it records work the
+  renderer never saw finish; the renderer-side `miniApps:markRun` IPC is gone.
+- **Tools are now expected to be resumable** (the other half — results must
+  outlive the UI, not just the status). `useAppState` exposes `lastRunAt`; new
+  `@reusable/useRunsWhileClosed` compares it against the host's job history and
+  reports runs that completed while the tool was closed, via a new
+  `jobs:listForApp` bridge call, so the app can re-read `output/run_metadata.json`
+  and adopt results it never got to record. SKILL.md gained a "Your UI is not
+  where the work lives" section making this a rule rather than a nicety.
+- Verified live end-to-end, not just unit-tested: work started with **no viewer
+  open** lit the home card WORKING + "1 TOOL WORKING"; quitting Acabox left 0
+  Electron processes with the work still alive; **reopening showed WORKING again
+  immediately**; and when the process exited at t+70s the card flipped to RAN
+  WHILE CLOSED. Plus 14 jest cases against the real registry (adopt/interrupt/
+  recycled-pid/persistence, exercised against real live and real dead pids) and
+  10 more on the store's host-job merge. tsc clean; jest 173/174 (only the
+  pre-existing `fileMonitorIntegration`).
+- Not done: no notification when work finishes while you're elsewhere, and no
+  way to cancel a running job from the UI. Both are natural next steps now that
+  the jobs are enumerable.
+
+**Measured: what an open tool actually costs in memory (2026-07-28).** Taken to
+size a "keep tools alive when you navigate away" decision. Method: dev build,
+one **fresh app launch per condition** (tool tabs persist in app state, so
+conditions leak into each other otherwise), median of 5 samples, macOS
+`phys_footprint` — the number Activity Monitor calls "Memory".
+- **All mini-apps share ONE renderer process, not one each.** Verified with 1,
+  2, 3 and 4 tools open simultaneously — always exactly 1 extra process. They
+  are all same-origin (`local-file://`), so Chromium's site isolation puts them
+  together. Any reasoning that assumes a process per tool is wrong.
+- Simultaneously-open tools (React tool w/ a 250-row table): **1 → 36 MB,
+  2 → 42 MB, 3 → 46 MB, 4 → 51 MB.** So the *first* tool costs ~36 MB (mostly
+  the shared process itself, paid once) and each additional ordinary tool adds
+  only **~5 MB**.
+- By weight, measured alone: trivial (no framework) **21 MB**, typical React
+  **36 MB**, heavy (120k parsed records held in memory) **145 MB**.
+- **Conclusion: memory is not the constraint on keeping tools warm.** Four
+  ordinary tools ≈ 51 MB. The risk is concentrated entirely in data-heavy
+  tools — one is worth ~3 typical ones — so any eviction policy should be
+  **memory-aware, not count-aware** ("keep the last 3" is the wrong shape).
+  The real arguments against keep-alive are non-memory: unattended CPU/API
+  spend, silently stale data, and invisible accumulation.
+- Caveat: the app's own dev baseline (~650 MB) is inflated by dev tooling and
+  is **not** a production number; no prod baseline was captured. The per-tool
+  figures do transfer, since the mini-app bundle is identical in both.
+
 **Removed the stale signing scripts + the wrong release warning (2026-07-28).**
 `release.mjs` warned that "macOS auto-update will download but FAIL to install
 until Developer-ID signed + notarized (Squirrel.Mac refuses unsigned updates)"
@@ -253,15 +387,16 @@ with no entry. Neither had any notion of the tool executing something.
   cases against the real store (timing, precedence, ref-counting, stale-end
   safety) plus one that renders `useToolStatus` through React. tsc clean;
   jest 133/134 (only the pre-existing `fileMonitorIntegration`).
-- **Known gap:** navigating away from a tool unmounts its viewer and destroys
-  the iframe (verified: 0 iframe CDP targets after nav), which fires
-  `clearToolStatus`. So a home card can never *actually* light up today — for
-  `working` that is semantically right (nothing can run without an iframe), but
-  it also means `BUILD FAILED` disappears from the grid the moment you leave the
-  tool. The home/rail chip code is correct but currently unreachable; it becomes
-  live either by keeping the workspace mounted or by the host-side lifecycle
-  under "Deferred" below. Also unchanged: `building`/`installing` are written
-  directly with no delay-in, so a 34ms build still flashes.
+- **Gap found here, FIXED the same day by the job registry above:** navigating
+  away from a tool unmounts its viewer and destroys the iframe (verified: 0
+  iframe CDP targets after nav), which fired `clearToolStatus` — so a home card
+  could never actually light up, and the work kept running unobserved. Host-owned
+  jobs make `working` reachable with no viewer mounted. Still true and still
+  unfixed: `building`/`installing` are written directly with no delay-in, so a
+  34ms build flashes; and `buildFailed` is viewer-local, so it still disappears
+  from the grid when you leave the tool (only *jobs* survive, not lifecycle).
+  **`buildFailed` FIXED later the same day** by `buildHealth.ts` — see the top
+  of Status. The `building`/`installing` flash is still real.
 
 **De-Podman'd the agent-facing docs; `containerAPI` → `hostAPI` (2026-07-28).**
 The mini-app bridge still exposed `window.containerAPI.exec` documented as
@@ -748,10 +883,10 @@ fonts, real chats/files data). Key facts:
   idempotent, self-heals a stale signature, re-applies after npm install.
   Packaged builds were already named via packagerConfig.
 - Superseded 2026-07-28: the RUNNING/SLEEPING tab-open heuristic is gone — see
-  the tool-status entry at the top of Status. Still deferred: a **host-side**
-  tool lifecycle (so a tool can report state with no viewer mounted, and so
-  crashed/progress states become expressible), and ⌘K opens the chats list
-  instead of a real command palette.
+  the tool-status entries at the top of Status, where the **host-side** job
+  registry now lets a tool report state with no viewer mounted, and cancel
+  exists. Still deferred: per-job progress, notifications, and ⌘K opens the
+  chats list instead of a real command palette.
 - Tool archiving (2026-07-23): `archived: true`/`archivedAt` in the app's
   manifest.json (travels with the folder on export). `miniApps:setArchived`
   IPC + preload; Tools page grew an "Archived" section (hidden when empty)

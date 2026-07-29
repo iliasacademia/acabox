@@ -12,6 +12,8 @@ export function toolStatusDotClass(status: ToolRuntimeStatus): string {
     case 'building':
     case 'installing':
     case 'working': return 'cdDot--busy cdDot--pulse';
+    // Not pulsing: nothing is happening now, it happened to us earlier.
+    case 'interrupted': return 'cdDot--busy';
     default: return 'cdDot--sleeping';
   }
 }
@@ -27,6 +29,22 @@ export function toolStatusLabel(status: ToolRuntimeStatus): string | null {
     case 'building': return 'BUILDING';
     case 'installing': return 'FIRST BOOT';
     case 'working': return 'WORKING';
+    case 'interrupted':
+      // A command outlives the app, so we genuinely don't know how it ended;
+      // a kernel run doesn't, so we know it stopped. Say which.
+      return status.reason === 'finishedWhileAway' ? 'RAN WHILE CLOSED' : 'INTERRUPTED';
+    default: return null;
+  }
+}
+
+/** Longer explanation for tooltips / the tool header. */
+export function toolStatusDetail(status: ToolRuntimeStatus): string | null {
+  switch (status.kind) {
+    case 'working': return 'This tool is doing something right now.';
+    case 'interrupted':
+      return status.reason === 'finishedWhileAway'
+        ? 'Work was still running when Acabox closed. It kept going, but the result was not recorded — open the tool to check its output.'
+        : 'Work was interrupted when Acabox closed and did not finish.';
     default: return null;
   }
 }

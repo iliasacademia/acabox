@@ -1242,3 +1242,57 @@
   background: var(--cd-ink);
   transition: width 400ms ease-out;
 }
+
+/* ═══ Activity — running / needs attention / recently finished ═══ */
+
+.cdActivity {
+  flex: 1;
+  min-width: 0;
+  padding: 28px 32px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.cdActivity__header { display: flex; align-items: baseline; gap: 12px; }
+.cdActivity__section { display: flex; flex-direction: column; gap: 8px; }
+.cdActivity__section > .cdSectionLabel { margin-bottom: 2px; }
+
+.cdActivity__empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 0;
+  color: var(--cd-text2);
+  font-size: 14px;
+}
+
+.cdActivityRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border: 1px solid var(--cd-line);
+  border-radius: 8px;
+  background: var(--cd-surface);
+}
+.cdActivityRow--bad { border-color: var(--cd-error); }
+.cdActivityRow__icon { color: var(--cd-text3); flex: none; }
+.cdActivityRow__main { flex: 1; min-width: 0; }
+.cdActivityRow__title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--cd-text1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cdActivityRow__sub {
+  font-family: var(--cd-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--cd-text2);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

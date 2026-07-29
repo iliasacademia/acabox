@@ -106,6 +106,12 @@ export interface UseAppStateResult<
   runResult: R | null;
   setRunResult: (next: R | null | ((prev: R | null) => R | null)) => void;
   freshness: Freshness;
+  /**
+   * When this app last *recorded* a completed run, or null if it never has.
+   * Compare against the host's job history to detect a run that finished while
+   * the tool was closed — see `useRunsWhileClosed`.
+   */
+  lastRunAt: number | null;
   markRunComplete: () => Promise<void>;
 }
 
@@ -287,6 +293,7 @@ export function useAppState<
   const [outputs, setOutputsState] = useState<O[]>([]);
   const [runResult, setRunResultState] = useState<R | null>(null);
   const [lastRunHash, setLastRunHash] = useState<string | null>(null);
+  const [lastRunAt, setLastRunAt] = useState<number | null>(null);
 
   const notebookRef = useRef<Notebook | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -349,6 +356,7 @@ export function useAppState<
       const loaded = readParamsFromCell(findParametersCell(nb), defaults);
       setParamsState(loaded);
       setLastRunHash(nb.metadata?.cobuild?.lastRun?.paramsHash ?? null);
+      setLastRunAt(nb.metadata?.cobuild?.lastRun?.completedAt ?? null);
       const persistedOutputs = nb.metadata?.cobuild?.outputs;
       if (Array.isArray(persistedOutputs)) {
         setOutputsState(persistedOutputs as O[]);
@@ -521,11 +529,14 @@ export function useAppState<
     const hash = paramsHash(canonicalize(current));
     nb.metadata = nb.metadata ?? {};
     nb.metadata.cobuild = { ...(nb.metadata.cobuild ?? { version: 1 }) };
-    nb.metadata.cobuild.lastRun = { completedAt: Date.now(), paramsHash: hash };
+    const completedAt = Date.now();
+    nb.metadata.cobuild.lastRun = { completedAt, paramsHash: hash };
     nb.metadata.cobuild.outputs = outputsRef.current as unknown[];
     nb.metadata.cobuild.runResult = runResultRef.current;
     await window.filesAPI.writeFile(notebookPath, serializeNotebook(nb));
     setLastRunHash(hash);
+    setLastRunAt(completedAt);
+    setLastRunAt(nb.metadata.cobuild.lastRun.completedAt);
   }, [notebookPath]);
 
   const freshness: Freshness =
@@ -547,6 +558,7 @@ export function useAppState<
     runResult,
     setRunResult,
     freshness,
+    lastRunAt,
     markRunComplete,
   };
 }

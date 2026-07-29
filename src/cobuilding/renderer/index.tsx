@@ -20,11 +20,11 @@ import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
 import { ToolsPage } from './components/ToolsPage';
 import { PaperMonitorView } from './components/PaperMonitorView';
-import { HomePage } from './components/HomePage';
 import { ChromeBar } from './components/command-desk/ChromeBar';
 import { Rail, type RailTab } from './components/command-desk/Rail';
 import { StatusBar } from './components/command-desk/StatusBar';
 import { CommandDesk } from './components/command-desk/CommandDesk';
+import { ActivityPanel } from './components/command-desk/ActivityPanel';
 import { useHomeData } from './components/command-desk/useHomeData';
 import { ReactionsToolView } from './components/ReactionsToolView';
 import { resolveWorkspacePath } from './utils/resolveWorkspacePath';
@@ -44,7 +44,7 @@ import { GlobalComposer } from './components/GlobalComposer';
 import { useTabs } from './tabs/useTabs';
 import type { TabDescriptor } from './tabs/types';
 import { kernelRegistry } from './components/notebook/kernelRegistry';
-import { onToolRunEnded } from './toolStatusStore';
+import { applyHostJobs, applyBuildHealth } from './toolStatusStore';
 import type { Workspace, WorkspaceDirectory } from '../shared/types';
 import { trackEvent } from './utils/fullstory';
 import { initSentryRenderer } from './sentry';
@@ -62,9 +62,6 @@ initSentryRenderer();
 // and subscribes to auth-state changes. Fire-and-forget; track() calls
 // before init resolves are no-ops, which is correct (we're pre-login anyway).
 initCoScientistAnalytics();
-
-/** Trailing-edge window for collapsing a burst of `lastRun` manifest writes. */
-const RUN_STAMP_FLUSH_MS = 3000;
 
 /** Listens for quick-chat:inject IPC and creates a new thread with the message + context. */
 function QuickChatInjector({ onSwitchToChat }: { onSwitchToChat: () => void }) {
@@ -800,34 +797,47 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
     }
   }, [sidebarTab, refreshApps, refreshDrive]);
 
-  // Stamp `lastRun` on the manifest each time a tool finishes doing something,
-  // so the home card can say LAST RUN rather than inferring it from the last
-  // time the user opened the tool. Writes are collapsed on a trailing edge: an
-  // app that fires many short operations in a burst produces one manifest
-  // write, and the final run always lands.
+  // The host owns every long-running thing a tool does, so the host's job list
+  // — not any mounted component — decides what is working. Subscribing here,
+  // at the app shell, means the status is correct on the home grid and the
+  // rail, survives navigating away from a tool, and is already right on the
+  // first paint after a restart (main reconciles the list before we render).
   useEffect(() => {
-    const pending = new Set<string>();
-    let flushTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const flush = () => {
-      flushTimer = null;
-      const dirNames = [...pending];
-      pending.clear();
-      Promise.all(dirNames.map((dirName) => window.miniAppsAPI.markRun(dirName)))
-        .then(refreshApps)
-        .catch((err) => console.error('[ToolStatus] markRun failed:', err));
-    };
-
-    const unsubscribe = onToolRunEnded((dirName) => {
-      pending.add(dirName);
-      if (flushTimer === null) flushTimer = setTimeout(flush, RUN_STAMP_FLUSH_MS);
+    let stale = false;
+    window.jobsAPI.list()
+      .then((jobs) => { if (!stale) applyHostJobs(jobs); })
+      .catch((err) => console.error('[Jobs] initial list failed:', err));
+    const unsubscribe = window.jobsAPI.onChanged((jobs) => {
+      applyHostJobs(jobs);
+      // A finished job means the manifest's lastRun just moved; refresh so the
+      // card's "LAST RUN" is current. Main does the writing.
+      refreshApps();
     });
-
-    return () => {
-      unsubscribe();
-      if (flushTimer !== null) clearTimeout(flushTimer);
-    };
+    return () => { stale = true; unsubscribe(); };
   }, [refreshApps]);
+
+  // Which tools currently fail to build. Kept at the shell for the same reason
+  // as jobs: it must be true on the home grid with no viewer mounted.
+  useEffect(() => {
+    let stale = false;
+    window.buildHealthAPI.list()
+      .then((all) => { if (!stale) applyBuildHealth(all); })
+      .catch((err) => console.error('[BuildHealth] initial list failed:', err));
+    const unsubscribe = window.buildHealthAPI.onChanged(applyBuildHealth);
+    return () => { stale = true; unsubscribe(); };
+  }, []);
+
+  // Main can kill a shell command itself, but kernel work only stops if the
+  // renderer driving it interrupts the kernel. Handled at the shell so it works
+  // whether or not the tool's viewer happens to be mounted.
+  useEffect(() => {
+    return window.jobsAPI.onCancelRequested((req) => {
+      if (req.kind !== 'kernel') return;
+      kernelRegistry.interrupt(`miniapp::${req.dirName}`).catch((err) => {
+        console.error('[Jobs] kernel interrupt failed:', err);
+      });
+    });
+  }, []);
 
   const handleChatsClick = useCallback(() => {
     setSidebarTab('chats');
@@ -1010,19 +1020,16 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
             </div>
 
             {/* Activity tab — the briefings feed (formerly the Home screen) */}
-            <div style={{ display: sidebarTab === 'activity' ? 'flex' : 'none', flex: 1 }}>
-              <div className="homeContent">
-                <HomePage
-                  workspacePath={workspace.directory_path}
-                  userDirectoryPaths={workspace.user_directory_paths}
-                  onSelectFile={handleSelectFile}
-                  onSwitchToChat={() => {
-                    setSidebarTab('chats');
-                    setChatViewMode('detail');
-                    deactivateAllTabs();
-                  }}
-                />
-              </div>
+            <div style={{ display: sidebarTab === 'activity' ? 'flex' : 'none', flex: 1, overflow: 'auto' }}>
+              <ActivityPanel
+                apps={activeApps}
+                onOpenTool={handleSelectApp}
+                onSwitchToChat={() => {
+                  setSidebarTab('chats');
+                  setChatViewMode('detail');
+                  deactivateAllTabs();
+                }}
+              />
             </div>
 
             {/* Tools tab */}

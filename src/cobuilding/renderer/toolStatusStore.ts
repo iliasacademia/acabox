@@ -37,7 +37,15 @@ export type ToolLifecycleStatus =
   | { kind: 'building' }
   | { kind: 'buildFailed'; message: string; at: number };
 
-export type ToolRuntimeStatus = ToolLifecycleStatus | { kind: 'working' };
+export type ToolRuntimeStatus =
+  | ToolLifecycleStatus
+  | { kind: 'working' }
+  /**
+   * Work was in flight when the app went away. `finishedWhileAway` means it
+   * outlived us and its outcome is unknown; `interrupted` means it could not
+   * have continued. Both are past events, so they rank below live work.
+   */
+  | { kind: 'interrupted'; reason: 'interrupted' | 'finishedWhileAway' };
 
 const IDLE: ToolRuntimeStatus = { kind: 'idle' };
 
@@ -56,11 +64,20 @@ const lifecycle = new Map<string, ToolLifecycleStatus>();
 const activity = new Map<string, ActivityEntry>();
 const listeners = new Set<() => void>();
 const runEndListeners = new Set<(dirName: string) => void>();
+/** Tools with an unacknowledged interrupted / finished-while-away job. */
+const unfinished = new Map<string, 'interrupted' | 'finishedWhileAway'>();
+/** Tools the host knows do not build, from `buildHealth`. Survives unmount. */
+const hostBuildFailures = new Map<string, { message: string; at: number }>();
 
 let snapshot: Map<string, ToolRuntimeStatus> = new Map();
 
 function computeSnapshot(): Map<string, ToolRuntimeStatus> {
   const next = new Map<string, ToolRuntimeStatus>();
+  // Host-recorded build failures come first: "this tool does not build" is true
+  // whether or not its viewer is mounted, unlike the viewer-local lifecycle.
+  for (const [dirName, entry] of hostBuildFailures) {
+    next.set(dirName, { kind: 'buildFailed', message: entry.message, at: entry.at });
+  }
   for (const [dirName, status] of lifecycle) {
     if (status.kind !== 'idle') next.set(dirName, status);
   }
@@ -68,6 +85,10 @@ function computeSnapshot(): Map<string, ToolRuntimeStatus> {
     if (entry.visibleSince === null) continue;
     if (next.has(dirName)) continue; // a lifecycle state outranks activity
     next.set(dirName, { kind: 'working' });
+  }
+  for (const [dirName, reason] of unfinished) {
+    if (next.has(dirName)) continue; // live state outranks a past one
+    next.set(dirName, { kind: 'interrupted', reason });
   }
   return next;
 }
@@ -79,6 +100,9 @@ function sameStatus(a: ToolRuntimeStatus, b: ToolRuntimeStatus): boolean {
   }
   if (a.kind === 'buildFailed' && b.kind === 'buildFailed') {
     return a.at === b.at && a.message === b.message;
+  }
+  if (a.kind === 'interrupted' && b.kind === 'interrupted') {
+    return a.reason === b.reason;
   }
   return true;
 }
@@ -200,6 +224,84 @@ function endActivity(dirName: string, self: ActivityEntry): void {
   }, remaining);
 }
 
+/**
+ * Reconcile the store against the host's job list.
+ *
+ * This is what makes the status outlive the tool's viewer. The host owns the
+ * work — a shell command keeps running after you navigate away, and even after
+ * the app quits — so the host's list, not a mounted component, decides whether
+ * a tool is working. Each host job holds one activity slot through the same
+ * delay-in / hold-out machinery as everything else, so the chip behaves
+ * identically no matter where the work is tracked.
+ */
+const hostJobEnders = new Map<string, () => void>();
+
+export function applyHostJobs(jobs: {
+  id: string; dirName: string; status: string;
+}[]): void {
+  const seen = new Set<string>();
+
+  for (const job of jobs) {
+    if (job.status !== 'running') continue;
+    seen.add(job.id);
+    if (!hostJobEnders.has(job.id)) {
+      hostJobEnders.set(job.id, beginToolActivity(job.dirName));
+    }
+  }
+
+  for (const [id, end] of [...hostJobEnders]) {
+    if (seen.has(id)) continue;
+    hostJobEnders.delete(id);
+    end();
+  }
+
+  // Past-tense states: work that was in flight when the app went away.
+  const nextUnfinished = new Map<string, 'interrupted' | 'finishedWhileAway'>();
+  for (const job of jobs) {
+    if (job.status === 'interrupted' || job.status === 'finishedWhileAway') {
+      // "finished while away" is the more informative of the two — prefer it.
+      const existing = nextUnfinished.get(job.dirName);
+      if (existing !== 'finishedWhileAway') {
+        nextUnfinished.set(job.dirName, job.status as 'interrupted' | 'finishedWhileAway');
+      }
+    }
+  }
+  let changed = nextUnfinished.size !== unfinished.size;
+  if (!changed) {
+    for (const [k, v] of nextUnfinished) if (unfinished.get(k) !== v) { changed = true; break; }
+  }
+  if (changed) {
+    unfinished.clear();
+    for (const [k, v] of nextUnfinished) unfinished.set(k, v);
+    republish();
+  }
+}
+
+/**
+ * Reconcile against the host's record of which tools build.
+ *
+ * Unlike the viewer-local `buildFailed` lifecycle, this persists: a tool that
+ * does not build reads BROKEN on the home grid with nothing mounted, and still
+ * does after a restart.
+ */
+export function applyBuildHealth(entries: { dirName: string; ok: boolean; error?: string; at: number }[]): void {
+  const next = new Map<string, { message: string; at: number }>();
+  for (const e of entries) {
+    if (!e.ok) next.set(e.dirName, { message: e.error ?? 'Build failed.', at: e.at });
+  }
+  let changed = next.size !== hostBuildFailures.size;
+  if (!changed) {
+    for (const [k, v] of next) {
+      const prev = hostBuildFailures.get(k);
+      if (!prev || prev.at !== v.at || prev.message !== v.message) { changed = true; break; }
+    }
+  }
+  if (!changed) return;
+  hostBuildFailures.clear();
+  for (const [k, v] of next) hostBuildFailures.set(k, v);
+  republish();
+}
+
 /** `beginToolActivity` around a promise, ended on settle. */
 export async function trackToolActivity<T>(dirName: string, run: () => Promise<T>): Promise<T> {
   const end = beginToolActivity(dirName);
@@ -256,6 +358,9 @@ export function __resetToolStatusStore(): void {
   }
   activity.clear();
   lifecycle.clear();
+  unfinished.clear();
+  hostBuildFailures.clear();
+  hostJobEnders.clear();
   runEndListeners.clear();
   snapshot = new Map();
 }

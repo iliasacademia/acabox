@@ -472,13 +472,54 @@ declare global {
     hasManifest: boolean;
   }
 
+  /** Work a tool is doing, owned by the host so it outlives the tool's viewer. */
+  interface ToolJob {
+    id: string;
+    dirName: string;
+    kind: 'command' | 'kernel' | 'claude' | 'agent-tool';
+    label: string;
+    startedAt: number;
+    endedAt?: number;
+    status: 'running' | 'done' | 'failed' | 'interrupted' | 'finishedWhileAway' | 'cancelled';
+    pid?: number;
+    /** True when this job was carried across an app restart and is still alive. */
+    adopted?: boolean;
+  }
+
+  /** A tool that does not currently build. Absence means it is fine. */
+  interface BuildHealth {
+    dirName: string;
+    ok: boolean;
+    error?: string;
+    at: number;
+  }
+
+  interface BuildHealthAPI {
+    list(): Promise<BuildHealth[]>;
+    onChanged(callback: (all: BuildHealth[]) => void): () => void;
+  }
+
+  interface JobsAPI {
+    list(): Promise<ToolJob[]>;
+    /** Report work the host can't see for itself (kernel runs, Claude calls). */
+    begin(input: { dirName: string; kind: 'kernel' | 'claude'; label: string }): Promise<string | null>;
+    end(id: string, status?: 'done' | 'failed'): Promise<{ ok: boolean }>;
+    /** Clear a tool's interrupted / finished-while-away notice. */
+    acknowledge(dirName: string): Promise<{ ok: boolean }>;
+    /** Stop a running job. Kills the process tree, or asks its owner to interrupt. */
+    cancel(id: string): Promise<{ ok: boolean; reason?: string }>;
+    /** Main asks this window to interrupt work it reported (kernel / Claude). */
+    onCancelRequested(
+      callback: (req: { id: string; dirName: string; kind: string }) => void,
+    ): () => void;
+    onChanged(callback: (jobs: ToolJob[]) => void): () => void;
+  }
+
   interface MiniAppsAPI {
     exportApp(dirName: string): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean; error?: string }>;
     importApp(): Promise<{ ok: boolean; dirName?: string; canceled?: boolean; error?: string }>;
     list(): Promise<MiniAppEntry[]>;
     touch(dirName: string): Promise<{ ok: boolean; error?: string }>;
-    /** Stamp `lastRun` — the tool just finished executing something. */
-    markRun(dirName: string): Promise<{ ok: boolean; error?: string }>;
     setArchived(dirName: string, archived: boolean): Promise<{ ok: boolean; error?: string }>;
     /** Delete a tool's code, preserving its input/output under tool-data. */
     delete(dirName: string): Promise<{ ok: boolean; error?: string }>;
@@ -804,6 +845,8 @@ declare global {
     debugAPI: DebugAPI;
     miniAppsAPI: MiniAppsAPI;
     toolDataAPI: ToolDataAPI;
+    jobsAPI: JobsAPI;
+    buildHealthAPI: BuildHealthAPI;
     miniAppMcpAPI: MiniAppMcpAPI;
     reportsAPI: ReportsAPI;
     scannerAPI: ScannerAPI;

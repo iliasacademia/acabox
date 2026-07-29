@@ -12,6 +12,7 @@ import log from 'electron-log';
 import { updateManifest, readManifest } from './manifestIO';
 import { ensureToolDataLayoutForApp } from './toolDataMigration';
 import { APPLICATIONS_DIR, TOOL_DATA_DIR } from '../shared/paths';
+import { forgetBuildHealth } from './buildHealth';
 
 const MAX_FILE_SIZE = 10_000_000; // 10 MB
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'tiff', 'tif']);
@@ -539,6 +540,9 @@ export function registerFileHandlers(getAllowedPaths: () => string[], getMainWin
   ipcMain.handle('miniApps:delete', async (_event, dirName: string) => {
     const allowedPaths = requireAllowedPaths(getAllowedPaths);
     if (!isSafeDirName(dirName)) return { ok: false, error: 'Invalid app name' };
+    // A deleted tool must not leave a "broken" record behind — a tool created
+    // later with the same dir name would inherit it.
+    forgetBuildHealth(dirName);
 
     const workspaceDir = allowedPaths[0];
     const appDir = path.join(workspaceDir, APPLICATIONS_DIR, dirName);

@@ -264,15 +264,28 @@ class HostProcessService {
 
   // ─── Command exec ──────────────────────────────────────────────────
 
-  async exec(command: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  /**
+   * `onSpawn` receives the child's pid as soon as it exists. The job registry
+   * uses it to re-adopt work that outlived an app restart — these children are
+   * not in the quit teardown path, so they keep running after Acabox exits.
+   */
+  async exec(
+    command: string[],
+    options?: { onSpawn?: (pid: number) => void },
+  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     const [bin, ...args] = command;
     try {
-      const { stdout, stderr } = await execFileAsync(bin, args, {
+      const pending = execFileAsync(bin, args, {
         cwd: this.currentAgentDir ?? undefined,
         env: this.getExecEnv(),
         timeout: 600_000,
         maxBuffer: 50 * 1024 * 1024,
       });
+      const pid = (pending as unknown as { child?: { pid?: number } }).child?.pid;
+      if (pid !== undefined) {
+        try { options?.onSpawn?.(pid); } catch { /* never let a listener break exec */ }
+      }
+      const { stdout, stderr } = await pending;
       return { stdout, stderr, exitCode: 0 };
     } catch (err: any) {
       // A NUMERIC `code` is a real process exit status. A STRING one
@@ -332,9 +345,9 @@ class HostProcessService {
 
   async execLogged(
     command: string[],
-    meta?: { source?: CommandSource; appDirName?: string | null },
+    meta?: { source?: CommandSource; appDirName?: string | null; onSpawn?: (pid: number) => void },
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-    const result = await this.exec(command);
+    const result = await this.exec(command, { onSpawn: meta?.onSpawn });
     commandLogger.log({
       command,
       stdout: result.stdout,

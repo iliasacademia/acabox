@@ -77,7 +77,6 @@ contextBridge.exposeInMainWorld('miniAppsAPI', {
   importApp: () => ipcRenderer.invoke('miniApps:import'),
   list: () => ipcRenderer.invoke('miniApps:list'),
   touch: (dirName: string) => ipcRenderer.invoke('miniApps:touch', dirName),
-  markRun: (dirName: string) => ipcRenderer.invoke('miniApps:markRun', dirName),
   setArchived: (dirName: string, archived: boolean) => ipcRenderer.invoke('miniApps:setArchived', dirName, archived),
   delete: (dirName: string) => ipcRenderer.invoke('miniApps:delete', dirName),
   build: (dirName: string): Promise<{ ok: boolean; outfile?: string; error?: string; exitCode: number }> =>
@@ -87,6 +86,34 @@ contextBridge.exposeInMainWorld('miniAppsAPI', {
 contextBridge.exposeInMainWorld('toolDataAPI', {
   list: () => ipcRenderer.invoke('toolData:list'),
   delete: (dirName: string) => ipcRenderer.invoke('toolData:delete', dirName),
+});
+
+contextBridge.exposeInMainWorld('buildHealthAPI', {
+  list: () => ipcRenderer.invoke('buildHealth:list'),
+  onChanged: (callback: (all: unknown[]) => void) => {
+    const handler = (_e: unknown, all: unknown[]) => callback(all);
+    ipcRenderer.on('buildHealth:changed', handler);
+    return () => ipcRenderer.removeListener('buildHealth:changed', handler);
+  },
+});
+
+contextBridge.exposeInMainWorld('jobsAPI', {
+  list: () => ipcRenderer.invoke('jobs:list'),
+  begin: (input: { dirName: string; kind: string; label: string }) =>
+    ipcRenderer.invoke('jobs:begin', input),
+  end: (id: string, status?: 'done' | 'failed') => ipcRenderer.invoke('jobs:end', id, status),
+  acknowledge: (dirName: string) => ipcRenderer.invoke('jobs:acknowledge', dirName),
+  cancel: (id: string) => ipcRenderer.invoke('jobs:cancel', id),
+  onCancelRequested: (callback: (req: { id: string; dirName: string; kind: string }) => void) => {
+    const handler = (_e: unknown, req: { id: string; dirName: string; kind: string }) => callback(req);
+    ipcRenderer.on('jobs:cancelRequested', handler);
+    return () => ipcRenderer.removeListener('jobs:cancelRequested', handler);
+  },
+  onChanged: (callback: (jobs: unknown[]) => void) => {
+    const handler = (_e: unknown, jobs: unknown[]) => callback(jobs);
+    ipcRenderer.on('jobs:changed', handler);
+    return () => ipcRenderer.removeListener('jobs:changed', handler);
+  },
 });
 
 contextBridge.exposeInMainWorld('miniAppMcpAPI', {

@@ -10,6 +10,7 @@
 import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
+import { recordBuildResult } from './buildHealth';
 import log from 'electron-log';
 import { containerService } from './containerService';
 import { getNpmPrefix } from './nodeSetup';
@@ -87,7 +88,11 @@ export async function buildMiniApp(workspacePath: string, dirName: string): Prom
     const detail = (result.stderr || result.stdout || '').trim()
       || `esbuild exited with code ${result.exitCode} without output — the process may not have started.`;
     log.error(`[MiniAppBuilder] ${dirName}: build failed (exit ${result.exitCode}) via ${resolved.bin}: ${detail}`);
+    // Recorded here rather than by the caller so every build path — the
+    // Rebuild button and the agent's build tool — reports health identically.
+    recordBuildResult(dirName, false, detail);
     return { ok: false, error: detail, exitCode: result.exitCode };
   }
+  recordBuildResult(dirName, true);
   return { ok: true, outfile, exitCode: 0 };
 }

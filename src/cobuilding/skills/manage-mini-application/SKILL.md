@@ -124,8 +124,52 @@ Available packages (already installed — import them directly, no wrapper call 
 - `@reusable` — Shared building blocks. Resolved via esbuild alias to `.applications/_reusable/`. **Compose these instead of writing your own — they are how the framework enforces consistent behavior across apps.**
   - **State**: `useAppState` (params + inputs + outputs + runResult, all persisted to the notebook).
   - **Kernel runs**: `useKernelAction` (connect, inject params, execute action cell, surface errors).
+  - **Recovering a run that outlived the UI**: `useRunsWhileClosed` (see below).
   - **UI building blocks**: `<FileSlotPicker>`, `<RunButton>`, `<RunStateBadge>`, `<OutputFileList>`, `<VolcanoPlot>`, `<MAPlot>`, `<ErrorDisplay>` (auto-mounted by the scaffolded `index.tsx`; do not add a second one).
   - **Utilities**: `readJsonOutput<T>(path)`, `parseCsvLine`, `formatParamsAssignment`.
+
+#### Your UI is not where the work lives
+
+**Assume the app can be closed mid-run and must recover.** Long operations are
+owned by Acabox, not by your React tree. The user can navigate away — which
+unmounts your app entirely and destroys its iframe — or quit Acabox, and the
+work carries on regardless: a shell command started by a tool completes even
+after the whole app has exited. Two consequences you must design for:
+
+1. **Never let a result exist only in memory.** The action cell writes its
+   outputs to `output/` and a `run_metadata.json` describing them. That file,
+   not React state, is the result. If your app holds the only copy, closing the
+   tool destroys it.
+2. **On mount, check whether a run finished while you were closed.** Compare
+   `lastRunAt` from `useAppState` against the host's job history using
+   `useRunsWhileClosed`; if there is a completed run newer than the last one you
+   recorded, re-read `output/run_metadata.json` and adopt it via `setOutputs` /
+   `setRunResult` / `markRunComplete`. Without this the user comes back to a
+   tool that says it never ran, next to a folder full of results.
+
+```tsx
+const { lastRunAt, setOutputs, setRunResult, markRunComplete } = useAppState(...);
+const { missedRuns, dismiss } = useRunsWhileClosed(DIR_NAME, lastRunAt);
+
+useEffect(() => {
+  if (missedRuns.length === 0) return;
+  void (async () => {
+    const meta = await readJsonOutput<MyRunResultFile>(
+      `.applications/${DIR_NAME}/output/run_metadata.json`,
+    );
+    if (meta) {
+      setRunResult(/* derived from meta */);
+      setOutputs(meta.files.map(toOutputFile));
+      await markRunComplete();
+    }
+    dismiss();
+  })();
+}, [missedRuns]);
+```
+
+Acabox shows the user the other half of this: a tool with work in flight reads
+**WORKING** on the home grid even when its viewer is closed, and one whose work
+outlived a restart reads **RAN WHILE CLOSED** until they open it.
 
 #### Persistent state — use `useAppState`
 

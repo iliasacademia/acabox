@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, net, protocol, shell, systemPreferences } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, net, protocol, shell, systemPreferences, webContents } from 'electron';
 import { WorkspaceController } from './controllers/WorkspaceController';
 import { AgentInfrastructureController } from './controllers/AgentInfrastructureController';
 import { miniAppMcpRegistry } from './miniAppMcpRegistry';
@@ -21,6 +21,23 @@ import { registerSession, unregisterSession, getRegisteredSession, hasSession, d
 import type { IPCAttachment } from '../shared/types';
 import { provisionWorkspace } from './skills';
 import { containerService } from './containerService';
+import { listBuildHealth, subscribeBuildHealth, forgetBuildHealth, type BuildHealth } from './buildHealth';
+import {
+  beginJob,
+  endJob,
+  listJobs,
+  activeJobs,
+  cancelJob,
+  cancelAll,
+  acknowledgeTool,
+  reconcileOnBoot,
+  subscribe as subscribeToJobs,
+  setRunCompletedHandler,
+  setCancelRequestHandler,
+  interruptJobsForWebContents,
+  type ToolJob,
+  type JobKind,
+} from './jobRegistry';
 import {
   listConnectors,
   listConnectorsWithSecrets,
@@ -563,6 +580,30 @@ function createMainWindow(): void {
 // after the listener is attached — the main window included.
 installExternalLinkGuards();
 
+// A renderer-reported job (a kernel run, a Claude call) can only be completed
+// by the renderer that started it. If that WebContents dies first the job would
+// otherwise sit "running" forever, so close it out as interrupted. Registered
+// alongside the link guards, and for the same reason: the listener has to exist
+// before the WebContents it needs to see.
+app.on('web-contents-created', (_event, contents) => {
+  contents.once('destroyed', () => {
+    try { interruptJobsForWebContents(contents.id); } catch { /* shutting down */ }
+  });
+});
+
+/** Record on the tool's manifest that it finished doing something. */
+async function stampToolLastRun(workspacePath: string | null, dirName: string): Promise<void> {
+  if (!workspacePath || !dirName || dirName.includes('/') || dirName.includes('\\')) return;
+  try {
+    await updateManifest(
+      path.join(workspacePath, '.applications', dirName, 'manifest.json'),
+      (manifest) => { manifest.lastRun = new Date().toISOString(); return manifest; },
+    );
+  } catch (err) {
+    log.warn(`[Jobs] Could not stamp lastRun for ${dirName}: ${(err as Error).message}`);
+  }
+}
+
 app.whenReady().then(async () => {
   processCpuMonitor.start();
 
@@ -660,6 +701,35 @@ app.whenReady().then(async () => {
 
     migrateWorkspaceFiles(workspaceController.workspacePath);
     ensureToolDataLayout(workspaceController.workspacePath);
+
+    // Work a tool started can outlive the app (verified: a mini-app's shell
+    // command completes after Acabox has fully quit). Decide, per job, whether
+    // it is still running, finished while we were away, or died with us —
+    // before any window can render a stale spinner.
+    setRunCompletedHandler((dirName) => {
+      void stampToolLastRun(workspaceController.workspacePath, dirName);
+    });
+    // Kernel and Claude work can only be interrupted by the renderer driving
+    // it, so a cancel is relayed to the window that reported the job.
+    setCancelRequestHandler((job) => {
+      if (job.ownerWebContentsId === undefined) return false;
+      const target = webContents.fromId(job.ownerWebContentsId);
+      if (!target || target.isDestroyed()) return false;
+      target.send('jobs:cancelRequested', { id: job.id, dirName: job.dirName, kind: job.kind });
+      return true;
+    });
+    reconcileOnBoot();
+    subscribeToJobs((allJobs) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('jobs:changed', allJobs);
+      }
+    });
+    subscribeBuildHealth((all) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('buildHealth:changed', all);
+      }
+    });
+
     if (activeWorkspace) {
       await backfillAllAppChatLinks(activeWorkspace.id, workspaceController.workspacePath);
     }
@@ -913,7 +983,72 @@ ipcMain.handle('container:exec', async (_event, command: string[]) => {
 });
 
 ipcMain.handle('container:execLogged', async (_event, command: string[], meta?: { source?: string; appDirName?: string | null }) => {
-  return containerService.execLogged(command, meta as any);
+  // A command run on a tool's behalf is a job: it outlives the tool's viewer
+  // (and the app itself), so ownership belongs here rather than in the
+  // renderer that happened to start it. Builds are excluded — they already
+  // have their own BUILDING status and are not the tool "working".
+  const dirName = meta?.appDirName ?? null;
+  const isToolWork = !!dirName && meta?.source !== 'build';
+  if (!isToolWork) {
+    return containerService.execLogged(command, meta as any);
+  }
+
+  // Held in a box rather than a plain `let`: the assignment happens inside the
+  // onSpawn callback, which TypeScript cannot see, so a bare binding narrows
+  // to `never` at the use sites below.
+  const started: { job: ToolJob | null } = { job: null };
+  try {
+    const result = await containerService.execLogged(command, {
+      ...(meta as any),
+      onSpawn: (pid: number) => {
+        started.job = beginJob({
+          dirName,
+          kind: 'command',
+          label: command.slice(0, 3).join(' '),
+          pid,
+        });
+      },
+    });
+    if (started.job) endJob(started.job.id, result.exitCode === 0 ? 'done' : 'failed');
+    return result;
+  } catch (err) {
+    if (started.job) endJob(started.job.id, 'failed');
+    throw err;
+  }
+});
+
+// ── Tool jobs: work reported by a renderer (kernel runs, Claude calls) ──
+// These cannot be observed from main the way a spawned command can, so the
+// renderer reports them — but the record still lives here, so it survives the
+// tool's viewer being unmounted.
+ipcMain.handle('jobs:begin', (event, input: { dirName: string; kind: JobKind; label: string }) => {
+  if (!input?.dirName || typeof input.dirName !== 'string') return null;
+  const job = beginJob({
+    dirName: input.dirName,
+    kind: input.kind === 'kernel' || input.kind === 'claude' ? input.kind : 'agent-tool',
+    label: String(input.label ?? ''),
+    ownerWebContentsId: event.sender.id,
+  });
+  return job.id;
+});
+
+ipcMain.handle('jobs:end', (_event, id: string, status?: 'done' | 'failed') => {
+  if (typeof id === 'string') endJob(id, status === 'failed' ? 'failed' : 'done');
+  return { ok: true };
+});
+
+ipcMain.handle('jobs:list', () => listJobs());
+
+ipcMain.handle('buildHealth:list', () => listBuildHealth());
+
+ipcMain.handle('jobs:cancel', (_event, id: string) => {
+  if (typeof id !== 'string') return { ok: false, reason: 'bad id' };
+  return cancelJob(id);
+});
+
+ipcMain.handle('jobs:acknowledge', (_event, dirName: string) => {
+  if (typeof dirName === 'string') acknowledgeTool(dirName);
+  return { ok: true };
 });
 
 ipcMain.handle('settings:getMaxAttachmentSizeMB', () => {
@@ -2247,6 +2382,46 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+/**
+ * Quitting does NOT stop a tool's work — that is deliberate, so closing the lid
+ * at 6pm doesn't destroy a two-hour analysis. But it must never be a surprise:
+ * work that outlives the app is invisible until Acabox is reopened, so the user
+ * is told, and given the chance to stop it. Set once the user has answered, so
+ * the second `before-quit` (after we re-issue the quit) passes straight through.
+ */
+let quitConfirmed = false;
+
+app.on('before-quit', (event) => {
+  if (quitConfirmed) return;
+  // Never block a quit nobody is there to answer: the smoke test drives a
+  // headless boot-then-exit, and a modal would hang it forever.
+  if (process.argv.includes('--smoke-test')) return;
+  if (BrowserWindow.getAllWindows().every((w) => w.isDestroyed())) return;
+  const running = activeJobs();
+  if (running.length === 0) return;
+
+  event.preventDefault();
+  const names = [...new Set(running.map((j) => j.dirName))];
+  const choice = dialog.showMessageBoxSync({
+    type: 'question',
+    buttons: ['Quit', 'Stop them and quit', 'Cancel'],
+    defaultId: 0,
+    cancelId: 2,
+    message: running.length === 1
+      ? '1 tool is still working.'
+      : `${running.length} pieces of work are still running.`,
+    detail:
+      `${names.join(', ')}\n\n` +
+      "This work will keep running in the background and finish on its own. " +
+      'Acabox will show you what happened the next time you open it.',
+  });
+
+  if (choice === 2) return;             // stay open
+  if (choice === 1) cancelAll();
+  quitConfirmed = true;
+  app.quit();
 });
 
 app.on('before-quit', () => {

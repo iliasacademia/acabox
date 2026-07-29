@@ -11,6 +11,7 @@ import { captureError } from '../../shared/telemetry';
 import { MSymbol } from './command-desk/MSymbol';
 import { resolveToolIcon } from './command-desk/toolIcon';
 import { setToolLifecycle, clearToolStatus, useToolStatus, beginToolActivity } from '../toolStatusStore';
+import { toolStatusLabel, toolStatusDetail } from './command-desk/toolStatusDisplay';
 
 interface RequestFixError {
   kind: string;
@@ -22,17 +23,21 @@ interface RequestFixError {
 
 /**
  * Bridge operations that mean the tool is genuinely computing, and so drive
- * the WORKING status. Kernel code, shell commands and Claude calls — the
- * things a user would describe as "the tool is running". Everything else the
- * bridge brokers (file reads/writes, dialogs, `mcp:callTool`) is sub-second
- * plumbing and is deliberately excluded.
+ * the WORKING status. Kernel code and Claude calls are reported to the host's
+ * job registry, so the status outlives this viewer being unmounted.
+ *
+ * `executeCommand` is deliberately NOT here: main registers those itself, from
+ * inside the exec handler, because it owns the child process — and that child
+ * outlives the app entirely. Registering it here as well would double-count.
+ *
+ * Everything else the bridge brokers (file reads/writes, dialogs,
+ * `mcp:callTool`) is sub-second plumbing and would just strobe the chip.
  */
-const ACTIVITY_BRIDGE_TYPES = new Set([
-  'executeCode',
-  'executeCommand',
-  'anthropic:complete',
-  'anthropic:stream',
-]);
+const JOB_BRIDGE_KINDS: Record<string, { kind: 'kernel' | 'claude'; label: string }> = {
+  executeCode: { kind: 'kernel', label: 'Running code' },
+  'anthropic:complete': { kind: 'claude', label: 'Claude request' },
+  'anthropic:stream': { kind: 'claude', label: 'Claude request' },
+};
 
 function buildFixPrompt(appName: string, err: RequestFixError): string {
   const lines: string[] = [
@@ -111,6 +116,13 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
     }
   }, [dirName, rebuildState]);
   useEffect(() => () => clearToolStatus(dirName), [dirName]);
+
+  // Opening the tool is the user acknowledging whatever the last session left
+  // behind — they can now see its output for themselves, so drop the
+  // interrupted / ran-while-closed notice.
+  useEffect(() => {
+    window.jobsAPI.acknowledge(dirName).catch(() => { /* non-critical */ });
+  }, [dirName]);
 
   // Telemetry: register the open with main (which mints tool_id if missing,
   // increments open_count, and fires tool.created / tool.opened events).
@@ -336,6 +348,28 @@ const MiniAppHeader: FC<{
     await window.miniAppsAPI.exportApp(dirName);
   }, [dirName]);
 
+  /**
+   * Stop everything this tool has in flight. Confirmation is asked only when
+   * something has been running long enough that losing it would hurt — a prompt
+   * on every stop trains people to click through it.
+   */
+  const handleStop = useCallback(async () => {
+    const running = (await window.jobsAPI.list())
+      .filter((j) => j.dirName === dirName && j.status === 'running');
+    if (running.length === 0) return;
+
+    const longest = Math.max(...running.map((j) => Date.now() - j.startedAt));
+    if (longest > 60_000) {
+      const mins = Math.round(longest / 60_000);
+      const ok = window.confirm(
+        `Stop this tool?\n\nIt has been working for ${mins} minute${mins === 1 ? '' : 's'}. ` +
+        'Anything it has half-written will be left as it is.',
+      );
+      if (!ok) return;
+    }
+    await Promise.all(running.map((j) => window.jobsAPI.cancel(j.id)));
+  }, [dirName]);
+
   const status = useToolStatus(dirName);
   // `rebuildState` is read directly rather than through the store for these
   // two so the header flips on the same render as the build starts/fails; the
@@ -344,6 +378,7 @@ const MiniAppHeader: FC<{
   const failed = rebuildState.kind === 'error';
   const installing = status.kind === 'installing';
   const working = status.kind === 'working';
+  const interrupted = status.kind === 'interrupted' ? status : null;
   const ToolIcon = resolveToolIcon(appIcon);
 
   return (
@@ -375,9 +410,26 @@ const MiniAppHeader: FC<{
           FIRST BOOT
         </span>
       ) : working ? (
-        <span className="cdStatusChip">
-          <span className="cdDot cdDot--busy cdDot--pulse" />
-          WORKING
+        <>
+          <span className="cdStatusChip">
+            <span className="cdDot cdDot--busy cdDot--pulse" />
+            WORKING
+          </span>
+          {/* The only stop control that sits where the user notices the work. */}
+          <button
+            type="button"
+            className="cdBtnXs cdBtnXs--sm"
+            title="Stop what this tool is doing"
+            onClick={handleStop}
+          >
+            <MSymbol name="stop_circle" size={15} />
+            Stop
+          </button>
+        </>
+      ) : interrupted ? (
+        <span className="cdStatusChip" title={toolStatusDetail(interrupted) ?? undefined}>
+          <span className="cdDot cdDot--busy" />
+          {toolStatusLabel(interrupted)}
         </span>
       ) : (
         <span className="cdStatusChip">
@@ -898,12 +950,19 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
       let error: string | undefined;
       let skipResponse = false;
 
-      // Only the operations that represent the tool genuinely computing count
-      // as activity. File I/O and `mcp:callTool` are deliberately excluded:
-      // they are millisecond-scale and would strobe the chip without telling
-      // the user anything.
-      let endActivity: (() => void) | null =
-        ACTIVITY_BRIDGE_TYPES.has(type) ? beginToolActivity(dirName) : null;
+      // Register long-running work with the HOST, not with this component, so
+      // the status survives the viewer being unmounted. `beginToolActivity` is
+      // not called here — the store picks the job up from the host's list.
+      const jobSpec = JOB_BRIDGE_KINDS[type];
+      let jobId: string | null = null;
+      if (jobSpec) {
+        jobId = await window.jobsAPI
+          .begin({ dirName, kind: jobSpec.kind, label: jobSpec.label })
+          .catch(() => null);
+      }
+      let endActivity: (() => void) | null = jobId
+        ? () => { void window.jobsAPI.end(jobId!).catch(() => {}); }
+        : null;
       let activityEndsAsync = false;
 
       try {
@@ -954,6 +1013,13 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
             await connect(args.kernelName as string);
             result = { ok: true };
             break;
+          case 'jobs:listForApp': {
+            // A tool can outlive its own UI, so let it ask what ran while it
+            // was closed and recover the results it never got to record.
+            const all = await window.jobsAPI.list();
+            result = all.filter((j) => j.dirName === dirName);
+            break;
+          }
           case 'mcp:listServers':
             result = await window.miniAppMcpAPI.list();
             break;

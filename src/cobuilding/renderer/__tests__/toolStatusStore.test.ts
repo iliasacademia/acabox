@@ -11,6 +11,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   useToolStatus,
+  applyHostJobs,
   WORKING_SHOW_DELAY_MS,
   WORKING_MIN_VISIBLE_MS,
   setToolLifecycle,
@@ -240,6 +241,85 @@ describe('viewer unmount', () => {
     stale();
     expect(kindOf(DIR)).toBe('working'); // the fresh op is still in flight
     fresh();
+    expect(kindOf(DIR)).toBe('idle');
+  });
+});
+
+describe('host jobs (status that outlives the tool viewer)', () => {
+  const job = (over: Partial<{ id: string; dirName: string; status: string }> = {}) =>
+    ({ id: 'j1', dirName: DIR, status: 'running', ...over });
+
+  it('shows WORKING for a running host job, with the usual delay-in', () => {
+    applyHostJobs([job()]);
+    expect(kindOf(DIR)).toBe('idle');
+    jest.advanceTimersByTime(WORKING_SHOW_DELAY_MS);
+    expect(kindOf(DIR)).toBe('working');
+  });
+
+  it('clears WORKING when the job leaves the running set', () => {
+    applyHostJobs([job()]);
+    jest.advanceTimersByTime(WORKING_SHOW_DELAY_MS + WORKING_MIN_VISIBLE_MS);
+    expect(kindOf(DIR)).toBe('working');
+
+    applyHostJobs([job({ status: 'done' })]);
+    expect(kindOf(DIR)).toBe('idle');
+  });
+
+  it('holds WORKING while any one of several jobs is still running', () => {
+    applyHostJobs([job({ id: 'a' }), job({ id: 'b' })]);
+    jest.advanceTimersByTime(WORKING_SHOW_DELAY_MS + WORKING_MIN_VISIBLE_MS);
+    applyHostJobs([job({ id: 'a', status: 'done' }), job({ id: 'b' })]);
+    expect(kindOf(DIR)).toBe('working');
+    applyHostJobs([job({ id: 'a', status: 'done' }), job({ id: 'b', status: 'done' })]);
+    expect(kindOf(DIR)).toBe('idle');
+  });
+
+  it('is idempotent — repeating the same list does not stack activity', () => {
+    applyHostJobs([job()]);
+    applyHostJobs([job()]);
+    applyHostJobs([job()]);
+    jest.advanceTimersByTime(WORKING_SHOW_DELAY_MS + WORKING_MIN_VISIBLE_MS);
+    expect(kindOf(DIR)).toBe('working');
+    applyHostJobs([]);
+    expect(kindOf(DIR)).toBe('idle');
+  });
+
+  it('reports work that outlived a restart as RAN WHILE CLOSED', () => {
+    applyHostJobs([job({ status: 'finishedWhileAway' })]);
+    const s = readSnapshot().get(DIR);
+    expect(s).toEqual({ kind: 'interrupted', reason: 'finishedWhileAway' });
+  });
+
+  it('reports work that died with the app as interrupted', () => {
+    applyHostJobs([job({ status: 'interrupted' })]);
+    expect(readSnapshot().get(DIR)).toEqual({ kind: 'interrupted', reason: 'interrupted' });
+  });
+
+  it('prefers the more informative reason when a tool has both', () => {
+    applyHostJobs([
+      job({ id: 'a', status: 'interrupted' }),
+      job({ id: 'b', status: 'finishedWhileAway' }),
+    ]);
+    expect(readSnapshot().get(DIR)).toEqual({ kind: 'interrupted', reason: 'finishedWhileAway' });
+  });
+
+  it('ranks live work above a past interruption', () => {
+    applyHostJobs([job({ id: 'old', status: 'interrupted' }), job({ id: 'new' })]);
+    jest.advanceTimersByTime(WORKING_SHOW_DELAY_MS);
+    expect(kindOf(DIR)).toBe('working');
+  });
+
+  it('ranks a build failure above live work', () => {
+    applyHostJobs([job()]);
+    jest.advanceTimersByTime(WORKING_SHOW_DELAY_MS);
+    setToolLifecycle(DIR, { kind: 'buildFailed', message: 'x', at: 1 });
+    expect(kindOf(DIR)).toBe('buildFailed');
+  });
+
+  it('clears the notice once the job is acknowledged and drops off the list', () => {
+    applyHostJobs([job({ status: 'finishedWhileAway' })]);
+    expect(kindOf(DIR)).toBe('interrupted');
+    applyHostJobs([]); // main removed it after acknowledge()
     expect(kindOf(DIR)).toBe('idle');
   });
 });
