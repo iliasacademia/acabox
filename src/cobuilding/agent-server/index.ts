@@ -32,6 +32,8 @@ import { readFileSync, existsSync, readdirSync } from 'fs';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { AGENT_MEMORY_SUBDIR } from '../shared/paths';
+import { OAUTH_FLOW_WINDOW_MS } from '../shared/oauthWindow';
+import { replaceConnectorAllowedTools } from '../shared/connectors';
 import { mergeSessionConfig, filterMcpServers, type AgentConfig, type SessionOverrides } from './sessionConfig';
 import { ensureApiKeyApproved } from '../shared/claudeConfigApproval';
 
@@ -78,7 +80,26 @@ interface SessionState {
 // enough that an idle chat sitting open doesn't pin agent processes for
 // long, with the host transparently recreating the session (resumed from
 // sdk_session_id) the next time the user sends a message.
+//
+// LOAD-BEARING LOWER BOUND: this must stay comfortably above
+// OAUTH_FLOW_WINDOW_MS. A connector OAuth handshake leaves a callback listener
+// and a PKCE verifier in this session's CLI subprocess and then the turn ends,
+// so the session sits *idle by this timer's definition* for the whole time the
+// user is away in their browser. The host pins the session for
+// OAUTH_FLOW_WINDOW_MS to survive that; evicting underneath the pin would kill
+// the subprocess anyway and resurrect the exact bug the pin fixes. There is
+// deliberately no pin-awareness here — an ordering invariant between two
+// constants is far less machinery than a second lifetime protocol across the
+// process boundary, and the assertion below makes a bad edit fail loudly at
+// boot instead of silently in the field.
 const IDLE_EVICTION_MS = 10 * 60 * 1000;
+if (IDLE_EVICTION_MS <= OAUTH_FLOW_WINDOW_MS) {
+  throw new Error(
+    `IDLE_EVICTION_MS (${IDLE_EVICTION_MS}ms) must exceed OAUTH_FLOW_WINDOW_MS `
+    + `(${OAUTH_FLOW_WINDOW_MS}ms): idle eviction would kill the CLI subprocess mid-OAuth-handshake, `
+    + 'breaking every connector sign-in. Raise IDLE_EVICTION_MS or shorten the OAuth window.',
+  );
+}
 // Don't re-arm the idle timer more often than this. Within a single turn
 // the agent can broadcast hundreds of SSE events per second, and each
 // bumpActivity call costs a clearTimeout+setTimeout pair. The throttle
@@ -755,7 +776,25 @@ function startServer(initialConfig: AgentConfig): void {
       if (route.path === 'connectors' && req.method === 'POST') {
         const body = JSON.parse(await readBody(req));
         const connectors = (body.mcpServers ?? {}) as Record<string, Record<string, unknown>>;
-        currentConfig = { ...currentConfig, mcpServers: connectors };
+        // `mcpServers` and `allowedTools` must move together — see
+        // replaceConnectorAllowedTools. Leaving the tool list frozen at its
+        // boot value meant a connector added later was never auto-approved.
+        //
+        // Read the outgoing set into a local FIRST. Inlining
+        // `Object.keys(currentConfig.mcpServers)` into the object literal below
+        // does happen to work (the literal is fully evaluated before the
+        // assignment lands), but it reads as a use-after-overwrite and is one
+        // careless refactor away from actually becoming one.
+        const priorConnectorIds = Object.keys(currentConfig.mcpServers ?? {});
+        currentConfig = {
+          ...currentConfig,
+          mcpServers: connectors,
+          allowedTools: replaceConnectorAllowedTools(
+            currentConfig.allowedTools ?? [],
+            priorConnectorIds,
+            Object.keys(connectors),
+          ),
+        };
 
         const applied: Array<{ sessionId: string; added: string[]; removed: string[]; errors: Record<string, string> }> = [];
         for (const [sessionId, state] of sessions) {
@@ -768,7 +807,14 @@ function startServer(initialConfig: AgentConfig): void {
             console.error(`[AgentServer] Failed to apply connectors to ${sessionId}:`, err);
           }
         }
-        console.log(`[AgentServer] Connectors updated: [${Object.keys(connectors).join(', ')}] across ${applied.length} live session(s)`);
+        // Log the auto-approve half too. It used to be silently frozen at its
+        // boot value while `mcpServers` moved, and nothing anywhere surfaced
+        // the divergence — this line is what makes the two visibly agree.
+        console.log(
+          `[AgentServer] Connectors updated: [${Object.keys(connectors).join(', ')}] `
+          + `across ${applied.length} live session(s); `
+          + `auto-approve=[${(currentConfig.allowedTools ?? []).filter((t) => t.startsWith('mcp__') && !t.slice(5).includes('__')).join(', ')}]`,
+        );
         sendJSON(res, 200, { ok: true, applied });
         return;
       }

@@ -123,10 +123,19 @@ to `PATH`.
 
 - **Test with `npm start`** (dev mode). It runs `prestart` (builds the
   agent-server bundle + Rust file monitor) then `electron-forge start`.
-- `npm start -- -- --smoke-test` boots all services then exits 0 — use it to
-  verify boot without the UI. The real boot-healthy signals are:
-  `[AgentServer] Listening`, `[HostProcess] Agent server healthy`,
-  `[BackgroundBuilder] Watching`.
+- `npm start -- -- --smoke-test` runs main-process startup then exits 0 — use it
+  to verify boot without the UI. **Know what it does and does not prove
+  (measured 2026-07-29):** it quits at `main/index.ts:832`, right after
+  `startScheduledTasks`, so it covers DB init, workspace load, window creation,
+  tray and scheduler — but the agent server and background builder are started
+  by the *renderer* via `agentInfrastructure.start`, which it never reaches.
+  `[AgentServer] Listening`, `[HostProcess] Agent server healthy` and
+  `[BackgroundBuilder] Watching` therefore do **not** appear in a smoke run;
+  an earlier version of this line claimed they were its success signals, which
+  sent at least one session hunting a non-existent regression. To check the
+  agent server itself, run the bundle directly:
+  `COSCIENTIST_AGENT_CONFIG=<agent.json> COSCIENTIST_WORKSPACE=<dir>
+  COSCIENTIST_AGENT_PORT=23288 node dist/agent-server.js`, then curl `/health`.
 - `npx tsc --noEmit` must stay clean before committing.
 - Do NOT run `npm run package` for routine testing — production build only.
 - Logs: `~/Library/Application Support/acabox/development/cobuilding.log`,
@@ -134,7 +143,195 @@ to `PATH`.
 - To kill stray dev instances:
   `pkill -9 -f "Acabox/node_modules/electron"`.
 
-## Status (last updated 2026-07-28)
+## Status (last updated 2026-07-29)
+
+**Connector OAuth sign-in was unwinnable by construction; sessions now pin
+across the browser round-trip (2026-07-29).** Reported as "I still can't connect
+to Hex". Root-caused from the real logs and the shipped CLI binary, not inferred.
+- **One mechanism, both symptoms.** The pending handshake — PKCE verifier, state
+  nonce, and the `127.0.0.1:<ephemeral>/callback` listener — lives *only* in the
+  memory of the CLI subprocess that ran `mcp__hex__authenticate` (binary offsets
+  `@81464045` for the module-scope flow maps, `@81445700` for
+  `k.listen(P,"127.0.0.1",…),k.unref()` and the `setTimeout(…,300000)` ceiling).
+  The tool deliberately returns early via `Promise.race` with the URL — so
+  **handing the user the link IS what ends the turn** — and the host destroyed
+  the session at every turn end. The listener died seconds later
+  (`ERR_CONNECTION_REFUSED`), and `complete_authentication` ran in a *later*
+  subprocess whose map was empty. Its first statement is
+  `let T=mdH(H);if(!T)return{...'No OAuth flow is in progress'}` — a lookup miss
+  checked **before** the code, state or port is examined, which is why a
+  byte-exact state could not help and the rejection took 3ms with no network call.
+- **The kill chain**: renderer detaches at turn end → `sessionRegistry.ts:154`
+  destroys → `agentSession.ts:572` POSTs `/stop` → `agent-server/index.ts:893`
+  `queryInstance.close()` → SDK ends stdin, SIGTERM +2s, SIGKILL +7s. Measured in
+  the production log: 25 `Creating session` / 25 `Starting query()` / 25
+  `message received`, one-for-one — **no agent-server session in the entire log
+  ever received a second message.**
+- **Fix: a pin, not a rewrite.** New `shared/oauthWindow.ts` holds
+  `OAUTH_FLOW_WINDOW_MS = 300_000` — matched to the CLI's own hard ceiling, which
+  has no config knob, so shorter discards a live flow and longer holds an
+  API-key-bearing process that can no longer accomplish anything.
+  `sessionRegistry` gained `pinSession`/`unpinSession`; a pin outranks visibility
+  in `removeSubscriber` and in the deferred-destroy hook. The trigger is the
+  event stream the registry already listens to (`tool-call` matching
+  `MCP_AUTHENTICATE_TOOL`) — no new plumbing and no import cycle with
+  `agentSession`. **The tradeoff is that session lifetime is now coupled to a
+  tool NAME**: if the SDK renames these tools the pin silently stops arming and
+  the original bug returns.
+- **A pin defers eviction, it does not cancel it.** Caught by a test, not by
+  reading: the pinned branch of `removeSubscriber` originally just returned, so
+  when the pin was released the entry had no `pendingDestroy` and leaked a dead
+  session forever. It now records the destroy as owed.
+- **Idle eviction is an ordering invariant, not a second protocol.**
+  `IDLE_EVICTION_MS` (10 min) must exceed the pin window, because a session
+  waiting on a browser is *idle by that timer's definition*. Rather than push
+  pin-awareness across the process boundary, the agent server now **throws at
+  boot** if the relationship is ever inverted.
+- Also fixed, all found during the investigation and all proven: `POST
+  /connectors` updated `mcpServers` but never `allowedTools`, so `mcp__hex` was
+  absent for the running server's entire 12h life (survivable only because
+  there is no `canUseTool` handler); an agent-server crash-restart replayed the
+  **boot** config and would silently delete every connector added since, with no
+  log line; four call sites addressed the server as `localhost` while it binds
+  `127.0.0.1`; and the Hex catalog `docsUrl` 404'd. The allowedTools recompute is
+  now one shared `replaceConnectorAllowedTools` used by both the agent server and
+  the host's restart config — if those two ever disagreed, a crash would change
+  which tools are auto-approved.
+- **Two CLAUDE.md claims were wrong and are struck through below.** "The CLI
+  subprocess survives across turns" is true of the SDK and false of the app.
+  "Tokens persist to `mcpOAuth` in `.claude.json`" is false for SDK 0.2.121 —
+  they go to a credentials store, **macOS keychain primary**, 0600
+  `.credentials.json` fallback. **Verify a sign-in by the keychain entry or by
+  the connector's real tools appearing, never by grepping `.claude.json`.**
+- The workspace agent had written itself a memory note telling future turns
+  never to retry OAuth. Rewritten (not deleted — its diagnosis was right) to
+  state the deadline instead; its IPv6/IPv4 "fault 2" was a red herring, which
+  its own forwarder experiment proves.
+- **Residual risk, stated plainly: the payoff path has never run in production.**
+  A surviving session means the next turn takes the `existingRunning?.isRunning`
+  branch at `main/index.ts:1684` and calls `sendMessage` on the LIVE session —
+  pushing onto the queue the streaming `userMessageGenerator` is consuming, so
+  the same CLI subprocess handles it. That is the SDK's intended design and the
+  code has always been there, but per the log above **no agent-server session
+  had ever received a second message**, so it was dead code until now. Checked
+  by reading, and the prerequisite holds: `broadcastSSE(state,'done')`
+  (`agent-server/index.ts:502`) fires only after the `for await` loop ends —
+  `/stop`, idle eviction, or crash — never between turns, so `running` stays
+  true and `onDone` does not clear the pin at every turn boundary. Not yet
+  exercised at runtime.
+- Verified: tsc clean; jest **245/246** (35 new — 27 on the pin lifecycle incl.
+  the exact turn sequence and the leak above, 8 on the recompute; only the
+  pre-existing `fileMonitorIntegration` fails); the predicates checked against
+  the **exact tool names in the user's real transcript** (4×
+  `mcp__hex__authenticate`, 3× `mcp__hex__complete_authentication`, with
+  `mcp__mini-apps__open_mini_application` from the same file as a real negative);
+  the rebuilt bundle boots and `allowedTools` observably tracks `mcpServers`
+  across add/remove/clear. **NOT yet verified: a real end-to-end Hex sign-in** —
+  that needs the user's own Hex account. Acceptance test: authorize in the
+  browser, then confirm a real Hex data tool returns data.
+
+**Transcripts are now reclaimed, and every image format converts (2026-07-29).**
+The two gaps flagged at the end of the overflow work below, both closed.
+
+*Deleting a chat no longer strands its SDK transcript.* Nothing in the app ever
+deleted one — `deleteSession` dropped the row, the Debug hard reset dropped
+every row, and `<CLAUDE_CONFIG_DIR>/projects/<key>/<id>.jsonl` stayed forever.
+Not small: two ordinary chats on this machine carry 1.38 MB and 1.1 MB.
+- **One chat is one transcript** — established by measurement, not assumption:
+  resume *appends* and keeps the same session id (`b31f64b2` grew 922 KB →
+  1.38 MB across turns while staying the referenced id). So there is no chain
+  of ancestor files to chase and a targeted delete is complete.
+- New `main/transcriptStore.ts`. `deleteTranscript` is called from
+  `sessions:delete` **before** the row is dropped — afterwards there is nothing
+  left to identify the file by. `sweepOrphanTranscripts` removes anything no
+  live `sessions.sdk_session_id` names; the Debug hard reset calls it with an
+  empty live set (every chat is gone, so every transcript is unreachable).
+- **The sweep is sound because resume only ever names an id read out of that
+  column** — an unreferenced transcript can never be replayed. It therefore also
+  reclaims transcripts from runs that were never chats (workspace scanner, title
+  generation, dev harnesses); those are one-shot queries, so that is intended.
+- **Runs at boot, and must stay there.** Nothing is resuming or writing a
+  transcript at that point. Do not move it onto a timer — the scanner and title
+  generation both create transcripts mid-run and would be swept out from under
+  themselves.
+- Verified beyond unit tests: the sweep's decision was dry-run against the
+  **real production config dir** before it could run for real — kept all 4 live
+  chat transcripts, deleted exactly the 5 dev-harness orphans, and treated the
+  one live id whose file was already gone as a no-op. Then a real `npm start`
+  boot swept the **development** channel (3 orphans, 50 KB) and kept the only
+  referenced transcript there.
+
+*Every image format the API rejects now converts.* `ImageAttachmentAdapter`
+special-cased TIFF and inlined everything else under `image/*` with a
+`media_type` the API refuses (HEIC — every iPhone photo — plus BMP, AVIF, SVG).
+- The converter is macOS `sips`, and **it sniffs content rather than trusting
+  the extension** (verified by converting a BMP written to a `.tiff` path), so
+  the existing plumbing already handled all of them. Verified end to end through
+  the handler's exact command: HEIC, BMP, AVIF, TIFF all convert; **SVG is the
+  only failure** — sips cannot rasterize vector — and falls through to a
+  workspace path, which is the better answer anyway since an SVG is text the
+  agent can read directly.
+- **`needsConversion` keys on MIME alone, deliberately.** The MIME is what gets
+  sent as `media_type`, so it is exactly what must be one of the four; Chromium
+  derives it from the extension anyway. An extension check was written first and
+  removed — it re-encoded a correctly-typed PNG whose name carried no extension
+  (a pasted screenshot) for nothing. Related fact, now covered by a test because
+  the rule depends on it: a file Chromium cannot type at all **never reaches this
+  adapter** — `image/*` does not match an empty MIME, so the composite routes it
+  to the wildcard and the agent gets a path.
+- Incidental bug my own change would have made reachable: the converter's temp
+  files were named `convert-${Date.now()}.{tiff,png}`, which collide when two
+  conversions land in the same millisecond. Harmless when only TIFF went through
+  it; a real corruption risk once *dropping several photos at once* converts
+  them concurrently. Now `randomUUID()`, and the input extension is `.img` since
+  it never carried a truthful format claim.
+- Verified: tsc clean; jest **210/211** (22 new; only the pre-existing
+  `fileMonitorIntegration`); smoke test exits 0.
+
+**A context overflow no longer kills a chat forever; images got the ceiling
+documents already had (2026-07-28).** Reported from the field: a thread where
+*every* turn — including a bare "Hi" — came back `Prompt is too long`.
+Diagnosed from the real data, not inferred: the thread's SDK transcript was
+**5.5 MB, of which one line was 5,494,023 bytes** — a `document` block holding
+an entire 39,335-row CSV, inlined at 2026-07-27T20:31Z. Commit `a18bd6b3`, which
+stops oversized documents being inlined, landed at 20:36Z — **five minutes
+later**, so the attachment predates its own fix (confirmed `a18bd6b3` is an
+ancestor of the v0.1.5 release commit, and its 6 regression cases still pass).
+- **The cause was fixed; the damage was not, and could not heal.** Every turn
+  resumes the same transcript, so the failure had nothing to do with what the
+  user typed. `agentSession.ts` now detects the rejection at the `result`
+  message (`is_error` + the API's wording — **matching the text too is
+  load-bearing**, since an ordinary failed turn also sets `is_error` and
+  dropping the agent's memory of a conversation is far too destructive a
+  response to a tool that threw), clears `sessions.sdk_session_id` via the new
+  `clearSdkSessionId`, and replaces the bare error with an explanation that says
+  plainly what was lost.
+- **Clearing the DB column alone was not enough** — `startLoop` falls back to
+  the constructor-time `sdkSessionId` when the column is null, which would
+  resurrect the id we just cleared if the loop restarts inside the same session
+  object (second message before the registry destroys it, 404 re-queue, auth
+  retry). A `resumeDisabled` flag on the shared `TurnState` closes it.
+- **The explanation is inserted BEFORE the result row**: `cleanupOrphanTurnRows`
+  sweeps assistant rows that land after the last `result`, so writing it after
+  would have made it vanish on the next boot.
+- **Images were the last hole of the CSV's class.** `ImageAttachmentAdapter` is
+  first in the composite, accepts `image/*`, and had **no ceiling at all** — not
+  even the 30 MB user guard, which lives only in the file-reference adapter. The
+  ceiling is a *transport* limit, not a token budget (the API downscales to
+  ≤4784 visual tokens, so an image cannot blow the window): 10 MB **base64**
+  per image, i.e. ~7.5 MB of source, so 7 MB with margin. TIFF is measured on
+  the **converted PNG** — a compressed scan expands several-fold, so the source
+  size says nothing about what would actually be sent.
+- Verified: tsc clean; jest **188/189** (10 new; only the pre-existing
+  `fileMonitorIntegration`); the overflow predicate exercised against the
+  **exact payload observed in the user's DB** plus the ordinary-failure cases it
+  must not fire on; `clearSdkSessionId`'s SQL run against a **copy of the real
+  production cobuilding.db** by `scripts/verify-clear-resume-pointer.sh` (jest
+  can't — better-sqlite3 is built for Electron's ABI); smoke test exits 0.
+- The 5.5 MB transcript was deleted (backed up first, and the CSV recovered out
+  of it intact at 39,335 rows). Two gaps found here — orphaned transcripts on
+  chat delete, and `image/*` formats the API rejects — were **both closed
+  2026-07-29**; see the entry above.
 
 **Released v0.1.5 (2026-07-28).** Everything below through the tool-status work
 is shipped. Verified after publishing, not just from the release log: the three
@@ -333,10 +530,15 @@ answering a question and printed the API key into the chat.
   agent config. A blank value on save means "keep the stored one", so editing
   a URL doesn't wipe the token; deleting the row removes it.
 - `CLAUDE_CONFIG_DIR` moved from `<workspace>/.academia/claude-config` to
-  userData (`main/claudeConfigDir.ts`, with migration). It holds `mcpOAuth` —
-  access/refresh tokens for every connector the user signs in to — and was
-  sitting in the agent's own cwd. Session resume is unaffected (the SDK keys
-  projects off `cwd`, which didn't change).
+  userData (`main/claudeConfigDir.ts`, with migration). It was sitting in the
+  agent's own cwd. Session resume is unaffected (the SDK keys projects off
+  `cwd`, which didn't change). **Correction (2026-07-29): this entry used to
+  say the dir "holds `mcpOAuth` — access/refresh tokens for every connector".
+  It does not.** On SDK 0.2.121 those tokens go to a credentials store —
+  macOS keychain primary, 0600 `.credentials.json` fallback — and the dir's
+  own path is only an *input* to the keychain service name (sha256 of it).
+  Moving it was still right (it holds transcripts and the DCR client
+  registrations), but it is not where a sign-in lands.
 - **`agent.json` moved too, and this one mattered most.** It is the SDK's
   input, so it holds the *raw* key and *decrypted* headers and cannot be
   encrypted — and it was being written to `<workspace>/.academia/agent.json`.
@@ -488,13 +690,23 @@ bundled SDK/CLI, not inferred from docs.
   `toggleMcpServer(name, false)` does disable it, so that's the backstop —
   applied only to names we ourselves supplied, never a relay or a `.mcp.json`
   server.
-- **OAuth works headlessly.** A needs-auth server exposes
-  `mcp__<id>__authenticate` / `..._complete_authentication`; the first returns a
-  real authorize URL with a `http://localhost:<port>/callback` redirect. It
-  works end-to-end because links already open in the system browser
-  (2026-07-27), the CLI subprocess survives across turns (streaming
-  `userMessageGenerator`), and tokens persist to `mcpOAuth` in `.claude.json`
-  under `CLAUDE_CONFIG_DIR`.
+- ~~**OAuth works headlessly.**~~ **WRONG — this claim was never true, and it
+  cost a day.** Corrected 2026-07-29; see the Status entry at the top. Two of
+  its three premises are false. (1) *"The CLI subprocess survives across
+  turns"* is true of the SDK and false of the running app: `query()` is called
+  once per agent-server session, but the host destroys the session after every
+  turn, so one turn = one query = one CLI subprocess (measured: 25 `Creating
+  session` / 25 `Starting query()` / 25 `message received`, one-for-one, and no
+  agent-server session in the whole log ever received a second message). Since
+  the callback listener and the PKCE state live only in that process's memory,
+  the handshake could never span the user's browser round-trip. (2) *"Tokens
+  persist to `mcpOAuth` in `.claude.json`"* is false for SDK 0.2.121: `mcpOAuth`
+  is written through a credentials store — **macOS keychain primary** (service
+  name scoped by a sha256 of `CLAUDE_CONFIG_DIR`), with a 0600
+  `<CLAUDE_CONFIG_DIR>/.credentials.json` fallback. **Verify a sign-in by
+  looking for the keychain entry, never by grepping `.claude.json`** — it does
+  not go there, and checking there reads as failure when the fix worked.
+  Only the third premise held: links do open in the system browser.
 - **`allowedTools` is not what gates this.** Measured: with Acabox's exact list
   and hex omitted, `mcp__hex__authenticate` still ran; `allowedTools: []` still
   ran `Bash`. It is auto-approve, not a restriction, and there is no

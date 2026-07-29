@@ -98,7 +98,7 @@ export const CONNECTOR_CATALOG: CatalogEntry[] = [
     transport: 'http',
     url: 'https://app.hex.tech/mcp',
     auth: 'oauth',
-    docsUrl: 'https://hex.tech/docs/explore-data/hex-mcp/',
+    docsUrl: 'https://learn.hex.tech/docs/api-integrations/mcp-server',
     note: 'Single-tenant/EU/HIPAA orgs use a different host (eu.hex.tech, hc.hex.tech, your-company.hex.tech). Needs a Team or Enterprise plan and the Explorer role or higher.',
   },
   {
@@ -288,6 +288,44 @@ export function buildMcpServers(connectors: ConnectorConfig[]): Record<string, u
  */
 export function connectorAllowedTools(connectors: ConnectorConfig[]): string[] {
   return connectors.filter((c) => c.enabled).map((c) => `mcp__${c.id}`);
+}
+
+/**
+ * Swap the connector half of an existing `allowedTools` list for a new one,
+ * leaving every non-connector entry in place and in order.
+ *
+ * Connectors can be added, edited and removed while the agent server is
+ * running, and `mcp__<id>` is what auto-approves a connector's tools. The two
+ * have to move together — updating `mcpServers` while leaving `allowedTools`
+ * frozen at its boot value meant a connector added later was never on the
+ * list. (Survivable only because this app supplies no `canUseTool` handler, so
+ * an unlisted MCP tool still runs; it becomes a hard failure the day one is
+ * added.)
+ *
+ * Shared rather than duplicated because two places have to agree exactly: the
+ * agent server updating its live `currentConfig`, and the host updating the
+ * config it would replay if the agent server crashed and restarted. If those
+ * two ever computed the list differently, a crash would silently change which
+ * tools are auto-approved.
+ *
+ * `nextIds` is intended to be the KEYS of the SDK-shaped server record rather
+ * than the raw connector list — `buildMcpServers` additionally drops rows that
+ * fail validation, and approving a server that was never supplied is wrong.
+ */
+export function replaceConnectorAllowedTools(
+  allowedTools: readonly string[],
+  priorIds: readonly string[],
+  nextIds: readonly string[],
+): string[] {
+  const prior = new Set(priorIds.map((id) => `mcp__${id}`));
+  const next = nextIds.map((id) => `mcp__${id}`);
+  const nextSet = new Set(next);
+  return [
+    // Keep survivors in their original position; only genuinely new ids are
+    // appended. Order is cosmetic to the SDK but keeps diffs and logs stable.
+    ...allowedTools.filter((t) => !prior.has(t) || nextSet.has(t)),
+    ...next.filter((t) => !allowedTools.includes(t)),
+  ];
 }
 
 /** Stable display name. */

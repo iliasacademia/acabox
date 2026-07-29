@@ -23,6 +23,7 @@ import { getNpmPrefix, getNpmNodeModulesPath } from './nodeSetup';
 import { getLoginShellPath, prewarmLoginShellPath } from './shellPath';
 import { getClaudeConfigDir, migrateClaudeConfigDir } from './claudeConfigDir';
 import { findFreePort, isPortBindable, LOOPBACK } from './freePort';
+import { replaceConnectorAllowedTools } from '../shared/connectors';
 
 const execFileAsync = promisify(execFile);
 
@@ -580,7 +581,7 @@ class HostProcessService {
       // agent's `'anthropicBaseURL' in body` check clears a previously-set URL.
       const body = JSON.stringify({ anthropicApiKey: apiKey, anthropicBaseURL: baseURL ?? null });
       const req = http.request({
-        hostname: 'localhost',
+        hostname: LOOPBACK,
         port,
         path: '/credentials',
         method: 'POST',
@@ -612,7 +613,7 @@ class HostProcessService {
     return new Promise<boolean>((resolve) => {
       const body = JSON.stringify({ mcpServers });
       const req = http.request({
-        hostname: 'localhost',
+        hostname: LOOPBACK,
         port,
         path: '/connectors',
         method: 'POST',
@@ -629,7 +630,42 @@ class HostProcessService {
       req.on('timeout', () => { req.destroy(); resolve(false); });
       req.write(body);
       req.end();
+    }).then((ok) => {
+      // Fold the new set into the config we would replay on a crash restart.
+      // `lastAgentServerConfig` was only ever written by startAgentServer, so
+      // an unexpected exit relaunched the agent server with the connectors as
+      // they stood at BOOT — silently deleting every one the user added since,
+      // with no log line, no re-push, and Settings still showing them enabled.
+      // Only on success: recording a set the server rejected would make the
+      // restart config diverge from what is actually running.
+      if (ok) this.rememberAgentConnectors(mcpServers);
+      return ok;
     });
+  }
+
+  /**
+   * Update the stored restart config in place so a crash-restart preserves the
+   * live connector set. Mirrors what the agent server does to its own
+   * `currentConfig` on POST /connectors — including recomputing the
+   * `mcp__<id>` auto-approve entries, so the replayed config and the running
+   * one agree on both halves.
+   */
+  private rememberAgentConnectors(mcpServers: Record<string, unknown>): void {
+    if (!this.lastAgentServerConfig) return;
+    try {
+      const cfg = JSON.parse(this.lastAgentServerConfig);
+      cfg.allowedTools = replaceConnectorAllowedTools(
+        cfg.allowedTools ?? [],
+        Object.keys(cfg.mcpServers ?? {}),
+        Object.keys(mcpServers),
+      );
+      cfg.mcpServers = mcpServers;
+      this.lastAgentServerConfig = JSON.stringify(cfg);
+    } catch (err) {
+      // Never let a bookkeeping failure break a connector update that has
+      // already been applied to the live server.
+      log.warn(`[HostProcess] Could not refresh restart config with new connectors: ${(err as Error).message}`);
+    }
   }
 
   /**
@@ -642,7 +678,7 @@ class HostProcessService {
     if (!port) return { live: false, servers: [] };
     return new Promise((resolve) => {
       const req = http.request({
-        hostname: 'localhost',
+        hostname: LOOPBACK,
         port,
         path: '/connectors/status',
         method: 'GET',
@@ -775,7 +811,7 @@ class HostProcessService {
     if (!port) return false;
     return new Promise<boolean>((resolve) => {
       const req = http.request({
-        hostname: 'localhost',
+        hostname: LOOPBACK,
         port,
         path: '/api/kernelspecs',
         method: 'GET',

@@ -2,6 +2,7 @@ import {
   buildMcpServers,
   connectorAllowedTools,
   connectorTarget,
+  replaceConnectorAllowedTools,
   CONNECTOR_CATALOG,
   CONNECTOR_ID_PATTERN,
   RESERVED_CONNECTOR_IDS,
@@ -190,5 +191,65 @@ describe('CONNECTOR_CATALOG', () => {
     for (const entry of CONNECTOR_CATALOG) {
       if (entry.auth === 'header') expect(entry.headerName).toBeTruthy();
     }
+  });
+});
+
+describe('replaceConnectorAllowedTools', () => {
+  // The boot-time shape: relay/builtin tools, then one mcp__<id> per connector.
+  const base = ['Bash', 'Read', 'mcp__workspace__get_scanned_files'];
+
+  it('adds a connector that was not there at boot', () => {
+    // The original bug: POST /connectors updated mcpServers and left this list
+    // frozen, so a connector added after boot was never auto-approved.
+    expect(replaceConnectorAllowedTools(base, [], ['hex']))
+      .toEqual([...base, 'mcp__hex']);
+  });
+
+  it('removes a connector the user deleted', () => {
+    expect(replaceConnectorAllowedTools([...base, 'mcp__hex'], ['hex'], []))
+      .toEqual(base);
+  });
+
+  it('swaps one connector for another', () => {
+    expect(replaceConnectorAllowedTools([...base, 'mcp__hex'], ['hex'], ['sentry']))
+      .toEqual([...base, 'mcp__sentry']);
+  });
+
+  it('never touches non-connector entries', () => {
+    // mcp__workspace__* is a relay server, not a connector. Stripping it would
+    // silently de-approve Acabox's own tools.
+    const out = replaceConnectorAllowedTools([...base, 'mcp__hex'], ['hex'], ['notion']);
+    expect(out).toContain('mcp__workspace__get_scanned_files');
+    expect(out).toContain('Bash');
+  });
+
+  it('keeps a surviving connector in its original position', () => {
+    const before = ['Bash', 'mcp__hex', 'Read', 'mcp__sentry'];
+    expect(replaceConnectorAllowedTools(before, ['hex', 'sentry'], ['sentry', 'hex']))
+      .toEqual(before);
+  });
+
+  it('is idempotent', () => {
+    const once = replaceConnectorAllowedTools(base, [], ['hex']);
+    expect(replaceConnectorAllowedTools(once, ['hex'], ['hex'])).toEqual(once);
+  });
+
+  it('does not duplicate an id that is already present', () => {
+    const out = replaceConnectorAllowedTools([...base, 'mcp__hex'], [], ['hex']);
+    expect(out.filter((t) => t === 'mcp__hex')).toHaveLength(1);
+  });
+
+  it('agrees with connectorAllowedTools on a fresh build', () => {
+    // The host builds the boot list as [...base, ...connectorAllowedTools(cs)].
+    // If this function disagreed, a crash-restart would change which tools are
+    // auto-approved.
+    const connectors = [
+      http({ id: 'hex' }),
+      http({ id: 'sentry' }),
+      http({ id: 'off', enabled: false }),
+    ];
+    const ids = Object.keys(buildMcpServers(connectors));
+    expect(replaceConnectorAllowedTools(base, [], ids))
+      .toEqual([...base, ...connectorAllowedTools(connectors)]);
   });
 });

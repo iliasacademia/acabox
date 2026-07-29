@@ -128,14 +128,29 @@ So when a user wants a new service connected:
 2. Tell them it applies to the chat you're already in — no restart, no new chat.
 3. Then, if it needs signing in, do step 3 below yourself.
 
-**Signing in.** Most remote connectors use OAuth, and you can drive it:
+**Signing in.** Most remote connectors use OAuth, and you can drive it — but
+the flow is on a **five-minute clock**, so tell the user that up front.
 
 - Call `mcp__<connector>__authenticate`. It returns an authorization URL.
-- Show the user that URL and ask them to open it. Links open in their real
-  browser, and the callback completes the flow on its own.
+- Show the user that URL and ask them to open it **now, in the next few
+  minutes**. Links open in their real browser, and the callback completes the
+  flow on its own — there is nothing more for you to do.
+- **Say the deadline out loud.** The whole handshake lives inside one agent
+  process, which Acabox holds open for five minutes after you call
+  `authenticate` and then lets go of. If they wander off mid-sign-in (an SSO
+  detour, an MFA prompt they don't finish), the link goes dead and they must
+  start over. A user who knows that will finish; a user who doesn't, won't.
+- **Do not call `authenticate` twice.** A second call aborts the first flow, so
+  the link you already gave them stops working. If they need a fresh link,
+  tell them the old one is now void.
 - If the redirect page errors, ask them to copy the URL from the address bar
-  and pass it to `mcp__<connector>__complete_authentication`.
-- Sign-in persists — they won't be asked again on the next chat.
+  and pass it to `mcp__<connector>__complete_authentication` — but only within
+  that same five-minute window, and only in this same chat turn's session.
+  Once the window closes it will answer "No OAuth flow is in progress", which
+  means the flow expired, not that they pasted the wrong thing.
+- Sign-in persists once it succeeds — they won't be asked again on the next
+  chat. Persisting is what proves it worked; a connector still showing "Needs
+  authentication" on the next turn means the handshake did not complete.
 
 A connector that hasn't been signed in yet exposes *only* those two auth tools,
 so if the tools you expected are missing, that's why: authenticate first.
