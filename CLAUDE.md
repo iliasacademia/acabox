@@ -145,6 +145,20 @@ to `PATH`.
 
 ## Status (last updated 2026-07-29)
 
+**Released v0.1.6 (2026-07-29).** Everything below through the connector OAuth
+pin is shipped. Verified after publishing, not from the release log: the three
+assets carry the right 0.1.6 names/sizes (dmg 187,318,598 · zip 190,210,548 ·
+yml 391), `latest-mac.yml` is **anonymously downloadable** with the token
+stripped from the environment (`http=200` — the property the updater depends
+on), its sha512 matches the built zip byte-for-byte, and the packaged bundle is
+`valid on disk / satisfies its Designated Requirement` with
+`CFBundleShortVersionString` 0.1.6 and id `com.electron.acabox`. Also checked
+that the fix actually shipped rather than merely built: the `agent-server.js`
+**inside `Acabox.app/Contents/Resources`** carries the new boot assertion and
+boots to `[AgentServer] Listening` + a healthy `/health`. Ad-hoc signed as usual
+(no Developer ID), so a fresh download still needs right-click → Open;
+auto-update installs via `main/selfUpdater.ts` rather than Squirrel.
+
 **Connector OAuth sign-in was unwinnable by construction; sessions now pin
 across the browser round-trip (2026-07-29).** Reported as "I still can't connect
 to Hex". Root-caused from the real logs and the shipped CLI binary, not inferred.
