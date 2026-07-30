@@ -124,6 +124,15 @@ export interface ApiRequestOutcome {
 
 function refuse(apiId: string, status: number, error: string): ApiRequestOutcome {
   recordApiCall(apiId, { refused: true, status });
+  // Refusals are the MOST interesting entries in an audit trail, and they were
+  // invisible in the first cut: the success path logged and this one only bumped
+  // an in-memory counter that dies with the app. Found by running a real turn
+  // and noticing the 405 the agent reported had no counterpart in the log.
+  //
+  // Safe to log verbatim: every refusal message is built from an id, a
+  // hostname, a method or a pathname — never a query string, which is the one
+  // place a `query`-auth credential lives.
+  log.warn(`[APIs] REFUSED ${apiId} → ${status}: ${error}`);
   return { status, headers: { 'content-type': 'application/json' }, body: null, error };
 }
 

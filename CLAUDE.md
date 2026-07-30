@@ -50,7 +50,16 @@ the Electron main process:
   Talks to the host over SSE; MCP tool calls relay back to the host via
   `mcp-call` SSE events + a `/mcp-result` POST.
 - **Jupyter kernel gateway** — spawned from the per-user Python venv on first
-  notebook use. Port range `23300..23399`.
+  notebook use. Port range **`23400..23499`** (`containerService.ts:817`). This
+  line said `23300..23399` until 2026-07-29 and was simply wrong; a stale
+  comment at `containerService.ts:815` claims a third thing again
+  (`agent 23300-23320, kernel 23330-23350`). Believe the code.
+- **API proxy** — `main/apiProxy.ts`, the loopback server that holds API
+  credentials so the agent never sees them. Port range `23500..23599`.
+  Started by `AgentInfrastructureController.start()` **before** the agent
+  server, because `buildSubprocessEnv()` only exports `ACABOX_API_BASE` /
+  `ACABOX_API_TOKEN` while it is listening and the agent server inherits its
+  env once, at spawn.
 - **Python venv** — `~/Library/Application Support/acabox/<channel>/python-venv`.
   Bootstrapped lazily (and now eagerly, in the background, on
   `agentInfrastructure.start`) from system `python3` (3.9+ required). Holds
@@ -158,6 +167,84 @@ to `PATH`.
   `pkill -9 -f "Acabox/node_modules/electron"`.
 
 ## Status (last updated 2026-07-29)
+
+**APIs: the user can register HTTP endpoints and Claude can call them
+(2026-07-29).** Phase 1 of `docs/design/api-tokens.md`, agent-only. Asked for as
+"how do I add an API key" after the Hex connector was signed in — the honest
+answer being that Hex's MCP endpoint is OAuth-only *and* read-only by its own
+server instructions, while its REST API is neither.
+- **A connector is not a substitute and this is the gap it leaves.** MCP gives
+  you the tools a vendor chose to expose. Most scientific APIs ship no MCP
+  server at all, and an MCP response flows through the model's context, so a
+  real dataset cannot come back that way. Ten of the sixteen catalog entries
+  need **no credential** — the point isn't the keyring, it's that a registered
+  API means a base URL the agent stops guessing, host-allowlist enforcement, a
+  write gate, and an audit line.
+- **`performApiRequest()` is the only code that sees a decrypted secret**, and
+  callers reach it through a door that establishes identity: agent subprocesses
+  over the loopback server, mini-apps over postMessage in Phase 2. **Mini-apps
+  deliberately do NOT get the loopback URL** — a `local-file://` frame's fetch
+  carries an opaque origin, so the proxy could not tell app A from app B and the
+  per-app grant the user chose would silently not be enforced.
+- **Redirects are followed by hand because of a MEASURED undici behaviour.** On
+  Electron 37's Node 22.17, across a cross-origin 302: `Authorization` stripped,
+  `Cookie` stripped, **`x-api-key` survives with its value intact**. undici
+  protects the headers it recognises and has no idea a custom one is a
+  credential. Auth is now re-attached **only on a same-origin hop** — stricter
+  than the design's "still on the allow list", and also the more *compatible*
+  reading: GitHub, Zenodo and Figshare all redirect downloads to a presigned
+  object host that rejects a request carrying two auth mechanisms.
+- **Read-only by default is a real boundary, not a guardrail.** The host holds
+  the credential, so a refused write cannot be made by another route — unlike
+  `block-secret-reads.sh` it is not defeated by the agent having unrestricted
+  Bash, because Bash without the token is just Bash. It does **not** defend
+  against reads as exfiltration; the audit log is the honest mitigation there.
+- **`resolveTargetUrl` is where this gets attacked**, so it is pure and heavily
+  tested. The ordering it depends on: an absolute URL in the caller's "path"
+  WINS at parse time (`new URL('https://evil.com/x', base)`), which is exactly
+  why the host check runs on the **resolved** URL. Also enforced: `..`
+  containment within the base path *on the base host only* (an extra allowed
+  host is a CDN with its own layout), no userinfo, https-or-loopback, and suffix
+  matching that cannot degenerate — `.zenodo.org` matches `files.zenodo.org` and
+  not `evil-zenodo.org`.
+- **All 16 catalog base URLs were curled, not recalled.** The connector catalog
+  carries the identical caveat and shipped a 404 `docsUrl` anyway. Two results
+  worth keeping: protocols.io reports a *missing* token as **400**, not 401; and
+  OSF's apparent failure was my own shell eating `[` brackets, not the API.
+- New: `shared/apis.ts`, `main/apiStore.ts`, `main/apiProxy.ts`,
+  `renderer/components/ApiSettings.{tsx,css}`. `'apis'` added to
+  `RESERVED_CONNECTOR_IDS`; `mcp__apis__list_apis` added to the base allowlist.
+  Nothing is pushed to the agent server on a change — the proxy reads the store
+  on **every request**, so only the prompt's summary is session-scoped.
+- **Verified at runtime, not just by test.** tsc clean; **704/704 across 41
+  suites** (86 new: 39 on `resolveTargetUrl`/catalog, 27 driving the real proxy
+  against real local HTTP servers, 20 on the store); smoke exits 0. Then, live:
+  the proxy bound 23500 **before** the agent server started (38.697 vs 38.803,
+  the ordering invariant holding in fact); a real chat turn had the agent read
+  `$ACABOX_API_BASE`, use a 36-char token and return real Crossref data
+  ("Nanometre-scale thermometry in a living cell"); a POST to a read-only API
+  returned **405** with the agent quoting the actionable message verbatim; and a
+  canary credential configured through the real UI reached the wire (Crossref
+  401'd the bogus bearer, proving transmission) while appearing in **zero**
+  places — chat DB, `cobuilding.log`, and settings.json plaintext all clean,
+  with `enc:v1:` on disk from the real keychain.
+- **Found by running it, not by reading it:** refusals wrote no log line at all
+  — only an in-memory counter that dies with the app — so a blocked write left
+  no lasting trace. Now logged, with a test pinning that a `query`-auth secret
+  stays out of the refusal line too.
+- **Deviations from the design, all deliberate:** cross-origin auth stripping
+  (above); `allowedHosts` means *additional* hosts with the base host implicit,
+  so editing `baseUrl` can't strand you on a stale allow-list; request bodies
+  are **buffered** (100 MB cap) because a 307 replay cannot re-read a consumed
+  stream — responses stay streamed and uncapped, which was the whole argument
+  for a proxy over an MCP tool; an `apis:test` IPC was added because "did my key
+  work" was otherwise unanswerable without starting a chat.
+- **NOT done:** Phase 2 (mini-app bridge, manifest grant) — the grant check is
+  written and tested so it is additive. No Basic auth, so **Benchling is
+  deliberately absent** and is the first thing to revisit. Counters reset on
+  restart, labelled "since launch". A newly added API is callable immediately
+  but only *announced* to the next chat, since guidance is set at session
+  create; `list_apis` reads live state.
 
 **Skills are now user-owned, importable, and can accumulate knowledge
 (2026-07-29). Built, verified, NOT yet exercised in real daily use.** Design in

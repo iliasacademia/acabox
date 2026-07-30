@@ -364,6 +364,25 @@ describe('audit logging', () => {
     expect(JSON.stringify(recorded)).not.toContain('SUPERSECRET');
   });
 
+  it('logs every refusal, since a blocked call is the most auditable event there is', async () => {
+    // The counters are in-memory and die with the app, so without this line a
+    // refused write leaves no lasting trace anywhere.
+    api({ baseUrl: 'https://api.example.com/', allowWrites: false });
+    await performApiRequest({ apiId: 'test', method: 'DELETE', path: 'x', caller: { kind: 'chat' } });
+    expect(logWarn).toHaveBeenCalledWith(expect.stringContaining('REFUSED test → 405'));
+  });
+
+  it('does not put a query-auth secret into a REFUSAL line either', async () => {
+    api({
+      baseUrl: 'https://api.example.com/v1/',
+      auth: { style: 'query', queryParam: 'api_key', secret: 'SUPERSECRET' },
+    });
+    // Refused at the host check, i.e. after the URL is resolved but before any
+    // credential is attached — the path that would tempt someone to log the URL.
+    await performApiRequest({ apiId: 'test', method: 'GET', path: 'https://evil.com/x', caller: { kind: 'chat' } });
+    expect([...logWarn.mock.calls].flat().join('\n')).not.toContain('SUPERSECRET');
+  });
+
   it('does not log a bearer token', async () => {
     const upstream = await track(echoServer());
     api({ baseUrl: `${upstream.origin}/`, auth: { style: 'bearer', secret: 'SUPERSECRET' } });

@@ -1,7 +1,46 @@
 # API tokens — direct HTTP access to services MCP can't reach
 
-**Design document — 2026-07-29. Branch `feat/api-tokens`. Decisions confirmed
-with the user; not yet implemented.**
+**Design document — 2026-07-29. Branch `feat/api-tokens`.**
+
+> **STATUS: Phase 1 IMPLEMENTED 2026-07-29.** Phases 2 and 3 are not started.
+> The document below is kept as written, because its reasoning is still the
+> reasoning. What actually shipped differs in six places, each for a reason
+> found while building:
+>
+> 1. **Redirect auth is re-attached only on a SAME-ORIGIN hop**, not "whenever
+>    the new host is still on the allow list". Probe 2 came back exactly as
+>    predicted (`x-api-key` survives a cross-origin 302 with its value intact
+>    while `Authorization` and `Cookie` are stripped), and the stricter rule is
+>    also the more compatible one: GitHub, Zenodo and Figshare redirect
+>    downloads to a presigned object host that rejects a request carrying two
+>    auth mechanisms.
+> 2. **`allowedHosts` means ADDITIONAL hosts**; the base URL's host is implicit
+>    (`effectiveAllowedHosts`). Seeding the array from `baseUrl` as designed
+>    means editing the base URL leaves the old host allowed and the new one
+>    refused — an inexplicable 403 immediately after a successful save.
+> 3. **Refusals are logged.** The design put the audit line only on the success
+>    path. Running a real turn showed a 405 the agent reported with no
+>    counterpart anywhere: counters are in-memory and die with the app, so a
+>    blocked write left no lasting trace. Refusals are the most auditable event
+>    there is.
+> 4. **Request bodies are buffered** (100 MB, 413 past it). A 307/308 replay
+>    cannot re-read a consumed stream. Responses stay streamed and uncapped,
+>    which is the property that justified a proxy over an MCP tool.
+> 5. **An `apis:test` IPC was added** — one real GET through
+>    `performApiRequest`, so a green result proves the agent's path rather than
+>    merely that the host is reachable. "Did my key work" was otherwise
+>    unanswerable without starting a chat.
+> 6. **`apiGuidance` is computed inside `startLoop`**, not at session
+>    construction, so a post-eviction restart picks up an API added since. The
+>    known cost below still stands, just narrowed.
+>
+> The catalog gained a 16th entry, `hex`, pointed at the REST API — which is
+> what prompted the work. All 16 base URLs were curled (verification item 3);
+> two notes worth keeping: protocols.io reports a *missing* bearer as **400**
+> rather than 401, and OSF's apparent failure was a shell eating `[` brackets,
+> not the API. Verification item 1 (whether a `local-file://` frame can fetch
+> loopback) was **not** run — it is Phase 2's concern and, as the design itself
+> says, cannot change the decision, only a code comment.
 
 ## The problem, stated precisely
 
