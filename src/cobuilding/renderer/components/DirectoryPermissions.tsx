@@ -5,6 +5,7 @@ import { XIcon, PlusIcon } from 'lucide-react';
 import DirectoryPermBadge from './DirectoryPermBadge';
 import ApiKeySettings from './ApiKeySettings';
 import ConnectorsSettings from './ConnectorsSettings';
+import ApiSettings from './ApiSettings';
 import './DirectoryPermissions.css';
 import './shared-forms.css';
 
@@ -329,6 +330,13 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
           <p className="wsSettings__sectionLabel">Connectors</p>
           <div className="wsSettings__sectionCard">
             <ConnectorsSettings />
+          </div>
+        </section>
+
+        <section className="wsSettings__section">
+          <p className="wsSettings__sectionLabel">APIs</p>
+          <div className="wsSettings__sectionCard">
+            <ApiSettings />
           </div>
         </section>
 

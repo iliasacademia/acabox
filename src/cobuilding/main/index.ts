@@ -87,6 +87,17 @@ import {
   getConnectorStatus,
 } from './connectorsStore';
 import { buildMcpServers, CONNECTOR_CATALOG, type ConnectorConfig } from '../shared/connectors';
+import {
+  listApis,
+  upsertApi,
+  removeApi,
+  setApiEnabled,
+  setApiAllowWrites,
+  migratePlaintextApiSecrets,
+  getApiCounters,
+} from './apiStore';
+import { apiProxy, performApiRequest } from './apiProxy';
+import { API_CATALOG, type ApiConfig } from '../shared/apis';
 import { decryptSecret, encryptSecret, isEncrypted, isEncryptionAvailable } from './secretStore';
 import { processCpuMonitor } from '../../utils/processCpuMonitor';
 import { convertReferenceFile } from './directoryScanner/agents/fileTagging';
@@ -686,6 +697,7 @@ app.whenReady().then(async () => {
   // whenReady (safeStorage throws before it) and before the key is read.
   migratePlaintextApiKey();
   migratePlaintextConnectorSecrets();
+  migratePlaintextApiSecrets();
 
   // No login: load the user's Anthropic API key (env → settings) into the
   // credential store before anything spawns the agent, so getCredentials() is
@@ -2342,6 +2354,70 @@ ipcMain.handle('connectors:removeUnmanaged', () => {
   return removeUnmanagedMcpJson(workspacePath);
 });
 
+// ─── APIs IPC ─────────────────────────────────────────────────────
+//
+// Unlike connectors, there is NOTHING to push to the agent server on a change:
+// `apiProxy` reads the store on every single request, so an added key, a
+// flipped write toggle or a removed API takes effect on the next call with no
+// session involvement at all. The one session-scoped piece is the guidance
+// block in the system prompt, which is why the UI says a new API is only
+// *announced* to the next chat while `mcp__apis__list_apis` reads live state.
+//
+// `listApis()` is the masked accessor — secrets never cross this boundary.
+
+ipcMain.handle('apis:list', () => ({
+  apis: listApis(),
+  catalog: API_CATALOG,
+  counters: getApiCounters(),
+  proxy: {
+    running: apiProxy.isRunning(),
+    baseUrl: apiProxy.baseUrl(),
+    error: apiProxy.error(),
+  },
+}));
+
+ipcMain.handle('apis:save', (_event, api: ApiConfig, originalId?: string, clearSecret?: boolean) =>
+  upsertApi(api, originalId, clearSecret === true));
+
+ipcMain.handle('apis:remove', (_event, id: string) => removeApi(id));
+
+ipcMain.handle('apis:setEnabled', (_event, id: string, enabled: boolean) =>
+  setApiEnabled(id, enabled));
+
+ipcMain.handle('apis:setAllowWrites', (_event, id: string, allowWrites: boolean) =>
+  setApiAllowWrites(id, allowWrites));
+
+/**
+ * Send one real GET at the API's base URL and report what came back.
+ *
+ * This exists because "did my key actually work" is otherwise unanswerable
+ * without starting a chat and asking the agent to try — and it deliberately
+ * goes through `performApiRequest`, the same policy engine the agent uses, so
+ * a green result here means the agent's path works rather than merely that the
+ * host is reachable.
+ *
+ * The response body is discarded, but it must be CANCELLED rather than ignored
+ * or the socket stays open until GC.
+ */
+ipcMain.handle('apis:test', async (_event, id: string) => {
+  try {
+    const outcome = await performApiRequest({
+      apiId: id,
+      method: 'GET',
+      path: '',
+      caller: { kind: 'chat' },
+    });
+    void outcome.body?.cancel().catch(() => { /* already closed */ });
+    return {
+      status: outcome.status,
+      ok: outcome.status >= 200 && outcome.status < 400,
+      error: outcome.error ?? null,
+    };
+  } catch (err) {
+    return { status: 0, ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
 // ─── Skills IPC ───────────────────────────────────────────────────
 //
 // Every mutation that changes WHICH skills are enabled has to reach three
@@ -2849,6 +2925,10 @@ app.on('before-quit', () => {
     ['destroyTokenManager', destroyTokenManager],
     ['destroyAllSessions', destroyAllSessions],
     ['containerService.stop', () => containerService.stop()],
+    // Fire-and-forget: these steps are synchronous by contract and the app is
+    // going away regardless. Closing the listener still matters — an orphaned
+    // bind would make the next run pick 23501 and leave a dead port held.
+    ['apiProxy.stop', () => { void apiProxy.stop(); }],
     ['closeSchedulingDatabase', closeSchedulingDatabase],
     ['closeObservationsDatabase', closeObservationsDatabase],
     ['closeDatabase', closeDatabase],

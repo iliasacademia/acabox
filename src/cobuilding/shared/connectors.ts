@@ -166,6 +166,8 @@ export const RESERVED_CONNECTOR_IDS = [
   // turn by whether it called a CONNECTOR tool, and a user connector named
   // `knowledge` would make `record_finding` itself read as a warehouse trip.
   'knowledge',
+  // The API-proxy relay (`mcp__apis__list_apis`). Same shadowing argument.
+  'apis',
 ];
 
 export interface ValidationResult {

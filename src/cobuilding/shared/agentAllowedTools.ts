@@ -49,6 +49,10 @@ export const BASE_AGENT_ALLOWED_TOOLS: readonly string[] = [
   'EnterPlanMode', 'ExitPlanMode',
   'mcp__activity__query_activity',
   KNOWLEDGE_RECORD_FINDING_TOOL,
+  // Settings → APIs. The proxy itself is reached over plain HTTP from Bash;
+  // this tool is how the agent reads live detail about what is configured,
+  // which the session guidance block deliberately keeps short.
+  'mcp__apis__list_apis',
   'mcp__mini-apps__open_mini_application',
   'mcp__mini-apps__build_and_open_mini_application',
   'mcp__mini-apps__list_published_servers',

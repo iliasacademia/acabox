@@ -36,6 +36,13 @@ export interface AgentConfig {
   soulMd?: string;
   docxGuidance?: string;
   workspaceDirectoriesGuidance?: string;
+  /**
+   * How to reach configured APIs through the host's loopback proxy
+   * (`shared/apis.ts#buildApiGuidance`). Session-scoped rather than part of the
+   * boot config: the host recomputes it per session so an API added mid-run
+   * reaches the next chat.
+   */
+  apiGuidance?: string;
 }
 
 export interface SessionOverrides {
@@ -43,6 +50,7 @@ export interface SessionOverrides {
   soulMd?: string;
   hostGuidance?: string;
   workspaceDirectoriesGuidance?: string;
+  apiGuidance?: string;
   /** Per-session model chosen in the chat UI (else the config default). */
   model?: string;
   /** Per-session reasoning-effort level chosen in the chat UI. */
@@ -73,5 +81,6 @@ export function mergeSessionConfig(config: AgentConfig, overrides?: SessionOverr
     soulMd: overrides?.soulMd ?? config.soulMd,
     docxGuidance: overrides?.hostGuidance ?? config.docxGuidance,
     workspaceDirectoriesGuidance: overrides?.workspaceDirectoriesGuidance ?? config.workspaceDirectoriesGuidance,
+    apiGuidance: overrides?.apiGuidance ?? config.apiGuidance,
   };
 }

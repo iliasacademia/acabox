@@ -1,0 +1,50 @@
+/* Settings → APIs.
+
+   Deliberately thin: this section reuses the `.connector*` classes wholesale so
+   it is visually indistinguishable from its sibling, Connectors. Only what has
+   no connector equivalent lives here. If you find yourself adding a rule that
+   duplicates one in ConnectorsSettings.css, use the connector class instead. */
+
+/* Credential presence, next to the read/write chip on a row.
+   Absent for a `none`-auth API — a chip that says NO KEY on an API that never
+   wanted one reads as a problem. */
+.apiKeyChip {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cd-text3, #91919e);
+  border: 1px solid var(--cd-border, #dddde2);
+  border-radius: 2px;
+  padding: 1px 4px;
+  margin-left: 6px;
+  flex: none;
+}
+
+.apiKeyChip--set {
+  color: var(--cd-success, #05b01c);
+  border-color: color-mix(in srgb, var(--cd-success, #05b01c) 35%, transparent);
+}
+
+/* Outcome of the Test button. Real HTTP status or the proxy's own refusal
+   text — never a synthesised "looks fine". */
+.apiTestResult {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 10.5px;
+  line-height: 1.45;
+  margin-top: 4px;
+  color: var(--cd-error, #b60000);
+}
+
+.apiTestResult--ok {
+  color: var(--cd-success, #05b01c);
+}
+
+/* The notes field is the highest-leverage input on the form, so it gets room
+   to be a sentence rather than a label. */
+.apiNotes {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 60px;
+}

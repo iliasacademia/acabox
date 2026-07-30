@@ -24,6 +24,8 @@ import { getLoginShellPath, prewarmLoginShellPath } from './shellPath';
 import { getClaudeConfigDir, migrateClaudeConfigDir } from './claudeConfigDir';
 import { findFreePort, isPortBindable, LOOPBACK } from './freePort';
 import { replaceConnectorAllowedTools } from '../shared/connectors';
+import { API_BASE_ENV, API_TOKEN_ENV } from '../shared/apis';
+import { apiProxy } from './apiProxy';
 
 const execFileAsync = promisify(execFile);
 
@@ -103,6 +105,16 @@ function buildSubprocessEnv(): NodeJS.ProcessEnv {
     COSCIENTIST_NPM_PREFIX: npmPrefix,
     NODE_PATH: getNpmNodeModulesPath(),
     PATH: [venvBinDir, npmBinDir, existingPath].filter(Boolean).join(binSep),
+    // How agent subprocesses reach configured APIs. Absent when the proxy is
+    // down, which is a supported state — `buildApiGuidance` is skipped in the
+    // same condition, so the agent is never told about a facility that isn't
+    // there. Neither value is a credential: the token authorises use of the
+    // proxy by a process we already spawned holding the user's Anthropic key,
+    // so it grants nothing that process didn't already have.
+    ...(apiProxy.isRunning() ? {
+      [API_BASE_ENV]: apiProxy.baseUrl()!,
+      [API_TOKEN_ENV]: apiProxy.token()!,
+    } : {}),
   };
 }
 

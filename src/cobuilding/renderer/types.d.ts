@@ -154,6 +154,42 @@ interface ConnectorsAPI {
 }
 
 /**
+ * Settings → APIs. `ApiConfigForUi` is the masked shape — it carries
+ * `hasSecret: boolean` where the stored config carries the credential, which
+ * never crosses this boundary.
+ */
+type ApiConfigForUiT = import('../shared/apis').ApiConfigForUi;
+type ApiConfigT = import('../shared/apis').ApiConfig;
+type ApiCatalogEntryT = import('../shared/apis').ApiCatalogEntry;
+type ApiCountersT = import('../shared/apis').ApiCounters;
+
+interface ApiMutationResultT {
+  success: boolean;
+  error?: string;
+  apis: ApiConfigForUiT[];
+}
+
+interface ApisAPI {
+  list(): Promise<{
+    apis: ApiConfigForUiT[];
+    catalog: ApiCatalogEntryT[];
+    /** Per-API usage since launch. An API never called has no entry. */
+    counters: Record<string, ApiCountersT>;
+    proxy: { running: boolean; baseUrl: string | null; error: string | null };
+  }>;
+  /**
+   * A blank `auth.secret` means "keep the stored credential"; pass
+   * `clearSecret: true` to actually remove one.
+   */
+  save(api: ApiConfigT, originalId?: string, clearSecret?: boolean): Promise<ApiMutationResultT>;
+  remove(id: string): Promise<ApiMutationResultT>;
+  setEnabled(id: string, enabled: boolean): Promise<ApiMutationResultT>;
+  setAllowWrites(id: string, allowWrites: boolean): Promise<ApiMutationResultT>;
+  /** One real GET at the base URL, through the same engine the agent uses. */
+  test(id: string): Promise<{ status: number; ok: boolean; error: string | null }>;
+}
+
+/**
  * Knowledge → Skills. Shapes come from `shared/skills.ts` and the main-side
  * store; imported as types only so this ambient file stays declaration-only.
  */
@@ -1026,6 +1062,7 @@ declare global {
     jupyterAPI: JupyterAPI;
     authAPI: AuthAPI;
     connectorsAPI: ConnectorsAPI;
+    apisAPI: ApisAPI;
     skillsAPI: SkillsAPI;
     knowledgeAPI: KnowledgeAPI;
     electronAPI: ElectronAPI;

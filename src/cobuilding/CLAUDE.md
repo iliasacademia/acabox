@@ -30,6 +30,37 @@ The wrapper does two things atomically: (1) installs the package live, and (2) r
 
 See the **manage-mini-application** skill (`.claude/skills/manage-mini-application/SKILL.md`) for the full per-registry reference.
 
+## Calling APIs
+
+The user can configure HTTP APIs in Settings → APIs. They are reachable through
+Acabox's local proxy, which holds the credentials and attaches them for you:
+
+```bash
+curl -sH "x-acabox-api-token: $ACABOX_API_TOKEN" \
+  "$ACABOX_API_BASE/<api-id>/<path>"
+```
+
+Both variables are already in your environment. If `$ACABOX_API_BASE` is empty,
+the proxy isn't running and no API is callable — say so rather than falling back
+to an unauthenticated `curl` to the same service.
+
+Use `mcp__apis__list_apis` for the configured ids, their base URLs, and the
+user's notes on each. It reads live state, so check it if a call is refused or
+if you suspect an API was added after this conversation started.
+
+**Never ask the user for an API key, and never write one into a script or a
+notebook.** A key pasted into chat is a key in the message database forever. If
+an API you need isn't configured, say so and tell them to add it in
+Settings → APIs.
+
+**A `405 read-only` is the user's setting, not an obstacle to route around.**
+Tell them which API needs writes rather than trying another path to the same
+change. Likewise a `403` naming a refused host: report the host, don't retry.
+
+Responses stream, so a large download goes to disk rather than through this
+conversation — use `curl -o` for anything big instead of reading it into
+context.
+
 ## Running skill scripts
 
 Skill scripts are located in the workspace at `.claude/skills/<skill-name>/scripts/`. Run them directly:

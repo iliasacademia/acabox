@@ -17,6 +17,15 @@ import { createSession as createDbSession, insertMessage as insertDbMessage, upd
 import { buildMiniApp } from '../miniAppBuilder';
 import { ensurePythonVenv } from '../pythonSetup';
 import { listConnectorsWithSecrets } from '../connectorsStore';
+import { listApis } from '../apiStore';
+import { apiProxy } from '../apiProxy';
+import {
+  API_BASE_ENV,
+  API_PROXY_TOKEN_HEADER,
+  API_TOKEN_ENV,
+  describeAuthStyle,
+  effectiveAllowedHosts,
+} from '../../shared/apis';
 import { buildMcpServers, connectorAllowedTools } from '../../shared/connectors';
 import { buildAgentAllowedTools } from '../../shared/agentAllowedTools';
 import { buildSkillRuntimeConfig } from '../../shared/skills';
@@ -249,6 +258,46 @@ export class AgentInfrastructureController {
           }
         },
       },
+
+      apis: {
+        // Reads live store state, so it answers correctly for an API the user
+        // added after this session's guidance block was built. Uses `listApis`
+        // — the MASKED accessor — not `listApisWithSecrets`: this string goes
+        // straight into the model's context.
+        list_apis: async () => {
+          try {
+            if (!apiProxy.isRunning()) {
+              return ok(JSON.stringify({
+                available: false,
+                reason: apiProxy.error()
+                  ? `The API proxy could not start: ${apiProxy.error()}`
+                  : 'The API proxy is not running.',
+                apis: [],
+              }));
+            }
+            const apis = listApis().map((a) => ({
+              id: a.id,
+              label: a.label,
+              base_url: a.baseUrl,
+              enabled: a.enabled,
+              access: a.allowWrites ? 'read & write' : 'read only',
+              allowed_hosts: effectiveAllowedHosts(a),
+              auth: describeAuthStyle(a.auth),
+              credential_configured: a.hasSecret,
+              notes: a.notes ?? null,
+              docs_url: a.docsUrl ?? null,
+            }));
+            return ok(JSON.stringify({
+              available: true,
+              how_to_call: `curl -sH "${API_PROXY_TOKEN_HEADER}: $${API_TOKEN_ENV}" `
+                + `"$${API_BASE_ENV}/<api-id>/<path>"`,
+              apis,
+            }));
+          } catch (err: any) {
+            return fail(`Failed to list APIs: ${err.message}`);
+          }
+        },
+      },
     };
 
     (globalThis as any).__hostMcpServers = handlers;
@@ -278,6 +327,18 @@ export class AgentInfrastructureController {
     await provisionWorkspace(workspacePath);
 
     await this.deps.containerService.ensureAgentFilesInWorkspace(workspacePath);
+
+    // BEFORE the agent server is spawned, and that ordering is load-bearing:
+    // `buildSubprocessEnv()` only exports ACABOX_API_BASE/TOKEN when the proxy
+    // is already listening, and the agent server inherits its env once at
+    // spawn. Start it after, and every subprocess for the life of that server
+    // has no way to reach the proxy — with no error anywhere, just an agent
+    // that reports the variable is empty.
+    //
+    // Awaited, but it cannot throw: a proxy that fails to bind records the
+    // reason and leaves `isRunning()` false, which the env block, the guidance
+    // builder and `list_apis` all already handle.
+    await apiProxy.start();
 
     this.registerHostMcpServers(activeWorkspace, workspacePath, this.deps.workspaceController.userDirectoryPaths);
 
@@ -342,6 +403,7 @@ export class AgentInfrastructureController {
 
   async stop(): Promise<void> {
     await this.deps.containerService.stopAgentServer();
+    await apiProxy.stop();
     (globalThis as any).__hostMcpServers = null;
   }
 }

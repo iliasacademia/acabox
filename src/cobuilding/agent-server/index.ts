@@ -327,6 +327,22 @@ function createMcpRelayServers(state: SessionState) {
         ),
       ],
     }),
+
+    // Live detail about Settings → APIs. The session guidance block lists only
+    // ids and one line each so it stays a few hundred tokens; this is where the
+    // base URL, allowed hosts, write setting and usage actually live. It also
+    // reads CURRENT state, so an API added after this session started is
+    // visible here even though the guidance block is stale.
+    apis: createSdkMcpServer({
+      name: 'apis',
+      tools: [
+        tool('list_apis',
+          'List the HTTP APIs configured in Acabox that you can call through the local proxy, with each one\'s base URL, allowed hosts, whether writes are permitted, and the notes the user wrote about it. Call this when you need an API\'s exact base path, when a request was refused and you want to see why, or when you suspect an API was added after this conversation started. It never reveals credentials — the proxy attaches those and you must never ask the user for one.',
+          {},
+          relay('apis', 'list_apis'),
+        ),
+      ],
+    }),
   };
 }
 
@@ -407,6 +423,7 @@ function buildSystemPrompt(config: AgentConfig): unknown {
     config.soulMd,
     config.docxGuidance,
     config.workspaceDirectoriesGuidance,
+    config.apiGuidance,
     KNOWLEDGE_ROUTING_GUIDANCE,
   ].filter(Boolean).join('\n\n');
   if (typeof config.systemPrompt === 'object' && config.systemPrompt !== null) {
@@ -956,6 +973,7 @@ function startServer(initialConfig: AgentConfig): void {
           soulMd: body.soulMd,
           hostGuidance: body.hostGuidance,
           workspaceDirectoriesGuidance: body.workspaceDirectoriesGuidance,
+          apiGuidance: body.apiGuidance,
           model: body.model,
           effort: body.effort,
         };

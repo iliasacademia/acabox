@@ -27,6 +27,20 @@ contextBridge.exposeInMainWorld('connectorsAPI', {
   removeUnmanaged: () => ipcRenderer.invoke('connectors:removeUnmanaged'),
 });
 
+contextBridge.exposeInMainWorld('apisAPI', {
+  list: () => ipcRenderer.invoke('apis:list'),
+  // `clearSecret` is explicit because a blank secret already means "keep the
+  // stored one" — without it there would be no way to remove a credential
+  // without deleting the whole API.
+  save: (api: unknown, originalId?: string, clearSecret?: boolean) =>
+    ipcRenderer.invoke('apis:save', api, originalId, clearSecret),
+  remove: (id: string) => ipcRenderer.invoke('apis:remove', id),
+  setEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke('apis:setEnabled', id, enabled),
+  setAllowWrites: (id: string, allowWrites: boolean) =>
+    ipcRenderer.invoke('apis:setAllowWrites', id, allowWrites),
+  test: (id: string) => ipcRenderer.invoke('apis:test', id),
+});
+
 contextBridge.exposeInMainWorld('skillsAPI', {
   list: () => ipcRenderer.invoke('skills:list'),
   read: (id: string, relPath: string) => ipcRenderer.invoke('skills:read', id, relPath),

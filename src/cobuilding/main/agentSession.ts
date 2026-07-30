@@ -14,6 +14,9 @@ import { type HostApp } from './hostApps';
 import { IDENTITY_PREAMBLE } from './hostApps/identityPreamble';
 import { ACADEMIA_DIR, SOUL_MD } from '../shared/paths';
 import { recordConnectorStatus } from './connectorsStore';
+import { buildApiGuidance } from '../shared/apis';
+import { listApisWithSecrets } from './apiStore';
+import { apiProxy } from './apiProxy';
 import { noteFindingsFileRead } from './knowledge/findingsLedger';
 import { noteTurn } from './knowledge/omissionWatch';
 
@@ -348,6 +351,19 @@ export function createAgentSession(
           ? undefined
           : (dbSession?.sdk_session_id ?? sdkSessionId);
 
+        // Configured APIs (Settings → APIs). Read HERE rather than at session
+        // construction — unlike the workspace-directory guidance above — so a
+        // restart after an idle eviction picks up anything added since. It is
+        // still only as fresh as the session, which is the known cost recorded
+        // in the design; `mcp__apis__list_apis` reads live state for an agent
+        // that thinks to ask.
+        //
+        // Skipped entirely when the proxy is down, so the agent is never told
+        // to curl a base URL that does not exist.
+        const apiGuidance = apiProxy.isRunning()
+          ? buildApiGuidance(listApisWithSecrets())
+          : undefined;
+
         // Sessions are persisted via a custom sessionStore that writes
         // JSONL files to /data/.academia/sessions/ on the workspace mount,
         // so resume restores the full conversation across restarts.
@@ -359,6 +375,7 @@ export function createAgentSession(
           soulMd: soulMdContent,
           hostGuidance,
           workspaceDirectoriesGuidance,
+          apiGuidance,
           ...((hostAppMatched && sessionHostApp) ? { additionalAllowedTools: sessionHostApp.allowedTools } : {}),
         });
 
