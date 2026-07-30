@@ -2448,6 +2448,68 @@ ipcMain.handle('apis:setAllowWrites', (_event, id: string, allowWrites: boolean)
   setApiAllowWrites(id, allowWrites));
 
 /**
+ * The mini-app door onto the API proxy (Phase 2).
+ *
+ * WHY THIS EXISTS AT ALL, rather than handing the iframe the loopback URL: the
+ * per-app grant needs trustworthy caller identity, and an iframe's fetch has
+ * none. A request arriving at the loopback server from a `local-file://`
+ * document carries an opaque (`null`) origin, so the proxy could not tell tool
+ * A from tool B and the grant the user chose would silently not be enforced.
+ * This path does have identity — `MiniAppViewer` validates `event.source`
+ * against the iframe it owns and knows that tool's `dirName`, the same
+ * mechanism `miniAppLinkShim` and the MCP registry already rely on.
+ *
+ * The renderer supplies `dirName`; the GRANT is read here, from the manifest on
+ * disk, never from the renderer. A compromised renderer can lie about which
+ * tool is calling, but it cannot invent a grant.
+ *
+ * Unlike the HTTP door the response is buffered, not streamed: postMessage
+ * cannot carry a stream, and the large-download case belongs to the agent.
+ */
+ipcMain.handle('apis:request', async (_event, dirName: string, req: {
+  apiId: string; method?: string; path?: string;
+  headers?: Record<string, string>; body?: string;
+}) => {
+  try {
+    if (!dirName || dirName.includes('/') || dirName.includes('\\') || dirName.startsWith('.')) {
+      return { ok: false, status: 400, error: 'Invalid tool name.' };
+    }
+    const workspacePath = workspaceController.workspacePath;
+    if (!workspacePath) return { ok: false, status: 500, error: 'No active workspace.' };
+
+    let granted: string[] = [];
+    try {
+      const manifestPath = path.join(workspacePath, '.applications', dirName, 'manifest.json');
+      const parsed = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      granted = Array.isArray(parsed?.apis)
+        ? parsed.apis.filter((a: unknown): a is string => typeof a === 'string')
+        : [];
+    } catch { /* no manifest, or unreadable — no grants, which is the safe read */ }
+
+    const outcome = await performApiRequest({
+      apiId: String(req?.apiId ?? ''),
+      method: req?.method ?? 'GET',
+      path: req?.path ?? '',
+      headers: req?.headers,
+      body: req?.body ? new TextEncoder().encode(req.body) : null,
+      caller: { kind: 'miniapp', dirName, grantedApis: granted },
+    });
+
+    if (outcome.error || !outcome.body) {
+      return { ok: false, status: outcome.status, error: outcome.error ?? null, headers: outcome.headers };
+    }
+    return {
+      ok: outcome.status >= 200 && outcome.status < 300,
+      status: outcome.status,
+      headers: outcome.headers,
+      body: await new Response(outcome.body).text(),
+    };
+  } catch (err) {
+    return { ok: false, status: 502, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+/**
  * Send one real GET at the API's base URL and report what came back.
  *
  * This exists because "did my key actually work" is otherwise unanswerable

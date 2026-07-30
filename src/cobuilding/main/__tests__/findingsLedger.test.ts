@@ -72,8 +72,8 @@ afterAll(() => {
 // ---------------------------------------------------------------------------
 
 describe('recordFinding — append', () => {
-  it('creates the ledger, the bucket, the index and the digest', () => {
-    const result = recordFinding(
+  it('creates the ledger, the bucket, the index and the digest', async () => {
+    const result = await recordFinding(
       {
         skill: SKILL,
         title: 'public.users JOIN times out; IN-subquery completes',
@@ -115,23 +115,23 @@ describe('recordFinding — append', () => {
     expect(read(DIGEST_FILE)).toContain('F-001 ·');
   });
 
-  it('numbers ids sequentially and keeps unrelated scopes in separate buckets', () => {
-    recordFinding({ skill: SKILL, title: 'a', rule: 'a', evidence: 'a', scope: ['co_scientist_agent_messages'] }, { now: NOW });
-    const second = recordFinding({ skill: SKILL, title: 'b', rule: 'b', evidence: 'b', scope: ['cohorts'] }, { now: NOW });
+  it('numbers ids sequentially and keeps unrelated scopes in separate buckets', async () => {
+    await recordFinding({ skill: SKILL, title: 'a', rule: 'a', evidence: 'a', scope: ['co_scientist_agent_messages'] }, { now: NOW });
+    const second = await recordFinding({ skill: SKILL, title: 'b', rule: 'b', evidence: 'b', scope: ['cohorts'] }, { now: NOW });
 
     expect(second.id).toBe('F-002');
     expect(ls()).toContain('co-scientist-agent-messages.md');
     expect(ls()).toContain('cohorts.md');
   });
 
-  it('files a scopeless finding under the default bucket', () => {
-    const r = recordFinding({ skill: SKILL, title: 'x', rule: 'x', evidence: 'x' }, { now: NOW });
+  it('files a scopeless finding under the default bucket', async () => {
+    const r = await recordFinding({ skill: SKILL, title: 'x', rule: 'x', evidence: 'x' }, { now: NOW });
     expect(r.bucket).toBe('general');
     expect(ls()).toContain('general.md');
   });
 
-  it('records the finding even when the skill has no directory yet', () => {
-    const r = recordFinding({ skill: 'brand-new-skill', title: 'x', rule: 'x', evidence: 'x' }, { now: NOW });
+  it('records the finding even when the skill has no directory yet', async () => {
+    const r = await recordFinding({ skill: 'brand-new-skill', title: 'x', rule: 'x', evidence: 'x' }, { now: NOW });
     expect(r.skill_created).toBe(true);
     expect(readLedger('brand-new-skill').active).toHaveLength(1);
   });
@@ -148,8 +148,8 @@ describe('recordFinding never refuses a write', () => {
    * share every distinctive token; a deduper would have kept the first and
    * discarded the second, which is the wrong one to keep.
    */
-  it('lands BOTH of two near-identical corrections', () => {
-    const first = recordFinding(
+  it('lands BOTH of two near-identical corrections', async () => {
+    const first = await recordFinding(
       {
         skill: SKILL,
         title: 'Group the dedupe on content_hash',
@@ -159,7 +159,7 @@ describe('recordFinding never refuses a write', () => {
       },
       { now: NOW },
     );
-    const second = recordFinding(
+    const second = await recordFinding(
       {
         skill: SKILL,
         title: 'content_hash is not a hash of content',
@@ -180,9 +180,9 @@ describe('recordFinding never refuses a write', () => {
     expect(bucket).toContain('Never on content_hash');
   });
 
-  it('truncates rather than rejects an over-long title, and falls back for a missing rule', () => {
+  it('truncates rather than rejects an over-long title, and falls back for a missing rule', async () => {
     const long = 'x'.repeat(400);
-    const r = recordFinding({ skill: SKILL, title: long, rule: '', evidence: '' }, { now: NOW });
+    const r = await recordFinding({ skill: SKILL, title: long, rule: '', evidence: '' }, { now: NOW });
     const entry = readLedger(SKILL).active[0];
     expect(r.id).toBe('F-001');
     expect(entry.title.length).toBeLessThanOrEqual(TITLE_MAX_CHARS);
@@ -191,17 +191,17 @@ describe('recordFinding never refuses a write', () => {
     expect(entry.rule).toBe(entry.title);
   });
 
-  it('slugifies a hostile skill name instead of escaping the store', () => {
-    recordFinding({ skill: '../../etc/passwd', title: 'x', rule: 'x', evidence: 'x' }, { now: NOW });
+  it('slugifies a hostile skill name instead of escaping the store', async () => {
+    await recordFinding({ skill: '../../etc/passwd', title: 'x', rule: 'x', evidence: 'x' }, { now: NOW });
     const written = fs.readdirSync(skillsStoreRoot());
     expect(written).toEqual(['etc-passwd']);
   });
 
-  it('survives a rule containing $& — a String.replace replacement pattern', () => {
-    recordFinding({ skill: SKILL, title: 'dollar $& case', rule: 'Use $& and $1 literally.', evidence: 'e', scope: ['s'] }, { now: NOW });
+  it('survives a rule containing $& — a String.replace replacement pattern', async () => {
+    await recordFinding({ skill: SKILL, title: 'dollar $& case', rule: 'Use $& and $1 literally.', evidence: 'e', scope: ['s'] }, { now: NOW });
     // The rewrite paths (last_read bump, supersession) all replace whole blocks;
     // a naive string replacement would expand $& into the matched text.
-    recordFinding({ skill: SKILL, title: 'replacement', rule: 'r', evidence: 'e', scope: ['s'], supersedes: ['F-001'] }, { now: NOW });
+    await recordFinding({ skill: SKILL, title: 'replacement', rule: 'r', evidence: 'e', scope: ['s'], supersedes: ['F-001'] }, { now: NOW });
     expect(read('s-archive.md')).toContain('Use $& and $1 literally.');
   });
 });
@@ -211,11 +211,11 @@ describe('recordFinding never refuses a write', () => {
 // ---------------------------------------------------------------------------
 
 describe('sharding', () => {
-  it('rolls to a second shard at the 32 KB boundary and never splits an entry', () => {
+  it('rolls to a second shard at the 32 KB boundary and never splits an entry', async () => {
     const filler = 'E'.repeat(4000);
     let created = 0;
     for (let i = 0; i < 12; i++) {
-      recordFinding({ skill: SKILL, title: `finding ${i}`, rule: `rule ${i}`, evidence: filler, scope: ['messages'] }, { now: NOW });
+      await recordFinding({ skill: SKILL, title: `finding ${i}`, rule: `rule ${i}`, evidence: filler, scope: ['messages'] }, { now: NOW });
       created++;
       if (fs.existsSync(path.join(dir(), 'messages-2.md'))) break;
     }
@@ -231,7 +231,7 @@ describe('sharding', () => {
     for (const f of ledger.active) expect(f.rule).toMatch(/^rule \d+$/);
   });
 
-  it('keeps a scope that looks like a shard or an archive out of the naming space', () => {
+  it('keeps a scope that looks like a shard or an archive out of the naming space', async () => {
     // `users-2` and `users-archive` as bucket names would collide with the
     // shard and archive files of the `users` bucket.
     expect(bucketNameFor(['users-2'])).toBe('users');
@@ -246,8 +246,8 @@ describe('sharding', () => {
 // ---------------------------------------------------------------------------
 
 describe('supersession', () => {
-  function seedPair() {
-    recordFinding(
+  async function seedPair() {
+    await recordFinding(
       {
         skill: SKILL,
         title: 'Group the dedupe on content_hash',
@@ -257,7 +257,7 @@ describe('supersession', () => {
       },
       { now: NOW },
     );
-    return recordFinding(
+    return await recordFinding(
       {
         skill: SKILL,
         title: 'content_hash is not a hash of content',
@@ -270,8 +270,8 @@ describe('supersession', () => {
     );
   }
 
-  it('moves the body to the archive and leaves a one-line stub', () => {
-    const result = seedPair();
+  it('moves the body to the archive and leaves a one-line stub', async () => {
+    const result = await seedPair();
     expect(result.superseded).toEqual(['F-001']);
 
     const bucket = read('co-scientist-agent-messages.md');
@@ -290,8 +290,8 @@ describe('supersession', () => {
     expect(stubs[0]).toContain('co-scientist-agent-messages-archive.md');
   });
 
-  it('flips status in the meta comment and records who replaced it', () => {
-    seedPair();
+  it('flips status in the meta comment and records who replaced it', async () => {
+    await seedPair();
     const ledger = readLedger(SKILL);
     expect(ledger.active.map((f) => f.meta.id)).toEqual(['F-002']);
     expect(ledger.archived.map((f) => f.meta.id)).toEqual(['F-001']);
@@ -299,8 +299,8 @@ describe('supersession', () => {
     expect(ledger.archived[0].meta.superseded_by).toBe('F-002');
   });
 
-  it('moves the index row to index-archive.md', () => {
-    seedPair();
+  it('moves the index row to index-archive.md', async () => {
+    await seedPair();
     const index = read(INDEX_FILE);
     const archiveIndex = read(INDEX_ARCHIVE_FILE);
     expect(index).toContain('| F-002 |');
@@ -309,14 +309,14 @@ describe('supersession', () => {
     expect(archiveIndex).toContain('F-002');
   });
 
-  it('does not reuse a superseded id', () => {
-    seedPair();
-    const next = recordFinding({ skill: SKILL, title: 'c', rule: 'c', evidence: 'c' }, { now: NOW });
+  it('does not reuse a superseded id', async () => {
+    await seedPair();
+    const next = await recordFinding({ skill: SKILL, title: 'c', rule: 'c', evidence: 'c' }, { now: NOW });
     expect(next.id).toBe('F-003');
   });
 
-  it('reports an unknown supersedes id instead of throwing', () => {
-    const r = recordFinding(
+  it('reports an unknown supersedes id instead of throwing', async () => {
+    const r = await recordFinding(
       { skill: SKILL, title: 'a', rule: 'a', evidence: 'a', supersedes: ['F-999'] },
       { now: NOW },
     );
@@ -324,8 +324,8 @@ describe('supersession', () => {
     expect(readLedger(SKILL).active).toHaveLength(1);
   });
 
-  it('supersedes from the UI with no replacement finding', () => {
-    recordFinding({ skill: SKILL, title: 'a', rule: 'a', evidence: 'a', scope: ['s'] }, { now: NOW });
+  it('supersedes from the UI with no replacement finding', async () => {
+    await recordFinding({ skill: SKILL, title: 'a', rule: 'a', evidence: 'a', scope: ['s'] }, { now: NOW });
     expect(supersedeFinding(SKILL, 'F-001', 'the user', NOW)).toBe(true);
     expect(readLedger(SKILL).active).toHaveLength(0);
     expect(readLedger(SKILL).archived).toHaveLength(1);
@@ -339,8 +339,8 @@ describe('supersession', () => {
 // ---------------------------------------------------------------------------
 
 describe('index and digest regeneration', () => {
-  it('caps every index row at 120 characters', () => {
-    recordFinding(
+  it('caps every index row at 120 characters', async () => {
+    await recordFinding(
       {
         skill: SKILL,
         title: 'long',
@@ -355,9 +355,9 @@ describe('index and digest regeneration', () => {
     for (const row of rows) expect(row.length).toBeLessThanOrEqual(INDEX_ROW_MAX_CHARS);
   });
 
-  it('keeps the digest newest-first, within 15 entries and 2 KB', () => {
+  it('keeps the digest newest-first, within 15 entries and 2 KB', async () => {
     for (let i = 0; i < 20; i++) {
-      recordFinding({ skill: SKILL, title: `t${i}`, rule: `rule number ${i}`, evidence: 'e', scope: ['s'] }, { now: NOW });
+      await recordFinding({ skill: SKILL, title: `t${i}`, rule: `rule number ${i}`, evidence: 'e', scope: ['s'] }, { now: NOW });
     }
     const digest = read(DIGEST_FILE);
     const lines = digest.split('\n').filter((l) => /^F-\d+ ·/.test(l));
@@ -371,14 +371,14 @@ describe('index and digest regeneration', () => {
     expect(digest).toMatch(/\d+ more in/);
   });
 
-  it('names the shard a finding actually lives in', () => {
-    recordFinding({ skill: SKILL, title: 't', rule: 'r', evidence: 'e', scope: ['messages'] }, { now: NOW });
+  it('names the shard a finding actually lives in', async () => {
+    await recordFinding({ skill: SKILL, title: 't', rule: 'r', evidence: 'e', scope: ['messages'] }, { now: NOW });
     expect(read(DIGEST_FILE)).toContain('references/findings/messages.md');
   });
 
-  it('is a pure projection of the bucket files — a deleted index is rebuilt exactly', () => {
-    recordFinding({ skill: SKILL, title: 't1', rule: 'r1', evidence: 'e', scope: ['s'] }, { now: NOW });
-    recordFinding({ skill: SKILL, title: 't2', rule: 'r2', evidence: 'e', scope: ['s'] }, { now: NOW });
+  it('is a pure projection of the bucket files — a deleted index is rebuilt exactly', async () => {
+    await recordFinding({ skill: SKILL, title: 't1', rule: 'r1', evidence: 'e', scope: ['s'] }, { now: NOW });
+    await recordFinding({ skill: SKILL, title: 't2', rule: 'r2', evidence: 'e', scope: ['s'] }, { now: NOW });
     const before = read(INDEX_FILE);
 
     fs.rmSync(path.join(dir(), INDEX_FILE));
@@ -386,13 +386,13 @@ describe('index and digest regeneration', () => {
     expect(read(INDEX_FILE)).toBe(before);
   });
 
-  it('writes the digest as its own file and never touches SKILL.md', () => {
+  it('writes the digest as its own file and never touches SKILL.md', async () => {
     const skillMd = path.join(skillsStoreRoot(), SKILL, 'SKILL.md');
     fs.mkdirSync(path.dirname(skillMd), { recursive: true });
     fs.writeFileSync(skillMd, '---\nname: x\ndescription: y\n---\n\nrouter\n');
     const beforeBytes = fs.readFileSync(skillMd);
 
-    recordFinding({ skill: SKILL, title: 't', rule: 'r', evidence: 'e' }, { now: NOW });
+    await recordFinding({ skill: SKILL, title: 't', rule: 'r', evidence: 'e' }, { now: NOW });
 
     // The per-file sha256 baseline is why this matters: a host-maintained block
     // inside SKILL.md would make every ledger-bearing skill read MODIFIED
@@ -419,7 +419,7 @@ describe('blast radius', () => {
     fs.writeFileSync(path.join(workspace, 'unrelated.md'), 'nothing to see\n');
   });
 
-  it('picks the identifier, not an ordinary word', () => {
+  it('picks the identifier, not an ordinary word', async () => {
     expect(distinctiveToken('content_hash is not a hash of content')).toBe('content_hash');
     expect(distinctiveToken('Group the dedupe on content_hash, not raw content')).toBe('content_hash');
     expect(distinctiveToken('public.users JOIN times out; IN-subquery completes')).toBe('public.users');
@@ -429,8 +429,8 @@ describe('blast radius', () => {
     expect(distinctiveToken('do it now')).toBeNull();
   });
 
-  it('greps the real shared directories and marks runnable files', () => {
-    const hits = findBlastRadius('content_hash', [workspace]);
+  it('greps the real shared directories and marks runnable files', async () => {
+    const hits = await findBlastRadius('content_hash', [workspace]);
     const displays = hits.map((h) => h.display).sort();
     expect(displays).toEqual(['HANDOFF.md', 'genuine-messages-canonical-query.sql']);
 
@@ -440,19 +440,57 @@ describe('blast radius', () => {
     expect(hits.find((h) => h.display === 'HANDOFF.md')!.executable).toBe(false);
   });
 
-  it('matches the token literally, not as a regex', () => {
+  // ── B22: the grep used to be execFileSync on the Electron main thread ──
+
+  it('keeps the main thread live while grepping (B22)', async () => {
+    // The bug was not correctness — nothing was lost and it self-resolved. It
+    // was that `recordFinding`'s body ran synchronously on the main thread, so
+    // a grep over the user's real research directories froze the entire UI for
+    // its duration. A synchronous grep cannot let a timer fire; an async one
+    // must. Measured on this machine: ~80ms for 3000 files, so a 15ms timer has
+    // a wide margin.
+    const big = fs.mkdtempSync(path.join(tmpDir, 'big-'));
+    for (let i = 0; i < 3000; i += 1) {
+      const sub = path.join(big, `sub${Math.floor(i / 100)}`);
+      fs.mkdirSync(sub, { recursive: true });
+      fs.writeFileSync(path.join(sub, `f${i}.md`), 'lorem ipsum dolor sit amet '.repeat(40));
+    }
+
+    let tickedDuringGrep = false;
+    const timer = setTimeout(() => { tickedDuringGrep = true; }, 15);
+    await findBlastRadius('content_hash', [big]);
+    clearTimeout(timer);
+
+    expect(tickedDuringGrep).toBe(true);
+  });
+
+  it('spends nothing once the total budget is gone (B22)', async () => {
+    // The per-root timeout is charged once per root PER SUPERSEDED TOKEN, so the
+    // old worst case grew with (shared dirs x superseded findings) and had no
+    // ceiling. A deadline already in the past must skip the root outright
+    // rather than start a 10s grep against it.
+    const started = Date.now();
+    const hits = await findBlastRadius('content_hash', [workspace], Date.now() - 1);
+    expect(hits).toEqual([]);
+    expect(Date.now() - started).toBeLessThan(1000);
+    // …and the same call without an expired deadline still finds the hits, so
+    // the guard is a budget rather than an off switch.
+    expect((await findBlastRadius('content_hash', [workspace])).length).toBe(2);
+  });
+
+  it('matches the token literally, not as a regex', async () => {
     // `public.users` is exactly the shape a distinctive token takes, and as a
     // BRE its `.` matches any character — measured on this machine's grep,
     // `publicXusers` matches without `-F`. A false entry in the "may still be
     // wrong" checklist is a wild goose chase the user cannot tell from a real one.
     fs.writeFileSync(path.join(workspace, 'regex-trap.md'), 'publicXusers is unrelated\n');
     fs.writeFileSync(path.join(workspace, 'real.md'), 'we JOIN public.users here\n');
-    const displays = findBlastRadius('public.users', [workspace]).map((h) => h.display);
+    const displays = (await findBlastRadius('public.users', [workspace])).map((h) => h.display);
     expect(displays).toEqual(['real.md']);
   });
 
-  it('writes the hit list into the superseding entry, host-augmented', () => {
-    recordFinding(
+  it('writes the hit list into the superseding entry, host-augmented', async () => {
+    await recordFinding(
       {
         skill: SKILL,
         title: 'Group the dedupe on content_hash',
@@ -462,7 +500,7 @@ describe('blast radius', () => {
       },
       { now: NOW },
     );
-    const r = recordFinding(
+    const r = await recordFinding(
       {
         skill: SKILL,
         title: 'content_hash is not a hash of content',
@@ -481,13 +519,13 @@ describe('blast radius', () => {
     expect(r.blast_radius).toHaveLength(2);
   });
 
-  it('never lists the ledger itself, which contains the old rule by design', () => {
-    recordFinding(
+  it('never lists the ledger itself, which contains the old rule by design', async () => {
+    await recordFinding(
       { skill: SKILL, title: 'Group on content_hash', rule: 'Group on content_hash.', evidence: 'e', scope: ['messages'] },
       { now: NOW },
     );
     // Point the search at the store as well as the workspace.
-    const r = recordFinding(
+    const r = await recordFinding(
       { skill: SKILL, title: 'correction', rule: 'MD5(content).', evidence: 'e', scope: ['messages'], supersedes: ['F-001'] },
       { now: NOW, searchPaths: [workspace, skillsStoreRoot()] },
     );
@@ -498,26 +536,26 @@ describe('blast radius', () => {
     expect(r.blast_radius).toHaveLength(2);
   });
 
-  it('omits the field entirely when no search paths are registered', () => {
+  it('omits the field entirely when no search paths are registered', async () => {
     // Absent means "never looked". An empty list would read as "looked, found
     // nothing", which is a different and false claim.
-    recordFinding({ skill: SKILL, title: 'Group on content_hash', rule: 'x content_hash', evidence: 'e' }, { now: NOW });
-    const r = recordFinding({ skill: SKILL, title: 'b', rule: 'b', evidence: 'e', supersedes: ['F-001'] }, { now: NOW });
+    await recordFinding({ skill: SKILL, title: 'Group on content_hash', rule: 'x content_hash', evidence: 'e' }, { now: NOW });
+    const r = await recordFinding({ skill: SKILL, title: 'b', rule: 'b', evidence: 'e', supersedes: ['F-001'] }, { now: NOW });
     expect(r.blast_radius).toBeUndefined();
     expect(read('general.md')).not.toContain('Also written down');
   });
 
-  it('uses the registered provider when the caller passes nothing', () => {
+  it('uses the registered provider when the caller passes nothing', async () => {
     setBlastRadiusSearchPaths(() => [workspace]);
-    recordFinding({ skill: SKILL, title: 'Group on content_hash', rule: 'x content_hash', evidence: 'e' }, { now: NOW });
-    const r = recordFinding({ skill: SKILL, title: 'b', rule: 'b', evidence: 'e', supersedes: ['F-001'] }, { now: NOW });
+    await recordFinding({ skill: SKILL, title: 'Group on content_hash', rule: 'x content_hash', evidence: 'e' }, { now: NOW });
+    const r = await recordFinding({ skill: SKILL, title: 'b', rule: 'b', evidence: 'e', supersedes: ['F-001'] }, { now: NOW });
     expect(r.blast_radius).toHaveLength(2);
   });
 
-  it('merges model-supplied locations with the ones the host found', () => {
+  it('merges model-supplied locations with the ones the host found', async () => {
     setBlastRadiusSearchPaths(() => [workspace]);
-    recordFinding({ skill: SKILL, title: 'Group on content_hash', rule: 'x content_hash', evidence: 'e' }, { now: NOW });
-    const r = recordFinding(
+    await recordFinding({ skill: SKILL, title: 'Group on content_hash', rule: 'x content_hash', evidence: 'e' }, { now: NOW });
+    const r = await recordFinding(
       {
         skill: SKILL,
         title: 'b',
@@ -538,10 +576,10 @@ describe('blast radius', () => {
 // ---------------------------------------------------------------------------
 
 describe('last_read freshness', () => {
-  it('bumps every finding in the bucket file that was read', () => {
-    recordFinding({ skill: SKILL, title: 'a', rule: 'a', evidence: 'e', scope: ['messages'] }, { now: NOW });
-    recordFinding({ skill: SKILL, title: 'b', rule: 'b', evidence: 'e', scope: ['messages'] }, { now: NOW });
-    recordFinding({ skill: SKILL, title: 'c', rule: 'c', evidence: 'e', scope: ['cohorts'] }, { now: NOW });
+  it('bumps every finding in the bucket file that was read', async () => {
+    await recordFinding({ skill: SKILL, title: 'a', rule: 'a', evidence: 'e', scope: ['messages'] }, { now: NOW });
+    await recordFinding({ skill: SKILL, title: 'b', rule: 'b', evidence: 'e', scope: ['messages'] }, { now: NOW });
+    await recordFinding({ skill: SKILL, title: 'c', rule: 'c', evidence: 'e', scope: ['cohorts'] }, { now: NOW });
 
     const later = new Date(2026, 7, 15);
     const bumped = noteFindingsFileRead(path.join(dir(), 'messages.md'), later);
@@ -554,15 +592,15 @@ describe('last_read freshness', () => {
     expect(ledger.active.find((f) => f.meta.id === 'F-003')!.meta.last_read).toBe('2026-07-29');
   });
 
-  it('is a no-op on a second read the same day', () => {
-    recordFinding({ skill: SKILL, title: 'a', rule: 'a', evidence: 'e', scope: ['messages'] }, { now: NOW });
+  it('is a no-op on a second read the same day', async () => {
+    await recordFinding({ skill: SKILL, title: 'a', rule: 'a', evidence: 'e', scope: ['messages'] }, { now: NOW });
     const later = new Date(2026, 7, 15);
     expect(noteFindingsFileRead(path.join(dir(), 'messages.md'), later)).toEqual(['F-001']);
     expect(noteFindingsFileRead(path.join(dir(), 'messages.md'), later)).toEqual([]);
   });
 
-  it('resolves the workspace symlink the model actually reads through', () => {
-    recordFinding({ skill: SKILL, title: 'a', rule: 'a', evidence: 'e', scope: ['messages'] }, { now: NOW });
+  it('resolves the workspace symlink the model actually reads through', async () => {
+    await recordFinding({ skill: SKILL, title: 'a', rule: 'a', evidence: 'e', scope: ['messages'] }, { now: NOW });
 
     // The render: <workspace>/.claude/skills/<id> -> <store>/<id>
     const renderRoot = fs.mkdtempSync(path.join(tmpDir, 'render-'));
@@ -573,8 +611,8 @@ describe('last_read freshness', () => {
     expect(noteFindingsFileRead(viaLink, new Date(2026, 7, 15))).toEqual(['F-001']);
   });
 
-  it('ignores derived files and anything outside the store', () => {
-    recordFinding({ skill: SKILL, title: 'a', rule: 'a', evidence: 'e', scope: ['messages'] }, { now: NOW });
+  it('ignores derived files and anything outside the store', async () => {
+    await recordFinding({ skill: SKILL, title: 'a', rule: 'a', evidence: 'e', scope: ['messages'] }, { now: NOW });
     expect(noteFindingsFileRead(path.join(dir(), INDEX_FILE))).toEqual([]);
     expect(noteFindingsFileRead(path.join(dir(), DIGEST_FILE))).toEqual([]);
     expect(noteFindingsFileRead('/etc/hosts')).toEqual([]);
@@ -587,14 +625,14 @@ describe('last_read freshness', () => {
 // ---------------------------------------------------------------------------
 
 describe('readLedger', () => {
-  it('distinguishes no ledger from an empty one', () => {
+  it('distinguishes no ledger from an empty one', async () => {
     expect(countActiveFindings('never-used')).toBeUndefined();
     fs.mkdirSync(findingsDirFor('empty-one'), { recursive: true });
     expect(countActiveFindings('empty-one')).toBe(0);
   });
 
-  it('keeps the bytes of an entry whose meta comment was mangled by hand', () => {
-    recordFinding({ skill: SKILL, title: 'a', rule: 'a', evidence: 'e', scope: ['messages'] }, { now: NOW });
+  it('keeps the bytes of an entry whose meta comment was mangled by hand', async () => {
+    await recordFinding({ skill: SKILL, title: 'a', rule: 'a', evidence: 'e', scope: ['messages'] }, { now: NOW });
     const file = path.join(dir(), 'messages.md');
     fs.writeFileSync(file, fs.readFileSync(file, 'utf-8').replace('acabox:meta {', 'acabox:meta {{'));
 

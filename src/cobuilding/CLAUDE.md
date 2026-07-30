@@ -61,6 +61,11 @@ Responses stream, so a large download goes to disk rather than through this
 conversation — use `curl -o` for anything big instead of reading it into
 context.
 
+**Mini-apps reach the same APIs** through `window.hostAPI.api.fetch(apiId, path)`,
+but only for APIs the user has granted to that specific tool in its Settings
+panel. When you build a tool that needs one, tell the user which API to grant —
+you cannot grant it yourself, and an ungranted call returns 403.
+
 ## Running skill scripts
 
 Skill scripts are located in the workspace at `.claude/skills/<skill-name>/scripts/`. Run them directly:

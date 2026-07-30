@@ -1128,3 +1128,153 @@ describe('a skill id cannot walk out of the store', () => {
     await expect(readSkillFile('reader-check', '../../agent.json')).rejects.toThrow(/Invalid path/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Destructive-path safety (B21, B23, B24, B25)
+// ---------------------------------------------------------------------------
+
+describe('a skill dropped upstream is never erased (B21)', () => {
+  const findingsRel = 'references/findings/postgres.md';
+
+  it('moves an unmodified dropped built-in to the TRASH, not to nowhere', async () => {
+    // A second shipped skill has to survive, or dropping the only one empties
+    // the pristine tree and trips the `pristineUnavailable` guard instead.
+    putPristine('keeper');
+    putPristine('retired');
+    await reconcile();
+    dropPristine('retired');
+
+    const result = await upgrade();
+
+    expect(result.removedUpstream).toEqual(['retired']);
+    expect(storeExists('retired')).toBe(false);
+    // The point of the fix: it is recoverable. A bare rmSync left nothing.
+    const trashed = fs.readdirSync(trashRoot).filter((d) => d.startsWith('retired-'));
+    expect(trashed).toHaveLength(1);
+    expect(fs.readFileSync(path.join(trashRoot, trashed[0], 'retired', 'SKILL.md'), 'utf-8'))
+      .toContain('retired');
+  });
+
+  it('KEEPS a dropped built-in that has accumulated findings, and keeps the findings', async () => {
+    // The bug this pins: `modifiedFiles` deliberately skips host-owned paths,
+    // so a skill with a hundred findings and no edits to its shipped files read
+    // "unmodified" — invisible to the very test deciding whether erasing it was
+    // safe — and was deleted with no trash copy.
+    putPristine('keeper');
+    putPristine('warehouse');
+    await reconcile();
+    storeWrite('warehouse', findingsRel, '# F-001\nThe cohorts table is empty before 2019.\n');
+    expect((await descriptorFor('warehouse'))!.modified).toBe(false);   // still "unmodified"
+
+    dropPristine('warehouse');
+    const result = await upgrade();
+
+    expect(result.removedUpstream).toEqual([]);
+    expect(result.keptAsCustom).toContain('warehouse');
+    expect(storeRead('warehouse', findingsRel)).toContain('cohorts table is empty');
+    const entry = await entryFor('warehouse');
+    expect(entry!.origin).toBe('custom');
+    expect(entry!.formerlyBuiltin).toBe(true);
+  });
+
+  it('still keeps a dropped built-in the user edited', async () => {
+    putPristine('edited');
+    await reconcile();
+    storeWrite('edited', 'SKILL.md', skillMd('edited', 'my own paragraph'));
+    dropPristine('edited');
+
+    const result = await upgrade();
+
+    expect(result.removedUpstream).toEqual([]);
+    expect(storeRead('edited', 'SKILL.md')).toContain('my own paragraph');
+  });
+});
+
+describe('unusable ids in the state file cannot reach the filesystem (B23)', () => {
+  it('ignores a traversal id rather than deleting outside the store', async () => {
+    putPristine('acabox');
+    await reconcile();
+
+    // A sentinel the traversal id would destroy: reconcile's dropped-upstream
+    // pass calls skillStorePath(id), a bare join, on every key it finds.
+    const victimDir = path.join(userData, 'victim');
+    fs.mkdirSync(victimDir, { recursive: true });
+    fs.writeFileSync(path.join(victimDir, 'agent.json'), '{"key":"secret"}');
+
+    const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+    state.skills['../victim'] = { origin: 'builtin', enabled: true, baseline: {} };
+    state.skills['ok-one'] = { origin: 'custom', enabled: true };
+    fs.writeFileSync(stateFile, JSON.stringify(state));
+    storeWrite('ok-one', 'SKILL.md', skillMd('ok-one'));
+
+    await upgrade();
+
+    expect(fs.existsSync(path.join(victimDir, 'agent.json'))).toBe(true);
+    const after = await readSkillsState();
+    expect(Object.keys(after.skills)).not.toContain('../victim');
+    expect(Object.keys(after.skills)).toContain('ok-one');   // valid ids survive
+  });
+});
+
+describe('nothing joins the roster before the user has seen it (B24)', () => {
+  const workspaceDir = path.join(tmpRoot, 'ws-b24');
+  const renderDir = path.join(workspaceDir, '.claude', 'skills');
+
+  beforeEach(() => {
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+    fs.mkdirSync(renderDir, { recursive: true });
+  });
+
+  it('adopts an agent-created workspace directory DISABLED', async () => {
+    // The agent has Write and Bash on the workspace, so without this it could
+    // put a directory in .claude/skills and be shaping every turn by the next
+    // boot. Same rule the import path already enforces.
+    putPristine('acabox');
+    const dir = path.join(renderDir, 'agent-made-this');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), skillMd('agent-made-this'));
+
+    await reconcile({ workspaceDir });
+
+    const entry = await entryFor('agent-made-this');
+    expect(entry!.origin).toBe('custom');
+    expect(entry!.enabled).toBe(false);
+    // Disabled is a roster decision, never a disk one — the bytes stay.
+    expect(storeExists('agent-made-this', 'SKILL.md')).toBe(true);
+    expect(buildSkillRuntimeConfig(await readSkillsState())).not.toContain('agent-made-this');
+  });
+
+  it('recovers an unrecognised STORE directory disabled', async () => {
+    putPristine('acabox');
+    await reconcile();
+    storeWrite('mystery', 'SKILL.md', skillMd('mystery'));
+
+    await upgrade();
+
+    expect((await entryFor('mystery'))!.enabled).toBe(false);
+  });
+
+  it('recovers a SHIPPED skill enabled, because a lost state file must not empty the roster', async () => {
+    // The deliberate exception. This branch exists for a lost state file; the
+    // fix for B24 must not turn that into "all your skills are off".
+    putPristine('acabox');
+    putPristine('xlsx');
+    await reconcile();
+    fs.rmSync(stateFile, { force: true });
+
+    await upgrade();
+
+    expect((await entryFor('acabox'))!.enabled).toBe(true);
+    expect((await entryFor('xlsx'))!.enabled).toBe(true);
+  });
+});
+
+describe('deleteSkill validates its id (B25)', () => {
+  it('refuses a traversal id at the function, not just at the IPC', async () => {
+    putPristine('acabox');
+    await reconcile();
+    const result = await deleteSkill('../../etc');
+    expect(result.ok).toBe(false);
+    expect(storeExists('acabox')).toBe(true);
+  });
+});

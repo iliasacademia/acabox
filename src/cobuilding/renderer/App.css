@@ -3912,6 +3912,52 @@ body.cobuild-resizing webview {
   gap: 8px;
 }
 
+/* Per-tool API grants. Rendered only when the user has configured at least one
+   API, so a tool's Settings panel is unchanged for anyone not using them. */
+.toolRow__grants {
+  margin-bottom: 14px;
+}
+
+.toolRow__grantsLabel {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cd-text3, #91919e);
+  margin-bottom: 6px;
+}
+
+.toolRow__grant {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--cd-text1, #1c1c22);
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.toolRow__grant input {
+  flex: none;
+}
+
+.toolRow__grantMeta {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cd-text3, #91919e);
+  margin-left: 7px;
+}
+
+.toolRow__grantsHint {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--cd-text3, #91919e);
+  margin: 6px 0 0;
+  max-width: 52ch;
+}
+
 .toolRow--archived .toolRow__icon,
 .toolRow--archived .toolRow__info {
   opacity: 0.55;

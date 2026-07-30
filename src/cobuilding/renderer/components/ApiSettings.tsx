@@ -35,6 +35,7 @@ type Draft = {
   authStyle: ApiAuthStyle;
   headerName: string;
   queryParam: string;
+  basicUser: string;
   secret: string;
   allowWrites: boolean;
   notes: string;
@@ -50,6 +51,7 @@ const EMPTY_DRAFT: Draft = {
   authStyle: 'none',
   headerName: '',
   queryParam: '',
+  basicUser: '',
   secret: '',
   allowWrites: false,
   notes: '',
@@ -66,6 +68,7 @@ function draftFromCatalog(entry: ApiCatalogEntry): Draft {
     authStyle: api.auth.style,
     headerName: api.auth.headerName ?? '',
     queryParam: api.auth.queryParam ?? '',
+    basicUser: api.auth.basicUser ?? '',
     allowWrites: api.allowWrites,
     notes: api.notes ?? '',
     catalogId: api.catalogId,
@@ -82,6 +85,7 @@ function draftFromApi(a: ApiConfigForUi): Draft {
     authStyle: a.auth.style,
     headerName: a.auth.headerName ?? '',
     queryParam: a.auth.queryParam ?? '',
+    basicUser: a.auth.basicUser ?? '',
     // Never populated from storage — the value doesn't cross IPC. Blank means
     // "keep the stored one" on save.
     secret: '',
@@ -102,6 +106,7 @@ function draftToApi(d: Draft, enabled: boolean): ApiConfig {
       style: d.authStyle,
       ...(d.authStyle === 'header' ? { headerName: d.headerName.trim() } : {}),
       ...(d.authStyle === 'query' ? { queryParam: d.queryParam.trim() } : {}),
+      ...(d.authStyle === 'basic' && d.basicUser.trim() ? { basicUser: d.basicUser.trim() } : {}),
       ...(d.secret ? { secret: d.secret } : {}),
     },
     enabled,
@@ -451,6 +456,7 @@ const ApiForm: React.FC<{
           <option value="bearer">Bearer token (Authorization: Bearer …)</option>
           <option value="header">Custom header</option>
           <option value="query">Query parameter</option>
+          <option value="basic">HTTP Basic</option>
         </select>
       </label>
 
@@ -475,6 +481,24 @@ const ApiForm: React.FC<{
             onChange={(e) => set('queryParam', e.target.value)}
             placeholder="api_key"
           />
+        </label>
+      )}
+
+      {draft.authStyle === 'basic' && (
+        <label className="connectorField">
+          <span className="connectorField__label">Basic username (optional)</span>
+          <input
+            className="connectorField__input connectorField__input--mono"
+            value={draft.basicUser}
+            onChange={(e) => set('basicUser', e.target.value)}
+            placeholder="leave blank for key-as-username"
+          />
+          <span className="connectorField__help">
+            Leave this blank for the common convention where the API key IS the
+            username and the password is empty — Benchling and Stripe both work
+            that way. Fill it in only for a genuine username/password pair, in
+            which case the key below is the password.
+          </span>
         </label>
       )}
 

@@ -159,7 +159,7 @@ export class AgentInfrastructureController {
         // correction is the failure mode this whole feature exists to prevent.
         record_finding: async (args: any) => {
           try {
-            const result = recordFinding({
+            const result = await recordFinding({
               skill: String(args?.skill ?? ''),
               title: String(args?.title ?? ''),
               rule: String(args?.rule ?? ''),

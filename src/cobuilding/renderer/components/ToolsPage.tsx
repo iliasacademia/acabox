@@ -191,6 +191,8 @@ export function ToolsPage({
 
   const [settingsOpen, setSettingsOpen] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ToolsPageMiniApp | null>(null);
+  /** Configured APIs, for the per-tool grant checklist. Empty until loaded. */
+  const [configuredApis, setConfiguredApis] = useState<Array<{ id: string; label: string; allowWrites: boolean }>>([]);
   const [deleting, setDeleting] = useState(false);
 
   // Saved-data browse/delete state
@@ -219,6 +221,27 @@ export function ToolsPage({
       setDeleting(false);
     }
   }, [refresh, refreshToolData, onAppsChanged]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const data = await window.apisAPI.list();
+        setConfiguredApis(data.apis
+          .filter((a) => a.enabled)
+          .map((a) => ({ id: a.id, label: a.label, allowWrites: a.allowWrites })));
+      } catch { /* Settings -> APIs will show the real reason */ }
+    })();
+  }, []);
+
+  const handleToggleApiGrant = useCallback(async (app: ToolsPageMiniApp, apiId: string) => {
+    const next = app.apis.includes(apiId)
+      ? app.apis.filter((a) => a !== apiId)
+      : [...app.apis, apiId];
+    const result = await window.miniAppsAPI.setApis(app.dirName, next);
+    if (!result.ok) console.error('Failed to update API grants:', result.error);
+    await refresh();
+    onAppsChanged?.();
+  }, [refresh, onAppsChanged]);
 
   const handleSetArchived = useCallback(async (app: ToolsPageMiniApp, archived: boolean) => {
     const result = await window.miniAppsAPI.setArchived(app.dirName, archived);
@@ -354,6 +377,31 @@ export function ToolsPage({
                     </div>
                     {settingsOpen === app.dirName && (
                       <div className="toolRow__settingsPanel">
+                        {configuredApis.length > 0 && (
+                          <div className="toolRow__grants">
+                            <div className="toolRow__grantsLabel">APIs this tool may call</div>
+                            {configuredApis.map((api) => (
+                              <label key={api.id} className="toolRow__grant">
+                                <input
+                                  type="checkbox"
+                                  checked={app.apis.includes(api.id)}
+                                  onChange={() => void handleToggleApiGrant(app, api.id)}
+                                />
+                                <span>
+                                  {api.label}
+                                  <span className="toolRow__grantMeta">
+                                    {api.allowWrites ? 'read & write' : 'read only'}
+                                  </span>
+                                </span>
+                              </label>
+                            ))}
+                            <p className="toolRow__grantsHint">
+                              Off by default. Acabox attaches the credential, so the
+                              tool never sees your key — and it can only do what the
+                              API&apos;s own read/write setting already allows.
+                            </p>
+                          </div>
+                        )}
                         <div className="toolRow__settingsActions">
                           <button
                             className="toolRow__deleteBtn"

@@ -1020,6 +1020,18 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
             result = all.filter((j) => j.dirName === dirName);
             break;
           }
+          case 'api:request': {
+            // The tool's identity comes from the viewer, which owns this
+            // iframe and validated `event.source` above — never from the
+            // message. Main re-reads the grant from the manifest, so a lie
+            // here still cannot invent access.
+            const { apiId, method, path: apiPath, headers, body } = args as {
+              apiId: string; method?: string; path?: string;
+              headers?: Record<string, string>; body?: string;
+            };
+            result = await window.apisAPI.request(dirName, { apiId, method, path: apiPath, headers, body });
+            break;
+          }
           case 'mcp:listServers':
             result = await window.miniAppMcpAPI.list();
             break;

@@ -2,7 +2,21 @@
 
 **Design document — 2026-07-29. Branch `feat/api-tokens`.**
 
-> **STATUS: Phase 1 IMPLEMENTED 2026-07-29.** Phases 2 and 3 are not started.
+> **STATUS: Phases 1 and 2 IMPLEMENTED 2026-07-29.** Phase 3 (the Debug-tab
+> stream, an Activity row when an API starts refusing) is not started.
+>
+> **Phase 2 shipped as designed**, including the identity argument that decided
+> it: the grant is read from the tool's manifest in MAIN, never taken from the
+> renderer. Verified live — ungranted 403 naming the tool, granted 200 with real
+> data, granted-but-writing still 405, revoked 403, unknown tool 403, traversal
+> tool name 400. One deliberate narrowing: the response is BUFFERED, since
+> postMessage cannot carry a stream and the large-download case is the agent's.
+>
+> **HTTP Basic shipped too, so Benchling is no longer deferred.** The trigger
+> named below ("the moment Benchling is wanted") arrived immediately.
+> `basicCredential()` is the one place that decides between `user:password` and
+> the key-as-username `secret:` convention. Benchling's host is per-tenant, so
+> the entry ships a `YOUR-TENANT` placeholder flagged by `baseUrlNeedsEditing`.
 > The document below is kept as written, because its reasoning is still the
 > reasoning. What actually shipped differs in six places, each for a reason
 > found while building:

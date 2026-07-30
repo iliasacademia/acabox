@@ -47,6 +47,40 @@ Everything below runs **on the user's machine**. Acabox has no container — the
 
   `window.containerAPI` is a deprecated alias for the same object, left over from when Acabox ran a Podman container. Use `window.hostAPI` in new code.
 
+## APIs (external HTTP services the user has configured)
+
+`window.hostAPI.api.fetch(apiId, path, init?)` calls an HTTP API that the user
+registered in **Settings → APIs**. Acabox holds the credential and attaches it
+on the way out, so the tool never sees a key and **must never ask the user to
+paste one into a field**.
+
+```typescript
+const res = await window.hostAPI.api.fetch('ncbi', 'esearch.fcgi?db=pubmed&term=crispr&retmode=json');
+if (res.ok) {
+  const data = JSON.parse(res.body!);
+} else {
+  // `res.error` is set when ACABOX refused, not the service.
+  console.error(res.error ?? `HTTP ${res.status}`);
+}
+```
+
+- `init` takes `{ method, headers, body }`. `body` is a string — `JSON.stringify`
+  it yourself and set `content-type`.
+- `res` is `{ ok, status, headers, body, error }`. `ok` is a 2xx from the
+  service; a refusal by Acabox is never `ok`.
+- **Two things must be true before a call works**: the user has configured that
+  API, *and* has granted it to this tool in the tool's Settings panel. Without
+  the grant every call returns 403 naming the tool. That is a decision for the
+  user to make in the UI — say so rather than trying another route.
+- A `405` means the API is read-only in the user's settings. A `403` naming a
+  host means the request or a redirect went somewhere off that API's allow list.
+- **The body is a string, and there is no streaming.** For a large or binary
+  download, ask the agent instead — it reaches the same proxy over HTTP and can
+  stream straight to disk.
+
+Design a tool so a missing API degrades gracefully: check `res.error` and show
+the user what to configure, rather than rendering an empty chart.
+
 ## Anthropic API
 
 Call Claude from within a mini-app. The API key is managed by the host — it is never exposed to the iframe.

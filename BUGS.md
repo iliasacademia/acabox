@@ -38,42 +38,6 @@
   frameworks honor to convert a GET into a mutation, bypassing the read-only gate. Unverified which
   catalog APIs honor them; cost to close is three strings.
 
-- **B21** (2026-07-29) — `main/skillStore.ts:869` — the dropped-upstream pass deletes a built-in
-  with a bare `fs.rmSync(skillStorePath(id), {recursive:true, force:true})`, bypassing the
-  `newTrashDir`/`moveInto` route every other destructive op in the module uses (`deleteSkill`
-  :1200, `revertFile` :1290, `revertSkill` :1346) and the module's own rule at :228. Worse, the
-  guard is `modifiedFiles(id, entry).length === 0`, and `modifiedFiles` (:338-353) deliberately
-  skips host-owned paths in both loops — so `references/findings/**`, the accumulated knowledge
-  ledger, is invisible to the very test that decides whether deleting is safe. A skill with a
-  hundred findings and no edits to its shipped files reads "unmodified" and is erased with no
-  trash copy and no warning. **Not reachable on the 0.1.8 release** (no shipped skill directory is
-  removed by this commit, and an upgrading store is seeded fresh from pristine), but it becomes a
-  genuine ship blocker the moment a shipped skill is retired — and `differential-expression` is
-  already recorded in CLAUDE.md as unrunnable and staged for exactly that. Fix before then: route
-  it through the trash, or include host-owned paths in the guard.
-- **B22** (2026-07-29) — `main/knowledge/findingsLedger.ts:585` — the blast-radius grep is
-  `execFileSync`, run once per shared root per superseded id, and `recordFinding`'s body is fully
-  synchronous on the Electron main thread (`agentSession.ts:906` → `:95` awaits the relay handler
-  directly). Roots are the user's real research directories, so once a ledger accumulates citable
-  ids a `record_finding` call freezes the whole UI for the duration. Nothing is lost and it
-  self-resolves, which is why it is not a blocker; it is the highest user-visible risk as ledgers
-  grow. Fix: make the grep async, or cap total wall time across roots and targets, or move it off
-  the main process.
-- **B23** (2026-07-29) — `main/skillStore.ts:765` — `reconcile` iterates ids straight out of
-  `normalizeState` (:288-295), which copies `skills-state.json` keys verbatim with no charset
-  check, and never calls `validateSkillId` — although the guard exists at :941, :962, :1004, :1114
-  and :1452. `skillStorePath` is a bare `path.join`, so a traversal id in a hand-edited state file
-  becomes a recursive delete at boot. Precondition is arbitrary write into userData, which in this
-  app is the agent's already-unrestricted Bash, so there is no privilege escalation — but the
-  guard is one line and belongs here.
-- **B24** (2026-07-29) — `main/skillStore.ts:611-615, :807-812` — adopted and recovered directories
-  arrive enabled, unlike the import path which hardcodes `enabled:false` (:1153) precisely so a
-  skill cannot start influencing the model before the user has looked at it. Same rule should
-  apply to adoption.
-- **B25** (2026-07-29) — `main/index.ts:2406` — `skills:delete` passes an unvalidated id straight
-  to `deleteSkill`, while `skills:reveal` (:2448) validates. Renderer-supplied, so low risk, but
-  gratuitously inconsistent.
-
 - **B12** (2026-07-22, NARROWED 2026-07-29) — **agent-server half is FIXED**: `main/freePort.ts`
   now probes `127.0.0.1` (`LOOPBACK`) and `/health` echoes a per-app-run instance token that
   `isAgentServerHealthy()` requires before adopting a server. **Kernel-gateway half is still open**:
@@ -112,6 +76,35 @@ B20 — the processing label was one module-global string, so a stalled
 background thread painted RECONNECTING… onto whichever thread the user was
 viewing. Now a Map keyed by threadId, with `resetProgress(threadId)` scoped to
 match.
+
+B21-B25 (2026-07-29, all fixed 2026-07-29 in the same pass):
+B21 — the dropped-upstream pass deleted a built-in with a bare rmSync, bypassing
+the trash every other destructive op uses, and its guard was
+`modifiedFiles(...).length === 0` — a function that deliberately SKIPS
+host-owned paths, so `references/findings/**` was invisible to the very test
+deciding whether erasing was safe. Now routed through `newTrashDir`/`moveInto`,
+and `hostOwnedFiles()` asks the other half: a dropped skill holding findings is
+kept as custom rather than removed. Three tests, incl. one that writes a finding
+and asserts the skill still reads unmodified before dropping it upstream.
+B22 — the blast-radius grep was execFileSync on the Electron main thread, so a
+`record_finding` over real research directories froze the whole UI. Now
+`execFile` (SIGKILL on timeout, per the shellPath lesson), `recordFinding` and
+`findBlastRadius` are async, and a single BLAST_TOTAL_BUDGET_MS covers all roots
+and tokens together — the per-root timeout was charged once per root PER TOKEN
+and so had no ceiling. Pinned by a liveness test: a 15ms timer must fire during
+a grep over 3000 files (~80ms measured), which a synchronous grep cannot allow.
+B23 — guarded in `normalizeState`, the single funnel every state-file reader
+comes through, rather than in `reconcile` alone; covers every consumer for free.
+Test asserts a sentinel file outside the store survives a traversal id.
+B24 — adoption and recovery now arrive DISABLED for an UNKNOWN directory, closing
+the path where the agent (which has Write+Bash on the workspace) could create
+`<workspace>/.claude/skills/<x>` and be on the roster at the next boot. A
+directory matching a SHIPPED skill stays enabled deliberately: recovery exists
+for a lost state file, and answering that by emptying the roster is worse than
+the risk. Residual noted in the code — an agent could name its directory after a
+shipped skill, but that reads as a MODIFIED built-in and cannot add a new skill.
+B25 — guarded inside `deleteSkill` rather than at the `skills:delete` IPC, so
+every caller is covered rather than the one that was noticed.
 
 B13 (User-Agent WritingAgent→Acabox login-gating concern) is retired: academia
 login was removed entirely (see "Removed academia login" in CLAUDE.md), so there

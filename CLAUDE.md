@@ -168,6 +168,58 @@ to `PATH`.
 
 ## Status (last updated 2026-07-29)
 
+**Cleared the whole outstanding list: B21–B25, HTTP Basic, and mini-app API
+access (2026-07-29).** Everything the v0.1.9 report left open.
+- **B21 was the one that mattered**, and it was worse than "bypasses the trash".
+  Its guard was `modifiedFiles(...).length === 0`, and `modifiedFiles`
+  *deliberately* skips host-owned paths so a findings ledger never reads as a
+  user edit — correct for "did the user change this", catastrophic for "is it
+  safe to delete this", which used the same function. A skill with a hundred
+  findings and no edits to its shipped files read **unmodified** and was erased.
+  New `hostOwnedFiles()` asks the other half; the delete routes through
+  `newTrashDir`/`moveInto`; a dropped skill holding findings is **kept as
+  custom**. The general rule: anything deciding to DESTROY a skill must ask both
+  questions. **`differential-expression` can now be retired safely.**
+- **B22 had no ceiling, not just a slow path.** The 10s timeout is charged once
+  per root PER SUPERSEDED TOKEN, so the worst case grew with (shared dirs ×
+  superseded findings). Now one `BLAST_TOTAL_BUDGET_MS` across the whole call,
+  and `execFile` instead of `execFileSync` — `recordFinding` and
+  `findBlastRadius` are async. Pinned by a **liveness** test rather than a
+  structural one: a 15ms timer must fire *during* a grep over 3000 files (~80ms
+  measured here), which a synchronous grep cannot permit.
+- **B24 is a real self-modification path, not tidiness.** The agent has Write and
+  Bash on the workspace, so it could create `<workspace>/.claude/skills/<x>` and
+  be shaping every turn by the next boot. Unknown adoptions and recoveries now
+  arrive **disabled**. A directory matching a **shipped** skill stays enabled on
+  purpose — recovery exists for a lost state file, and answering that by
+  emptying the roster is worse than the risk it guards. Residual, recorded in
+  code: an agent could name its directory after a shipped skill, but that reads
+  as a MODIFIED built-in and cannot introduce a new one.
+- B23 is guarded in `normalizeState` — the single funnel every state-file reader
+  passes through — rather than in `reconcile` alone; B25 inside `deleteSkill`
+  rather than at its IPC. Both cover every caller instead of the noticed one.
+- **HTTP Basic + Benchling.** `basicCredential()` is the single place deciding
+  between `user:password` and the key-as-username `secret:` convention that
+  Benchling and Stripe use — getting that backwards yields a 401 identical to a
+  wrong key. Benchling's host is **per-tenant**: measured that
+  `demo.benchling.com/api/v2/entries` returns Benchling's own
+  `authentication_error` while an unknown tenant does not resolve, so the
+  catalog ships a `YOUR-TENANT` placeholder with `baseUrlNeedsEditing`.
+- **Phase 2: mini-apps can call granted APIs.** `window.hostAPI.api.fetch()`,
+  an `apis` array in the tool manifest, and a grant checklist in the tool's
+  Settings panel. **The grant is read from the manifest in MAIN, never from the
+  renderer** — a compromised renderer can lie about which tool is calling but
+  cannot invent a grant. Buffered, not streamed: postMessage cannot carry a
+  stream, and the large-download case belongs to the agent.
+- Verified: tsc clean; **722/722 across 41 suites**; smoke exits 0; the **real
+  bridge bundle** built with the real esbuild and executed in JSDOM (10/10,
+  incl. `containerAPI === hostAPI` still holding); and Phase 2 driven live —
+  ungranted **403** naming the tool, granted **200** with real Crossref data,
+  a granted tool still **405** on a write, revoked **403**, unknown tool
+  **403**, traversal tool name **400**.
+- Note for anyone touching the bridge: it is **not** in the tsc project, so a
+  clean typecheck proves nothing about it. Bundle and execute it.
+
 **APIs: the user can register HTTP endpoints and Claude can call them
 (2026-07-29).** Phase 1 of `docs/design/api-tokens.md`, agent-only. Asked for as
 "how do I add an API key" after the Hex connector was signed in — the honest

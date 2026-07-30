@@ -39,6 +39,8 @@ contextBridge.exposeInMainWorld('apisAPI', {
   setAllowWrites: (id: string, allowWrites: boolean) =>
     ipcRenderer.invoke('apis:setAllowWrites', id, allowWrites),
   test: (id: string) => ipcRenderer.invoke('apis:test', id),
+  /** Phase 2: a mini-app's call, gated by that tool's manifest grant. */
+  request: (dirName: string, req: unknown) => ipcRenderer.invoke('apis:request', dirName, req),
 });
 
 contextBridge.exposeInMainWorld('skillsAPI', {
@@ -121,6 +123,7 @@ contextBridge.exposeInMainWorld('miniAppsAPI', {
   importApp: () => ipcRenderer.invoke('miniApps:import'),
   list: () => ipcRenderer.invoke('miniApps:list'),
   touch: (dirName: string) => ipcRenderer.invoke('miniApps:touch', dirName),
+  setApis: (dirName: string, apis: string[]) => ipcRenderer.invoke('miniApps:setApis', dirName, apis),
   setArchived: (dirName: string, archived: boolean) => ipcRenderer.invoke('miniApps:setArchived', dirName, archived),
   delete: (dirName: string) => ipcRenderer.invoke('miniApps:delete', dirName),
   build: (dirName: string): Promise<{ ok: boolean; outfile?: string; error?: string; exitCode: number }> =>

@@ -38,6 +38,7 @@ import {
   API_PROXY_TOKEN_HEADER,
   READ_ONLY_METHODS,
   type ApiConfig,
+  basicCredential,
   hostIsAllowed,
   effectiveAllowedHosts,
   redactUrlForLog,
@@ -183,6 +184,16 @@ function injectAuth(
     case 'query':
       if (api.auth.queryParam) outUrl.searchParams.set(api.auth.queryParam, secret);
       break;
+    case 'basic': {
+      if (out.authorization !== undefined) {
+        log.warn(`[APIs] "${api.id}": dropped a caller-supplied Authorization header.`);
+      }
+      // `basicCredential` decides between `user:secret` and the
+      // key-as-username `secret:` convention — see its comment. Base64 of the
+      // raw bytes: a non-ASCII password must not be mangled by latin1.
+      out.authorization = `Basic ${Buffer.from(basicCredential(api.auth), 'utf-8').toString('base64')}`;
+      break;
+    }
     default:
       break;
   }

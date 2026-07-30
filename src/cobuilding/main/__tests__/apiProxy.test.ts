@@ -200,6 +200,31 @@ describe('credential injection', () => {
     expect(upstream.seen[0].url).toContain('api_key=SEKRIT');
   });
 
+  it('sends Basic with the key as username and an empty password', async () => {
+    const upstream = await track(echoServer());
+    api({ baseUrl: `${upstream.origin}/`, auth: { style: 'basic', secret: 'sk_live_abc' } });
+    await performApiRequest({ apiId: 'test', method: 'GET', path: 'x', caller: { kind: 'chat' } });
+    const header = upstream.seen[0].headers.authorization!;
+    expect(header.startsWith('Basic ')).toBe(true);
+    expect(Buffer.from(header.slice(6), 'base64').toString('utf-8')).toBe('sk_live_abc:');
+  });
+
+  it('sends Basic as a user:password pair when a username is configured', async () => {
+    const upstream = await track(echoServer());
+    api({ baseUrl: `${upstream.origin}/`, auth: { style: 'basic', basicUser: 'alice', secret: 'hunter2' } });
+    await performApiRequest({ apiId: 'test', method: 'GET', path: 'x', caller: { kind: 'chat' } });
+    const header = upstream.seen[0].headers.authorization!;
+    expect(Buffer.from(header.slice(6), 'base64').toString('utf-8')).toBe('alice:hunter2');
+  });
+
+  it('base64s Basic from UTF-8 bytes, so a non-ASCII password survives', async () => {
+    const upstream = await track(echoServer());
+    api({ baseUrl: `${upstream.origin}/`, auth: { style: 'basic', basicUser: 'u', secret: 'pä§§wörd' } });
+    await performApiRequest({ apiId: 'test', method: 'GET', path: 'x', caller: { kind: 'chat' } });
+    const header = upstream.seen[0].headers.authorization!;
+    expect(Buffer.from(header.slice(6), 'base64').toString('utf-8')).toBe('u:pä§§wörd');
+  });
+
   it('sends nothing when the API has no credential configured', async () => {
     const upstream = await track(echoServer());
     api({ baseUrl: `${upstream.origin}/`, auth: { style: 'bearer' } });

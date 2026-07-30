@@ -439,7 +439,7 @@ export function registerFileHandlers(getAllowedPaths: () => string[], getMainWin
         .map(async (e) => {
           const dirName = e.name;
           const manifestPath = path.join(appsDir, dirName, 'manifest.json');
-          let manifest: { name?: unknown; description?: unknown; icon?: unknown; lastOpened?: unknown; lastRun?: unknown; preBuilt?: unknown; archived?: unknown } | null = null;
+          let manifest: { name?: unknown; description?: unknown; icon?: unknown; lastOpened?: unknown; lastRun?: unknown; preBuilt?: unknown; archived?: unknown; apis?: unknown } | null = null;
           try {
             const raw = await fsPromises.readFile(manifestPath, 'utf-8');
             manifest = JSON.parse(raw);
@@ -456,6 +456,14 @@ export function registerFileHandlers(getAllowedPaths: () => string[], getMainWin
             lastRun: typeof manifest?.lastRun === 'string' ? manifest.lastRun : null,
             preBuilt: manifest?.preBuilt === true,
             archived: manifest?.archived === true,
+            // Which configured APIs this tool has been GRANTED. Travels with
+            // the folder on export, deliberately: a shared tool should declare
+            // what it wants to reach. It is not a capability — the grant only
+            // matters against the importing user's OWN configured APIs and
+            // their own credentials, and an unknown id simply never matches.
+            apis: Array.isArray(manifest?.apis)
+              ? (manifest.apis as unknown[]).filter((a): a is string => typeof a === 'string')
+              : [],
             hasManifest: manifest !== null,
           };
         }),
@@ -500,6 +508,34 @@ export function registerFileHandlers(getAllowedPaths: () => string[], getMainWin
         return manifest;
       });
       return { ok: true };
+    } catch (e: any) {
+      return { ok: false, error: String(e?.message ?? e) };
+    }
+  });
+
+  /**
+   * Grant or revoke this tool's access to configured APIs.
+   *
+   * The grant lives in the tool's own manifest rather than in host settings so
+   * it travels with the folder — but it is NOT a capability the folder carries:
+   * `apis:request` checks the id against the importing user's own configured
+   * APIs, and their credentials never leave the host. An exported tool
+   * declaring `["hex"]` gets nothing on a machine with no Hex configured.
+   */
+  ipcMain.handle('miniApps:setApis', async (_event, dirName: string, apis: string[]) => {
+    const allowedPaths = requireAllowedPaths(getAllowedPaths);
+    if (!dirName || dirName.includes('/') || dirName.includes('\\') || dirName.startsWith('.')) {
+      return { ok: false, error: 'Invalid app name' };
+    }
+    const manifestPath = path.join(allowedPaths[0], '.applications', dirName, 'manifest.json');
+    const clean = [...new Set((Array.isArray(apis) ? apis : []).filter((a) => typeof a === 'string' && a))];
+    try {
+      await updateManifest(manifestPath, (manifest) => {
+        if (clean.length) manifest.apis = clean;
+        else delete manifest.apis;
+        return manifest;
+      });
+      return { ok: true, apis: clean };
     } catch (e: any) {
       return { ok: false, error: String(e?.message ?? e) };
     }

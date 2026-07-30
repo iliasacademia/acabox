@@ -287,6 +287,21 @@ function normalizeState(raw: Record<string, unknown> | null | undefined): Skills
 
   for (const [id, value] of Object.entries(skills as Record<string, unknown>)) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    // B23. This is the ONE funnel every consumer of the state file comes
+    // through, and until now it copied keys verbatim. `skillStorePath` is a
+    // bare `path.join`, and `reconcile`'s dropped-upstream pass calls it with
+    // whatever key it finds — so a traversal id in a hand-edited or corrupted
+    // state file became a recursive delete at boot. Guarding here rather than
+    // in `reconcile` covers every other reader for free.
+    //
+    // Precondition is arbitrary write into userData, which in this app means
+    // the agent's already-unrestricted Bash, so this is not an escalation
+    // boundary. It is one line, and the alternative is a delete outside the
+    // store.
+    if (!validateSkillId(id).ok) {
+      log.warn(`[Skills] Ignoring unusable skill id in the state file: ${JSON.stringify(id)}`);
+      continue;
+    }
     const entry = value as SkillStateEntry;
     const origin: SkillOrigin =
       entry.origin === 'builtin' || entry.origin === 'imported' ? entry.origin : 'custom';
@@ -335,6 +350,25 @@ async function updateSkillsState<T>(
  * inside a skill that ships one. Host-owned paths are excluded — a findings
  * ledger the host wrote is not a user modification of a shipped skill.
  */
+/**
+ * Host-owned files that actually exist in the store for this skill —
+ * `references/findings/**`, the accumulated knowledge ledger.
+ *
+ * The counterpart to `modifiedFiles`, which deliberately EXCLUDES these: a
+ * ledger the host wrote is not a user edit of a shipped skill, so it must not
+ * make the skill read MODIFIED and block an upstream fix.
+ *
+ * That exclusion is right for the "did the user change this" question and
+ * catastrophically wrong for the "is it safe to delete this" question, which
+ * used the same function. Anything deciding to DESTROY a skill must ask both.
+ */
+export function hostOwnedFiles(id: string, entry: SkillStateEntry): string[] {
+  const hostOwned = hostOwnedPathsFor(entry);
+  return Object.keys(hashSkillFiles(skillStorePath(id)))
+    .filter((rel) => isHostOwned(rel, hostOwned))
+    .sort();
+}
+
 export function modifiedFiles(id: string, entry: SkillStateEntry): string[] {
   const baseline = entry.baseline;
   if (!baseline) return [];
@@ -610,9 +644,27 @@ function adoptRenderDirectories(
 
       moveInto(abs, skillStorePath(id));
       const asShipped = id === entry.name ? shipped : undefined;
+      // B24. An UNKNOWN directory arrives DISABLED, matching the import path's
+      // hardcoded `enabled: false` and for the same reason: nothing should
+      // start influencing the model before the user has looked at it.
+      //
+      // This one is not merely tidiness. Adoption reads from the WORKSPACE,
+      // where the agent has Write and Bash — so without this, an agent could
+      // create `<workspace>/.claude/skills/<anything>/SKILL.md` and have it on
+      // the roster, shaping every subsequent turn, at the next boot. Arriving
+      // disabled makes that a proposal the user can see rather than a fait
+      // accompli.
+      //
+      // A directory that IS a shipped skill stays enabled: on the pre-store
+      // upgrade path these are the user's own existing built-ins (identical
+      // copies are removed above, so what reaches here is one they edited), and
+      // disabling those would silently empty a working roster. The residual is
+      // that an agent could name its directory after a shipped skill to inherit
+      // enabled — but that is then a MODIFICATION of a built-in, which the UI
+      // flags and Revert undoes; it cannot introduce a new skill this way.
       state.skills[id] = asShipped
         ? { origin: 'builtin', enabled: true, baseline: { ...asShipped.files } }
-        : { origin: 'custom', enabled: true, createdAt: nowIso() };
+        : { origin: 'custom', enabled: false, createdAt: nowIso() };
       result.adopted.push({ id, fromName: entry.name });
       log.info(
         `[Skills] Adopted workspace directory ${entry.name} into the store as ` +
@@ -807,9 +859,15 @@ export async function reconcile(opts: ReconcileOptions = {}): Promise<ReconcileR
     for (const id of storeIds()) {
       if (state.skills[id]) continue;
       const shipped = pristine.skills.get(id);
+      // B24, recovery half. Same split as adoption above and for the same
+      // reason, with the same deliberate exception: a recovered directory that
+      // matches a shipped skill stays enabled, because the case this branch
+      // exists for is a LOST STATE FILE, and answering that by turning the
+      // user's whole roster off would be a worse outcome than the one it is
+      // guarding against. An unrecognised directory has no such claim.
       state.skills[id] = shipped
         ? { origin: 'builtin', enabled: true, baseline: { ...shipped.files } }
-        : { origin: 'custom', enabled: true, createdAt: nowIso() };
+        : { origin: 'custom', enabled: false, createdAt: nowIso() };
       out.recovered.push(id);
       log.info(`[Skills] Recovered untracked store directory ${id} as ${state.skills[id]!.origin}`);
     }
@@ -866,15 +924,47 @@ export async function reconcile(opts: ReconcileOptions = {}): Promise<ReconcileR
         delete state.skills[id];
         continue;
       }
-      if (modifiedFiles(id, entry).length === 0) {
+      // B21. Two things were wrong here, and the second was the dangerous one.
+      //
+      // (1) The guard was `modifiedFiles(...).length === 0` alone, and
+      //     `modifiedFiles` deliberately skips host-owned paths. So a skill
+      //     carrying a hundred accumulated findings and no edits to its shipped
+      //     files read "unmodified" — invisible to the very test deciding
+      //     whether erasing it was safe. `hostOwnedFiles` asks the other half.
+      // (2) The delete was a bare `rmSync`, bypassing the trash route every
+      //     other destructive op in this module uses and the rule at the top of
+      //     the file. Nothing to recover from, and no warning.
+      //
+      // Never reachable before 0.1.9 (no release had retired a shipped skill),
+      // but `differential-expression` is recorded in CLAUDE.md as unrunnable
+      // and staged for exactly that, which is what turns this from latent into
+      // a blocker.
+      const findings = hostOwnedFiles(id, entry);
+      if (modifiedFiles(id, entry).length === 0 && findings.length === 0) {
         try {
-          fs.rmSync(skillStorePath(id), { recursive: true, force: true });
+          // Through the trash, like every other destructive path.
+          const trashPath = newTrashDir(id);
+          moveInto(skillStorePath(id), path.join(trashPath, id));
           delete state.skills[id];
           out.removedUpstream.push(id);
-          log.info(`[Skills] ${id} no longer ships and was unmodified — removed`);
+          log.info(`[Skills] ${id} no longer ships and was unmodified — moved to ${trashPath}`);
         } catch (err) {
           out.errors.push({ id, message: (err as Error).message });
         }
+      } else if (findings.length > 0 && modifiedFiles(id, entry).length === 0) {
+        // Unmodified, but it has learned something. Keep it for the same reason
+        // an edited skill is kept: the knowledge is the user's, and upstream
+        // dropping the skill is not consent to discard it.
+        entry.origin = 'custom';
+        entry.formerlyBuiltin = true;
+        entry.baseline = undefined;
+        entry.dismissed = undefined;
+        entry.updateAvailable = undefined;
+        out.keptAsCustom.push(id);
+        log.info(
+          `[Skills] ${id} no longer ships but holds ${findings.length} host-owned file(s) `
+          + '— kept as a custom skill',
+        );
       } else {
         // Their edits are theirs. Anthropic dropping a skill from our tree is
         // not consent to delete the user's work — this is precisely the case
@@ -1192,6 +1282,11 @@ export async function registerImportedSkill(reg: ImportRegistration): Promise<Sk
  */
 export async function deleteSkill(id: string): Promise<SkillMutationResult> {
   const { value } = await updateSkillsState((state): SkillMutationResult => {
+    // B25. Guarded in the function rather than at the `skills:delete` IPC, so
+    // every caller is covered rather than the one that happened to be noticed.
+    const idCheck = validateSkillId(id);
+    if (!idCheck.ok) return { ok: false, error: idCheck.error };
+
     const entry = state.skills[id];
     if (!entry) return { ok: false, error: `No skill called "${id}".` };
     if (entry.removed) return { ok: true, id };

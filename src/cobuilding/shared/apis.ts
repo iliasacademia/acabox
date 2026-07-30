@@ -25,7 +25,7 @@
  * Design: `docs/design/api-tokens.md`.
  */
 
-export type ApiAuthStyle = 'none' | 'bearer' | 'header' | 'query';
+export type ApiAuthStyle = 'none' | 'bearer' | 'header' | 'query' | 'basic';
 
 export interface ApiAuth {
   style: ApiAuthStyle;
@@ -33,6 +33,16 @@ export interface ApiAuth {
   headerName?: string;
   /** style==='query': the parameter name, e.g. 'api_key'. */
   queryParam?: string;
+  /**
+   * style==='basic': the username half, which is NOT a secret and is stored in
+   * the clear alongside the rest of the config.
+   *
+   * Leave it empty for the widespread "API key as the username, empty
+   * password" convention — Benchling and Stripe both do this — in which case
+   * the credential goes in the username position and `secret` is the whole
+   * thing. See `basicCredential` for the one place that decides.
+   */
+  basicUser?: string;
   /**
    * The credential. Encrypted at rest and NEVER sent over IPC — `listApis()`
    * blanks it and reports `hasSecret` instead. Only `apiProxy` ever sees the
@@ -168,8 +178,14 @@ export function validateApi(api: Partial<ApiConfig>, existingIds: string[] = [])
   }
 
   const style = api.auth?.style;
-  if (style !== 'none' && style !== 'bearer' && style !== 'header' && style !== 'query') {
+  if (style !== 'none' && style !== 'bearer' && style !== 'header'
+    && style !== 'query' && style !== 'basic') {
     return { ok: false, error: 'Pick an authentication style.' };
+  }
+  // A colon in the username would be decoded as the field separator by the
+  // server, silently splitting the credential somewhere the user didn't intend.
+  if (style === 'basic' && (api.auth?.basicUser ?? '').includes(':')) {
+    return { ok: false, error: 'A Basic-auth username cannot contain a colon.' };
   }
   if (style === 'header' && !(api.auth?.headerName ?? '').trim()) {
     return { ok: false, error: 'Header name is required for header authentication.' };
@@ -340,17 +356,41 @@ export function redactUrlForLog(url: URL, auth: Pick<ApiAuth, 'style' | 'queryPa
   return copy.toString();
 }
 
+/**
+ * The `user:password` pair a Basic-auth API should be given, before base64.
+ *
+ * One function so the rule lives in exactly one place, because the two shapes
+ * look alike and mean different things:
+ *
+ *   basicUser set   →  `${basicUser}:${secret}`   ordinary username/password
+ *   basicUser empty →  `${secret}:`               key-as-username, empty password
+ *
+ * The second is the convention Benchling and Stripe use, and getting it
+ * backwards produces a 401 that reads exactly like a wrong key.
+ */
+export function basicCredential(auth: Pick<ApiAuth, 'basicUser' | 'secret'>): string {
+  const secret = auth.secret ?? '';
+  const user = (auth.basicUser ?? '').trim();
+  return user ? `${user}:${secret}` : `${secret}:`;
+}
+
 /** Stable display name. */
 export function apiDisplayName(api: Pick<ApiConfig, 'id' | 'label'>): string {
   return api.label?.trim() || api.id;
 }
 
 /** How the auth style reads in the UI and in guidance. */
-export function describeAuthStyle(auth: Pick<ApiAuth, 'style' | 'headerName' | 'queryParam'>): string {
+export function describeAuthStyle(
+  auth: Pick<ApiAuth, 'style' | 'headerName' | 'queryParam' | 'basicUser'>,
+): string {
   switch (auth.style) {
     case 'bearer': return 'Bearer token';
     case 'header': return `Header ${auth.headerName || '?'}`;
     case 'query': return `Query ${auth.queryParam || '?'}`;
+    case 'basic':
+      return auth.basicUser?.trim()
+        ? `Basic as ${auth.basicUser.trim()}`
+        : 'Basic, key as username';
     default: return 'No auth';
   }
 }
@@ -411,7 +451,13 @@ export interface ApiCatalogEntry {
   description: string;
   baseUrl: string;
   allowedHosts?: string[];
-  auth: { style: ApiAuthStyle; headerName?: string; queryParam?: string };
+  auth: { style: ApiAuthStyle; headerName?: string; queryParam?: string; basicUser?: string };
+  /**
+   * True when `baseUrl` carries a placeholder the user MUST replace — a
+   * per-tenant host. The UI says so instead of letting them press Test and get
+   * a DNS error they have to interpret.
+   */
+  baseUrlNeedsEditing?: boolean;
   /** True when the API works without a credential and the key only adds quota. */
   secretOptional?: boolean;
   notes?: string;
@@ -444,6 +490,27 @@ export const API_CATALOG: ApiCatalogEntry[] = [
       + 'server instructions, this reaches the full API. Create a token in Hex under '
       + 'Settings → API keys.',
     docsUrl: 'https://learn.hex.tech/docs/api/api-reference',
+    suggestWrites: false,
+  },
+  {
+    catalogId: 'benchling',
+    id: 'benchling',
+    label: 'Benchling',
+    description: 'Entries, sequences, registry and results in your Benchling tenant.',
+    // PER-TENANT host — there is no shared one. Measured 2026-07-29:
+    // `demo.benchling.com/api/v2/entries` returns Benchling's own
+    // `authentication_error`, confirming the path shape, while an unknown
+    // tenant does not resolve at all.
+    baseUrl: 'https://YOUR-TENANT.benchling.com/api/v2/',
+    baseUrlNeedsEditing: true,
+    // The reason Basic exists at all. Benchling authenticates an API key as the
+    // Basic USERNAME with an empty password, so `basicUser` is left unset and
+    // the key goes in the username position — see `basicCredential`.
+    auth: { style: 'basic' },
+    notes: 'Replace YOUR-TENANT with your Benchling subdomain. The API key goes in '
+      + 'the username position with an empty password, which is what "Basic, key as '
+      + 'username" below means. Writes need to be enabled explicitly.',
+    docsUrl: 'https://benchling.com/api/reference',
     suggestWrites: false,
   },
   {
@@ -637,6 +704,7 @@ export function apiFromCatalog(entry: ApiCatalogEntry): ApiConfig {
       style: entry.auth.style,
       ...(entry.auth.headerName ? { headerName: entry.auth.headerName } : {}),
       ...(entry.auth.queryParam ? { queryParam: entry.auth.queryParam } : {}),
+      ...(entry.auth.basicUser ? { basicUser: entry.auth.basicUser } : {}),
     },
     enabled: true,
     allowWrites: entry.suggestWrites ?? false,

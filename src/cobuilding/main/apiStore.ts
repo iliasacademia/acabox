@@ -77,6 +77,7 @@ function normalize(raw: unknown): ApiConfig | null {
       style: isAuthStyle(rawAuth.style) ? rawAuth.style : 'none',
       ...(typeof rawAuth.headerName === 'string' ? { headerName: rawAuth.headerName } : {}),
       ...(typeof rawAuth.queryParam === 'string' ? { queryParam: rawAuth.queryParam } : {}),
+      ...(typeof rawAuth.basicUser === 'string' ? { basicUser: rawAuth.basicUser } : {}),
       ...(typeof rawAuth.secret === 'string' ? { secret: rawAuth.secret } : {}),
     },
     // Absent means enabled: an API the user added is on unless turned off.

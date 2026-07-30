@@ -8,10 +8,12 @@
  */
 import {
   API_BASE_ENV,
+  basicCredential,
   API_TOKEN_ENV,
   apiFromCatalog,
   API_CATALOG,
   buildApiGuidance,
+  describeAuthStyle,
   effectiveAllowedHosts,
   hostIsAllowed,
   redactUrlForLog,
@@ -267,6 +269,33 @@ describe('buildApiGuidance', () => {
   });
 });
 
+describe('HTTP Basic', () => {
+  it('puts the key in the USERNAME position with an empty password by default', () => {
+    // Benchling and Stripe both authenticate this way. Getting it backwards
+    // produces a 401 that reads exactly like a wrong key, which is why the rule
+    // lives in one function instead of at each call site.
+    expect(basicCredential({ secret: 'sk_live_abc' })).toBe('sk_live_abc:');
+    expect(basicCredential({ secret: 'sk_live_abc', basicUser: '  ' })).toBe('sk_live_abc:');
+  });
+
+  it('uses an ordinary user:password pair when a username is given', () => {
+    expect(basicCredential({ basicUser: 'alice', secret: 'hunter2' })).toBe('alice:hunter2');
+  });
+
+  it('validates, and refuses a colon in the username', () => {
+    // A colon there would be read as the field separator, silently splitting
+    // the credential somewhere the user did not intend.
+    expect(validateApi(api({ auth: { style: 'basic' } })).ok).toBe(true);
+    expect(validateApi(api({ auth: { style: 'basic', basicUser: 'alice' } })).ok).toBe(true);
+    expect(validateApi(api({ auth: { style: 'basic', basicUser: 'a:b' } })).ok).toBe(false);
+  });
+
+  it('describes both shapes distinguishably in the UI', () => {
+    expect(describeAuthStyle({ style: 'basic' })).toBe('Basic, key as username');
+    expect(describeAuthStyle({ style: 'basic', basicUser: 'alice' })).toBe('Basic as alice');
+  });
+});
+
 describe('API_CATALOG', () => {
   it('is internally consistent and passes its own validator', () => {
     const ids = new Set<string>();
@@ -291,6 +320,16 @@ describe('API_CATALOG', () => {
     for (const entry of API_CATALOG) {
       expect(apiFromCatalog(entry).auth.secret).toBeUndefined();
     }
+  });
+
+  it('includes benchling, the entry Basic auth exists for', () => {
+    const b = API_CATALOG.find((e) => e.catalogId === 'benchling')!;
+    expect(b.auth.style).toBe('basic');
+    expect(b.auth.basicUser).toBeUndefined();     // key-as-username
+    // Per-tenant host: there is no shared one, so the UI must flag it rather
+    // than let Test fail with a DNS error the user has to interpret.
+    expect(b.baseUrlNeedsEditing).toBe(true);
+    expect(b.baseUrl).toContain('YOUR-TENANT');
   });
 
   it('includes hex pointed at the REST API, not the MCP endpoint', () => {

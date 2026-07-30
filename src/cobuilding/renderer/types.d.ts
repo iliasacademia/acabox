@@ -187,6 +187,17 @@ interface ApisAPI {
   setAllowWrites(id: string, allowWrites: boolean): Promise<ApiMutationResultT>;
   /** One real GET at the base URL, through the same engine the agent uses. */
   test(id: string): Promise<{ status: number; ok: boolean; error: string | null }>;
+  /**
+   * Phase 2: a mini-app's call. `dirName` names the calling tool; the grant is
+   * read from that tool's manifest in main, never taken from the renderer.
+   */
+  request(dirName: string, req: {
+    apiId: string; method?: string; path?: string;
+    headers?: Record<string, string>; body?: string;
+  }): Promise<{
+    ok: boolean; status: number; headers?: Record<string, string>;
+    body?: string; error?: string | null;
+  }>;
 }
 
 /**
@@ -662,6 +673,8 @@ declare global {
     lastRun: string | null;
     preBuilt: boolean;
     archived: boolean;
+    /** Configured API ids this tool may call through the proxy. */
+    apis: string[];
     hasManifest: boolean;
   }
 
@@ -747,6 +760,8 @@ declare global {
     list(): Promise<MiniAppEntry[]>;
     touch(dirName: string): Promise<{ ok: boolean; error?: string }>;
     setArchived(dirName: string, archived: boolean): Promise<{ ok: boolean; error?: string }>;
+    /** Grant/revoke the configured APIs this tool may call. */
+    setApis(dirName: string, apis: string[]): Promise<{ ok: boolean; error?: string; apis?: string[] }>;
     /** Delete a tool's code, preserving its input/output under tool-data. */
     delete(dirName: string): Promise<{ ok: boolean; error?: string }>;
     build(dirName: string): Promise<{ ok: boolean; outfile?: string; error?: string; exitCode: number }>;

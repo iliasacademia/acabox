@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { execFileSync } from 'child_process';
+import { execFile } from 'child_process';
 import log from 'electron-log';
 
 import { SKILL_FINDINGS_SUBDIR } from '../../shared/skills';
@@ -526,6 +526,44 @@ const BLAST_MAX_FILES = 40;
 const BLAST_GREP_TIMEOUT_MS = 10_000;
 
 /**
+ * Total wall-clock budget for the whole blast-radius search of one
+ * `record_finding` call, across every root and every superseded id.
+ *
+ * B22: the per-root timeout is charged once per root PER TOKEN, so the old
+ * worst case grew with (shared directories × superseded findings) and had no
+ * ceiling at all. This is the ceiling.
+ */
+const BLAST_TOTAL_BUDGET_MS = 20_000;
+
+/**
+ * `execFile` as a promise returning stdout.
+ *
+ * B22: this used to be `execFileSync`, and `recordFinding`'s whole body runs on
+ * the Electron main thread (the MCP relay handler awaits it directly), so a
+ * grep across the user's real research directories froze the entire UI —
+ * window, animations, everything — for as long as it took. Nothing was lost and
+ * it self-resolved, which is why it was not a blocker, but it was the most
+ * user-visible thing in the knowledge loop as ledgers grow.
+ *
+ * SIGKILL rather than the default SIGTERM on timeout, for the same reason
+ * `shellPath.ts` learned to: a process that ignores SIGTERM makes the timeout a
+ * no-op. grep does not, but the cost of being right here is one option.
+ */
+function execFileText(file: string, args: string[], timeoutMs: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      file,
+      args,
+      { encoding: 'utf-8', timeout: timeoutMs, killSignal: 'SIGKILL', maxBuffer: 4 * 1024 * 1024 },
+      (err, stdout) => {
+        if (err) reject(err);
+        else resolve(stdout);
+      },
+    );
+  });
+}
+
+/**
  * A file that is *run* rather than read. The distinction is the whole point of
  * the field: a stale sentence in a handoff note misleads a reader, a stale
  * predicate in a `.sql` file silently returns the wrong number to whoever
@@ -579,10 +617,10 @@ export function setBlastRadiusSearchPaths(provider: (() => string[]) | null): vo
   searchPathsProvider = provider;
 }
 
-function grepRoot(token: string, root: string): Array<[string, number]> {
+async function grepRoot(token: string, root: string, timeoutMs: number): Promise<Array<[string, number]>> {
   let out = '';
   try {
-    out = execFileSync(
+    out = await execFileText(
       '/usr/bin/grep',
       [
         '-rIn',
@@ -602,7 +640,7 @@ function grepRoot(token: string, root: string): Array<[string, number]> {
         '-e', token,
         '--', root,
       ],
-      { encoding: 'utf-8', timeout: BLAST_GREP_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 },
+      timeoutMs,
     );
   } catch {
     // grep exits 1 when nothing matched, and 2 on an unreadable root. Neither
@@ -633,7 +671,11 @@ function isExecutableFile(absPath: string): boolean {
  * rule by design, and listing it would turn the checklist into a self-reference
  * the user cannot act on.
  */
-export function findBlastRadius(token: string, roots?: string[]): BlastRadiusHit[] {
+export async function findBlastRadius(
+  token: string,
+  roots?: string[],
+  deadline?: number,
+): Promise<BlastRadiusHit[]> {
   const searchRoots = (roots ?? searchPathsProvider?.() ?? []).filter(Boolean);
   if (!token || searchRoots.length === 0) return [];
 
@@ -642,7 +684,14 @@ export function findBlastRadius(token: string, roots?: string[]): BlastRadiusHit
 
   for (const root of searchRoots) {
     if (byFile.size >= BLAST_MAX_FILES) break;
-    for (const [file, line] of grepRoot(token, root)) {
+    // B22, second half. The per-root timeout alone bounded nothing useful: it
+    // is charged once PER ROOT PER SUPERSEDED TOKEN, so a user with six shared
+    // research directories superseding two findings could wait 6 × 2 × 10s.
+    // `deadline` is a single wall-clock budget for the whole call, and a root
+    // reached past it is skipped rather than started.
+    const remaining = deadline ? deadline - Date.now() : BLAST_GREP_TIMEOUT_MS;
+    if (remaining <= 0) break;
+    for (const [file, line] of await grepRoot(token, root, Math.min(remaining, BLAST_GREP_TIMEOUT_MS))) {
       const abs = path.resolve(file);
       if (realOrSelf(abs).startsWith(store + path.sep)) continue;
       if (abs.includes(`${path.sep}${SKILL_FINDINGS_SUBDIR.split('/').join(path.sep)}${path.sep}`)) continue;
@@ -692,10 +741,10 @@ export interface RecordFindingContext {
  * archive. The derived files are regenerated last, from a fresh read, so they
  * describe the ledger as it now is rather than as it was mid-operation.
  */
-export function recordFinding(
+export async function recordFinding(
   input: RecordFindingInput,
   ctx: RecordFindingContext = {},
-): RecordFindingResult {
+): Promise<RecordFindingResult> {
   const now = ctx.now ?? new Date();
   const skill = safeSkillId(input.skill);
   const dir = findingsDirFor(skill);
@@ -727,11 +776,15 @@ export function recordFinding(
 
   const hostLines: string[] = [];
   const tokensSearched: string[] = [];
+  // One budget shared by every token, not one per token — see
+  // BLAST_TOTAL_BUDGET_MS. The write below is committed regardless; a search
+  // that runs out of time yields a shorter checklist, never a failed record.
+  const blastDeadline = Date.now() + BLAST_TOTAL_BUDGET_MS;
   for (const target of targets) {
     const token = distinctiveToken(`${target.title} ${target.rule}`);
     if (!token) continue;
     tokensSearched.push(token);
-    hostLines.push(...blastRadiusLines(findBlastRadius(token, ctx.searchPaths)));
+    hostLines.push(...blastRadiusLines(await findBlastRadius(token, ctx.searchPaths, blastDeadline)));
   }
   const modelLines = (input.blast_radius ?? []).map((s) => oneLine(String(s))).filter(Boolean);
   const radius = [...new Set([...hostLines, ...modelLines])];

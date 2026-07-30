@@ -25,6 +25,10 @@ interface BridgeKernelAPI {
 
 interface BridgeHostAPI {
   exec(command: string, args: string[]): Promise<unknown>;
+  /** Configured HTTP APIs this tool has been granted. See `hostAPI.api.fetch`. */
+  api: {
+    fetch(apiId: string, path: string, init?: ApiFetchInit): Promise<ApiFetchResponse>;
+  };
 }
 
 interface BridgeErrorAPI {
@@ -56,6 +60,28 @@ export interface AnthropicParams {
   model?: string;
   max_tokens?: number;
   system?: string;
+}
+
+/** Options for `hostAPI.api.fetch`. Mirrors the useful half of RequestInit. */
+export interface ApiFetchInit {
+  method?: string;
+  headers?: Record<string, string>;
+  /** A string body. Send JSON with `JSON.stringify` and a content-type header. */
+  body?: string;
+}
+
+export interface ApiFetchResponse {
+  /** True for a 2xx from the service. A refusal by Acabox is never ok. */
+  ok: boolean;
+  status: number;
+  headers?: Record<string, string>;
+  body?: string;
+  /**
+   * Set when ACABOX refused, not the service: no such API, no grant for this
+   * tool, a write against a read-only API, or a host off the allow list. The
+   * text says which, and what the user would have to change.
+   */
+  error?: string | null;
 }
 
 interface BridgeAcademiaAPI {
@@ -115,6 +141,24 @@ const kernel: BridgeKernelAPI = {
 
 const hostAPI: BridgeHostAPI = {
   exec: (command: string, args: string[]) => request("executeCommand", { command, args }),
+  api: {
+    // Acabox holds the credential and attaches it — this app never sees it and
+    // must never ask the user for one. `apiId` must be an API the user has
+    // configured in Settings -> APIs *and* granted to this tool in its Settings
+    // panel; without the grant every call comes back 403.
+    //
+    // The response body is a string. Binary is not supported over this bridge
+    // (postMessage cannot carry a stream); ask the agent for a large or binary
+    // download instead, which streams straight to disk.
+    fetch: (apiId: string, path: string, init: ApiFetchInit = {}) =>
+      request("api:request", {
+        apiId,
+        path,
+        method: init.method ?? "GET",
+        headers: init.headers,
+        body: init.body,
+      }) as Promise<ApiFetchResponse>,
+  },
 };
 
 // Deprecated alias. `containerAPI` is the name from before Acabox dropped its
