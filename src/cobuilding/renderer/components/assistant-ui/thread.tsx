@@ -6,7 +6,7 @@ import { TodoWrite } from './todo-write';
 import { EnterPlanMode } from './enter-plan-mode';
 import { Reasoning } from './thinking-indicator';
 import { ChatComposer } from './chat-composer';
-import { useProcessingLabel } from '../../progressStore';
+import { useProcessingLabel, RECONNECTING_LABEL } from '../../progressStore';
 import { useSetupState } from '../../setupStore';
 import { MSymbol } from '../command-desk/MSymbol';
 import {
@@ -298,11 +298,17 @@ const WorkingIndicator: FC = () => {
   });
   const customLabel = useProcessingLabel();
   if (!show) return null;
+  // A stalled pipe must never look like ordinary thinking — that ambiguity is
+  // the entire complaint this indicator caused. When the watchdog reports the
+  // host is still working but nothing is reaching us, say so.
+  const isReconnecting = customLabel === RECONNECTING_LABEL;
   return (
     <div className="cdWorking">
       <span className="cdDot cdDot--busy cdDot--pulse" />
       <span className="cdWorking__label">
-        {customLabel ? `WORKING — ${customLabel}` : 'THINKING…'}
+        {isReconnecting
+          ? 'RECONNECTING…'
+          : customLabel ? `WORKING — ${customLabel}` : 'THINKING…'}
       </span>
     </div>
   );

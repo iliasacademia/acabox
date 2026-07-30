@@ -450,8 +450,21 @@ ipcRenderer.on('chat:event', (_event: any, threadId: string, token: any) => {
 ipcRenderer.on('chat:done', (_event: any, threadId: string) => {
   console.log(`[Preload:buffer] chat:done arrived, activeStream=${activeStreams.has(threadId)}`);
   if (activeStreams.has(threadId)) return;
+  // Only record the terminator if we are already buffering a turn nobody has
+  // picked up yet. A LONE chat:done — no buffered events — belongs to a turn
+  // that has already been fully consumed and closed; storing it would make the
+  // NEXT stream iterator for this thread born done, so the next message would
+  // render nothing at all.
+  //
+  // This was latent until now: chat:done had never once fired in production
+  // (the forwarding listener was always removed first). Keeping the pipe alive
+  // past a detach makes it fire routinely, so the poison becomes reachable.
+  const buf = eventBuffers.get(threadId);
+  if (!buf) {
+    console.debug(`[Preload:buffer] Dropping stale chat:done for ${threadId} (nothing buffered)`);
+    return;
+  }
   console.warn(`[Preload:buffer] Buffering chat:done for ${threadId} (no active stream)`);
-  const buf = eventBuffers.get(threadId) || { events: [], done: false };
   buf.done = true;
   eventBuffers.set(threadId, buf);
 });
@@ -463,15 +476,24 @@ ipcRenderer.on('chat:error', (_event: any, threadId: string, err: string) => {
   eventBuffers.set(threadId, buf);
 });
 
-function createStreamIterator(threadId: string) {
+function createStreamIterator(threadId: string, options?: { discardBuffered?: boolean }) {
   // Clean up any existing stream iterator for this threadId
   if (activeStreams.has(threadId)) {
     console.debug(`[StreamIterator] Replacing existing stream for ${threadId}`);
   }
   activeStreams.get(threadId)?.();
 
-  // Drain any buffered events that arrived before this stream was created
-  const buffered = eventBuffers.get(threadId);
+  // Drain any buffered events that arrived before this stream was created.
+  //
+  // `discardBuffered` is passed by sendMessage: a new send starts a new turn,
+  // so anything still sitting in the buffer is by definition leftovers from a
+  // previous one. Replaying them would prepend stale content to the new
+  // message, and a leftover terminator would end the new turn before it began.
+  const buffered = options?.discardBuffered ? undefined : eventBuffers.get(threadId);
+  if (options?.discardBuffered && eventBuffers.has(threadId)) {
+    const stale = eventBuffers.get(threadId);
+    console.warn(`[StreamIterator] Discarding ${stale?.events.length ?? 0} stale buffered event(s) for ${threadId} on new send`);
+  }
   eventBuffers.delete(threadId);
 
   const pending: any[] = [];
@@ -613,7 +635,7 @@ contextBridge.exposeInMainWorld('chatAPI', {
     // this release a harmless no-op on the new iterator instead of killing
     // it. A global `activeStreams.get(threadId)?.()` would clobber the
     // takeover and the takeover's resumeRun would terminate immediately.
-    const { stream, markDone } = createStreamIterator(threadId);
+    const { stream, markDone } = createStreamIterator(threadId, { discardBuffered: true });
     return { stream, release: markDone };
   },
   subscribe: (threadId: string, options?: { force?: boolean }) => {
@@ -652,6 +674,11 @@ contextBridge.exposeInMainWorld('chatAPI', {
   },
   isTurnInProgress: (threadId: string): Promise<boolean> => {
     return ipcRenderer.invoke('chat:isTurnInProgress', threadId);
+  },
+  // Used by chatAdapter's stall watchdog to decide whether a silent stream
+  // means "still working" or "the turn ended without us hearing about it".
+  getTurnStatus: (threadId: string): Promise<{ turnInProgress: boolean; sessionAlive: boolean }> => {
+    return ipcRenderer.invoke('chat:turnStatus', threadId);
   },
 });
 

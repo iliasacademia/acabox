@@ -18,7 +18,7 @@ import log from 'electron-log';
 import { createAgentSession } from './agentSession';
 import { createCalendarAgentSession } from './calendarAgentSession';
 import type { CalendarMutationEvent } from './calendarAgentSession';
-import { registerSession, unregisterSession, getRegisteredSession, hasSession, destroyAllSessions, addSubscriber, removeSubscriber } from './sessionRegistry';
+import { registerSession, unregisterSession, getRegisteredSession, hasSession, destroyAllSessions, addSubscriber, removeSubscriber, onSessionDestroyed } from './sessionRegistry';
 import type { IPCAttachment } from '../shared/types';
 import { provisionWorkspace } from './skills';
 import { containerService } from './containerService';
@@ -439,7 +439,13 @@ const editStates = new Map<string, string>();
 // Tracks IPC forwarding listeners per (threadId, webContentsId) to avoid duplicates.
 // Both chat:subscribe and chat:send use this to ensure exactly one forwarding listener
 // per session per renderer.
-const forwardingListeners = new Map<string, () => void>();
+//
+// The entry records WHICH AgentSession instance the pipe is bound to. That
+// matters because the pipe now outlives the renderer's interest (see
+// `removeForwarding`): a bare "already attached" check would short-circuit
+// forever against a session that has since been destroyed and replaced,
+// leaving the thread permanently deaf. Identity is compared by reference.
+const forwardingListeners = new Map<string, { cleanupPipe: () => void; session: object }>();
 
 // ─── Cross-surface chat-event fanout (desktop ↔ overlay) ──────────────
 //
@@ -463,12 +469,22 @@ function ensureForwarding(threadId: string, sender: Electron.WebContents): void 
   const subscriberKey = `ipc:${sender.id}`;
   addSubscriber(threadId, subscriberKey);
 
-  if (forwardingListeners.has(key)) return;
-
   const session = getRegisteredSession(threadId);
   if (!session) {
     log.debug(`[Forwarding] No session found for ${threadId}, skipping listener attach (subscriber recorded)`);
     return;
+  }
+
+  const existing = forwardingListeners.get(key);
+  if (existing) {
+    // Already piped to this exact session — nothing to do. This is the hot
+    // path: chat:subscribe fires on every effect re-run.
+    if (existing.session === session) return;
+    // Bound to a session that has since been replaced. The registry's destroy
+    // hook normally clears these, but drop it defensively rather than let a
+    // dead pipe block the live one.
+    log.info(`[Forwarding] Replacing stale pipe for ${threadId} (bound to a destroyed session)`);
+    existing.cleanupPipe();
   }
 
   log.debug(`[Forwarding] Setting up IPC forwarding for ${threadId}`);
@@ -503,36 +519,65 @@ function ensureForwarding(threadId: string, sender: Electron.WebContents): void 
     },
   });
 
-  const cleanup = () => {
-    log.debug(`[Forwarding] Cleaning up forwarding for ${threadId}`);
+  let offSessionDestroyed: () => void = () => {};
+
+  // Tears down the PIPE only. Deliberately does not touch the subscriber
+  // refcount — the two were fused before, which is what caused the
+  // stuck-THINKING bug: the renderer saying "I navigated away" killed the
+  // delivery path for a turn that was still running, and since there is no
+  // replay on this hop, the rest of that turn (including turn-complete) was
+  // emitted into an empty listener set and lost forever.
+  const cleanupPipe = () => {
+    if (forwardingListeners.get(key)?.cleanupPipe !== cleanupPipe) return; // superseded
+    log.debug(`[Forwarding] Tearing down pipe for ${threadId}`);
     unsubscribe();
     forwardingListeners.delete(key);
-    sender.removeListener('destroyed', cleanup);
+    sender.removeListener('destroyed', onSenderGone);
+    offSessionDestroyed();
+  };
+
+  // A destroyed webContents can't receive anything, so this is the one case
+  // where the pipe AND the refcount both go.
+  const onSenderGone = () => {
+    cleanupPipe();
     removeSubscriber(threadId, subscriberKey);
   };
 
-  forwardingListeners.set(key, cleanup);
-  sender.on('destroyed', cleanup);
+  // Full teardown, used by the error path and by chat:stop.
+  const cleanup = () => {
+    cleanupPipe();
+    removeSubscriber(threadId, subscriberKey);
+  };
+
+  forwardingListeners.set(key, { cleanupPipe, session });
+  sender.on('destroyed', onSenderGone);
+  // The pipe is bound to this session instance; when the instance dies the
+  // pipe must go with it, or `ensureForwarding` above would keep matching a
+  // corpse. Registered AFTER the map entry so the guard inside cleanupPipe
+  // sees itself.
+  offSessionDestroyed = onSessionDestroyed(threadId, cleanupPipe);
 }
 
 /**
- * Explicit cleanup path the renderer fires when it navigates away from a
- * thread (component unmount, thread change, idle timeout in
- * useSessionSubscription). Removing the forwarding listener drops the
- * subscriber count for the (threadId, sender) pair; once the last surface
- * detaches, the registry's visibility policy decides whether to destroy the
- * agent session now or after the current turn finishes.
+ * The renderer has navigated away from this thread (component unmount, thread
+ * change, idle timeout in useSessionSubscription). Drops the subscriber count
+ * for the (threadId, sender) pair; once the last surface detaches, the
+ * registry's visibility policy decides whether to destroy the agent session
+ * now or after the current turn finishes.
+ *
+ * **This deliberately leaves the event pipe attached.** "I'm not looking" is
+ * not "stop sending": the renderer keeps a live run and a live stream iterator
+ * across a thread switch (assistant-ui does not evict thread runtimes), so it
+ * is still a legitimate consumer. Tearing the pipe down here is what used to
+ * strand a running turn — the terminator was emitted into an empty listener
+ * set and, with no replay on this hop, the UI waited on THINKING… forever.
+ * Measured before the fix: 7 of 31 turns lost their terminator this way.
+ *
+ * The pipe is now torn down by exactly three things, all of which mean it can
+ * no longer deliver anything: the webContents is destroyed, the session errors,
+ * or the session itself is destroyed (via the registry's destroy hook).
  */
 function removeForwarding(threadId: string, senderId: number): void {
-  const key = `${threadId}:${senderId}`;
-  const cleanup = forwardingListeners.get(key);
-  if (cleanup) {
-    cleanup();
-    return;
-  }
-  // No forwarding listener was ever installed (e.g. renderer subscribed
-  // before the session existed). Still record the detach so the registry's
-  // pre-session subscriber count drops.
   removeSubscriber(threadId, `ipc:${senderId}`);
 }
 
@@ -1791,6 +1836,21 @@ ipcMain.on('chat:subscribe', (event, threadId: string) => {
 // which is tied to the local run generator's lifetime.
 ipcMain.handle('chat:isTurnInProgress', (_event, threadId: string): boolean => {
   return getRegisteredSession(threadId)?.isTurnInProgress ?? false;
+});
+
+/**
+ * Richer form of the above, for the renderer's stall watchdog. A bare boolean
+ * cannot tell "the turn ended and the session was evicted" apart from "there
+ * was never a session" — both are false — which is exactly the question a
+ * stalled stream needs answered before it decides whether to give up or keep
+ * waiting.
+ */
+ipcMain.handle('chat:turnStatus', (_event, threadId: string): { turnInProgress: boolean; sessionAlive: boolean } => {
+  const session = getRegisteredSession(threadId);
+  return {
+    turnInProgress: session?.isTurnInProgress ?? false,
+    sessionAlive: !!session,
+  };
 });
 
 // Renderer signals it's no longer viewing this thread. Whether the

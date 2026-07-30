@@ -103,6 +103,13 @@ export function setSubagentDone(parentToolCallId: string, status: 'completed' | 
   notify();
 }
 
+/**
+ * Sentinel processing label meaning "the host says this turn is still running
+ * but no events are reaching us". Rendered distinctly by the thread's working
+ * indicator so a broken pipe never masquerades as normal thinking.
+ */
+export const RECONNECTING_LABEL = '__reconnecting__';
+
 export function setProcessingLabel(label: string | null): void {
   if (processingLabel === label) return;
   processingLabel = label;
