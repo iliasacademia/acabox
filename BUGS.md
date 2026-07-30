@@ -12,6 +12,24 @@
 
 ## Outstanding
 
+- **B14** (2026-07-29) — `agentSession.ts:194` (`emitEvent`) vs `sessionRegistry.ts:308`
+  (`destroyEntry` → `fireDestroyHooks`) — `emitEvent` iterates the LIVE `listeners` Set
+  (`for (const listener of listeners)`, no spread copy — unlike `emitDone` at :200 which does
+  copy). The registry's own listener is registered first (`registerSession`) and the renderer
+  forwarding pipe second (`ensureForwarding`), so on the deferred-destroy path the registry's
+  `turn-complete` handler runs first, destroys the session, fires the destroy hook, and deletes
+  the forwarding listener from the Set **before the iteration reaches it**. Per spec a Set
+  iterator skips elements deleted before they are visited (verified). Net effect: the renderer
+  never receives `turn-complete` for exactly the navigate-away-mid-turn case the
+  `fix/streaming-stuck-thinking` work targets, so the run only ends via the 45s stall watchdog.
+  Reproduced with a faithful no-copy mock: pipe received `[]`. Fix: `for (const listener of
+  [...listeners])` in `emitEvent`, matching `emitDone`.
+- **B15** (2026-07-29) — `progressStore.ts:106` / `chatAdapter.ts` stall branch — `processingLabel`
+  is a single module-global, but the stall watchdog writes `RECONNECTING_LABEL` from a per-thread
+  run. A background thread that stalls sets the label for whatever thread the user is currently
+  viewing, so a healthy chat can display `RECONNECTING…`. Realistic given parallel chats. Fix:
+  key the processing label by threadId, or only render it for the thread that set it.
+
 - **B12** (2026-07-22) — `containerService.ts:27` (`findFreePort`) vs `agent-server/index.ts:752`
   and the kernel gateway (`containerService.ts:538`) — the free-port probe binds `0.0.0.0` while
   the agent server and kernel gateway bind `127.0.0.1`; on macOS the wildcard probe succeeds even
@@ -67,6 +85,17 @@ instant EOF.
 
 ## Rejected
 
+- **R9** (2026-07-29) — `main/index.ts:557` (`ensureForwarding`) — "now that `removeForwarding`
+  no longer tears down the pipe, `sender.on('destroyed', onSenderGone)` accumulates one listener
+  per visited thread and trips Node's 10-listener `MaxListenersExceededWarning`." Investigated:
+  a pipe's lifetime is bounded by its session's, and a session is destroyed as soon as its last
+  subscriber detaches with no turn running, so concurrent pipes ≈ concurrent live sessions
+  (a handful even with parallel chats; the longest-lived outlier is a 5-minute OAuth pin).
+  Never approaches the limit, and the ceiling is a console warning rather than a fault.
+- **R10** (2026-07-29) — `chatAdapter.ts` stall loop — "a `setTimeout`/`clearTimeout` pair per
+  streamed event (thousands per turn with text deltas) is a hot-path cost." Measured against
+  reality: timer create/clear is sub-microsecond and dwarfed by the IPC hop and React render
+  already happening per event. Not worth complicating the loop with a shared timer.
 - **R1** (2026-07-22) — `containerService.ts:129` — "`void prewarmLoginShellPath()` can leak an
   unhandled promise rejection." Not a bug: every await inside the function is wrapped in
   try/catch and all fallback paths return normally; there is no rejecting path.
