@@ -52,10 +52,24 @@ describe('resolveTargetUrl — ordinary resolution', () => {
     expect(resolve(api(), '')).toBe('https://api.example.com/v2/');
   });
 
-  it('keeps a base path with no trailing slash usable', () => {
-    // The prefix becomes everything up to the last '/', so siblings resolve.
+  it('treats a base path with no trailing slash as the API surface anyway', () => {
+    // This used to assert 'https://api.example.com/thing' — RFC 3986 relative
+    // resolution replaces the last segment unless the base ends in '/', so
+    // `/v2` was silently dropped and the call 404'd somewhere nobody could see.
+    // A user who types `.../v2` means `/v2/` is the API; normalizeBaseUrl makes
+    // that true. (No catalog entry hits this — all 16 already end in '/' — so
+    // it is the Custom form and the per-tenant placeholders that were exposed.)
     expect(resolve(api({ baseUrl: 'https://api.example.com/v2' }), 'thing'))
-      .toBe('https://api.example.com/thing');
+      .toBe('https://api.example.com/v2/thing');
+  });
+
+  it('resolves a leading-slash path the same as a bare one', () => {
+    // `/entries` is how vendor docs and `hostAPI.api.fetch(id, '/entries')`
+    // both read. Unstripped it resolves to the host root and the base-path
+    // check then refuses it, so the idiomatic form failed while the bare one
+    // worked.
+    expect(resolve(api(), '/thing')).toBe('https://api.example.com/v2/thing');
+    expect(resolve(api(), 'thing')).toBe('https://api.example.com/v2/thing');
   });
 });
 

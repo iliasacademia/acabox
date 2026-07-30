@@ -25,7 +25,7 @@ import { getClaudeConfigDir, migrateClaudeConfigDir } from './claudeConfigDir';
 import { findFreePort, isPortBindable, LOOPBACK } from './freePort';
 import { replaceConnectorAllowedTools } from '../shared/connectors';
 import { API_BASE_ENV, API_TOKEN_ENV } from '../shared/apis';
-import { apiProxy } from './apiProxy';
+import { apiProxy, type ProxyCallerRef } from './apiProxy';
 
 const execFileAsync = promisify(execFile);
 
@@ -88,8 +88,13 @@ function getAgentServerBundle(): string {
  *   - NODE_PATH so esbuild bundles can resolve modules installed via npm -g
  *   - PATH prepend with the venv bin + npm prefix bin so installed CLIs
  *     (pytest, tsx, etc.) are invocable without a fully-qualified path
+ *
+ * `caller` decides WHOSE API-proxy token the child gets. It defaults to the
+ * chat agent because that is what every path except a mini-app's own
+ * `hostAPI.exec()` is; see the API block below for why the distinction is
+ * load-bearing rather than tidy.
  */
-function buildSubprocessEnv(): NodeJS.ProcessEnv {
+function buildSubprocessEnv(caller: ProxyCallerRef = { kind: 'chat' }): NodeJS.ProcessEnv {
   const venvDir = getPythonVenvDir();
   const npmPrefix = getNpmPrefix();
   const binSep = process.platform === 'win32' ? ';' : ':';
@@ -105,15 +110,24 @@ function buildSubprocessEnv(): NodeJS.ProcessEnv {
     COSCIENTIST_NPM_PREFIX: npmPrefix,
     NODE_PATH: getNpmNodeModulesPath(),
     PATH: [venvBinDir, npmBinDir, existingPath].filter(Boolean).join(binSep),
-    // How agent subprocesses reach configured APIs. Absent when the proxy is
-    // down, which is a supported state — `buildApiGuidance` is skipped in the
-    // same condition, so the agent is never told about a facility that isn't
-    // there. Neither value is a credential: the token authorises use of the
-    // proxy by a process we already spawned holding the user's Anthropic key,
-    // so it grants nothing that process didn't already have.
+    // How subprocesses reach configured APIs. Absent when the proxy is down,
+    // which is a supported state — `buildApiGuidance` is skipped in the same
+    // condition, so the agent is never told about a facility that isn't there.
+    //
+    // THE TOKEN IS SCOPED TO THE CALLER, and that is the whole point. The chat
+    // agent's token reaches every enabled API, which is by design: it already
+    // holds the user's Anthropic key and the credentials are safeStorage-
+    // encrypted, so the proxy is the only route to a usable secret and the
+    // write gate is a real boundary for it.
+    //
+    // A MINI-APP is a different matter. `hostAPI.exec()` spawns through this
+    // same function, so handing every child the chat token let any tool curl
+    // the proxy and be served as the agent — reaching APIs the user never
+    // granted it, writes included. Passing the caller here is what makes the
+    // HTTP door enforce the same grant the postMessage door always did.
     ...(apiProxy.isRunning() ? {
       [API_BASE_ENV]: apiProxy.baseUrl()!,
-      [API_TOKEN_ENV]: apiProxy.token()!,
+      [API_TOKEN_ENV]: apiProxy.tokenFor(caller)!,
     } : {}),
   };
 }
@@ -284,13 +298,13 @@ class HostProcessService {
    */
   async exec(
     command: string[],
-    options?: { onSpawn?: (pid: number) => void },
+    options?: { onSpawn?: (pid: number) => void; caller?: ProxyCallerRef },
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     const [bin, ...args] = command;
     try {
       const pending = execFileAsync(bin, args, {
         cwd: this.currentAgentDir ?? undefined,
-        env: this.getExecEnv(),
+        env: this.getExecEnv(options?.caller),
         timeout: 600_000,
         maxBuffer: 50 * 1024 * 1024,
       });
@@ -360,7 +374,19 @@ class HostProcessService {
     command: string[],
     meta?: { source?: CommandSource; appDirName?: string | null; onSpawn?: (pid: number) => void },
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-    const result = await this.exec(command, { onSpawn: meta?.onSpawn });
+    // Only a genuine `source: 'iframe'` call is a mini-app caller.
+    //
+    // Keying off appDirName alone would be wrong in a way that is easy to miss:
+    // the fallback below derives it via `parseAppDirFromArgs`, so the AGENT
+    // running `.applications/install pip numpy --app myTool` also carries an
+    // appDirName. Treating that as a mini-app would silently downgrade the
+    // agent to one tool's grants for that command — a confusing 403 in the
+    // middle of an install, and a regression in a path that has nothing to do
+    // with APIs. 'build' is likewise ours, not the tool's.
+    const caller: ProxyCallerRef = meta?.source === 'iframe' && meta.appDirName
+      ? { kind: 'miniapp', dirName: meta.appDirName }
+      : { kind: 'chat' };
+    const result = await this.exec(command, { onSpawn: meta?.onSpawn, caller });
     commandLogger.log({
       command,
       stdout: result.stdout,
@@ -379,8 +405,8 @@ class HostProcessService {
   }
   getLastKernelGatewayError(): string | null { return this.lastKernelGatewayError; }
 
-  private getExecEnv(): NodeJS.ProcessEnv {
-    return buildSubprocessEnv();
+  private getExecEnv(caller?: ProxyCallerRef): NodeJS.ProcessEnv {
+    return buildSubprocessEnv(caller);
   }
 
   // ─── Agent server (host child process) ─────────────────────────────

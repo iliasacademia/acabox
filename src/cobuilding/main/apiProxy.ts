@@ -73,7 +73,26 @@ const STRIPPED_REQUEST_HEADERS = new Set([
   // Set by the door from trusted state. An agent must not be able to claim a
   // different caller identity, or to forge the proxy token onward.
   'x-acabox-caller', API_PROXY_TOKEN_HEADER,
+  // The read-only gate (step 3) assumes GET and HEAD do not mutate. That is a
+  // CONVENTION, not a guarantee: a number of REST frameworks honour these
+  // headers to reinterpret the method server-side, which would turn an
+  // allowed GET into a DELETE on the far end and walk straight through the
+  // gate. Cheaper to refuse them than to audit 16 vendors for the behaviour.
+  'x-http-method-override', 'x-method-override', 'x-http-method',
 ]);
+
+/**
+ * Time to RESPONSE HEADERS, across all redirect hops. Not a cap on the
+ * download.
+ *
+ * Every other subprocess-ish path here has one (exec 600s, MCP registry 60s,
+ * connector reload 15s); without it a hung upstream holds the agent's turn open
+ * forever with no diagnosis. It is deliberately a header deadline rather than a
+ * whole-request timeout, because a multi-gigabyte dataset landing on disk is
+ * the case that justified a proxy over an MCP tool and must never be cut off
+ * mid-stream. See the abort wiring in performApiRequest.
+ */
+const RESPONSE_HEADERS_TIMEOUT_MS = 30_000;
 
 /**
  * Response headers we must NOT forward verbatim.
@@ -90,6 +109,46 @@ export type ApiCaller =
   | { kind: 'chat' }
   /** Phase 2. Kept here so the grant check is written once, not bolted on. */
   | { kind: 'miniapp'; dirName: string; grantedApis: string[] };
+
+/**
+ * A caller's IDENTITY, without its grants.
+ *
+ * Separate from `ApiCaller` on purpose: identity is fixed for the life of a
+ * token, grants are read fresh on every request. Conflating them is how a
+ * revoked grant keeps working until restart.
+ */
+export type ProxyCallerRef =
+  | { kind: 'chat' }
+  | { kind: 'miniapp'; dirName: string };
+
+function callerKey(caller: ProxyCallerRef): string {
+  return caller.kind === 'chat' ? 'chat' : `miniapp:${caller.dirName}`;
+}
+
+/**
+ * How the proxy learns a tool's granted APIs.
+ *
+ * Injected rather than imported so this file stays free of workspace and
+ * manifest knowledge — the policy engine should not need to know what a
+ * `.applications/<dir>/manifest.json` is. Registered once at boot from
+ * `main/index.ts`, which owns the workspace path.
+ *
+ * The default returns NO grants, which is the safe read: before registration,
+ * or if it is ever forgotten, a mini-app is refused rather than waved through.
+ */
+export type ToolGrantResolver = (dirName: string) => string[];
+
+let toolGrantResolver: ToolGrantResolver = () => [];
+
+export function setToolGrantResolver(resolver: ToolGrantResolver): void {
+  toolGrantResolver = resolver;
+}
+
+/** Attach the current grants to a bare identity. */
+export function callerWithGrants(ref: ProxyCallerRef): ApiCaller {
+  if (ref.kind === 'chat') return { kind: 'chat' };
+  return { kind: 'miniapp', dirName: ref.dirName, grantedApis: toolGrantResolver(ref.dirName) };
+}
 
 /**
  * A request body as bytes.
@@ -272,6 +331,24 @@ export async function performApiRequest(input: ApiRequestInput): Promise<ApiRequ
       ? injectAuth(api, currentUrl, callerHeaders)
       : { url: currentUrl, headers: callerHeaders };
 
+    // One deadline for the whole chain, not one per hop: five hops each given a
+    // fresh 30s would let a redirect loop stall a turn for two and a half
+    // minutes while never tripping any single timeout.
+    const remaining = RESPONSE_HEADERS_TIMEOUT_MS - (Date.now() - started);
+    if (remaining <= 0) {
+      return refuse(api.id, 504,
+        `"${api.id}" did not send response headers within `
+        + `${Math.round(RESPONSE_HEADERS_TIMEOUT_MS / 1000)}s.`);
+    }
+
+    // An AbortController rather than `AbortSignal.timeout()`, and cleared the
+    // instant `fetch` resolves. `fetch` settles when the HEADERS arrive, so
+    // clearing here leaves the BODY stream running with no deadline on it —
+    // which is the required behaviour. Handing the signal to `fetch` and
+    // leaving it armed would abort a long download mid-flight.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), remaining);
+
     let response: Response;
     try {
       response = await fetch(prepared.url, {
@@ -279,11 +356,19 @@ export async function performApiRequest(input: ApiRequestInput): Promise<ApiRequ
         headers: prepared.headers,
         body: currentMethod === 'GET' || currentMethod === 'HEAD' ? undefined : currentBody,
         redirect: 'manual',
+        signal: controller.signal,
       });
     } catch (err) {
+      const timedOut = controller.signal.aborted;
       const message = err instanceof Error ? err.message : String(err);
       log.warn(`[APIs] "${api.id}" ${currentMethod} ${redactUrlForLog(prepared.url, api.auth)} failed: ${message}`);
-      return refuse(api.id, 502, `Could not reach ${currentUrl.hostname}: ${message}`);
+      return timedOut
+        ? refuse(api.id, 504,
+          `"${api.id}" did not send response headers within `
+          + `${Math.round(RESPONSE_HEADERS_TIMEOUT_MS / 1000)}s.`)
+        : refuse(api.id, 502, `Could not reach ${currentUrl.hostname}: ${message}`);
+    } finally {
+      clearTimeout(timer);
     }
 
     const location = response.headers.get('location');
@@ -353,14 +438,56 @@ export async function performApiRequest(input: ApiRequestInput): Promise<ApiRequ
 class ApiProxy {
   private server: http.Server | null = null;
   private boundPort: number | null = null;
-  private authToken: string | null = null;
   private instance = randomUUID();
   private lastError: string | null = null;
 
+  /**
+   * token -> the caller that token IDENTIFIES. This is what closes the second
+   * door.
+   *
+   * The postMessage door always knew who was calling; the HTTP door did not,
+   * because there was ONE app-wide token and `buildSubprocessEnv()` handed it
+   * to every child it spawned — including the subprocess behind a mini-app's
+   * `hostAPI.exec()`. A tool with no grants could therefore
+   * `curl -H "<token>" $ACABOX_API_BASE/benchling/…` and be served as the chat
+   * agent, which reaches every enabled API. The grant checkbox was decorative
+   * for anything that could reach a shell.
+   *
+   * Making the token the identity means possession of a tool's token conveys
+   * exactly that tool's grants and nothing more, and the chat token is never
+   * written into a mini-app's environment at all.
+   *
+   * Grants themselves are deliberately NOT baked in: they are resolved per
+   * request through `toolGrantResolver`, so revoking one in the UI takes effect
+   * on the next call rather than on the next app run.
+   */
+  private callerByToken = new Map<string, ProxyCallerRef>();
+  private tokenByCaller = new Map<string, string>();
+
   isRunning(): boolean { return this.server !== null && this.boundPort !== null; }
   port(): number | null { return this.boundPort; }
-  token(): string | null { return this.authToken; }
   error(): string | null { return this.lastError; }
+
+  /**
+   * The token for one caller, minted on first ask and stable thereafter.
+   *
+   * Stability matters: `buildSubprocessEnv()` is called per spawn, and a
+   * long-running child must not be holding a token that a later spawn
+   * invalidated.
+   */
+  tokenFor(caller: ProxyCallerRef): string | null {
+    if (!this.isRunning()) return null;
+    const key = callerKey(caller);
+    const existing = this.tokenByCaller.get(key);
+    if (existing) return existing;
+    const minted = randomUUID();
+    this.tokenByCaller.set(key, minted);
+    this.callerByToken.set(minted, caller);
+    return minted;
+  }
+
+  /** The chat agent's token. Never given to a mini-app. */
+  token(): string | null { return this.tokenFor({ kind: 'chat' }); }
 
   baseUrl(): string | null {
     return this.boundPort ? `http://${LOOPBACK}:${this.boundPort}` : null;
@@ -376,7 +503,6 @@ class ApiProxy {
     if (this.isRunning()) return;
     try {
       const port = await findFreePort(PORT_RANGE_START, PORT_RANGE_END);
-      const token = randomUUID();
       const server = http.createServer((req, res) => { void this.handle(req, res); });
 
       await new Promise<void>((resolve, reject) => {
@@ -388,7 +514,6 @@ class ApiProxy {
 
       this.server = server;
       this.boundPort = port;
-      this.authToken = token;
       this.lastError = null;
       log.info(`[APIs] Proxy listening on http://${LOOPBACK}:${port}`);
     } catch (err) {
@@ -401,33 +526,47 @@ class ApiProxy {
     const server = this.server;
     this.server = null;
     this.boundPort = null;
-    this.authToken = null;
+    // Every issued token dies with the listener. A restart mints fresh ones, so
+    // a token scraped out of an old process's environment is inert.
+    this.callerByToken.clear();
+    this.tokenByCaller.clear();
     if (!server) return;
     await new Promise<void>((resolve) => server.close(() => resolve()));
     log.info('[APIs] Proxy stopped.');
   }
 
-  private authorize(req: http.IncomingMessage): string | null {
+  /**
+   * Resolve the bearer of this request's token to the caller it identifies.
+   * Returns a refusal string instead when the token is absent or unknown.
+   */
+  private authorize(req: http.IncomingMessage): { caller: ProxyCallerRef } | { denied: string } {
     // Any process on the machine can reach a loopback port, and so can a web
     // page in a browser. Without a token, a malicious page could spend the
     // user's API credits or read their account through this server.
     const supplied = req.headers[API_PROXY_TOKEN_HEADER];
-    const expected = this.authToken;
-    if (!expected) return 'The API proxy is not running.';
+    if (!this.isRunning()) return { denied: 'The API proxy is not running.' };
     if (typeof supplied !== 'string' || !supplied) {
-      return `Missing ${API_PROXY_TOKEN_HEADER} header.`;
+      return { denied: `Missing ${API_PROXY_TOKEN_HEADER} header.` };
     }
+
+    // Compared against every issued token in constant time. Iterating rather
+    // than a Map.get() keeps the comparison non-early-exit; all tokens are
+    // randomUUID() so the length guard never fires in practice, but
+    // timingSafeEqual throws on a mismatch, so it has to be there.
     const a = Buffer.from(supplied);
-    const b = Buffer.from(expected);
-    if (a.length !== b.length || !timingSafeEqual(a, b)) {
-      return `Invalid ${API_PROXY_TOKEN_HEADER}.`;
+    let matched: ProxyCallerRef | null = null;
+    for (const [token, caller] of this.callerByToken) {
+      const b = Buffer.from(token);
+      if (a.length === b.length && timingSafeEqual(a, b)) matched = caller;
     }
+    if (!matched) return { denied: `Invalid ${API_PROXY_TOKEN_HEADER}.` };
+
     // Cheap hardening on top of the token: no legitimate caller here is a
     // browser, and a page cannot suppress either of these headers.
     if (req.headers.origin || req.headers['sec-fetch-site']) {
-      return 'Browser-originated requests are not accepted by this proxy.';
+      return { denied: 'Browser-originated requests are not accepted by this proxy.' };
     }
-    return null;
+    return { caller: matched };
   }
 
   private async handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
@@ -439,10 +578,10 @@ class ApiProxy {
       return;
     }
 
-    const denial = this.authorize(req);
-    if (denial) {
+    const auth = this.authorize(req);
+    if ('denied' in auth) {
       res.writeHead(401, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: denial }));
+      res.end(JSON.stringify({ error: auth.denied }));
       return;
     }
 
@@ -480,7 +619,10 @@ class ApiProxy {
       path: rest + url.search,
       headers,
       body,
-      caller: { kind: 'chat' },
+      // The token decided this, not the request. A mini-app's subprocess
+      // carries that tool's token and is therefore held to that tool's grants
+      // on the HTTP door exactly as it is on the postMessage one.
+      caller: callerWithGrants(auth.caller),
     });
 
     if (outcome.error || !outcome.body) {

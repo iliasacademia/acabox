@@ -12,32 +12,6 @@
 
 ## Outstanding
 
-- **B14** (2026-07-29) — `docs/design/api-tokens.md`, "Why mini-apps do NOT get the loopback URL" —
-  the per-app API grant is bypassable: `hostAPI.exec()` → `container:execLogged`
-  (`index.ts:1019`) → `containerService.exec()` (`:273`) uses `buildSubprocessEnv()` (`:370`), so a
-  mini-app's subprocess inherits `ACABOX_API_TOKEN` and can curl the proxy as the chat caller,
-  reaching every enabled API regardless of its grant. Fix direction: per-caller scoped tokens keyed
-  off the `meta.appDirName` `execLogged` already receives; the token becomes the caller identity.
-- **B15** (2026-07-29) — `docs/design/api-tokens.md`, `resolveTargetUrl` rules 1/4 — a `baseUrl`
-  without a trailing slash silently drops its last path segment, and rule 4's base-path check
-  rejects the leading-slash path form (`/entries`) that the Phase-2 mini-app API and REST docs both
-  produce. Measured on Node. Fix: normalize baseUrl to a trailing `/` at save, strip a leading `/`
-  from the request path, keep rule 4 as a post-normalization `..` guard only.
-- **B16** (2026-07-29) — `docs/design/api-tokens.md`, "The loopback server" — spec says the proxy
-  starts "alongside the agent server", but `startAgentServer` freezes the child env at spawn
-  (`containerService.ts:435`, called from `AgentInfrastructureController.ts:325`). Binding the proxy
-  after that point leaves `ACABOX_API_BASE`/`ACABOX_API_TOKEN` unset for the agent server's whole
-  life, with no error. Invariant to state and test: the proxy's listening lifetime strictly contains
-  the agent server's.
-- **B17** (2026-07-29) — `docs/design/api-tokens.md`, `performApiRequest` — no upstream request
-  timeout is specified, unlike every comparable path here (exec 600s, MCP registry 60s, connector
-  reload 15s). A hung upstream holds the agent's turn open indefinitely. Must not apply to body
-  streaming, which is the feature's justification.
-- **B18** (2026-07-29) — `docs/design/api-tokens.md`, `performApiRequest` step 6 — the caller-header
-  strip list omits `X-HTTP-Method-Override` / `X-Method-Override` / `X-HTTP-Method`, which some REST
-  frameworks honor to convert a GET into a mutation, bypassing the read-only gate. Unverified which
-  catalog APIs honor them; cost to close is three strings.
-
 - **B12** (2026-07-22, NARROWED 2026-07-29) — **agent-server half is FIXED**: `main/freePort.ts`
   now probes `127.0.0.1` (`LOOPBACK`) and `/health` echoes a per-app-run instance token that
   `isAgentServerHealthy()` requires before adopting a server. **Kernel-gateway half is still open**:
@@ -57,6 +31,43 @@
   (Found by the rename/pollution reviews 2026-07-22; pre-existing, not rename-introduced.)
 
 <!--
+B14-B18 (2026-07-29, api-tokens design review; B16 was already fixed in the
+implementation, the other four fixed 2026-07-29 in one pass):
+B14 — the per-app API grant was bypassable. `buildSubprocessEnv()` handed ONE
+app-wide proxy token to every child it spawned, including the subprocess behind
+a mini-app's `hostAPI.exec()`, so an ungranted tool could curl the proxy and be
+served as the chat agent. The token is now the IDENTITY: `apiProxy.tokenFor()`
+mints a stable per-caller token, `authorize()` resolves the bearer to a caller,
+and `execLogged` derives that caller from `source === 'iframe' && appDirName`.
+Keying off appDirName ALONE would have been wrong — `parseAppDirFromArgs` gives
+the agent an appDirName whenever it runs `.applications/install … --app x`, which
+would have silently downgraded the agent to one tool's grants mid-install.
+Grants stay out of the token and are resolved per request through an injected
+`setToolGrantResolver`, so a revoke lands on the next call; both doors now share
+that one resolver instead of the IPC door reading the manifest itself.
+B15 — `resolveTargetUrl` mishandled two ordinary path forms. A base URL with no
+trailing slash dropped its last segment (RFC 3986 relative resolution), and a
+leading-slash path escaped to the host root and was then refused by the
+base-path check — so `hostAPI.api.fetch(id, '/entries')`, the idiomatic form,
+403'd while the bare form worked. `normalizeBaseUrl` is applied on save AND
+inside `resolveTargetUrl` (so entries stored by an earlier build are corrected
+without a migration), and a single leading slash is stripped — only one, so
+`//host/x` stays a host swap for the allow list to judge. NB an existing test
+asserted the dropped-segment behaviour as correct; it was encoding the bug.
+B16 — was already correct in the implementation: `apiProxy.start()` runs at
+`AgentInfrastructureController.ts:341`, before `startAgentServer` at `:386`, so
+the proxy's listening lifetime contains the agent server's and the frozen child
+env always carries a live base URL and token.
+B17 — no upstream timeout, so a hung API held a turn open forever. Now a 30s
+deadline to RESPONSE HEADERS shared across all redirect hops (not per hop, which
+would have allowed 5×30s), implemented with an AbortController cleared the
+instant `fetch` resolves — `AbortSignal.timeout()` would have stayed armed and
+aborted a long download mid-stream, and uncapped body streaming is the property
+that justified a proxy over an MCP tool.
+B18 — `x-http-method-override` / `x-method-override` / `x-http-method` were not
+stripped, so a framework honouring them could reinterpret an allowed GET as a
+mutation on the far end and walk through the read-only gate.
+
 B19/B20 (2026-07-29, self-review of fix/streaming-stuck-thinking; fixed same
 day — originally filed as B14/B15, renumbered on merge because feat/api-tokens
 had concurrently allocated those ids to its design review):

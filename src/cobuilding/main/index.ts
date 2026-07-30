@@ -96,7 +96,7 @@ import {
   migratePlaintextApiSecrets,
   getApiCounters,
 } from './apiStore';
-import { apiProxy, performApiRequest } from './apiProxy';
+import { apiProxy, callerWithGrants, performApiRequest, setToolGrantResolver } from './apiProxy';
 import { API_CATALOG, type ApiConfig } from '../shared/apis';
 import { decryptSecret, encryptSecret, isEncrypted, isEncryptionAvailable } from './secretStore';
 import { processCpuMonitor } from '../../utils/processCpuMonitor';
@@ -2448,6 +2448,36 @@ ipcMain.handle('apis:setAllowWrites', (_event, id: string, allowWrites: boolean)
   setApiAllowWrites(id, allowWrites));
 
 /**
+ * Teach the proxy how to read a tool's granted APIs.
+ *
+ * Registered here because this module owns the workspace path; `apiProxy.ts`
+ * stays free of manifest knowledge. Both doors — the postMessage one below and
+ * the HTTP one in the proxy — resolve grants through this single function, so
+ * a tool's subprocess and its iframe are held to exactly the same list.
+ *
+ * Read from disk on every call rather than cached: revoking a grant in the UI
+ * has to take effect on the next request, not the next launch.
+ */
+setToolGrantResolver((dirName) => {
+  const workspacePath = workspaceController.workspacePath;
+  if (!workspacePath) return [];
+  // Defence in depth — the HTTP door reaches this with a dirName taken from a
+  // token we minted, but the IPC door's comes from the renderer.
+  if (!dirName || dirName.includes('/') || dirName.includes('\\') || dirName.startsWith('.')) {
+    return [];
+  }
+  try {
+    const manifestPath = path.join(workspacePath, '.applications', dirName, 'manifest.json');
+    const parsed = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    return Array.isArray(parsed?.apis)
+      ? parsed.apis.filter((a: unknown): a is string => typeof a === 'string')
+      : [];
+  } catch {
+    return []; // no manifest, or unreadable — no grants, which is the safe read
+  }
+});
+
+/**
  * The mini-app door onto the API proxy (Phase 2).
  *
  * WHY THIS EXISTS AT ALL, rather than handing the iframe the loopback URL: the
@@ -2477,22 +2507,15 @@ ipcMain.handle('apis:request', async (_event, dirName: string, req: {
     const workspacePath = workspaceController.workspacePath;
     if (!workspacePath) return { ok: false, status: 500, error: 'No active workspace.' };
 
-    let granted: string[] = [];
-    try {
-      const manifestPath = path.join(workspacePath, '.applications', dirName, 'manifest.json');
-      const parsed = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-      granted = Array.isArray(parsed?.apis)
-        ? parsed.apis.filter((a: unknown): a is string => typeof a === 'string')
-        : [];
-    } catch { /* no manifest, or unreadable — no grants, which is the safe read */ }
-
     const outcome = await performApiRequest({
       apiId: String(req?.apiId ?? ''),
       method: req?.method ?? 'GET',
       path: req?.path ?? '',
       headers: req?.headers,
       body: req?.body ? new TextEncoder().encode(req.body) : null,
-      caller: { kind: 'miniapp', dirName, grantedApis: granted },
+      // Through the same resolver the HTTP door uses, so the two doors cannot
+      // drift into disagreeing about what a tool has been granted.
+      caller: callerWithGrants({ kind: 'miniapp', dirName }),
     });
 
     if (outcome.error || !outcome.body) {

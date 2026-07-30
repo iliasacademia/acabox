@@ -23,6 +23,7 @@ import {
   type ApiConfig,
   type ApiConfigForUi,
   type ApiCounters,
+  normalizeBaseUrl,
   validateApi,
 } from '../shared/apis';
 import {
@@ -180,7 +181,14 @@ export function upsertApi(
 ): ApiMutationResult {
   const stored = readStoredApis();
   const others = stored.filter((a) => a.id !== originalId);
-  const candidate: ApiConfig = { ...api, id: (api.id ?? '').trim().toLowerCase() };
+  const candidate: ApiConfig = {
+    ...api,
+    id: (api.id ?? '').trim().toLowerCase(),
+    // Canonicalised on the way in so the Settings row shows the URL that will
+    // actually be used. `resolveTargetUrl` normalises again for entries stored
+    // before this existed; see normalizeBaseUrl.
+    baseUrl: normalizeBaseUrl((api.baseUrl ?? '').trim()),
+  };
   const validation = validateApi(candidate, others.map((a) => a.id));
   if (!validation.ok) {
     return { success: false, error: validation.error, apis: listApis() };

@@ -33,7 +33,7 @@ jest.mock('../apiStore', () => ({
   },
 }));
 
-import { apiProxy, performApiRequest } from '../apiProxy';
+import { apiProxy, performApiRequest, setToolGrantResolver } from '../apiProxy';
 
 // ---------------------------------------------------------------------------
 // Test servers
@@ -533,5 +533,200 @@ describe('the loopback server', () => {
   it('404s a request with no API id at all', async () => {
     const res = await call('/', { headers: { [API_PROXY_TOKEN_HEADER]: apiProxy.token()! } });
     expect(res.status).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regressions from the 2026-07-29 self-review (B14, B15, B17, B18).
+// ---------------------------------------------------------------------------
+
+describe('B18 — method-override headers cannot walk through the read-only gate', () => {
+  it.each(['x-http-method-override', 'x-method-override', 'x-http-method'])(
+    'strips %s from a GET to a read-only API',
+    async (header) => {
+      const upstream = await track(echoServer());
+      api({ baseUrl: `${upstream.origin}/`, allowWrites: false });
+
+      const out = await performApiRequest({
+        apiId: 'test', method: 'GET', path: 'thing',
+        headers: { [header]: 'DELETE' },
+        caller: { kind: 'chat' },
+      });
+
+      expect(out.status).toBe(200);
+      // The gate lets GET through; what must not survive is the instruction to
+      // reinterpret it as a DELETE on the far end.
+      expect(upstream.seen[0].headers[header]).toBeUndefined();
+      expect(upstream.seen[0].method).toBe('GET');
+    },
+  );
+});
+
+describe('B17 — a hung upstream cannot hold a turn open forever', () => {
+  it('504s when response headers never arrive, without killing body streaming', async () => {
+    // Never responds. Without a deadline this await would hang for the life of
+    // the process, which is exactly the bug.
+    const black = await track(startServer(() => { /* deliberately silent */ }));
+    api({ baseUrl: `${black.origin}/`, id: 'slow' });
+
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+    try {
+      const pending = performApiRequest({
+        apiId: 'slow', method: 'GET', path: 'x', caller: { kind: 'chat' },
+      });
+      await jest.advanceTimersByTimeAsync(31_000);
+      const out = await pending;
+      expect(out.status).toBe(504);
+      expect(out.error).toMatch(/did not send response headers within 30s/);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does NOT abort a slow BODY once headers have arrived', async () => {
+    // Headers immediately, body dribbled out afterwards. The deadline is on
+    // time-to-headers only, because a multi-gigabyte download to disk is the
+    // case this whole feature exists for.
+    const dribble = await track(startServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.write('start');
+      setTimeout(() => res.end('-end'), 150);
+    }));
+    api({ baseUrl: `${dribble.origin}/`, id: 'dribble' });
+
+    const out = await performApiRequest({
+      apiId: 'dribble', method: 'GET', path: 'x', caller: { kind: 'chat' },
+    });
+    expect(out.status).toBe(200);
+    expect(await bodyText(out.body)).toBe('start-end');
+  });
+});
+
+describe('B15 — path forms that mean the same request are treated the same', () => {
+  it('resolves a LEADING-SLASH path against the base path, not the host root', async () => {
+    const upstream = await track(echoServer());
+    api({ baseUrl: `${upstream.origin}/v2/`, id: 'lead' });
+
+    const withSlash = await performApiRequest({
+      apiId: 'lead', method: 'GET', path: '/entries', caller: { kind: 'chat' },
+    });
+    const without = await performApiRequest({
+      apiId: 'lead', method: 'GET', path: 'entries', caller: { kind: 'chat' },
+    });
+
+    // Before the fix the first of these was a 403 "outside this API's base
+    // path" — the idiomatic REST form failing while the other worked.
+    expect(withSlash.status).toBe(200);
+    expect(without.status).toBe(200);
+    expect(upstream.seen.map((s) => s.url)).toEqual(['/v2/entries', '/v2/entries']);
+  });
+
+  it('resolves against a base URL saved WITHOUT a trailing slash', async () => {
+    const upstream = await track(echoServer());
+    // RFC 3986 would drop the last segment here, silently producing /esearch.
+    api({ baseUrl: `${upstream.origin}/entrez/eutils`, id: 'noslash' });
+
+    const out = await performApiRequest({
+      apiId: 'noslash', method: 'GET', path: 'esearch.fcgi', caller: { kind: 'chat' },
+    });
+    expect(out.status).toBe(200);
+    expect(upstream.seen[0].url).toBe('/entrez/eutils/esearch.fcgi');
+  });
+
+  it('still refuses a PROTOCOL-RELATIVE path, which is a host swap not a path', async () => {
+    const upstream = await track(echoServer());
+    api({ baseUrl: `${upstream.origin}/v2/`, id: 'rel' });
+
+    // Only ONE leading slash is stripped, so `//host/x` stays a host swap and
+    // is judged as one. Against this http (loopback) base the https-only rule
+    // catches it first; the case below is the same swap with the host check
+    // doing the catching. Either way it never leaves the machine.
+    const out = await performApiRequest({
+      apiId: 'rel', method: 'GET', path: '//evil.example.com/x', caller: { kind: 'chat' },
+    });
+    expect(out.status).toBe(403);
+    expect(upstream.seen).toHaveLength(0);
+  });
+
+  it('refuses a protocol-relative host swap on the HOST rule when the base is https', async () => {
+    api({ baseUrl: 'https://api.example.com/v2/', id: 'rel2', allowedHosts: [] });
+
+    const out = await performApiRequest({
+      apiId: 'rel2', method: 'GET', path: '//evil.example.com/x', caller: { kind: 'chat' },
+    });
+    expect(out.status).toBe(403);
+    expect(out.error).toMatch(/evil\.example\.com/);
+  });
+
+  it('still refuses a traversal out of the base path', async () => {
+    const upstream = await track(echoServer());
+    api({ baseUrl: `${upstream.origin}/v2/`, id: 'trav' });
+
+    const out = await performApiRequest({
+      apiId: 'trav', method: 'GET', path: '../../login', caller: { kind: 'chat' },
+    });
+    expect(out.status).toBe(403);
+    expect(upstream.seen).toHaveLength(0);
+  });
+});
+
+describe('B14 — the proxy token IS the caller identity', () => {
+  beforeAll(async () => { await apiProxy.start(); });
+
+  it('issues a DIFFERENT token per caller, stable across asks', () => {
+    const chat = apiProxy.tokenFor({ kind: 'chat' });
+    const toolA = apiProxy.tokenFor({ kind: 'miniapp', dirName: 'toolA' });
+    const toolB = apiProxy.tokenFor({ kind: 'miniapp', dirName: 'toolB' });
+
+    expect(new Set([chat, toolA, toolB]).size).toBe(3);
+    // Stability matters: a long-running child must not be left holding a token
+    // that a later spawn invalidated.
+    expect(apiProxy.tokenFor({ kind: 'miniapp', dirName: 'toolA' })).toBe(toolA);
+    expect(apiProxy.token()).toBe(chat);
+  });
+
+  it('holds a TOOL token to that tool\'s grants over HTTP, not the agent\'s', async () => {
+    const upstream = await track(echoServer());
+    api({ baseUrl: `${upstream.origin}/`, id: 'secret-api' });
+    setToolGrantResolver((dirName) => (dirName === 'granted' ? ['secret-api'] : []));
+
+    const base = apiProxy.baseUrl();
+    const asUngranted = await fetch(`${base}/secret-api/x`, {
+      headers: { [API_PROXY_TOKEN_HEADER]: apiProxy.tokenFor({ kind: 'miniapp', dirName: 'ungranted' })! },
+    });
+    const asGranted = await fetch(`${base}/secret-api/x`, {
+      headers: { [API_PROXY_TOKEN_HEADER]: apiProxy.tokenFor({ kind: 'miniapp', dirName: 'granted' })! },
+    });
+    const asChat = await fetch(`${base}/secret-api/x`, {
+      headers: { [API_PROXY_TOKEN_HEADER]: apiProxy.token()! },
+    });
+
+    // THE REGRESSION: before this, every subprocess — including the one behind
+    // a mini-app's hostAPI.exec() — carried one app-wide token and was served
+    // as the chat agent, so an ungranted tool reached every enabled API.
+    expect(asUngranted.status).toBe(403);
+    expect((await asUngranted.json()).error).toMatch(/has not been granted/);
+    expect(asGranted.status).toBe(200);
+    expect(asChat.status).toBe(200);
+
+    setToolGrantResolver(() => []);
+  });
+
+  it('reads grants fresh per request, so a revoke takes effect immediately', async () => {
+    const upstream = await track(echoServer());
+    api({ baseUrl: `${upstream.origin}/`, id: 'revokable' });
+    const token = apiProxy.tokenFor({ kind: 'miniapp', dirName: 'tool' })!;
+    const hit = () => fetch(`${apiProxy.baseUrl()}/revokable/x`, {
+      headers: { [API_PROXY_TOKEN_HEADER]: token },
+    });
+
+    setToolGrantResolver(() => ['revokable']);
+    expect((await hit()).status).toBe(200);
+
+    // Same token, grant withdrawn — the token carries identity, never grants.
+    setToolGrantResolver(() => []);
+    expect((await hit()).status).toBe(403);
+
+    setToolGrantResolver(() => []);
   });
 });

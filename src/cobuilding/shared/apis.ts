@@ -260,6 +260,31 @@ export type ResolveResult =
   | { ok: false; error: string };
 
 /**
+ * A base URL whose path always ends in `/`.
+ *
+ * `new URL('esearch.fcgi', '…/entrez/eutils')` is `…/entrez/esearch.fcgi` — RFC
+ * 3986 relative resolution replaces the last segment unless the base ends in a
+ * slash. A user who types a base URL without the trailing slash therefore gets
+ * a silently WRONG upstream URL and a 404 nobody can explain from the agent's
+ * transcript. Every catalog entry already ends in `/`; this exists for the
+ * Custom form and for the per-tenant placeholders (Benchling) the user must
+ * edit by hand.
+ *
+ * Applied on save (so the UI shows the canonical value) AND inside
+ * `resolveTargetUrl` (so an entry stored by an earlier build is corrected
+ * without a migration).
+ */
+export function normalizeBaseUrl(raw: string): string {
+  try {
+    const u = new URL(raw);
+    if (!u.pathname.endsWith('/')) u.pathname += '/';
+    return u.href;
+  } catch {
+    return raw; // not a URL; validateApi reports it properly
+  }
+}
+
+/**
  * Resolve a caller-supplied path against an API's base URL and decide whether
  * the result may be requested. Pure, no I/O — this is the function the feature
  * is attacked through, so it is exhaustively unit-tested.
@@ -276,14 +301,30 @@ export function resolveTargetUrl(
 ): ResolveResult {
   let base: URL;
   try {
-    base = new URL(api.baseUrl);
+    // Normalised here as well as on save: an entry written by an earlier build
+    // would otherwise keep resolving against an unslashed base forever.
+    base = new URL(normalizeBaseUrl(api.baseUrl));
   } catch {
     return { ok: false, error: `The API's base URL ("${api.baseUrl}") is not valid.` };
   }
 
+  // A LEADING SLASH is how everyone writes a REST path — it is what the vendor's
+  // own docs show, and what `hostAPI.api.fetch('benchling', '/entries')` reads
+  // naturally as. Left alone it resolves to the HOST ROOT, escaping the API's
+  // base path, and the prefix check below then refuses it: the idiomatic call
+  // fails while the unidiomatic one works. Treat the two as the same request.
+  //
+  // Only a SINGLE leading slash. `//evil.com/x` is protocol-relative — a host
+  // swap, not a path — and must stay intact so the host allow list judges it
+  // rather than having it quietly rewritten into a path segment.
+  const requestedPath = rawPath ?? '';
+  const relativePath = /^\/(?!\/)/.test(requestedPath)
+    ? requestedPath.slice(1)
+    : requestedPath;
+
   let resolved: URL;
   try {
-    resolved = new URL(rawPath ?? '', base);
+    resolved = new URL(relativePath, base);
   } catch {
     return { ok: false, error: `"${rawPath}" is not a valid path or URL.` };
   }
@@ -322,9 +363,8 @@ export function resolveTargetUrl(
   if (resolved.hostname.toLowerCase() === base.hostname.toLowerCase()) {
     // `new URL` has already normalised `..`, so this is a prefix check on a
     // canonical path rather than string munging on attacker-controlled input.
-    const prefix = base.pathname.endsWith('/')
-      ? base.pathname
-      : base.pathname.slice(0, base.pathname.lastIndexOf('/') + 1);
+    // `base` is normalised to end in `/`, so its pathname IS the prefix.
+    const prefix = base.pathname;
     if (!resolved.pathname.startsWith(prefix)) {
       return {
         ok: false,
