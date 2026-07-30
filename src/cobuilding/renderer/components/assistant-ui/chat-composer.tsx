@@ -1,6 +1,7 @@
 import React, { type FC } from 'react';
 import { ComposerPrimitive, AuiIf } from '@assistant-ui/react';
 import { MSymbol } from '../command-desk/MSymbol';
+import { DictationButton } from '../command-desk/DictationButton';
 import { composerAttachmentComponents } from './composer-attachments';
 import { useSetupState } from '../../setupStore';
 
@@ -35,6 +36,7 @@ export const ChatComposer: FC<{ placeholder?: string }> = ({
           rows={1}
           aria-label="Message input"
         />
+        <DictationButton size={16} />
         <AuiIf condition={(s: any) => !s.thread.isRunning}>
           <ComposerPrimitive.Send asChild>
             <button type="button" className="cdPanelComposer__send" aria-label="Send message">

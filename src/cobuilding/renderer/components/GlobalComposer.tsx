@@ -9,6 +9,7 @@ import {
 import { composerAttachmentComponents } from './assistant-ui/composer-attachments';
 import { ModelSelector } from './ModelSelector';
 import { MSymbol } from './command-desk/MSymbol';
+import { DictationButton } from './command-desk/DictationButton';
 import type { FC } from 'react';
 
 /**
@@ -80,6 +81,7 @@ const ComposerBody: FC = () => {
             <MSymbol name="attach_file" size={19} />
           </button>
         </ComposerPrimitive.AddAttachment>
+        <DictationButton />
         <ModelSelector />
         <AuiIf condition={(s: any) => !s.thread.isRunning}>
           <ComposerPrimitive.Send asChild>

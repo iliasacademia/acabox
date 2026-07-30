@@ -12,6 +12,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { registerFileHandlers, assertWithinAllowedDirs } from './fileHandlers';
 import { installExternalLinkGuards } from './externalLinks';
 import { registerSystemStatsHandlers } from './systemStats';
+import { registerDictationHandlers, stopDictation } from './dictationService';
 import { randomUUID } from 'crypto';
 import log from 'electron-log';
 import { createAgentSession } from './agentSession';
@@ -747,6 +748,7 @@ app.whenReady().then(async () => {
 
     registerFileHandlers(() => workspaceController.allAllowedPaths, () => mainWindow);
     registerSystemStatsHandlers();
+    registerDictationHandlers();
     initFileMonitor(() => workspaceController.workspacePath);
     initActivityQuery(() => workspaceController.workspacePath);
     initSessionFiles(() => workspaceController.workspacePath);
@@ -2441,6 +2443,7 @@ app.on('before-quit', () => {
   const steps: [string, () => void][] = [
     ['globalShortcut.unregisterAll', () => globalShortcut.unregisterAll()],
     ['stopFileMonitor', stopFileMonitor],
+    ['stopDictation', stopDictation],
     ['stopScheduledTasks', stopScheduledTasks],
     ['backgroundBuilder.dispose', () => backgroundBuilder.dispose()],
     ['destroyTokenManager', destroyTokenManager],

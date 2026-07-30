@@ -33,6 +33,7 @@ import { useElectronChatAdapter } from './chatAdapter';
 import { sessionListAdapter } from './sessionListAdapter';
 import { useThreadHistoryAdapter } from './threadHistoryAdapter';
 import { createAttachmentAdapter } from './attachmentAdapter';
+import { createHostDictationAdapter } from './hostDictationAdapter';
 import { useSessionSubscription } from './useSessionSubscription';
 import { reloadThreadHistory } from './reloadThreadHistory';
 import DirectoryPermissions from './components/DirectoryPermissions';
@@ -681,8 +682,17 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
         () => createAttachmentAdapter(workspace.directory_path),
         [workspace.directory_path]
       );
+      // On-device dictation. Registering the adapter is also what enables
+      // ComposerPrimitive.Dictate — without it the mic button disables itself,
+      // which is the correct outcome where the helper isn't available.
+      // Errors surface through DictationButton's own event subscription, so
+      // this callback only needs to keep them out of the console silently.
+      const dictation = useMemo(
+        () => createHostDictationAdapter({ onError: (msg) => console.warn('[Dictation]', msg) }),
+        []
+      );
       return useLocalRuntime(chatAdapter, {
-        adapters: { history, attachments },
+        adapters: { history, attachments, dictation },
       });
     },
     adapter: sessionListAdapter,

@@ -763,3 +763,55 @@
   background: #ffffff;
 }
 .cdStatusBar__spacer { flex: 1; }
+
+/* ── Dictation (on-device voice input) ───────────────────────────────────── */
+
+.cdMicBtn {
+  position: relative;
+  flex: none;
+}
+
+/* Live state reads as "this is capturing" rather than "this is selected" —
+   error red is taken, and the blue accent already means "primary action". */
+.cdMicBtn--live {
+  color: var(--cd-error);
+  background: var(--cd-error-bg);
+}
+.cdMicBtn--live:hover {
+  color: var(--cd-error);
+  background: var(--cd-error-bg);
+}
+
+/* Level ring. Scale is driven by --cdMicLevel (0..1), written as an inline
+   style ~12x/second so the meter never goes through a React render. The 0.72
+   floor keeps a visible ring during silence, so the control still reads as
+   live when the user pauses mid-sentence. */
+.cdMicBtn__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  border: 1.5px solid var(--cd-error);
+  opacity: calc(0.35 + (var(--cdMicLevel, 0) * 0.65));
+  transform: scale(calc(0.72 + (var(--cdMicLevel, 0) * 0.28)));
+  transition: transform 90ms ease-out, opacity 90ms ease-out;
+  pointer-events: none;
+}
+
+/* Model download and permission failures. Sits in the composer row rather than
+   a toast: it is about the control the user just pressed, and it must stay
+   readable while they go change a System Settings toggle. */
+.cdMicNotice {
+  font-family: var(--cd-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--cd-text2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+  align-self: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cdMicBtn__ring { transition: none; }
+}

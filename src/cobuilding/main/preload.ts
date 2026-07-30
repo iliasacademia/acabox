@@ -151,6 +151,18 @@ contextBridge.exposeInMainWorld('systemStatsAPI', {
   get: () => ipcRenderer.invoke('stats:get'),
 });
 
+contextBridge.exposeInMainWorld('dictationAPI', {
+  /** Prompt-free capability check — safe to call on mount. */
+  probe: (locale?: string) => ipcRenderer.invoke('dictation:probe', locale),
+  start: (locale?: string) => ipcRenderer.invoke('dictation:start', locale),
+  stop: () => ipcRenderer.invoke('dictation:stop'),
+  onEvent: (callback: (event: unknown) => void) => {
+    const handler = (_e: unknown, event: unknown) => callback(event);
+    ipcRenderer.on('dictation:event', handler);
+    return () => ipcRenderer.removeListener('dictation:event', handler);
+  },
+});
+
 contextBridge.exposeInMainWorld('containerAPI', {
   start: () => ipcRenderer.invoke('container:start'),
   stop: () => ipcRenderer.invoke('container:stop'),

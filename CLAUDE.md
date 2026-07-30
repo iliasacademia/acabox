@@ -145,6 +145,97 @@ to `PATH`.
 
 ## Status (last updated 2026-07-29)
 
+**On-device voice dictation in both chat composers (2026-07-29).** Asked for
+after seeing dictation in the Claude Code IDE extension. **Being built on the
+Agent SDK buys nothing here** — Anthropic has no speech-to-text API and Claude
+accepts no audio input, so the transcript has to come from somewhere else
+entirely.
+- **The browser route is dead in Electron, and this is checked rather than
+  assumed.** `node_modules/electron/dist` ships **no `libsoda` and no SODA model
+  files** (18 `soda_` strings in the framework, zero model assets), so
+  Chromium's on-device path cannot run; the surviving Web Speech path POSTs the
+  microphone to Google, which is disqualifying for an app whose premise is that
+  research data stays local. A runtime probe of `webkitSpeechRecognition` was
+  attempted and **could not be completed** — Electron GUI launches produce no
+  stdout under the agent's shell — so that half is reasoned from the shipped
+  binary, not observed. It doesn't change the decision: even a working Web
+  Speech would be the wrong answer on privacy grounds.
+- **Apple's Speech framework, in a Swift helper.** New
+  `src/cobuilding/swift/dictation-mac/main.swift` — second instance of the
+  existing native-helper pattern (the Rust file monitor is the first). Measured
+  on this machine: `SFSpeechRecognizer` en-US `available=true onDevice=true`
+  across 63 locales, and `SpeechTranscriber` (macOS 26 `SpeechAnalyzer`)
+  **present**, 30 supported locales, 9 installed. Prefers `SpeechTranscriber`
+  with the `.progressiveTranscription` preset (volatile results — plain
+  `.transcription` returns nothing until you stop talking, which reads as a
+  hang), falls back to `SFSpeechRecognizer` below macOS 26. Newline-delimited
+  JSON over stdio both ways.
+- **`--probe` is prompt-free, and that is the load-bearing property.** It
+  reports engine/locale/model/auth while touching neither the microphone nor the
+  recognizer, so a composer can ask "does dictation exist" on mount without
+  nagging. That is what lets the mic button be **absent** rather than
+  present-and-disabled where it can't work — a permanently dead control is worse
+  than no control. Pinned by a test that probes twice and asserts `speechAuth`
+  stays `notDetermined`.
+- **Wired through assistant-ui's own dictation primitives, not around them.**
+  `@assistant-ui/react` already has `ComposerPrimitive.Dictate` /
+  `.StopDictation` and a `DictationAdapter` contract; the shipped
+  `WebSpeechDictationAdapter` is exactly the thing that can't work, so
+  `renderer/hostDictationAdapter.ts` implements the same interface over the
+  helper. Registering it in `useLocalRuntime({adapters})` is also what enables
+  the primitive — with no adapter the hook returns null and the button disables
+  itself, which is the right outcome on a machine with no helper. The runtime
+  snapshots already-typed text as the base, so appending is free.
+- **Transcript ordering is a real trap, now covered.** The helper's `partial`
+  is the whole utterance so far, not a delta (later words revise earlier ones),
+  which matches assistant-ui's "interim replaces the tail" model — marking
+  partials final would concatenate and duplicate. And the final transcript must
+  be delivered via `onSpeech(isFinal:true)` **before** `onSpeechEnd`, because
+  the runtime tears the session down inside `onSpeechEnd`; after it, the user's
+  last words are silently discarded.
+- **Two bugs found by tests, not by reading.** (1) The helper called `exit(0)`
+  straight from the stdin reader, racing in-flight tasks — it could terminate
+  with the audio engine still running and the closing `stopped` unwritten.
+  Shutdown now queues behind the `Session` actor. (2) The window-destroyed
+  cleanup was hung off `app.on('web-contents-created')` inside
+  `registerDictationHandlers()`, which runs **after** `createMainWindow()` — so
+  it would never have fired for the one window that matters. Now attached at
+  ownership time, no ordering dependency.
+- Also: `stop()` waits for the helper's `final` (resolving early cuts the last
+  word) with a 3s timeout so a dead helper can't wedge the composer in
+  "recording"; the helper exits on stdin close so a crashed Acabox can't orphan
+  a process holding the mic; one helper app-wide, kept warm between dictations
+  (~200ms of spawn latency sits right between pressing the mic and being able to
+  talk) and holding no audio device while stopped.
+- Build is **deliberately non-fatal**: no Command Line Tools → no helper → no
+  mic button, rather than a broken `npm start` for everyone. `prestart` builds
+  debug, `premake`/`prepackage` build release; `forge.config.js` ships it via
+  `extraResource` guarded on existence. Added `NSMicrophoneUsageDescription` +
+  `NSSpeechRecognitionUsageDescription` to `extendInfo` and `audio-input` +
+  `speech-recognition` to `entitlements.plist` — the helper is not itself
+  bundled, so TCC resolves the usage strings against Acabox.app as the
+  responsible process, and **omitting either one kills the helper on first use
+  rather than denying it gracefully**.
+- Verified: tsc clean; jest **276/276** (30 new — 6 against the REAL helper
+  binary's stdio protocol, 17 on adapter transcript ordering, 7 rendering the
+  real button through React); smoke test exits 0; `--probe` exercised against
+  en-US, an uninstalled locale (fr-FR), and a bogus one.
+- **NOT verified: a single word has never been dictated.** Every mic-touching
+  path is untested. This was a deliberate choice — driving `start` from the
+  agent's shell would have granted Speech Recognition TCC to the terminal
+  instead of to Acabox, a real change to the machine a test has no business
+  making — and Electron GUI launches produce no output here anyway. **Acceptance
+  test: `npm start`, click the mic in the composer, grant both prompts, speak,
+  and confirm text appears and survives pressing stop.** Until that runs, treat
+  the whole live path as unproven.
+- Known consequence of ad-hoc signing: TCC grants are keyed to a signature that
+  changes on every build, so **auto-update will likely re-prompt for microphone
+  access** — same root cause as the Squirrel designated-requirement problem
+  below. Not fixable without a Developer ID.
+- Not done: macOS-only (consistent with arm64-darwin being the only build), and
+  dictation is not exposed to mini-apps through `window.hostAPI` — composer-only
+  by choice.
+
 **Released v0.1.6 (2026-07-29).** Everything below through the connector OAuth
 pin is shipped. Verified after publishing, not from the release log: the three
 assets carry the right 0.1.6 names/sizes (dmg 187,318,598 · zip 190,210,548 ·

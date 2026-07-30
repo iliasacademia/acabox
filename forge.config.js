@@ -130,12 +130,26 @@ const packagerConfig = {
     ...(platform === 'darwin' && fs.existsSync('src/cobuilding/rust/file-monitor-mac/target/release/file-monitor-mac')
       ? ['src/cobuilding/rust/file-monitor-mac/target/release/file-monitor-mac']
       : []),
+    // On-device dictation helper. Built by `premake`/`prepackage` via
+    // scripts/build-dictation-helper.js, which is deliberately non-fatal — so
+    // guard on existence rather than assuming it. Lands at
+    // <Resources>/dictation-mac; main/dictationService.ts looks there when
+    // app.isPackaged, and reports the feature unavailable if it's absent.
+    ...(platform === 'darwin' && fs.existsSync('src/cobuilding/swift/dictation-mac/build/dictation-mac')
+      ? ['src/cobuilding/swift/dictation-mac/build/dictation-mac']
+      : []),
   ],
   ...(platform === 'darwin' ? {
     extendInfo: {
       NSDesktopFolderUsageDescription: 'Acabox needs access to your Desktop to manage workspace files.',
       NSDocumentsFolderUsageDescription: 'Acabox needs access to your Documents to manage workspace files.',
       NSDownloadsFolderUsageDescription: 'Acabox needs access to your Downloads to manage workspace files.',
+      // Required for voice dictation. The helper binary is not itself bundled,
+      // so TCC resolves both strings against Acabox.app as the responsible
+      // process — omit either one and the helper is killed on first use rather
+      // than being denied gracefully.
+      NSMicrophoneUsageDescription: 'Acabox uses your microphone to dictate messages into the chat composer. Audio is transcribed on this Mac and never leaves it.',
+      NSSpeechRecognitionUsageDescription: 'Acabox transcribes your dictation using macOS on-device speech recognition. Audio is not sent to Apple or to Anthropic.',
     },
   } : {}),
 };

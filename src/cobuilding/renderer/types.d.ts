@@ -499,6 +499,39 @@ declare global {
     onChanged(callback: (all: BuildHealth[]) => void): () => void;
   }
 
+  interface DictationCapabilities {
+    /** False whenever the mic button must not be shown at all. */
+    available: boolean;
+    /** 'transcriber' (macOS 26+) or 'sfspeech'. */
+    engine?: string;
+    locale?: string;
+    /** False means the first dictation downloads a model — say so in the UI. */
+    modelInstalled?: boolean;
+    micAuth?: string;
+    speechAuth?: string;
+    reason?: string;
+  }
+
+  type DictationEvent =
+    | { type: 'hello'; pid: number }
+    | { type: 'ready'; engine: string; locale: string }
+    | { type: 'listening' }
+    | { type: 'installing'; locale: string }
+    | { type: 'installed'; locale: string }
+    | { type: 'partial'; text: string }
+    | { type: 'final'; text: string }
+    | { type: 'level'; rms: number }
+    | { type: 'stopped' }
+    | { type: 'error'; code: string; message: string };
+
+  interface DictationAPI {
+    /** Prompt-free — never raises a TCC dialog, so it is safe on mount. */
+    probe(locale?: string): Promise<DictationCapabilities>;
+    start(locale?: string): Promise<{ ok: boolean; error?: string }>;
+    stop(): Promise<{ ok: boolean }>;
+    onEvent(callback: (event: DictationEvent) => void): () => void;
+  }
+
   interface JobsAPI {
     list(): Promise<ToolJob[]>;
     /** Report work the host can't see for itself (kernel runs, Claude calls). */
@@ -846,6 +879,7 @@ declare global {
     miniAppsAPI: MiniAppsAPI;
     toolDataAPI: ToolDataAPI;
     jobsAPI: JobsAPI;
+    dictationAPI: DictationAPI;
     buildHealthAPI: BuildHealthAPI;
     miniAppMcpAPI: MiniAppMcpAPI;
     reportsAPI: ReportsAPI;

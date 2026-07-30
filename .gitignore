@@ -64,3 +64,6 @@ webview-manager/rust/target/
 
 # Symlink to local mini-apps directory
 src/cobuilding/mini-apps
+
+# Swift dictation helper build output
+src/cobuilding/swift/dictation-mac/build/

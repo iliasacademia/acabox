@@ -28,6 +28,10 @@ try {
   process.exit(1);
 }
 
+// Build the Swift on-device dictation helper. Non-fatal by design: a missing
+// Command Line Tools install costs you the mic button, not `npm start`.
+require('./build-dictation-helper').build({ optimize: false });
+
 // Build the agent server bundle (runs inside the container)
 try {
   console.log('Building agent-server bundle...');
