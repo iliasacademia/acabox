@@ -67,3 +67,8 @@ src/cobuilding/mini-apps
 
 # Swift dictation helper build output
 src/cobuilding/swift/dictation-mac/build/
+
+# Stray webpack main-bundle output that lands at the repo root on some build
+# paths. 4 MB of build artifact; never source.
+/index.js
+/index.js.LICENSE.txt
