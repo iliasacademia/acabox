@@ -6,9 +6,22 @@ import type {
 } from '@assistant-ui/react';
 import { useAui } from '@assistant-ui/react';
 import type { ChatStreamMessage, ChatMessageStream, IPCAttachment } from '../shared/types';
-import { setToolProgress, clearToolProgress, resetProgress, setSubagentStarted, updateSubagentProgress, setSubagentDone, setProcessingLabel } from './progressStore';
+import { setToolProgress, clearToolProgress, resetProgress, setSubagentStarted, updateSubagentProgress, setSubagentDone, setProcessingLabel, RECONNECTING_LABEL } from './progressStore';
 import { track as trackAnalytics } from './coscientistAnalytics';
 import { getSelectedEffort, getSelectedModel } from './components/ModelSelector';
+
+/**
+ * How long a stream may be completely silent before we stop trusting it.
+ *
+ * main emits a `heartbeat` every 15s for the entire life of a session
+ * (`agentSession.ts` HEARTBEAT_INTERVAL_MS), independently of what the model is
+ * doing — so a long think still ticks. Three missed beats therefore means the
+ * delivery path is broken, not that the agent is being slow. Without this the
+ * `await` below is unbounded, which is why a lost terminator produced a
+ * THINKING… that never ended.
+ */
+const STALL_TIMEOUT_MS = 45_000;
+const STALL = Symbol('stall');
 
 export function toAsyncIterable(
   stream: ChatMessageStream,
@@ -33,7 +46,8 @@ export function useElectronChatAdapter(onSend?: () => void): ChatModelAdapter {
   return useMemo(() => createElectronChatAdapter(aui, onSendRef), [aui]);
 }
 
-function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefObject<(() => void) | undefined>): ChatModelAdapter {
+/** Exported for tests: the hook is just a memoized wrapper around this. */
+export function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefObject<(() => void) | undefined>): ChatModelAdapter {
   return {
     async *run({ messages, abortSignal, context }) {
       const lastUserMessage = messages.filter((m) => m.role === 'user').pop();
@@ -139,17 +153,69 @@ function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefObject<(
       const { stream, release } = window.chatAPI.sendMessage(
         threadId, userText, attachments, model, pendingDocPath, messageId, effort,
       );
-      const responseStream = toAsyncIterable(stream);
-
-      const response = responseBuilder();
-      resetProgress();
+      const response = responseBuilder(threadId);
+      resetProgress(threadId);
 
       const onAbort = () => window.chatAPI.stopResponding(threadId);
       abortSignal.addEventListener('abort', onAbort, { once: true });
 
+      let stalled = false;
+
       try {
         let eventCount = 0;
-        for await (const msg of responseStream) {
+        // Exactly one outstanding `next()` at a time. preload's iterator keeps
+        // a SINGLE `resolve` slot (see createStreamIterator), so issuing a
+        // second `next()` while one is pending overwrites it and loses the
+        // wakeup — the stream then goes silent permanently. On a stall we
+        // deliberately keep awaiting the SAME promise.
+        let pendingNext: Promise<{ value: ChatStreamMessage | null; done: boolean }> | null = null;
+        let reconnecting = false;
+
+        while (true) {
+          if (!pendingNext) pendingNext = stream.next();
+
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const stallSignal = new Promise<typeof STALL>((r) => {
+            timer = setTimeout(() => r(STALL), STALL_TIMEOUT_MS);
+          });
+          let raced: { value: ChatStreamMessage | null; done: boolean } | typeof STALL;
+          try {
+            raced = await Promise.race([pendingNext, stallSignal]);
+          } finally {
+            if (timer !== undefined) clearTimeout(timer);
+          }
+
+          if (raced === STALL) {
+            if (abortSignal.aborted) break;
+            const status = await window.chatAPI.getTurnStatus(threadId).catch(() => null);
+            if (abortSignal.aborted) break;
+            if (status?.turnInProgress) {
+              // The host is still working; our pipe just isn't delivering.
+              // Keep the same pending next() (see above) and say so out loud
+              // rather than sitting on an indistinguishable THINKING….
+              console.warn(`[ChatAdapter] No events for ${STALL_TIMEOUT_MS}ms but turn still in progress for ${threadId} — waiting`);
+              if (!reconnecting) {
+                reconnecting = true;
+                setProcessingLabel(threadId, RECONNECTING_LABEL);
+              }
+              continue;
+            }
+            // The turn is over and we never saw its terminator. This is the
+            // stuck-THINKING failure itself: end the run instead of waiting
+            // forever, and ask for a SQLite reconcile so the blocks we missed
+            // appear without the user reloading the app.
+            console.warn(`[ChatAdapter] Stream stalled and turn is over for ${threadId} (sessionAlive=${status?.sessionAlive ?? 'unknown'}) — ending run and reconciling`);
+            stalled = true;
+            break;
+          }
+
+          pendingNext = null;
+          if (raced.done || raced.value === null) break;
+          const msg = raced.value;
+          if (reconnecting) {
+            reconnecting = false;
+            setProcessingLabel(threadId, null);
+          }
           eventCount++;
           if (msg.type !== 'text-delta' && msg.type !== 'thinking-delta' && msg.type !== 'tool-call-args-delta' && msg.type !== 'heartbeat') {
             console.log(`[ChatAdapter] event #${eventCount} type=${msg.type} for ${threadId}`);
@@ -200,7 +266,7 @@ function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefObject<(
         console.log(`[ChatAdapter] Stream loop ended for ${threadId}, total events=${eventCount}`);
       } finally {
         abortSignal.removeEventListener('abort', onAbort);
-        resetProgress();
+        resetProgress(threadId);
         // Free OUR stream iterator's slot. `release` is bound to the
         // iterator returned by sendMessage above — if a takeover
         // force-subscribed mid-turn and replaced it, this call's cleanup
@@ -210,12 +276,23 @@ function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefObject<(
         // (Abort-path already calls markDone via `stopResponding`; this
         // is a no-op in that case.)
         release();
+
+        if (stalled) {
+          // Deferred by a macrotask on purpose: assistant-ui only marks this
+          // message complete AFTER the generator returns, and
+          // `reloadThreadHistory` must not run against a thread that is still
+          // running — `repository.import` re-IDs the tree and would orphan the
+          // in-flight message (see reloadThreadHistory.ts's race note).
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('chat:stream-stalled', { detail: { threadId } }));
+          }, 0);
+        }
       }
     },
   };
 }
 
-export function responseBuilder() {
+export function responseBuilder(threadId?: string) {
   const messages: ThreadAssistantMessagePart[] = [];
 
   let streamingText = '';
@@ -298,7 +375,9 @@ export function responseBuilder() {
         streamingToolCall = null;
         return;
       case 'status':
-        setProcessingLabel((msg as { status?: string }).status || null);
+        // No threadId (calendar surface passes none) means nobody can render
+        // it scoped, so drop it rather than write it somewhere global.
+        if (threadId) setProcessingLabel(threadId, (msg as { status?: string }).status || null);
         return;
 
       case 'text':

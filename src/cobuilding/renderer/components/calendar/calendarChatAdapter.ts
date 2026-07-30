@@ -22,8 +22,8 @@ export function useCalendarChatAdapter(): ChatModelAdapter {
         const { stream, release } = window.chatAPI.sendMessage(THREAD_ID, userText);
         const responseStream = toAsyncIterable(stream);
 
-        const response = responseBuilder();
-        resetProgress();
+        const response = responseBuilder(THREAD_ID);
+        resetProgress(THREAD_ID);
 
         const onAbort = () => window.chatAPI.stopResponding(THREAD_ID);
         abortSignal.addEventListener('abort', onAbort, { once: true });
@@ -36,7 +36,7 @@ export function useCalendarChatAdapter(): ChatModelAdapter {
           }
         } finally {
           abortSignal.removeEventListener('abort', onAbort);
-          resetProgress();
+          resetProgress(THREAD_ID);
           release();
         }
       },

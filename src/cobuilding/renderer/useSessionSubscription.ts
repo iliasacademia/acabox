@@ -67,6 +67,23 @@ export function useSessionSubscription() {
     };
   }, [remoteId]);
 
+  // Recovery net for a stream that died in transit. chatAdapter fires this
+  // when it saw no events for STALL_TIMEOUT_MS *and* main confirmed the turn is
+  // already over — meaning events were emitted while nothing was listening. The
+  // content is safely in SQLite, so pull it rather than making the user reload
+  // the whole app, which was previously the only cure.
+  useEffect(() => {
+    if (!remoteId) return;
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { threadId?: string } | undefined;
+      if (detail?.threadId !== remoteId) return;
+      window.debugAPI.log(`[useSessionSubscription] stream stalled for ${remoteId} — reconciling from SQLite`);
+      void reloadThreadHistory(runtime, remoteId);
+    };
+    window.addEventListener('chat:stream-stalled', handler);
+    return () => window.removeEventListener('chat:stream-stalled', handler);
+  }, [remoteId, runtime]);
+
   useEffect(() => {
     if (!remoteId) return;
 
@@ -98,7 +115,7 @@ export function useSessionSubscription() {
       resetIdleTimer();
 
       const iterable = toAsyncIterable(sub.stream);
-      const response = responseBuilder();
+      const response = responseBuilder(remoteId);
 
       // Resolved by the inner generator on exit. We need to act after the
       // generator finishes — doing the post-turn reload earlier would race
@@ -154,6 +171,14 @@ export function useSessionSubscription() {
         for await (const msg of iterable) {
           if (cancelled) break;
           resetIdleTimer();
+          // A heartbeat is session liveness, not turn content — the agent
+          // emits one every 15s for as long as the session object exists,
+          // including while it sits idle between turns (and for the whole
+          // 5-minute window of an OAuth pin). Treating one as "a foreign turn
+          // started" opens an empty resumeRun that has nothing to stream and
+          // never completes, painting an eternal THINKING… under a thread that
+          // is doing nothing at all.
+          if (msg.type === 'heartbeat') continue;
           startResumeRun(msg);
           break;
         }
@@ -176,7 +201,7 @@ export function useSessionSubscription() {
       // Drops the registry's visibility refcount; local cleanup alone only
       // tears down the renderer stream.
       window.chatAPI.unsubscribe(remoteId);
-      resetProgress();
+      resetProgress(remoteId);
     };
   }, [remoteId, threadRuntime, runtime, subscriptionEpoch]);
 }

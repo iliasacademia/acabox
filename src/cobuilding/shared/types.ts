@@ -101,6 +101,10 @@ export interface ChatAPI {
    *  on this thread. Unlike assistant-ui's `thread.isRunning`, this survives the
    *  renderer's chatAdapter run ending (e.g. when the user navigates away). */
   isTurnInProgress(threadId: string): Promise<boolean>;
+  /** Richer form of `isTurnInProgress`, for the stall watchdog. `sessionAlive`
+   *  distinguishes "the turn ended and the session was evicted" from "there was
+   *  never a session here" — both of which report `turnInProgress: false`. */
+  getTurnStatus(threadId: string): Promise<{ turnInProgress: boolean; sessionAlive: boolean }>;
 }
 
 export interface Workspace {

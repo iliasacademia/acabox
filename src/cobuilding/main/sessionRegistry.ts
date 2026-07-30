@@ -41,6 +41,50 @@ const entries = new Map<string, Entry>();
 // zero subscribers and be destroyed the moment any one of them detached.
 const subscribers = new Map<string, Set<string>>();
 
+// Teardown callbacks that must run when a session object dies, keyed by
+// session id. This exists because the event-forwarding pipe in main/index.ts
+// is attached to a SPECIFIC AgentSession instance: once that instance is
+// destroyed the pipe is inert, and the stale map entry would make
+// `ensureForwarding` short-circuit and never attach to the replacement — a
+// permanently deaf thread. Registering the teardown here is what makes it
+// safe for `removeForwarding` to stop tearing the pipe down itself.
+const destroyHooks = new Map<string, Set<() => void>>();
+
+/**
+ * Run `fn` when the session currently registered under `id` is destroyed or
+ * replaced. Returns an unregister function. Callers MUST unregister when they
+ * tear down for their own reasons, otherwise the hook fires against freed
+ * state later.
+ */
+export function onSessionDestroyed(id: string, fn: () => void): () => void {
+  let set = destroyHooks.get(id);
+  if (!set) {
+    set = new Set();
+    destroyHooks.set(id, set);
+  }
+  set.add(fn);
+  return () => {
+    const current = destroyHooks.get(id);
+    if (!current) return;
+    current.delete(fn);
+    if (current.size === 0) destroyHooks.delete(id);
+  };
+}
+
+function fireDestroyHooks(id: string, reason: string): void {
+  const set = destroyHooks.get(id);
+  if (!set || set.size === 0) return;
+  destroyHooks.delete(id);
+  log.debug(`[SessionRegistry] Running ${set.size} destroy hook(s) for ${id} (${reason})`);
+  for (const fn of [...set]) {
+    try {
+      fn();
+    } catch (err) {
+      log.error(`[SessionRegistry] destroy hook for ${id} threw:`, err);
+    }
+  }
+}
+
 export function registerSession(id: string, session: AgentSession, kind: SessionKind = 'ui'): void {
   const prior = entries.get(id);
   if (prior) {
@@ -51,6 +95,10 @@ export function registerSession(id: string, session: AgentSession, kind: Session
     clearPin(prior, 'session replaced');
     prior.detachDoneListener();
     prior.session.destroy();
+    // The replacement is a different AgentSession instance, so anything bound
+    // to the old one (notably the renderer event pipe) is now inert and must
+    // be told, or it will block re-attachment to the new session.
+    fireDestroyHooks(id, 'session replaced');
   }
 
   const entry: Entry = {
@@ -307,4 +355,7 @@ function destroyEntry(id: string): void {
     log.error(`[SessionRegistry] destroy(${id}) threw:`, err);
     captureError(err, { subsystem: 'agent', extra: { phase: 'session_destroy', session_id: id } });
   }
+  // After destroy(), never before: a hook may want to observe the session's
+  // final state, and none of them can revive it.
+  fireDestroyHooks(id, 'session destroyed');
 }

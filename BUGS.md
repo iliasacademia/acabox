@@ -38,6 +38,42 @@
   frameworks honor to convert a GET into a mutation, bypassing the read-only gate. Unverified which
   catalog APIs honor them; cost to close is three strings.
 
+- **B21** (2026-07-29) — `main/skillStore.ts:869` — the dropped-upstream pass deletes a built-in
+  with a bare `fs.rmSync(skillStorePath(id), {recursive:true, force:true})`, bypassing the
+  `newTrashDir`/`moveInto` route every other destructive op in the module uses (`deleteSkill`
+  :1200, `revertFile` :1290, `revertSkill` :1346) and the module's own rule at :228. Worse, the
+  guard is `modifiedFiles(id, entry).length === 0`, and `modifiedFiles` (:338-353) deliberately
+  skips host-owned paths in both loops — so `references/findings/**`, the accumulated knowledge
+  ledger, is invisible to the very test that decides whether deleting is safe. A skill with a
+  hundred findings and no edits to its shipped files reads "unmodified" and is erased with no
+  trash copy and no warning. **Not reachable on the 0.1.8 release** (no shipped skill directory is
+  removed by this commit, and an upgrading store is seeded fresh from pristine), but it becomes a
+  genuine ship blocker the moment a shipped skill is retired — and `differential-expression` is
+  already recorded in CLAUDE.md as unrunnable and staged for exactly that. Fix before then: route
+  it through the trash, or include host-owned paths in the guard.
+- **B22** (2026-07-29) — `main/knowledge/findingsLedger.ts:585` — the blast-radius grep is
+  `execFileSync`, run once per shared root per superseded id, and `recordFinding`'s body is fully
+  synchronous on the Electron main thread (`agentSession.ts:906` → `:95` awaits the relay handler
+  directly). Roots are the user's real research directories, so once a ledger accumulates citable
+  ids a `record_finding` call freezes the whole UI for the duration. Nothing is lost and it
+  self-resolves, which is why it is not a blocker; it is the highest user-visible risk as ledgers
+  grow. Fix: make the grep async, or cap total wall time across roots and targets, or move it off
+  the main process.
+- **B23** (2026-07-29) — `main/skillStore.ts:765` — `reconcile` iterates ids straight out of
+  `normalizeState` (:288-295), which copies `skills-state.json` keys verbatim with no charset
+  check, and never calls `validateSkillId` — although the guard exists at :941, :962, :1004, :1114
+  and :1452. `skillStorePath` is a bare `path.join`, so a traversal id in a hand-edited state file
+  becomes a recursive delete at boot. Precondition is arbitrary write into userData, which in this
+  app is the agent's already-unrestricted Bash, so there is no privilege escalation — but the
+  guard is one line and belongs here.
+- **B24** (2026-07-29) — `main/skillStore.ts:611-615, :807-812` — adopted and recovered directories
+  arrive enabled, unlike the import path which hardcodes `enabled:false` (:1153) precisely so a
+  skill cannot start influencing the model before the user has looked at it. Same rule should
+  apply to adoption.
+- **B25** (2026-07-29) — `main/index.ts:2406` — `skills:delete` passes an unvalidated id straight
+  to `deleteSkill`, while `skills:reveal` (:2448) validates. Renderer-supplied, so low risk, but
+  gratuitously inconsistent.
+
 - **B12** (2026-07-22, NARROWED 2026-07-29) — **agent-server half is FIXED**: `main/freePort.ts`
   now probes `127.0.0.1` (`LOOPBACK`) and `/health` echoes a per-app-run instance token that
   `isAgentServerHealthy()` requires before adopting a server. **Kernel-gateway half is still open**:
@@ -57,6 +93,26 @@
   (Found by the rename/pollution reviews 2026-07-22; pre-existing, not rename-introduced.)
 
 <!--
+B19/B20 (2026-07-29, self-review of fix/streaming-stuck-thinking; fixed same
+day — originally filed as B14/B15, renumbered on merge because feat/api-tokens
+had concurrently allocated those ids to its design review):
+B19 — `emitEvent` iterated the LIVE listener Set while `emitDone` snapshotted.
+The session registry registers its listener first and the renderer's event pipe
+second, so on the deferred-destroy path the registry handled `turn-complete` by
+destroying the session, which ran the destroy hooks, which deleted the pipe from
+the Set before the iteration reached it — and a Set iterator skips an element
+removed before it is visited. The renderer never received the terminator on
+exactly the navigate-away-mid-turn path the branch fixes, so the run only ended
+via the 45s stall watchdog. Dispatch is now a shared exported
+`dispatchChatEvent` that snapshots; the registry test emits THROUGH it, because
+the reason B19 shipped green was a mock that spread-copied while production did
+not. Verified live afterwards: detach 2s into a real turn, 38 further events
+plus turn-complete still delivered.
+B20 — the processing label was one module-global string, so a stalled
+background thread painted RECONNECTING… onto whichever thread the user was
+viewing. Now a Map keyed by threadId, with `resetProgress(threadId)` scoped to
+match.
+
 B13 (User-Agent WritingAgent→Acabox login-gating concern) is retired: academia
 login was removed entirely (see "Removed academia login" in CLAUDE.md), so there
 is no login/credential fetch left to break. academia:fetch still sends the Acabox
@@ -112,6 +168,18 @@ instant EOF.
   gateway." No privilege gain: the agent already has unrestricted Bash and can curl those loopback
   ports directly, and a mini-app has `hostAPI.exec`. Worth one guard anyway (the proxy should refuse
   to target its own port, to avoid trivial self-recursion), but not a security finding.
+
+- **R11** (2026-07-29) — `main/index.ts:557 (streaming fix)` (`ensureForwarding`) — "now that `removeForwarding`
+  no longer tears down the pipe, `sender.on('destroyed', onSenderGone)` accumulates one listener
+  per visited thread and trips Node's 10-listener `MaxListenersExceededWarning`." Investigated:
+  a pipe's lifetime is bounded by its session's, and a session is destroyed as soon as its last
+  subscriber detaches with no turn running, so concurrent pipes ≈ concurrent live sessions
+  (a handful even with parallel chats; the longest-lived outlier is a 5-minute OAuth pin).
+  Never approaches the limit, and the ceiling is a console warning rather than a fault.
+- **R12** (2026-07-29) — `chatAdapter.ts` stall loop — "a `setTimeout`/`clearTimeout` pair per
+  streamed event (thousands per turn with text deltas) is a hot-path cost." Measured against
+  reality: timer create/clear is sub-microsecond and dwarfed by the IPC hop and React render
+  already happening per event. Not worth complicating the loop with a shared timer.
 
 - **R1** (2026-07-22) — `containerService.ts:129` — "`void prewarmLoginShellPath()` can leak an
   unhandled promise rejection." Not a bug: every await inside the function is wrapped in
