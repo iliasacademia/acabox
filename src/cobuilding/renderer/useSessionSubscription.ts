@@ -115,7 +115,7 @@ export function useSessionSubscription() {
       resetIdleTimer();
 
       const iterable = toAsyncIterable(sub.stream);
-      const response = responseBuilder();
+      const response = responseBuilder(remoteId);
 
       // Resolved by the inner generator on exit. We need to act after the
       // generator finishes — doing the post-turn reload earlier would race
@@ -201,7 +201,7 @@ export function useSessionSubscription() {
       // Drops the registry's visibility refcount; local cleanup alone only
       // tears down the renderer stream.
       window.chatAPI.unsubscribe(remoteId);
-      resetProgress();
+      resetProgress(remoteId);
     };
   }, [remoteId, threadRuntime, runtime, subscriptionEpoch]);
 }

@@ -153,8 +153,8 @@ export function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefO
       const { stream, release } = window.chatAPI.sendMessage(
         threadId, userText, attachments, model, pendingDocPath, messageId, effort,
       );
-      const response = responseBuilder();
-      resetProgress();
+      const response = responseBuilder(threadId);
+      resetProgress(threadId);
 
       const onAbort = () => window.chatAPI.stopResponding(threadId);
       abortSignal.addEventListener('abort', onAbort, { once: true });
@@ -196,7 +196,7 @@ export function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefO
               console.warn(`[ChatAdapter] No events for ${STALL_TIMEOUT_MS}ms but turn still in progress for ${threadId} — waiting`);
               if (!reconnecting) {
                 reconnecting = true;
-                setProcessingLabel(RECONNECTING_LABEL);
+                setProcessingLabel(threadId, RECONNECTING_LABEL);
               }
               continue;
             }
@@ -214,7 +214,7 @@ export function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefO
           const msg = raced.value;
           if (reconnecting) {
             reconnecting = false;
-            setProcessingLabel(null);
+            setProcessingLabel(threadId, null);
           }
           eventCount++;
           if (msg.type !== 'text-delta' && msg.type !== 'thinking-delta' && msg.type !== 'tool-call-args-delta' && msg.type !== 'heartbeat') {
@@ -266,7 +266,7 @@ export function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefO
         console.log(`[ChatAdapter] Stream loop ended for ${threadId}, total events=${eventCount}`);
       } finally {
         abortSignal.removeEventListener('abort', onAbort);
-        resetProgress();
+        resetProgress(threadId);
         // Free OUR stream iterator's slot. `release` is bound to the
         // iterator returned by sendMessage above — if a takeover
         // force-subscribed mid-turn and replaced it, this call's cleanup
@@ -292,7 +292,7 @@ export function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefO
   };
 }
 
-export function responseBuilder() {
+export function responseBuilder(threadId?: string) {
   const messages: ThreadAssistantMessagePart[] = [];
 
   let streamingText = '';
@@ -375,7 +375,9 @@ export function responseBuilder() {
         streamingToolCall = null;
         return;
       case 'status':
-        setProcessingLabel((msg as { status?: string }).status || null);
+        // No threadId (calendar surface passes none) means nobody can render
+        // it scoped, so drop it rather than write it somewhere global.
+        if (threadId) setProcessingLabel(threadId, (msg as { status?: string }).status || null);
         return;
 
       case 'text':

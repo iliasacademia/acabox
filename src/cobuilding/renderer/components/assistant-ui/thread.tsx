@@ -296,7 +296,8 @@ const WorkingIndicator: FC = () => {
     if (!parts || parts.length === 0) return true;
     return parts[parts.length - 1].status?.type !== 'running';
   });
-  const customLabel = useProcessingLabel();
+  const labelThreadId = useAuiState((s: any) => s.threadListItem?.remoteId) as string | undefined;
+  const customLabel = useProcessingLabel(labelThreadId);
   if (!show) return null;
   // A stalled pipe must never look like ordinary thinking — that ambiguity is
   // the entire complaint this indicator caused. When the watchdog reports the

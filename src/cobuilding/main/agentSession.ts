@@ -115,6 +115,33 @@ export interface ChatCallbacks {
   onError: (error: string) => void;
 }
 
+/**
+ * Fan a chat event out to every listener that was registered when the dispatch
+ * began.
+ *
+ * **The snapshot is load-bearing, not defensive style.** Listeners tear each
+ * other down: the session registry's listener handles `turn-complete` by
+ * destroying the session, which runs the destroy hooks, which unregister the
+ * renderer's event-forwarding listener. The registry registers first and the
+ * forwarding pipe second, so iterating the live Set would delete the pipe
+ * before the iteration reached it — a `Set` iterator skips an element removed
+ * before it is visited. The renderer would then never receive the very
+ * `turn-complete` that triggered the teardown, and its run would hang until the
+ * stall watchdog fired 45s later. That was a real bug (B14).
+ *
+ * `emitDone` has always snapshotted for the same reason. Exported so tests can
+ * exercise the real dispatch semantics instead of a hand-rolled mock that
+ * silently disagrees with it — which is exactly how B14 shipped green.
+ */
+export function dispatchChatEvent(
+  listeners: Iterable<Partial<ChatCallbacks>>,
+  msg: ChatStreamMessage,
+): void {
+  for (const listener of [...listeners]) {
+    listener.onEvent?.(msg);
+  }
+}
+
 export interface AgentSession {
   // `messageId` is a renderer-generated UUID that correlates a turn end-to-end.
   // Optional so internal callers (scheduled tasks, calendar) that don't model
@@ -182,9 +209,7 @@ export function createAgentSession(
     if (msg.type !== 'heartbeat') {
       running = true;
     }
-    for (const listener of listeners) {
-      listener.onEvent?.(msg);
-    }
+    dispatchChatEvent(listeners, msg);
   }
 
   const HEARTBEAT_INTERVAL_MS = 15_000;

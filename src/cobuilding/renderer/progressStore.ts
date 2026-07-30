@@ -17,7 +17,12 @@ export interface SubagentProgress {
 
 let toolProgress = new Map<string, ToolProgressEntry>();
 let subagentProgress = new Map<string, SubagentProgress>();
-let processingLabel: string | null = null;
+// Keyed by threadId. A single global label cross-talked: the stall watchdog
+// writes RECONNECTING from a per-thread run, so a background thread that
+// stalled painted RECONNECTING… onto whatever thread the user was actually
+// looking at (B15). Tool/subagent progress stay flat maps — they are keyed by
+// toolCallId, which is already globally unique.
+let processingLabels = new Map<string, string>();
 // Last observed elapsed time for finished tool calls, so completed cards can
 // show a real measured duration for the current renderer session. Not
 // persisted — history rows render without a duration.
@@ -110,24 +115,38 @@ export function setSubagentDone(parentToolCallId: string, status: 'completed' | 
  */
 export const RECONNECTING_LABEL = '__reconnecting__';
 
-export function setProcessingLabel(label: string | null): void {
-  if (processingLabel === label) return;
-  processingLabel = label;
+export function setProcessingLabel(threadId: string, label: string | null): void {
+  const current = processingLabels.get(threadId) ?? null;
+  if (current === label) return;
+  processingLabels = new Map(processingLabels);
+  if (label === null) processingLabels.delete(threadId);
+  else processingLabels.set(threadId, label);
   notify();
 }
 
-function getProcessingLabelSnapshot(): string | null {
-  return processingLabel;
+function getProcessingLabelsSnapshot(): Map<string, string> {
+  return processingLabels;
 }
 
-export function useProcessingLabel(): string | null {
-  return useSyncExternalStore(subscribe, getProcessingLabelSnapshot);
+/** Null for an unknown/absent thread, so a surface with no remoteId yet just
+ *  renders the default indicator rather than another thread's label. */
+export function useProcessingLabel(threadId: string | undefined): string | null {
+  const labels = useSyncExternalStore(subscribe, getProcessingLabelsSnapshot);
+  return threadId ? labels.get(threadId) ?? null : null;
 }
 
-export function resetProgress(): void {
+/** Clears tool/subagent progress, plus the label for `threadId`. Omitting the
+ *  id clears every thread's label — only correct for a surface that owns the
+ *  whole store (no caller does today; pass the id). */
+export function resetProgress(threadId?: string): void {
   toolProgress = new Map();
   subagentProgress = new Map();
-  processingLabel = null;
+  if (threadId === undefined) {
+    processingLabels = new Map();
+  } else if (processingLabels.has(threadId)) {
+    processingLabels = new Map(processingLabels);
+    processingLabels.delete(threadId);
+  }
   notify();
 }
 

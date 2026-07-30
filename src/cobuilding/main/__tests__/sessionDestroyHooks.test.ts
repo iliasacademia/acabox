@@ -19,7 +19,11 @@
  */
 import type { ChatStreamMessage } from '../../shared/types';
 import type { AgentSession, ChatCallbacks } from '../agentSession';
+import { dispatchChatEvent } from '../agentSession';
 
+jest.mock('electron', () => ({
+  app: { getPath: () => '/tmp', isPackaged: false },
+}));
 jest.mock('electron-log', () => ({
   __esModule: true,
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
@@ -45,9 +49,11 @@ function makeSession() {
     get isRunning() { return !state.destroyed; },
     get isTurnInProgress() { return state.turnInProgress; },
   };
-  const emit = (msg: ChatStreamMessage) => {
-    for (const l of [...listeners]) l.onEvent?.(msg);
-  };
+  // Emits through the REAL dispatcher rather than a hand-rolled loop. B14
+  // shipped green because this mock spread-copied the listener Set while
+  // production iterated it live; sharing the implementation makes that class
+  // of divergence impossible.
+  const emit = (msg: ChatStreamMessage) => dispatchChatEvent(listeners, msg);
   return { session, state, emit };
 }
 
@@ -70,6 +76,51 @@ function attachPipe(id: string, session: AgentSession) {
 afterEach(() => {
   destroyAllSessions();
   jest.clearAllMocks();
+});
+
+describe('dispatchChatEvent (B14)', () => {
+  it('still delivers to a listener that an EARLIER listener removed mid-dispatch', () => {
+    const listeners = new Set<Partial<ChatCallbacks>>();
+    const got: string[] = [];
+    const second: Partial<ChatCallbacks> = { onEvent: () => { got.push('second'); } };
+    // Mirrors production ordering: the registry listener is registered first
+    // and tears the forwarding pipe down while handling turn-complete.
+    const first: Partial<ChatCallbacks> = {
+      onEvent: () => { got.push('first'); listeners.delete(second); },
+    };
+    listeners.add(first);
+    listeners.add(second);
+
+    dispatchChatEvent(listeners, { type: 'turn-complete' } as ChatStreamMessage);
+
+    expect(got).toEqual(['first', 'second']);
+    expect(listeners.has(second)).toBe(false); // removal still took effect
+  });
+
+  it('does not deliver to a listener added during the dispatch', () => {
+    const listeners = new Set<Partial<ChatCallbacks>>();
+    const got: string[] = [];
+    const late: Partial<ChatCallbacks> = { onEvent: () => { got.push('late'); } };
+    listeners.add({ onEvent: () => { got.push('early'); listeners.add(late); } });
+
+    dispatchChatEvent(listeners, { type: 'text', text: 'x' } as ChatStreamMessage);
+
+    expect(got).toEqual(['early']);
+  });
+
+  it('one throwing listener does not starve the rest', () => {
+    const listeners = new Set<Partial<ChatCallbacks>>();
+    const got: string[] = [];
+    listeners.add({ onEvent: () => { throw new Error('boom'); } });
+    listeners.add({ onEvent: () => { got.push('survivor'); } });
+
+    // Documents CURRENT behaviour: dispatch is not try/catch-wrapped, so a
+    // throwing listener aborts the fan-out. Every real listener is either a
+    // no-op or wraps its own body, so this has not bitten; if that changes,
+    // wrap the call in dispatchChatEvent rather than at each call site.
+    expect(() => dispatchChatEvent(listeners, { type: 'text', text: 'x' } as ChatStreamMessage)).toThrow('boom');
+    expect(got).toEqual([]);
+  });
 });
 
 describe('onSessionDestroyed', () => {

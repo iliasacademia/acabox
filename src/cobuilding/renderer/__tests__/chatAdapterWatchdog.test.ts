@@ -197,12 +197,12 @@ describe('stall watchdog', () => {
     await jest.advanceTimersByTimeAsync(0);
 
     await jest.advanceTimersByTimeAsync(STALL_MS + 10);
-    expect(setLabel).toHaveBeenCalledWith(RECONNECTING_LABEL);
+    expect(setLabel).toHaveBeenCalledWith('thread-1', RECONNECTING_LABEL);
 
     setLabel.mockClear();
     push({ type: 'text', text: 'back' } as ChatStreamMessage);
     await jest.advanceTimersByTimeAsync(0);
-    expect(setLabel).toHaveBeenCalledWith(null);
+    expect(setLabel).toHaveBeenCalledWith('thread-1', null);
 
     push({ type: 'turn-complete' } as ChatStreamMessage);
     await jest.advanceTimersByTimeAsync(0);

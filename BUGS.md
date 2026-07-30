@@ -12,34 +12,30 @@
 
 ## Outstanding
 
-- **B14** (2026-07-29) — `agentSession.ts:194` (`emitEvent`) vs `sessionRegistry.ts:308`
-  (`destroyEntry` → `fireDestroyHooks`) — `emitEvent` iterates the LIVE `listeners` Set
-  (`for (const listener of listeners)`, no spread copy — unlike `emitDone` at :200 which does
-  copy). The registry's own listener is registered first (`registerSession`) and the renderer
-  forwarding pipe second (`ensureForwarding`), so on the deferred-destroy path the registry's
-  `turn-complete` handler runs first, destroys the session, fires the destroy hook, and deletes
-  the forwarding listener from the Set **before the iteration reaches it**. Per spec a Set
-  iterator skips elements deleted before they are visited (verified). Net effect: the renderer
-  never receives `turn-complete` for exactly the navigate-away-mid-turn case the
-  `fix/streaming-stuck-thinking` work targets, so the run only ends via the 45s stall watchdog.
-  Reproduced with a faithful no-copy mock: pipe received `[]`. Fix: `for (const listener of
-  [...listeners])` in `emitEvent`, matching `emitDone`.
-- **B15** (2026-07-29) — `progressStore.ts:106` / `chatAdapter.ts` stall branch — `processingLabel`
-  is a single module-global, but the stall watchdog writes `RECONNECTING_LABEL` from a per-thread
-  run. A background thread that stalls sets the label for whatever thread the user is currently
-  viewing, so a healthy chat can display `RECONNECTING…`. Realistic given parallel chats. Fix:
-  key the processing label by threadId, or only render it for the thread that set it.
+_None._
 
-- **B12** (2026-07-22) — `containerService.ts:27` (`findFreePort`) vs `agent-server/index.ts:752`
-  and the kernel gateway (`containerService.ts:538`) — the free-port probe binds `0.0.0.0` while
-  the agent server and kernel gateway bind `127.0.0.1`; on macOS the wildcard probe succeeds even
-  when another process holds the same port on loopback (SO_REUSEADDR), so a second app instance
-  (packaged + dev together) picks the same port and, because neither `/health` nor the kernel
-  gateway carries an instance identity, silently cross-attaches to the other instance's server.
-  The pollution review's port-range move (kernel → 23400-23499) only removes overlap with the
-  *original* container-era app; two Acabox instances still collide. Fix direction: probe on
-  `127.0.0.1`, and add a per-instance token to `/health` + `--KernelGatewayApp.auth_token`.
-  (Found by the rename/pollution reviews 2026-07-22; pre-existing, not rename-introduced.)
+<!--
+B12 resolved (verified 2026-07-29, fixed 2026-07-28): the probe was extracted to
+`main/freePort.ts` and now binds `127.0.0.1` (LOOPBACK) — the same bind the
+servers perform — and `/health` echoes a per-app-run `instance` token that
+`isAgentServerHealthy()` must match before adopting a server, so a dev instance
+can no longer drive the packaged app's agent server. The kernel gateway moved to
+23400-23499. The ledger entry had simply gone stale.
+
+B14/B15 resolved same day they were found (self-review of
+fix/streaming-stuck-thinking):
+B14 — `emitEvent` iterated the live listener Set, so the registry's
+turn-complete handler destroyed the session and unregistered the renderer's
+forwarding pipe before the iteration reached it, losing the terminator on
+exactly the navigate-away-mid-turn path the branch fixes. Dispatch is now a
+shared exported `dispatchChatEvent` that snapshots (matching `emitDone`), and
+the registry test emits THROUGH it so mock and production cannot diverge again
+— that divergence is why B14 shipped green.
+B15 — the processing label was one module-global string, so a stalled
+background thread painted RECONNECTING… onto whichever thread the user was
+viewing; it is now a Map keyed by threadId, with `resetProgress(threadId)`
+scoped to match.
+-->
 
 <!--
 B13 (User-Agent WritingAgent→Acabox login-gating concern) is retired: academia
