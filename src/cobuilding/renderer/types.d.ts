@@ -153,6 +153,118 @@ interface ConnectorsAPI {
   removeUnmanaged(): Promise<{ success: boolean; error?: string }>;
 }
 
+/**
+ * Knowledge → Skills. Shapes come from `shared/skills.ts` and the main-side
+ * store; imported as types only so this ambient file stays declaration-only.
+ */
+type SkillDescriptorT = import('../shared/skills').SkillDescriptor;
+type SkillMutationResultT = import('../main/skillStore').SkillMutationResult;
+type RestoreBuiltinsSummaryT = import('../main/skillStore').RestoreBuiltinsSummary;
+type RestoreBuiltinsResultT = import('../main/skillStore').RestoreBuiltinsResult;
+type FindingMetaT = import('../main/knowledge/findingsLedger').FindingMeta;
+type KnowledgeReviewItemT = import('../main/knowledge/omissionWatch').KnowledgeReviewItem;
+type ParsedImportUrlT = import('../main/knowledge/skillImportService').ParsedImportUrl;
+type ImportUrlTargetT = import('../main/knowledge/skillImportService').ImportUrlTarget;
+type ImportRequestT = import('../main/knowledge/skillImportService').ImportRequest;
+type CatalogueResultT = import('../main/knowledge/skillImportService').CatalogueResult;
+type SkillImportPreviewT = import('../main/knowledge/skillImportService').SkillImportPreview;
+type ImportProgressT = import('../main/knowledge/skillImportService').ImportProgress;
+
+/** One row of the findings index: the meta plus the two human columns. */
+type FindingRowT = FindingMetaT & { title: string; rule: string; file: string };
+
+interface SkillsAPI {
+  /**
+   * Every skill in the store, id-sorted, including ones the user removed.
+   * `modified` is UNDEFINED for custom skills — there is nothing to compare
+   * against, so render no chip rather than "unmodified". `findingsCount` is
+   * undefined when the skill has no ledger at all, which is a different state
+   * from an empty one.
+   */
+  list(): Promise<SkillDescriptorT[]>;
+  read(id: string, relPath: string): Promise<{ ok: boolean; content?: string; error?: string }>;
+  write(id: string, relPath: string, content: string): Promise<SkillMutationResultT>;
+  create(id: string, description?: string): Promise<SkillMutationResultT>;
+  remove(id: string): Promise<SkillMutationResultT>;
+  /**
+   * On/off the roster. Not a sandbox — a disabled skill keeps its bytes and its
+   * symlink and stays readable; it stops costing roster characters. `pushed`
+   * reports whether a running agent server took the new roster; false means
+   * none is up, and the next one reads the store anyway.
+   */
+  setEnabled(id: string, enabled: boolean): Promise<SkillMutationResultT & { pushed: boolean }>;
+  /** Take the shipped version of one file. The local copy goes to the trash. */
+  revertFile(id: string, relPath: string): Promise<SkillMutationResultT>;
+  revert(id: string): Promise<SkillMutationResultT>;
+  /** Keep mine: suppress the UPDATE AVAILABLE chip until the NEXT release moves that file. */
+  dismissUpdate(id: string, relPath: string): Promise<SkillMutationResultT>;
+  /** Measured counts for the confirm dialog, so the copy is never prose. */
+  summarizeRestore(): Promise<RestoreBuiltinsSummaryT>;
+  restoreAll(): Promise<RestoreBuiltinsResultT>;
+  reveal(id: string): Promise<{ ok: boolean; error?: string }>;
+
+  // --- Import -------------------------------------------------------------
+  // These REJECT on failure rather than resolving `{ ok: false }`: a rate
+  // limit, a 404 and an unreachable host are accidents with messages already
+  // written for a human, while the `{ ok }` shape above is for store rules.
+  // Electron prefixes a rejection with "Error invoking remote method", so a
+  // caller must strip it before showing the string.
+
+  /**
+   * Resolve a pasted GitHub link to a 40-char commit SHA and classify it. One
+   * `api.github.com` request (zero when the link already names a full SHA);
+   * that endpoint is 60/hour for the whole machine, so never call it on a timer.
+   */
+  parseImportUrl(input: string): Promise<ParsedImportUrlT>;
+  /**
+   * Every skill in the repository, from ONE tarball and zero further API
+   * calls. 21.7 MB and several seconds for `openai/plugins`; cached for the
+   * session against the resolved SHA, so a second pick is free. Progress
+   * arrives on `skills:importProgress` as bytes received — there is no total,
+   * because codeload sends no `content-length`.
+   */
+  fetchCatalogue(target: ImportUrlTargetT): Promise<CatalogueResultT>;
+  /** Stage one skill and describe it, including the `SKILL.md` the model will follow. */
+  previewImport(request: ImportRequestT): Promise<SkillImportPreviewT>;
+  /** Folder picker. Null when the user cancelled. */
+  pickImportFolder(): Promise<string | null>;
+  /**
+   * Commit a staged import. Always lands `enabled: false` — enforced in main,
+   * because an unbudgeted import silently collapses every other skill's roster
+   * line. `asId` renames the store entry only; the skill's own files are never
+   * rewritten.
+   */
+  importSkill(
+    request: ImportRequestT,
+    asId?: string,
+  ): Promise<{ ok: boolean; error?: string; id?: string; skill?: SkillDescriptorT }>;
+  /** Free the unpacked catalogue and any staged trees. Call when the modal closes. */
+  cancelImport(): Promise<void>;
+}
+
+interface KnowledgeAPI {
+  ledger(skill: string): Promise<{
+    skill: string;
+    dir: string;
+    /** False when the skill has no ledger at all — distinct from an empty one. */
+    exists: boolean;
+    bytes: number;
+    /** Copy any surface showing `last_read` MUST carry: it is bucket-granular. */
+    lastReadNote: string;
+    active: FindingRowT[];
+    archived: FindingRowT[];
+  }>;
+  supersede(skill: string, id: string, bySupersedingId?: string): Promise<{ ok: boolean; error?: string }>;
+  listReviews(): Promise<KnowledgeReviewItemT[]>;
+  dismissReview(id: string): Promise<{ ok: boolean }>;
+  /**
+   * The real agent-memory directory. `dir` is null when no workspace is
+   * active; an empty `files` in an active workspace means nothing has written
+   * a memory yet, which is an ordinary state and not an error.
+   */
+  memories(): Promise<{ dir: string | null; files: MemoryFileInfo[] }>;
+}
+
 interface ElectronAPI {
   on(channel: string, callback: (...args: any[]) => void): void;
   removeListener(channel: string, callback: (...args: any[]) => void): void;
@@ -160,6 +272,51 @@ interface ElectronAPI {
 }
 
 declare global {
+  /**
+   * One file in `.academia/agent-memory/`. Everything here is measured off the
+   * file itself or joined against `sessions.sdk_session_id`; there is
+   * deliberately no actor field, because a file changed in Finder is
+   * indistinguishable from one Claude wrote.
+   *
+   * Global (rather than module-scope like the API interfaces above) because the
+   * Knowledge components name the type directly, following `MiniAppEntry`.
+   */
+  interface MemoryFileInfo {
+    file: string;
+    /** `.academia`-relative, i.e. what `academiaFileAPI.read/write` takes. */
+    academiaPath: string;
+    bytes: number;
+    /** mtime, ms since epoch. */
+    changedAt: number;
+    /** Frontmatter `name`. Absent on `about_you.md` / `working_on.md`. */
+    declaredName?: string;
+    description?: string;
+    /** Frontmatter `type` — `project` / `reference` / `feedback` in practice. */
+    type?: string;
+    originSessionId?: string;
+    /** The chat that authored it, when its SDK id still resolves to a live chat. */
+    originChat: { id: string; title: string } | null;
+    /** Whether `MEMORY.md` links to it — i.e. whether it is reachable at all. */
+    indexed: boolean;
+    /** True for `MEMORY.md` itself, which is the index rather than a memory. */
+    isIndex: boolean;
+    frontmatterOk: boolean;
+    frontmatterError?: string;
+  }
+
+  /** Findings-index row, nameable by the components that render the table. */
+  type FindingRow = FindingRowT;
+  /** A Needs-attention row from the omission watch. */
+  type KnowledgeReviewItem = KnowledgeReviewItemT;
+
+  /** Import flow shapes, nameable by the Add-a-skill modal. */
+  type ParsedImportUrl = ParsedImportUrlT;
+  type ImportRequest = ImportRequestT;
+  type CatalogueResult = CatalogueResultT;
+  type CatalogueSkill = CatalogueResultT['skills'][number];
+  type SkillImportPreview = SkillImportPreviewT;
+  type ImportProgress = ImportProgressT;
+
   type PackageRegistry = 'pip' | 'npm' | 'R' | 'apt' | 'manual';
   type PackageState = 'queued' | 'installing' | 'installed' | 'failed';
 
@@ -869,6 +1026,8 @@ declare global {
     jupyterAPI: JupyterAPI;
     authAPI: AuthAPI;
     connectorsAPI: ConnectorsAPI;
+    skillsAPI: SkillsAPI;
+    knowledgeAPI: KnowledgeAPI;
     electronAPI: ElectronAPI;
     reactionPromptAPI: ReactionPromptAPI;
     reactionSourcesAPI: ReactionSourcesAPI;

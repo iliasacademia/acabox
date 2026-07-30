@@ -70,8 +70,10 @@
   margin-top: 4px;
 }
 
+/* #a09880 is the pre-Command-Desk tan; it survived the palette sweep because
+   it sits on :focus and never shows in a screenshot of a resting page. */
 .gsStep__input:focus {
-  border-color: #a09880;
+  border-color: var(--cd-blue, #0645b1);
 }
 
 .gsStep__input::placeholder {

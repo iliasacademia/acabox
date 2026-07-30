@@ -1266,14 +1266,18 @@
   font-size: 14px;
 }
 
+/* --cd-line / --cd-surface / --cd-text1 were never defined anywhere, so this
+   row drew a currentColor border on a transparent background — an outline the
+   same colour as whatever text happened to be inheriting. Repointed at the
+   tokens that do exist in commandDesk.css :root. Grep before adding a var(). */
 .cdActivityRow {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 11px 14px;
-  border: 1px solid var(--cd-line);
+  border: 1px solid var(--cd-border);
   border-radius: 8px;
-  background: var(--cd-surface);
+  background: #fff;
 }
 .cdActivityRow--bad { border-color: var(--cd-error); }
 .cdActivityRow__icon { color: var(--cd-text3); flex: none; }
@@ -1281,7 +1285,7 @@
 .cdActivityRow__title {
   font-size: 14px;
   font-weight: 500;
-  color: var(--cd-text1);
+  color: var(--cd-ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

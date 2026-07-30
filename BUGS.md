@@ -12,7 +12,40 @@
 
 ## Outstanding
 
-- **B12** (2026-07-22) — `containerService.ts:27` (`findFreePort`) vs `agent-server/index.ts:752`
+- **B14** (2026-07-29) — `docs/design/api-tokens.md`, "Why mini-apps do NOT get the loopback URL" —
+  the per-app API grant is bypassable: `hostAPI.exec()` → `container:execLogged`
+  (`index.ts:1019`) → `containerService.exec()` (`:273`) uses `buildSubprocessEnv()` (`:370`), so a
+  mini-app's subprocess inherits `ACABOX_API_TOKEN` and can curl the proxy as the chat caller,
+  reaching every enabled API regardless of its grant. Fix direction: per-caller scoped tokens keyed
+  off the `meta.appDirName` `execLogged` already receives; the token becomes the caller identity.
+- **B15** (2026-07-29) — `docs/design/api-tokens.md`, `resolveTargetUrl` rules 1/4 — a `baseUrl`
+  without a trailing slash silently drops its last path segment, and rule 4's base-path check
+  rejects the leading-slash path form (`/entries`) that the Phase-2 mini-app API and REST docs both
+  produce. Measured on Node. Fix: normalize baseUrl to a trailing `/` at save, strip a leading `/`
+  from the request path, keep rule 4 as a post-normalization `..` guard only.
+- **B16** (2026-07-29) — `docs/design/api-tokens.md`, "The loopback server" — spec says the proxy
+  starts "alongside the agent server", but `startAgentServer` freezes the child env at spawn
+  (`containerService.ts:435`, called from `AgentInfrastructureController.ts:325`). Binding the proxy
+  after that point leaves `ACABOX_API_BASE`/`ACABOX_API_TOKEN` unset for the agent server's whole
+  life, with no error. Invariant to state and test: the proxy's listening lifetime strictly contains
+  the agent server's.
+- **B17** (2026-07-29) — `docs/design/api-tokens.md`, `performApiRequest` — no upstream request
+  timeout is specified, unlike every comparable path here (exec 600s, MCP registry 60s, connector
+  reload 15s). A hung upstream holds the agent's turn open indefinitely. Must not apply to body
+  streaming, which is the feature's justification.
+- **B18** (2026-07-29) — `docs/design/api-tokens.md`, `performApiRequest` step 6 — the caller-header
+  strip list omits `X-HTTP-Method-Override` / `X-Method-Override` / `X-HTTP-Method`, which some REST
+  frameworks honor to convert a GET into a mutation, bypassing the read-only gate. Unverified which
+  catalog APIs honor them; cost to close is three strings.
+
+- **B12** (2026-07-22, NARROWED 2026-07-29) — **agent-server half is FIXED**: `main/freePort.ts`
+  now probes `127.0.0.1` (`LOOPBACK`) and `/health` echoes a per-app-run instance token that
+  `isAgentServerHealthy()` requires before adopting a server. **Kernel-gateway half is still open**:
+  `containerService.ts:811-815` spawns the gateway with `--KernelGatewayApp.allow_origin=*` and no
+  `--KernelGatewayApp.auth_token`, and `isKernelGatewayHealthy()` carries no instance identity, so
+  two Acabox instances picking from the shared 23400-23499 range can still cross-attach to each
+  other's kernel. Original entry below for context.
+  `containerService.ts:27` (`findFreePort`) vs `agent-server/index.ts:752`
   and the kernel gateway (`containerService.ts:538`) — the free-port probe binds `0.0.0.0` while
   the agent server and kernel gateway bind `127.0.0.1`; on macOS the wildcard probe succeeds even
   when another process holds the same port on loopback (SO_REUSEADDR), so a second app instance
@@ -66,6 +99,19 @@ instant EOF.
 -->
 
 ## Rejected
+
+- **R9** (2026-07-29) — `docs/design/api-tokens.md` — "the API write gate can't be a real boundary,
+  because the agent has unrestricted auto-approved Bash and there is no `canUseTool` handler." Not a
+  bug **for the agent**: API secrets are `safeStorage`-encrypted (`main/secretStore.ts`), so a Bash
+  subprocess cannot decrypt them and the proxy is the only route to a usable credential — a refused
+  method is refused absolutely. This is genuinely unlike `block-secret-reads.sh`. Note the claim does
+  NOT extend to mini-apps, where `exec` is arbitrary code execution; that half is B14.
+- **R10** (2026-07-29) — `docs/design/api-tokens.md` — "the loopback exception in `validateApi`
+  (inherited from `connectors.ts#isLoopbackHost`) lets a user register a custom API pointed at
+  `127.0.0.1`, turning the proxy into an SSRF gadget against Acabox's own agent server and kernel
+  gateway." No privilege gain: the agent already has unrestricted Bash and can curl those loopback
+  ports directly, and a mini-app has `hostAPI.exec`. Worth one guard anyway (the proxy should refuse
+  to target its own port, to avoid trivial self-recursion), but not a security finding.
 
 - **R1** (2026-07-22) — `containerService.ts:129` — "`void prewarmLoginShellPath()` can leak an
   unhandled promise rejection." Not a bug: every await inside the function is wrapped in

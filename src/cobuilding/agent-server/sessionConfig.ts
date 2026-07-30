@@ -17,6 +17,21 @@ export interface AgentConfig {
   effort?: string;
   systemPrompt: unknown;
   allowedTools: string[];
+  /**
+   * Store ids of the skills allowed onto the roster, from
+   * `shared/skills.ts#buildSkillRuntimeConfig`. Passed straight through as the
+   * SDK's `Options.skills`.
+   *
+   * This is the roster BUDGET ALLOCATOR, not a sandbox: an omitted skill keeps
+   * its bytes and its `<workspace>/.claude/skills/<id>` symlink and is still
+   * reachable by `Read`, it just stops costing roster characters. Omit the
+   * field entirely (rather than sending `[]`) to mean "no SDK configuration,
+   * load everything the CLI discovers" — `[]` would be an empty allowlist,
+   * which is a very different thing.
+   *
+   * Replaceable at runtime via `POST /skills`; takes effect on the next session.
+   */
+  skills?: string[];
   settingSources: string[];
   soulMd?: string;
   docxGuidance?: string;

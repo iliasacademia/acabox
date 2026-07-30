@@ -34,6 +34,7 @@ import { z } from 'zod';
 import { AGENT_MEMORY_SUBDIR } from '../shared/paths';
 import { OAUTH_FLOW_WINDOW_MS } from '../shared/oauthWindow';
 import { replaceConnectorAllowedTools } from '../shared/connectors';
+import { assertKnowledgeToolAllowed } from '../shared/agentAllowedTools';
 import { mergeSessionConfig, filterMcpServers, type AgentConfig, type SessionOverrides } from './sessionConfig';
 import { ensureApiKeyApproved } from '../shared/claudeConfigApproval';
 
@@ -280,6 +281,34 @@ function createMcpRelayServers(state: SessionState) {
       ],
     }),
 
+    // The compounding-knowledge loop's writer. The HOST writes the ledger, not
+    // the model: `Edit` requires a prior `Read`, so appending one line to a
+    // 40 KB findings file would cost 40 KB of context, while a tool call costs
+    // only the arguments. The host also stamps the session id and date with no
+    // model cooperation, and runs the blast-radius grep — the field a model
+    // under time pressure skips, and the one that turns an invisible six-way
+    // inconsistency into a checklist.
+    knowledge: createSdkMcpServer({
+      name: 'knowledge',
+      tools: [
+        tool('record_finding',
+          'Record a durable finding about a DATA SOURCE, SYSTEM or PROCEDURE into a skill\'s findings ledger — a table that silently returns zero rows, a join that works, a query form that avoids a timeout, an API quirk. Call this the moment you learn something that would have saved you time had you known it at the start of the turn, BEFORE you finish the turn. Do not write such facts as memory files: memories are recalled probabilistically and cannot carry a .sql file, whereas findings are read deliberately by the skill that owns the domain. This tool never refuses a write — if you are unsure whether a fact is already recorded, record it anyway and let the host relate the two.',
+          {
+            skill: z.string().describe('Store id of the skill that owns this domain (the directory name under .claude/skills/, e.g. "coscientist-analytics").'),
+            title: z.string().describe('Short headline, <= 80 chars. Longer titles are truncated, not rejected.'),
+            rule: z.string().describe('What to do differently next time, in one or two sentences. This is the only text carried into the index and the digest, so make it actionable on its own.'),
+            evidence: z.string().describe('What you actually measured — the query, the row counts, the error. Numbers, not impressions.'),
+            cost_if_unknown: z.string().optional().describe('What goes wrong for someone who does not know this. Usually the reason it is worth recording.'),
+            scope: z.array(z.string()).optional().describe('Tables, systems or endpoints this applies to (e.g. ["public.users"]). Drives which bucket file the entry lands in, so keep it consistent across related findings.'),
+            supersedes: z.array(z.string()).optional().describe('Ids of findings this one corrects (e.g. ["F-006"]). Triggers archival of the old entry and a grep for other places the old belief is written down.'),
+            confirms: z.array(z.string()).optional().describe('Ids of findings this one independently re-confirms.'),
+            blast_radius: z.array(z.string()).optional().describe('Other files you know assert the superseded belief. The host greps for more; anything you already know goes here.'),
+          },
+          relay('knowledge', 'record_finding'),
+        ),
+      ],
+    }),
+
     workspace: createSdkMcpServer({
       name: 'workspace',
       tools: [
@@ -348,8 +377,38 @@ function createMessageQueue<T>(): MessageQueue<T> {
 
 const sessions = new Map<string, SessionState>();
 
+/**
+ * Where a durable fact goes. Appended unconditionally, alongside the guidance
+ * strings, because at the moment of discovery the model is holding a competing
+ * instruction: the SDK's own `# auto memory` section, which is present on EVERY
+ * turn whenever `autoMemoryEnabled` is true. A `record_finding` instruction that
+ * lives only in a `SKILL.md` is strictly weaker — it is in context only if that
+ * skill happened to activate. Two live instructions pointing at the same fact,
+ * with nothing arbitrating, resolve to the cheaper and more familiar path:
+ * another memory file. This is the arbitration.
+ */
+const KNOWLEDGE_ROUTING_GUIDANCE = `## Where knowledge goes
+
+Two durable stores, and they are not interchangeable.
+
+- A fact about the USER, or about how to talk to them → write a memory file, as
+  the auto-memory section above describes.
+- A fact about a DATA SOURCE, A SYSTEM, OR A PROCEDURE — a table that silently
+  returns zero rows, a join that works, a query form that avoids a timeout, an
+  API quirk — → call mcp__knowledge__record_finding. Do NOT write it as a memory.
+  Memories are recalled probabilistically and cannot carry a .sql file; findings
+  are read deliberately by the skill that owns the domain.
+
+If you learned something in this turn that would have saved you time had you
+known it at the start, record it BEFORE you finish the turn.`;
+
 function buildSystemPrompt(config: AgentConfig): unknown {
-  const appendParts = [config.soulMd, config.docxGuidance, config.workspaceDirectoriesGuidance].filter(Boolean).join('\n\n');
+  const appendParts = [
+    config.soulMd,
+    config.docxGuidance,
+    config.workspaceDirectoriesGuidance,
+    KNOWLEDGE_ROUTING_GUIDANCE,
+  ].filter(Boolean).join('\n\n');
   if (typeof config.systemPrompt === 'object' && config.systemPrompt !== null) {
     return { ...config.systemPrompt, append: appendParts } as unknown;
   }
@@ -470,9 +529,28 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
           CLAUDE_CONFIG_DIR: getClaudeConfigDir(),
         },
         settingSources: sessionConfig.settingSources as any[],
+        // Which skills are loaded into the roster. The `!== undefined` is
+        // load-bearing: `[]` is a real, honoured answer (the user disabled
+        // everything), while OMITTING the field means "no SDK configuration,
+        // keep whatever the CLI discovers" — the safe fallback for a config
+        // written before this field existed. A truthiness check would collapse
+        // the two and silently turn "all off" into "all on".
+        ...(sessionConfig.skills !== undefined ? { skills: sessionConfig.skills } : {}),
         settings: {
           autoMemoryEnabled: true,
           autoMemoryDirectory: `${getWorkspaceRoot()}/${AGENT_MEMORY_SUBDIR}`,
+          // The dream pass runs with Edit/Write/rm inside the memory dir, is
+          // told CLAUDE.md wins over any contradicting memory, and cannot tell
+          // hand-authored bytes from generated ones. Acabox runs the non-tiny
+          // regime, where in-place Edit is permitted, and ships a large
+          // workspace CLAUDE.md. Off until memories are pinnable.
+          autoDreamEnabled: false,
+          // Roster budget = contextTokens × 4 × fraction. At 200k tokens the 1%
+          // default is 8,000 chars; the 21 shipped skills alone need ~10,575,
+          // so descriptions were being silently truncated before a single
+          // import — and the ones truncated first are the long, carefully
+          // written ones that exist to catch oblique questions. 5% = 40,000.
+          skillListingBudgetFraction: 0.05,
         },
         // Acabox's relay servers plus the user's connectors. Connector ids are
         // validated host-side against RESERVED_CONNECTOR_IDS, so a connector
@@ -658,6 +736,7 @@ function parseRoute(url: string): { path: string; sessionId?: string; action?: s
     if (parts.length === 1) return { path: 'connectors' };
     if (parts.length === 2 && parts[1] === 'status') return { path: 'connectors-status' };
   }
+  if (parts[0] === 'skills' && parts.length === 1) return { path: 'skills' };
   if (parts[0] === 'sessions') {
     if (parts.length === 1) return { path: 'sessions' };
     if (parts.length === 3) return { path: 'session-action', sessionId: parts[1], action: parts[2] };
@@ -737,6 +816,16 @@ async function applyConnectorsToSession(
 }
 
 function startServer(initialConfig: AgentConfig): void {
+  // Boot assertion, same shape as the IDLE_EVICTION_MS check above and for the
+  // same reason: the failure it guards is invisible. `filterMcpServers` drops
+  // any relay server with no matching `mcp__<name>__*` entry, so a config
+  // without this one attaches no `knowledge` server, `record_finding` does not
+  // exist as far as the model is concerned, and the ledger silently never
+  // grows. The host builds the list through `buildAgentAllowedTools`, which
+  // throws too — so reaching this means a hand-written or stale agent.json,
+  // which is exactly the case that would otherwise go unnoticed for weeks.
+  assertKnowledgeToolAllowed(initialConfig.allowedTools ?? []);
+
   let currentConfig = initialConfig;
 
   const server = createServer(async (req, res) => {
@@ -816,6 +905,26 @@ function startServer(initialConfig: AgentConfig): void {
           + `auto-approve=[${(currentConfig.allowedTools ?? []).filter((t) => t.startsWith('mcp__') && !t.slice(5).includes('__')).join(', ')}]`,
         );
         sendJSON(res, 200, { ok: true, applied });
+        return;
+      }
+
+      // Replace the roster allowlist. Unlike connectors, this CANNOT be pushed
+      // into a live session: `skills` is a `query()` option, fixed for the
+      // lifetime of the CLI subprocess, and the SDK exposes no setter. It takes
+      // effect on the next session — which in this app is the next turn, since
+      // the host destroys the session at every turn end.
+      if (route.path === 'skills' && req.method === 'POST') {
+        const body = JSON.parse(await readBody(req));
+        const skills = Array.isArray(body.skills)
+          ? body.skills.filter((s: unknown): s is string => typeof s === 'string' && s.length > 0)
+          : null;
+        if (!skills) {
+          sendJSON(res, 400, { error: 'skills must be an array of strings' });
+          return;
+        }
+        currentConfig = { ...currentConfig, skills };
+        console.log(`[AgentServer] Skill roster updated: ${skills.length} skill(s) — [${skills.join(', ')}]`);
+        sendJSON(res, 200, { ok: true, skills });
         return;
       }
 

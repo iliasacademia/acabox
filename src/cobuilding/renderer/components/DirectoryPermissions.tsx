@@ -14,10 +14,12 @@ interface DirectoryPermissionsProps {
   onClose: () => void;
   onSaved: (ws: Workspace) => void;
   onDirectoriesChanged?: (dirs: WorkspaceDirectory[]) => void;
+  /** Jump to the Knowledge page, which shows every memory rather than these two. */
+  onOpenKnowledge?: () => void;
   inline?: boolean;
 }
 
-const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, userDirectories, onClose, onDirectoriesChanged, inline }) => {
+const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, userDirectories, onClose, onDirectoriesChanged, onOpenKnowledge, inline }) => {
   const [localDirs, setLocalDirs] = useState<WorkspaceDirectory[]>(userDirectories);
   const [dirError, setDirError] = useState<string | null>(null);
   const [togglingDirId, setTogglingDirId] = useState<string | null>(null);
@@ -254,10 +256,26 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
         </section>
 
         <section className="wsSettings__section">
-          <p className="wsSettings__sectionLabel">Researcher profile</p>
+          {/* This section used to be headed "Researcher profile" over copy that
+              read as though these two files were everything Claude remembers.
+              They are two files in a directory Claude writes to itself, and it
+              had grown to ten. Naming exactly which two, and pointing at the
+              page that shows the rest, is the whole correction. */}
+          <p className="wsSettings__sectionLabel">About you</p>
           <div className="wsSettings__sectionCard">
             <p className="wsSettings__hint">
-              How the AI understands you and your current work. Saved to .academia/agent-memory/.
+              Two files Claude reads to know who you are and what you are working on:{' '}
+              <code>about_you.md</code> and <code>working_on.md</code>, in{' '}
+              <code>.academia/agent-memory/</code>. Claude writes other memories into that same
+              directory on its own, and they are not shown here.
+              {onOpenKnowledge && (
+                <>
+                  {' '}
+                  <button type="button" className="connectorLink" onClick={onOpenKnowledge}>
+                    See everything Claude has learned &rarr;
+                  </button>
+                </>
+              )}
             </p>
 
             <div className="wsSettings__field">

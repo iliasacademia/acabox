@@ -1,0 +1,551 @@
+/* Knowledge page.
+   Deliberately small: the rows are `.connectorRow` from ConnectorsSettings.css,
+   the page frame is `.pageShell` / `.toolsSection` / `.toolsAskCard` from
+   App.css, the modal shell is `.toolsConfirmOverlay` + `.savedFileViewer`, and
+   the editor is `.wsSettings__textarea`. Only what is genuinely new lives here.
+   Design tokens from commandDesk.css; DM Sans for prose, IBM Plex Mono for
+   anything the user could paste into a terminal. */
+
+/* ── Row additions ─────────────────────────────────────────────── */
+
+.knowledgeRow__nameBtn {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.knowledgeRow__nameBtn:hover { color: var(--cd-blue, #0645b1); }
+
+/* The frontmatter `name` when it disagrees with the directory name. Rendered
+   quieter than the id on purpose: the id is what Claude actually types. */
+.knowledgeRow__alias {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 11.5px;
+  font-weight: 400;
+  font-style: italic;
+  color: var(--cd-text3, #91919e);
+}
+
+.knowledgeChip--off {
+  color: var(--cd-text3, #91919e);
+  border-color: var(--cd-border, #dddde2);
+  background: #f7f7f9;
+}
+
+.knowledgeChip--warn {
+  color: var(--cd-error, #b60000);
+  border-color: rgba(182, 0, 0, 0.35);
+  background: var(--cd-error-bg, #fff2f2);
+}
+
+.knowledgeChip--good {
+  color: var(--cd-blue, #0645b1);
+  border-color: rgba(6, 69, 177, 0.3);
+  background: var(--cd-pale, #f4f7fc);
+}
+
+.knowledgeRow__desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.knowledgeRow__chatLink {
+  font: inherit;
+  color: var(--cd-blue, #0645b1);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.knowledgeRow__chatLink:hover { text-decoration: underline; }
+
+/* The pinned commit, hyperlinked to the exact tree. `externalLinks` cancels the
+   navigation and opens the default browser, so a plain href is right here. */
+.knowledgeRow__shaLink {
+  color: var(--cd-blue, #0645b1);
+  text-decoration: none;
+}
+
+.knowledgeRow__shaLink:hover { text-decoration: underline; }
+
+/* ── Sections ──────────────────────────────────────────────────── */
+
+.knowledgeEmpty {
+  padding: 16px 14px;
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 12.5px;
+  color: var(--cd-text3, #91919e);
+  background: #fff;
+}
+
+.knowledgeAttention {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.knowledgeSectionFoot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.knowledgeSectionFoot__note {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 11.5px;
+  color: var(--cd-text3, #91919e);
+  line-height: 1.45;
+}
+
+.knowledgeConnectorLink { margin-bottom: 36px; }
+
+/* ── Add-a-skill modal ─────────────────────────────────────────── */
+
+.knowledgeAddModal {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  width: 560px;
+  max-width: 94vw;
+  padding: 24px;
+}
+
+.knowledgeAddModal .connectorField__help code {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 10.5px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 2px;
+  padding: 1px 3px;
+}
+
+/* Import carries a 600-row picker and a whole SKILL.md, so it gets the width
+   and a scroll ceiling. Capped against the viewport rather than a fixed pixel
+   height so the actions never fall off the bottom of a laptop screen. */
+.knowledgeAddModal--import {
+  width: 760px;
+  max-height: 86vh;
+  overflow-y: auto;
+}
+
+.knowledgeAddModal__modes {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--cd-border-soft, #ebebee);
+}
+
+/* ── Import: URL step ──────────────────────────────────────────── */
+
+.knowledgeImport__urlRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.knowledgeImport__urlRow .connectorField__input { flex: 1; min-width: 0; }
+
+.knowledgeImport__localRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  border-top: 1px solid var(--cd-border-soft, #ebebee);
+  padding-top: 14px;
+}
+
+.knowledgeImport__localHelp {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 11.5px;
+  color: var(--cd-text3, #91919e);
+  line-height: 1.45;
+}
+
+/* ── Import: source line ───────────────────────────────────────── */
+
+.knowledgeImport__source {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 11px;
+  color: var(--cd-text2, #535366);
+}
+
+.knowledgeImport__repo { color: var(--cd-ink, #141413); font-weight: 500; }
+.knowledgeImport__sha { color: var(--cd-blue, #0645b1); }
+.knowledgeImport__cost { color: var(--cd-text3, #91919e); }
+
+/* ── Import: catalogue picker ──────────────────────────────────── */
+
+.knowledgeImport__list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--cd-border-soft, #ebebee);
+  border-radius: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.knowledgeImport__item {
+  text-align: left;
+  background: #fff;
+  border: none;
+  border-bottom: 1px solid var(--cd-border-soft, #ebebee);
+  padding: 9px 12px;
+  cursor: pointer;
+}
+
+.knowledgeImport__item:last-child { border-bottom: none; }
+.knowledgeImport__item:hover:not(:disabled) { background: var(--cd-pale, #f4f7fc); }
+.knowledgeImport__item:disabled { opacity: 0.5; cursor: default; }
+
+.knowledgeImport__itemHead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.knowledgeImport__itemName {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cd-ink, #141413);
+}
+
+/* One line: a roster description runs to 900+ characters and would bury every
+   other row in the picker. The whole string is on the hover title. */
+.knowledgeImport__itemDesc {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 11.5px;
+  color: var(--cd-text2, #535366);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledgeImport__itemPath {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 10px;
+  color: var(--cd-text3, #91919e);
+  margin-top: 3px;
+}
+
+.knowledgeImport__count {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cd-text3, #91919e);
+  margin: 0;
+}
+
+/* ── Import: preview ───────────────────────────────────────────── */
+
+.knowledgeImport__desc {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 12.5px;
+  color: var(--cd-text2, #535366);
+  line-height: 1.5;
+}
+
+.knowledgeImport__facts {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  color: var(--cd-text3, #91919e);
+}
+
+.knowledgeImport__factWarn { color: var(--cd-error, #b60000); }
+
+.knowledgeImport__execList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 10.5px;
+  color: var(--cd-error, #b60000);
+}
+
+.knowledgeImport__stripped,
+.knowledgeImport__warn {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--cd-text2, #535366);
+  background: var(--cd-pale, #f4f7fc);
+  border-left: 2px solid var(--cd-busy, #fecf4c);
+  padding: 8px 10px;
+  margin: 0;
+}
+
+/* The one paragraph on this page that is deliberately loud. It is the whole
+   safety position, and softening it visually would soften it. */
+.knowledgeImport__disclosure {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--cd-ink, #141413);
+  background: var(--cd-error-bg, #fff2f2);
+  border-left: 2px solid var(--cd-error, #b60000);
+  padding: 10px 12px;
+  margin: 0;
+}
+
+.knowledgeImport__disclosure code {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 2px;
+  padding: 1px 3px;
+}
+
+.knowledgeImport__body {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--cd-text1, #141413);
+  background: #fbfbfc;
+  border: 1px solid var(--cd-border-soft, #ebebee);
+  border-radius: 4px;
+  padding: 10px 12px;
+  margin: 0;
+  max-height: 300px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.knowledgeImport__busy {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  color: var(--cd-text3, #91919e);
+  margin: 0;
+}
+
+/* ── Detail modal ──────────────────────────────────────────────── */
+
+/* Wider than the saved-file viewer it inherits from: the findings table is six
+   columns and wraps unreadably at 860. */
+.knowledgeDetail { width: 900px; }
+
+.knowledgeDetail__tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--cd-border-soft, #ebebee);
+  flex-shrink: 0;
+}
+
+.knowledgeDetail__tab {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--cd-text3, #91919e);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 8px 10px;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+
+.knowledgeDetail__tab:hover { color: var(--cd-text2, #535366); }
+
+.knowledgeDetail__tab--active {
+  color: var(--cd-blue, #0645b1);
+  border-bottom-color: var(--cd-blue, #0645b1);
+}
+
+.knowledgeDetail__body { padding: 16px 20px; }
+
+.knowledgeDetail__note {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 11.5px;
+  color: var(--cd-text3, #91919e);
+  line-height: 1.5;
+  margin: 12px 0 0;
+}
+
+/* The frontmatter shown as itself rather than as prose. It is the only part of
+   the file the model sees before deciding to load the skill, so it earns its
+   own pane instead of being swallowed by the markdown renderer. */
+.knowledgeFm {
+  border: 1px solid var(--cd-border-soft, #ebebee);
+  border-radius: 4px;
+  background: #fbfbfc;
+  padding: 8px 10px;
+  margin-bottom: 14px;
+}
+
+.knowledgeFm__label {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cd-text3, #91919e);
+  margin-bottom: 5px;
+}
+
+.knowledgeFm__body {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--cd-text2, #535366);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+
+.knowledgeDetail__editWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+}
+
+/* `--mono` in spirit: a SKILL.md is markdown the model parses literally, so
+   proportional text hides the indentation that changes its meaning. */
+.knowledgeDetail__editor {
+  flex: 1;
+  min-height: 340px;
+  width: 100%;
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  resize: none;
+}
+
+.knowledgeConflict {
+  border: 1px solid rgba(182, 0, 0, 0.25);
+  background: var(--cd-error-bg, #fff2f2);
+  border-radius: 4px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.knowledgeConflict__title {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cd-error, #b60000);
+}
+
+.knowledgeConflict__body {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 12px;
+  color: var(--cd-text2, #535366);
+  line-height: 1.5;
+}
+
+.knowledgeConflict__actions { display: flex; gap: 8px; }
+
+/* ── Findings tab ──────────────────────────────────────────────── */
+
+.knowledgeFindings__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 12.5px;
+}
+
+.knowledgeFindings__table th {
+  text-align: left;
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cd-text3, #91919e);
+  padding: 0 10px 6px 0;
+  border-bottom: 1px solid var(--cd-border-soft, #ebebee);
+}
+
+.knowledgeFindings__table td {
+  padding: 9px 10px 9px 0;
+  border-bottom: 1px solid var(--cd-border-soft, #ebebee);
+  vertical-align: top;
+}
+
+.knowledgeFindings__row { cursor: pointer; }
+.knowledgeFindings__row:hover { background: var(--cd-pale, #f4f7fc); }
+
+.knowledgeFindings__id {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 11px;
+  color: var(--cd-text2, #535366);
+  white-space: nowrap;
+}
+
+.knowledgeFindings__title {
+  font-weight: 500;
+  color: var(--cd-ink, #141413);
+}
+
+.knowledgeFindings__rule {
+  color: var(--cd-text2, #535366);
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
+.knowledgeFindings__scope,
+.knowledgeFindings__when {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 10.5px;
+  color: var(--cd-text3, #91919e);
+  white-space: nowrap;
+}
+
+.knowledgeFindings__bodyCell { background: #fbfbfc; }
+
+.knowledgeFindings__body {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--cd-text2, #535366);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  padding: 4px 0 8px;
+}
+
+/* ── Detail footer ─────────────────────────────────────────────── */
+
+.knowledgeDetail__footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--cd-border-soft, #ebebee);
+  flex-shrink: 0;
+}
+
+.knowledgeDetail__path {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 10px;
+  color: var(--cd-text3, #91919e);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
+
+.knowledgeDetail__spacer { flex: 1; }

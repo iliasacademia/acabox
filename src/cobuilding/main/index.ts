@@ -21,6 +21,41 @@ import type { CalendarMutationEvent } from './calendarAgentSession';
 import { registerSession, unregisterSession, getRegisteredSession, hasSession, destroyAllSessions, addSubscriber, removeSubscriber } from './sessionRegistry';
 import type { IPCAttachment } from '../shared/types';
 import { provisionWorkspace } from './skills';
+import {
+  createSkill,
+  deleteSkill,
+  dismissFileUpdate,
+  listSkills,
+  readSkillFile,
+  readSkillsState,
+  restoreAllBuiltins,
+  revertFile,
+  revertSkill,
+  setSkillEnabled,
+  skillStorePath,
+  summarizeBuiltinRestore,
+  writeSkillFile,
+} from './skillStore';
+import { renderSkills } from './skillRender';
+import { buildSkillRuntimeConfig, parseSkillFrontmatter, validateSkillId } from '../shared/skills';
+import {
+  countActiveFindings,
+  readLedger,
+  setBlastRadiusSearchPaths,
+  supersedeFinding,
+  LAST_READ_GRANULARITY_NOTE,
+} from './knowledge/findingsLedger';
+import { dismissKnowledgeReview, listKnowledgeReviews } from './knowledge/omissionWatch';
+import {
+  commitImport,
+  disposeImportCaches,
+  loadCatalogue,
+  parseImportUrl,
+  previewImport,
+  type ImportProgress,
+  type ImportRequest,
+  type ImportUrlTarget,
+} from './knowledge/skillImportService';
 import { containerService } from './containerService';
 import { listBuildHealth, subscribeBuildHealth, forgetBuildHealth, type BuildHealth } from './buildHealth';
 import {
@@ -121,7 +156,14 @@ import { registerDebugHandlers } from './ipc/debug';
 import { registerReactionsHandlers, getReactionsEnabled, ensureReactionsTask } from './ipc/reactions';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
 import { validateExternalUrl } from '../../utils/urlValidation';
-import { ACADEMIA_DIR, AGENT_MEMORY_SUBDIR, REFERENCES_SUBDIR, REFERENCES_INDEX } from '../shared/paths';
+import {
+  ACADEMIA_DIR,
+  AGENT_MEMORY_DIR,
+  AGENT_MEMORY_SUBDIR,
+  MEMORY_INDEX_FILE,
+  REFERENCES_SUBDIR,
+  REFERENCES_INDEX,
+} from '../shared/paths';
 import { initSentryMain } from './sentry';
 import { captureError } from '../shared/telemetry';
 import {
@@ -274,6 +316,31 @@ process.on('unhandledRejection', (reason) => {
 
 app.setName('Acabox');
 app.setPath('userData', path.join(app.getPath('appData'), 'acabox', app.isPackaged ? 'production' : 'development'));
+
+// Single instance, and it MUST come after the setPath above: Electron keys the
+// lock on userData, and userData is channel-scoped, so a dev run and a packaged
+// run still hold different locks and coexist — which this project explicitly
+// supports and tests with. Two instances on the SAME channel is the case worth
+// refusing: they would share one skill store, one skills-state.json, one
+// SQLite file and one 23200-23299 port range, and the store reconciler is
+// serialised only within a process.
+//
+// Exempted under --smoke-test. The smoke run's whole job is to boot a second
+// process alongside whatever the developer already has open, and it quits on
+// its own; failing the lock would make it exit before proving anything.
+const gotSingleInstanceLock = isSmokeTest || app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  log.info('[APP] Another Acabox instance owns this profile — focusing it and exiting.');
+  app.quit();
+} else if (!isSmokeTest) {
+  app.on('second-instance', () => {
+    const [win] = BrowserWindow.getAllWindows();
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  });
+}
 
 // Init the system logger only after userData is redirected above — it caches
 // the log-file path at init time, so initializing earlier would pin it to the
@@ -608,6 +675,11 @@ async function stampToolLastRun(workspacePath: string | null, dirName: string): 
 }
 
 app.whenReady().then(async () => {
+  // We lost the single-instance race; `app.quit()` is already in flight and
+  // the running instance has been focused. Booting anyway would put two
+  // processes on one skill store, one skills-state.json and one SQLite file.
+  if (!gotSingleInstanceLock) return;
+
   processCpuMonitor.start();
 
   // Encrypt secrets that predate encryption-at-rest. Must run after
@@ -742,7 +814,30 @@ app.whenReady().then(async () => {
     if (activeWorkspace) {
       await backfillAllAppChatLinks(activeWorkspace.id, workspaceController.workspacePath);
     }
-    provisionWorkspace(workspaceController.workspacePath);
+    // Seeds/reconciles the skill store, renders the `.claude/skills` symlinks,
+    // reconciles CLAUDE.md / settings.json / hooks, and syncs the mini-app
+    // assets. Awaited so the Knowledge surface and the agent both see a
+    // settled store; `agentInfrastructure.start()` awaits the same serialised
+    // call, so whichever runs second is a cheap no-op rather than a race.
+    //
+    // Caught, because provisioning is fatal to the AGENT and not to the app.
+    // This call sits two lines above createMainWindow(), and letting it throw
+    // here is how the old hardcoded SKILLS array produced an app with no
+    // window at all when one directory was renamed. The window comes up, the
+    // user can reach Settings and the Debug log, and the same serialised call
+    // inside agentInfrastructure.start() refuses loudly when a chat is started.
+    try {
+      await provisionWorkspace(workspaceController.workspacePath);
+    } catch (err) {
+      log.error(`[APP] Workspace provisioning failed: ${(err as Error).message}`);
+    }
+
+    // The findings ledger's blast-radius grep — "the old belief is also written
+    // down here" — searches the user's own shared directories. Without this it
+    // silently never populates, and an absent list is deliberately rendered as
+    // absent rather than as "checked, found nothing". The workspace root itself
+    // is excluded: it is mostly Acabox's own dot-directories.
+    setBlastRadiusSearchPaths(() => workspaceController.userDirectoryPaths);
 
     createMainWindow();
 
@@ -2245,6 +2340,311 @@ ipcMain.handle('connectors:removeUnmanaged', () => {
   const workspacePath = workspaceController.workspacePath;
   if (!workspacePath) return { success: false, error: 'No active workspace.' };
   return removeUnmanagedMcpJson(workspacePath);
+});
+
+// ─── Skills IPC ───────────────────────────────────────────────────
+//
+// Every mutation that changes WHICH skills are enabled has to reach three
+// places, in this order: the store (the record), the render (the symlinks the
+// CLI reads), and the running agent server's roster allowlist. Skipping the
+// third is not a cosmetic lag — it is the enable appearing to have worked in
+// the UI while the model cannot see the skill.
+
+/**
+ * Re-render the symlinks and push the roster to the agent server.
+ *
+ * Returns whether the agent server took the push. `false` most often means
+ * there is no live agent server (the user has not started a chat this run), in
+ * which case the next `agentInfrastructure.start()` reads the store anyway —
+ * so it is informational, not a failure.
+ */
+async function applySkillChanges(): Promise<boolean> {
+  const workspacePath = workspaceController.workspacePath;
+  const state = await readSkillsState();
+  if (workspacePath) {
+    try {
+      await renderSkills(workspacePath, state);
+    } catch (err) {
+      log.error(`[Skills] Render failed: ${(err as Error).message}`);
+    }
+  }
+  const roster = buildSkillRuntimeConfig(state);
+  const pushed = await containerService.updateAgentSkills(roster);
+  log.info(`[Skills] Roster now ${roster.length} skill(s); agent server ${pushed ? 'updated' : 'not running'}`);
+  return pushed;
+}
+
+ipcMain.handle('skills:list', async () => {
+  const skills = await listSkills();
+  // Findings counts come from the ledger, which is the only thing that knows
+  // the file format. `undefined` means "no ledger", which the UI must render
+  // as nothing at all rather than as 0 — a skill with an empty ledger and a
+  // skill that has never had one are different states.
+  return skills.map((s) => ({ ...s, findingsCount: countActiveFindings(s.id) }));
+});
+
+ipcMain.handle('skills:read', async (_event, id: string, relPath: string) => {
+  try {
+    return { ok: true, content: await readSkillFile(id, relPath) };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('skills:write', async (_event, id: string, relPath: string, content: string) => {
+  const result = await writeSkillFile(id, relPath, content);
+  if (result.ok) await applySkillChanges();
+  return result;
+});
+
+ipcMain.handle('skills:create', async (_event, id: string, description?: string) => {
+  const result = await createSkill(id, { description });
+  if (result.ok) await applySkillChanges();
+  return result;
+});
+
+ipcMain.handle('skills:delete', async (_event, id: string) => {
+  const result = await deleteSkill(id);
+  if (result.ok) await applySkillChanges();
+  return result;
+});
+
+ipcMain.handle('skills:setEnabled', async (_event, id: string, enabled: boolean) => {
+  const result = await setSkillEnabled(id, enabled);
+  if (!result.ok) return { ...result, pushed: false };
+  const pushed = await applySkillChanges();
+  return { ...result, pushed };
+});
+
+ipcMain.handle('skills:revertFile', async (_event, id: string, relPath: string) => {
+  const result = await revertFile(id, relPath);
+  if (result.ok) await applySkillChanges();
+  return result;
+});
+
+ipcMain.handle('skills:revert', async (_event, id: string) => {
+  const result = await revertSkill(id);
+  if (result.ok) await applySkillChanges();
+  return result;
+});
+
+/** "Keep mine" against an upstream change. Writes no bytes, so no re-render. */
+ipcMain.handle('skills:dismissUpdate', (_event, id: string, relPath: string) => {
+  return dismissFileUpdate(id, relPath);
+});
+
+/** Real counts for the Restore-all confirm dialog — never prose, never a guess. */
+ipcMain.handle('skills:summarizeRestore', () => summarizeBuiltinRestore());
+
+ipcMain.handle('skills:restoreAll', async () => {
+  const result = await restoreAllBuiltins();
+  await applySkillChanges();
+  return result;
+});
+
+ipcMain.handle('skills:reveal', (_event, id: string) => {
+  // `skillStorePath` is a bare join, so an unvalidated id walks out of the
+  // store — `..` would open userData itself in Finder.
+  const idCheck = validateSkillId(id);
+  if (!idCheck.ok) return { ok: false, error: idCheck.error };
+  const dir = skillStorePath(id);
+  if (!fs.existsSync(dir)) return { ok: false, error: 'That skill is not in the store.' };
+  shell.showItemInFolder(dir);
+  return { ok: true };
+});
+
+// ─── Skill import IPC ─────────────────────────────────────────────
+//
+// Four steps, in the order the user takes them: resolve what they pasted,
+// browse it, look at one skill, commit it. They are separate handlers rather
+// than one call because every one of them is a decision point the user can
+// back out of, and because the service caches between them — the 21 MB
+// `openai/plugins` tarball is downloaded once for the whole flow.
+//
+// Errors are THROWN here rather than returned as `{ ok: false }`, unlike the
+// mutation handlers above. These are network and filesystem failures with real
+// messages already written for a human ("GitHub's hourly request limit is used
+// up … it resets at 18:04"), and the renderer needs exactly that string; the
+// `{ ok }` shape exists for store mutations whose failure is a rule, not an
+// accident. Electron's `invoke` wrapper prefixes a rejection with "Error
+// invoking remote method", so the renderer strips it — see `importError`.
+
+/** Progress for the import modal. Bytes only; codeload sends no total. */
+function sendImportProgress(progress: ImportProgress): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('skills:importProgress', progress);
+  }
+}
+
+ipcMain.handle('skills:parseImportUrl', (_event, input: string) => parseImportUrl(input));
+
+ipcMain.handle('skills:fetchCatalogue', (_event, target: ImportUrlTarget) =>
+  loadCatalogue(target, sendImportProgress),
+);
+
+ipcMain.handle('skills:previewImport', (_event, request: ImportRequest) =>
+  previewImport(request, sendImportProgress),
+);
+
+/**
+ * Pick a folder to import.
+ *
+ * Only the picker: the folder then goes through the same `previewImport` and
+ * `skills:import` as a GitHub subpath, which is what keeps the disclosure, the
+ * safety pass and the provenance record identical for both. A local folder can
+ * hold a symlink just as easily as a tarball can.
+ */
+ipcMain.handle('skills:pickImportFolder', async () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return null;
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Choose a skill folder',
+    message: 'Pick the folder that contains SKILL.md.',
+    properties: ['openDirectory'],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle('skills:import', async (_event, request: ImportRequest, asId?: string) => {
+  const result = await commitImport(request, asId, sendImportProgress);
+  if (!result.ok) return result;
+  // The render has to happen even though the skill is disabled: a disabled
+  // skill keeps its symlink so it stays readable and so enabling it later is
+  // not a mid-session filesystem change. The roster push is what actually
+  // withholds it from the model.
+  await applySkillChanges();
+  const descriptor = (await listSkills()).find((s) => s.id === result.id);
+  return { ...result, skill: descriptor };
+});
+
+/** Free the unpacked catalogue and any staged trees. Called when the modal closes. */
+ipcMain.handle('skills:cancelImport', () => disposeImportCaches());
+
+// ─── Knowledge IPC ────────────────────────────────────────────────
+
+ipcMain.handle('knowledge:ledger', (_event, skill: string) => {
+  const snapshot = readLedger(skill);
+  // The blocks are the full entry bodies and a mature ledger is tens of KB;
+  // the list view needs the metadata, not the prose. A caller wanting a body
+  // reads the bucket file through filesAPI.
+  return {
+    skill: snapshot.skill,
+    dir: snapshot.dir,
+    exists: snapshot.exists,
+    bytes: snapshot.bytes,
+    lastReadNote: LAST_READ_GRANULARITY_NOTE,
+    active: snapshot.active.map((f) => ({ ...f.meta, title: f.title, rule: f.rule, file: f.file })),
+    archived: snapshot.archived.map((f) => ({ ...f.meta, title: f.title, rule: f.rule, file: f.file })),
+  };
+});
+
+ipcMain.handle('knowledge:supersede', (_event, skill: string, id: string, bySupersedingId?: string) => {
+  const ok = supersedeFinding(skill, id, bySupersedingId);
+  return { ok, error: ok ? undefined : `No active finding ${id} in ${skill}.` };
+});
+
+ipcMain.handle('knowledge:listReviews', () => listKnowledgeReviews());
+
+ipcMain.handle('knowledge:dismissReview', (_event, id: string) => {
+  return { ok: dismissKnowledgeReview(id) };
+});
+
+/**
+ * The real contents of the agent-memory directory.
+ *
+ * This exists rather than being assembled in the renderer from `filesAPI`
+ * because three of the four facts a memory row needs are not reachable from
+ * there. `files:readDirectory` returns name/path/isDirectory only — no size and
+ * no mtime — so "3.0 KB · changed 3h ago" would have to be invented; and
+ * `originSessionId` is an SDK session id, which `SessionData` does not carry,
+ * so the link to the chat that wrote the file can only be resolved against
+ * `sessions.sdk_session_id` here.
+ *
+ * No actor is reported. A file changed in Finder or vim is indistinguishable
+ * from one Claude wrote, so the row says `changed`, never `edited by you`. The
+ * one attribution that IS evidence-backed is `originSessionId`, which the CLI
+ * stamps when it authors the file — that becomes the "from <chat>" link.
+ */
+ipcMain.handle('knowledge:memories', () => {
+  const workspacePath = workspaceController.workspacePath;
+  if (!workspacePath) return { dir: null, files: [] };
+  const dir = path.join(workspacePath, AGENT_MEMORY_SUBDIR);
+
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir).filter((n) => n.toLowerCase().endsWith('.md'));
+  } catch {
+    // No memory directory yet is an ordinary state, not an error: nothing has
+    // written a memory in this workspace.
+    return { dir, files: [] };
+  }
+
+  const indexText = (() => {
+    try {
+      return fs.readFileSync(path.join(dir, MEMORY_INDEX_FILE), 'utf-8');
+    } catch {
+      return '';
+    }
+  })();
+
+  // Resolve origin chats in one pass; `sdk_session_id` is the only join key and
+  // it is null for chats that never took a turn.
+  const bySdkId = new Map<string, { id: string; title: string }>();
+  for (const s of listSessions()) {
+    if (s.sdk_session_id) bySdkId.set(s.sdk_session_id, { id: s.id, title: s.title });
+  }
+
+  const files = names.map((name) => {
+    const abs = path.join(dir, name);
+    let bytes = 0;
+    let changedAt = 0;
+    try {
+      const st = fs.statSync(abs);
+      bytes = st.size;
+      changedAt = st.mtimeMs;
+    } catch { /* raced with a delete; the row still renders by name */ }
+
+    let text = '';
+    try {
+      text = fs.readFileSync(abs, 'utf-8');
+    } catch { /* unreadable — no frontmatter, row renders by filename */ }
+
+    // Same parser the skill roster uses, so a memory with a broken frontmatter
+    // fence is reported the same way a skill with one is.
+    const fm = parseSkillFrontmatter(text);
+    const raw = (fm.raw ?? {}) as Record<string, unknown>;
+    const strOf = (k: string): string | undefined => {
+      const v = raw[k];
+      return typeof v === 'string' && v.trim() ? v.trim() : undefined;
+    };
+    const originSessionId = strOf('originSessionId');
+
+    return {
+      file: name,
+      /** `.academia`-relative, i.e. what `academiaFile:read/write` takes. */
+      academiaPath: `${AGENT_MEMORY_DIR}/${name}`,
+      bytes,
+      changedAt,
+      declaredName: strOf('name'),
+      description: fm.description,
+      type: strOf('type'),
+      originSessionId,
+      originChat: originSessionId ? bySdkId.get(originSessionId) ?? null : null,
+      // A link anywhere in MEMORY.md is what makes the file reachable; the CLI
+      // writes them as `[title](file.md)`, so match the filename, not a format.
+      indexed: indexText.includes(name),
+      isIndex: name === MEMORY_INDEX_FILE,
+      frontmatterOk: fm.ok,
+      frontmatterError: fm.error,
+    };
+  });
+
+  files.sort((a, b) => {
+    // The index first — it is the only file always in context — then newest.
+    if (a.isIndex !== b.isIndex) return a.isIndex ? -1 : 1;
+    return b.changedAt - a.changedAt;
+  });
+  return { dir, files };
 });
 
 ipcMain.handle('auth:setEndpoint', (_event, endpoint: string) => {
