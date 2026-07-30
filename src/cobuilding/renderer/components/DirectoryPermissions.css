@@ -80,6 +80,15 @@
   line-height: 1.5;
 }
 
+/* Filenames and paths named in hint copy — a user may well go and open them. */
+.wsSettings__hint code {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 11.5px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 2px;
+  padding: 1px 4px;
+}
+
 .wsSettings__dirRow {
   display: flex;
   align-items: center;
@@ -180,9 +189,16 @@
   transition: border-color 0.12s ease;
 }
 
+/* Same pre-sweep tan as .gsStep__input:focus — see the note there. */
 .wsSettings__textarea:focus {
   outline: none;
-  border-color: #a09880;
+  border-color: var(--cd-blue, #0645b1);
+}
+
+/* Without this the placeholder inherits the rule's own #141413 in Chromium and
+   reads as real content the user has to delete. */
+.wsSettings__textarea::placeholder {
+  color: #91919e;
 }
 
 .wsSettings__textarea:disabled {

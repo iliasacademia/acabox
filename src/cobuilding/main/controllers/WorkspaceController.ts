@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
+import log from 'electron-log';
 import {
   createWorkspace,
   getActiveWorkspace,
@@ -120,12 +121,28 @@ export class WorkspaceController {
     }
     touchWorkspace(workspaceId);
 
-    provisionWorkspace(this.getAgentControlledDir());
-
+    // The workspace EXISTS the moment the rows are written, so the controller
+    // is brought up to date before provisioning rather than after. Otherwise a
+    // provisioning failure leaves `_activeWorkspace` null while the DB says
+    // otherwise, and every later `workspacePath` read is wrong.
     this._activeWorkspace = getActiveWorkspace() ?? null;
     this._userDirectories = this._activeWorkspace
       ? listWorkspaceDirectories(this._activeWorkspace.id)
       : [];
+
+    // Caught, for the same reason boot catches its own `provisionWorkspace`
+    // call: this runs on the FRESH-INSTALL path, above `createMainWindow()`,
+    // and the store has never been seeded there — so it is both the most
+    // likely place for provisioning to fail and the worst place to turn that
+    // failure into an app with no window. Provisioning is fatal to the agent,
+    // not to the app. `agentInfrastructure.start()` awaits the same serialised
+    // call and refuses loudly when the user starts a chat.
+    try {
+      await provisionWorkspace(this.getAgentControlledDir());
+    } catch (err) {
+      log.error(`[Workspace] Provisioning the new workspace failed: ${(err as Error).message}`);
+    }
+
     return this._activeWorkspace;
   }
 

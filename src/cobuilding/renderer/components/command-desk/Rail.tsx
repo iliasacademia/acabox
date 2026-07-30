@@ -5,7 +5,7 @@ import { resolveToolIcon } from './toolIcon';
 import { useToolStatuses } from '../../toolStatusStore';
 import { toolStatusDotClass } from './toolStatusDisplay';
 
-export type RailTab = 'home' | 'chats' | 'tools' | 'files' | 'activity' | 'debug' | 'settings';
+export type RailTab = 'home' | 'chats' | 'tools' | 'knowledge' | 'files' | 'activity' | 'debug' | 'settings';
 
 export interface RailRecentChat {
   id: string;
@@ -22,6 +22,7 @@ const NAV_ITEMS: { tab: RailTab; label: string; icon: string }[] = [
   { tab: 'home', label: 'Home', icon: 'home' },
   { tab: 'chats', label: 'Chats', icon: 'forum' },
   { tab: 'tools', label: 'Tools', icon: 'grid_view' },
+  { tab: 'knowledge', label: 'Knowledge', icon: 'book_2' },
   { tab: 'files', label: 'Files', icon: 'folder_open' },
   { tab: 'activity', label: 'Activity', icon: 'monitoring' },
 ];

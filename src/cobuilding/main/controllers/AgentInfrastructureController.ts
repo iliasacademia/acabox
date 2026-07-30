@@ -18,6 +18,11 @@ import { buildMiniApp } from '../miniAppBuilder';
 import { ensurePythonVenv } from '../pythonSetup';
 import { listConnectorsWithSecrets } from '../connectorsStore';
 import { buildMcpServers, connectorAllowedTools } from '../../shared/connectors';
+import { buildAgentAllowedTools } from '../../shared/agentAllowedTools';
+import { buildSkillRuntimeConfig } from '../../shared/skills';
+import { readSkillsState } from '../skillStore';
+import { provisionWorkspace } from '../skills';
+import { recordFinding } from '../knowledge/findingsLedger';
 
 export interface AgentInfrastructureDeps {
   workspaceController: WorkspaceController;
@@ -137,6 +142,56 @@ export class AgentInfrastructureController {
         },
       },
 
+      knowledge: {
+        // Never refuses. `recordFinding` sanitizes rather than rejects (a long
+        // title truncates, a missing rule falls back to the title, an unknown
+        // `supersedes` id is reported rather than thrown), and the only thing
+        // that reaches `fail` here is an actual filesystem error. Losing a
+        // correction is the failure mode this whole feature exists to prevent.
+        record_finding: async (args: any) => {
+          try {
+            const result = recordFinding({
+              skill: String(args?.skill ?? ''),
+              title: String(args?.title ?? ''),
+              rule: String(args?.rule ?? ''),
+              evidence: String(args?.evidence ?? ''),
+              cost_if_unknown: args?.cost_if_unknown,
+              scope: args?.scope,
+              supersedes: args?.supersedes,
+              confirms: args?.confirms,
+              blast_radius: args?.blast_radius,
+            });
+            // The reply is what the model reads back, so it carries the facts
+            // that change what it does next: the id (to cite or supersede
+            // later), where the entry landed, and — the useful one — the other
+            // places the host found the superseded belief still written down.
+            const lines = [
+              `Recorded ${result.id} in ${result.file} (${result.entry_count} active finding(s), ${result.ledger_bytes} bytes).`,
+            ];
+            if (result.skill_created) {
+              lines.push(`Created a new findings ledger for skill "${args?.skill}".`);
+            }
+            if (result.superseded?.length) {
+              lines.push(`Superseded and archived: ${result.superseded.join(', ')}.`);
+            }
+            if (result.supersedes_not_found?.length) {
+              lines.push(`No such finding(s), nothing archived: ${result.supersedes_not_found.join(', ')}.`);
+            }
+            if (result.blast_radius?.length) {
+              lines.push(
+                'The old belief is still written down here — tell the user, they may want these fixed:\n'
+                + result.blast_radius.map((h) => `  - ${h}`).join('\n'),
+              );
+            }
+            log.info(`[Knowledge] ${result.id} recorded in ${result.file}`);
+            return ok(lines.join('\n'));
+          } catch (err: any) {
+            log.error(`[Knowledge] record_finding failed: ${err?.message}`);
+            return fail(`Failed to record the finding: ${err.message}`);
+          }
+        },
+      },
+
       workspace: {
         get_scanned_files: async (args: any) => {
           try {
@@ -212,6 +267,16 @@ export class AgentInfrastructureController {
 
     void migrateMissingManifests(workspacePath);
 
+    // THE RECONCILE GATE. Awaited, the way containerService.start() awaits
+    // prewarmLoginShellPath(), and for a sharper reason: the store reconciler
+    // copies skill directories and the renderer relinks
+    // `<workspace>/.claude/skills`, both under the CLI's feet. Start the agent
+    // server first and a turn can read a half-copied SKILL.md, at which point
+    // the CLI logs "Failed to load skill" to its own stderr and silently omits
+    // it — one chat missing one skill, gone by the next boot, unreproducible.
+    // Idempotent and serialised, so the boot call and this one do not race.
+    await provisionWorkspace(workspacePath);
+
     await this.deps.containerService.ensureAgentFilesInWorkspace(workspacePath);
 
     this.registerHostMcpServers(activeWorkspace, workspacePath, this.deps.workspaceController.userDirectoryPaths);
@@ -228,6 +293,13 @@ export class AgentInfrastructureController {
     if (connectorTools.length) {
       log.info(`[AgentInfrastructure] Connectors enabled: ${Object.keys(connectorServers).join(', ')}`);
     }
+    // Which skills go on the roster. The enabled subset of the store, plus the
+    // one bundled SDK skill Acabox keeps (`claude-api`). This is the roster
+    // budget allocator — a skill left off keeps its bytes and its symlink and
+    // is still readable, it just stops costing roster characters.
+    const skills = buildSkillRuntimeConfig(await readSkillsState());
+    log.info(`[AgentInfrastructure] Skill roster: ${skills.length} skill(s) — ${skills.join(', ')}`);
+
     const agentConfig = {
       port: 8080,
       mcpServers: connectorServers,
@@ -238,31 +310,11 @@ export class AgentInfrastructureController {
       // the session-create override (see mergeSessionConfig).
       effort: 'high',
       systemPrompt: { type: 'preset', preset: 'claude_code' },
-      allowedTools: [
-        'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'Agent',
-        // WebSearch finds pages; WebFetch reads them. Several skills
-        // (database-lookup, reaction) instruct the agent to call WebFetch
-        // directly, so it has to be auto-approved here — there is no
-        // `canUseTool` handler in this app, so anything left off this list
-        // falls to the default permission path with nothing to answer it.
-        'WebSearch', 'WebFetch', 'Skill', 'TodoWrite',
-        'EnterPlanMode', 'ExitPlanMode',
-        'mcp__activity__query_activity',
-        'mcp__mini-apps__open_mini_application',
-        'mcp__mini-apps__build_and_open_mini_application',
-        'mcp__mini-apps__list_published_servers',
-        'mcp__mini-apps__call_published_tool',
-        'mcp__notification__show_notification',
-        'mcp__reaction__create_reaction_thread',
-        'mcp__workspace__get_scanned_files',
-        'mcp__workspace__get_research_profile',
-        // `mcp__<id>` auto-approves every tool on a user connector. Note this
-        // list is auto-approve, not a restriction (the SDK's restriction
-        // option is `tools`, which this app never sets) — an unlisted MCP tool
-        // still runs, because nothing here supplies a `canUseTool` handler.
-        // These entries are what makes that correct rather than accidental.
-        ...connectorTools,
-      ],
+      // Built by the one shared function so this and containerService's
+      // crash-restart config cannot drift — see shared/agentAllowedTools.ts.
+      // `mcp__<id>` auto-approves every tool on a user connector.
+      allowedTools: buildAgentAllowedTools(connectorTools),
+      skills,
       // 'project' loads CLAUDE.md — required. It also makes the SDK read a
       // project `.mcp.json`, which the agent can write, so Settings surfaces
       // any such file via detectUnmanagedMcpJson rather than leaving it
@@ -271,6 +323,13 @@ export class AgentInfrastructureController {
     };
 
     await this.deps.containerService.startAgentServer(JSON.stringify(agentConfig, null, 2), workspacePath);
+
+    // Redundant on a cold start (the config we just handed it carries the same
+    // array) and load-bearing on a warm one: `startAgentServer` returns early
+    // when a healthy server is already up, so without this a roster computed
+    // from a store that changed since that server booted would sit in the
+    // restart config only — and a crash would be the first thing to apply it.
+    await this.deps.containerService.updateAgentSkills(skills);
 
     // Bootstrap the Python venv in the background so the agent's install
     // wrapper has a `pip` to call when it first encounters a Python

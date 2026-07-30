@@ -160,6 +160,12 @@ export const RESERVED_CONNECTOR_IDS = [
   'reaction',
   'mini-apps',
   'workspace',
+  // The findings ledger relay. Reserved for the same reason as the rest — a
+  // connector with this id would shadow the relay server in the merged
+  // `mcpServers` record — plus one of its own: `omissionWatch` classifies a
+  // turn by whether it called a CONNECTOR tool, and a user connector named
+  // `knowledge` would make `record_finding` itself read as a warehouse trip.
+  'knowledge',
 ];
 
 export interface ValidationResult {

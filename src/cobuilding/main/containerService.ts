@@ -644,6 +644,58 @@ class HostProcessService {
   }
 
   /**
+   * Push the roster allowlist to the running agent server, so enabling or
+   * disabling a skill takes effect without restarting anything.
+   *
+   * Unlike connectors this cannot reach a session already in flight — `skills`
+   * is a `query()` option fixed for the lifetime of the CLI subprocess, and the
+   * SDK exposes no setter. It applies to the next session created, which in
+   * this app is the next turn (the host destroys the session at every turn
+   * end), so the user-visible latency is one message.
+   */
+  async updateAgentSkills(skills: string[]): Promise<boolean> {
+    const port = this.agentPort;
+    if (!port) return false;
+    return new Promise<boolean>((resolve) => {
+      const body = JSON.stringify({ skills });
+      const req = http.request({
+        hostname: LOOPBACK,
+        port,
+        path: '/skills',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+        timeout: 2000,
+      }, (res) => {
+        const ok = (res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300;
+        res.resume();
+        resolve(ok);
+      });
+      req.on('error', () => resolve(false));
+      req.on('timeout', () => { req.destroy(); resolve(false); });
+      req.write(body);
+      req.end();
+    }).then((ok) => {
+      // Same trap as connectors: `lastAgentServerConfig` is only written by
+      // startAgentServer, so without this an unexpected exit would relaunch
+      // with the roster as it stood at BOOT and silently undo every enable and
+      // disable since, with the Knowledge page still showing them applied.
+      if (ok) this.rememberAgentSkills(skills);
+      return ok;
+    });
+  }
+
+  private rememberAgentSkills(skills: string[]): void {
+    if (!this.lastAgentServerConfig) return;
+    try {
+      const cfg = JSON.parse(this.lastAgentServerConfig);
+      cfg.skills = skills;
+      this.lastAgentServerConfig = JSON.stringify(cfg);
+    } catch (err) {
+      log.warn(`[HostProcess] Could not refresh restart config with the new skill roster: ${(err as Error).message}`);
+    }
+  }
+
+  /**
    * Update the stored restart config in place so a crash-restart preserves the
    * live connector set. Mirrors what the agent server does to its own
    * `currentConfig` on POST /connectors — including recomputing the

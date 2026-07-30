@@ -25,6 +25,7 @@ import { Rail, type RailTab } from './components/command-desk/Rail';
 import { StatusBar } from './components/command-desk/StatusBar';
 import { CommandDesk } from './components/command-desk/CommandDesk';
 import { ActivityPanel } from './components/command-desk/ActivityPanel';
+import { KnowledgePage } from './components/knowledge/KnowledgePage';
 import { useHomeData } from './components/command-desk/useHomeData';
 import { ReactionsToolView } from './components/ReactionsToolView';
 import { resolveWorkspacePath } from './utils/resolveWorkspacePath';
@@ -108,7 +109,7 @@ function QuickChatInjector({ onSwitchToChat }: { onSwitchToChat: () => void }) {
 }
 
 /** Listens for notification:navigate IPC and navigates to the specified target. */
-type SidebarTab = 'home' | 'tools' | 'files' | 'chats' | 'activity' | 'debug' | 'settings';
+type SidebarTab = 'home' | 'tools' | 'knowledge' | 'files' | 'chats' | 'activity' | 'debug' | 'settings';
 
 function NotificationNavigator({
   setSidebarTab,
@@ -878,6 +879,10 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
       case 'tools':
         handleToolsClick();
         break;
+      case 'knowledge':
+        setSidebarTab('knowledge');
+        deactivateAllTabs();
+        break;
       case 'files':
         handleFilesClick();
         break;
@@ -1039,6 +1044,19 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                   setChatViewMode('detail');
                   deactivateAllTabs();
                 }}
+              />
+            </div>
+
+            {/* Knowledge tab — skills and memories, the two durable stores */}
+            <div style={{ display: sidebarTab === 'knowledge' ? 'flex' : 'none', flex: 1, overflow: 'auto' }}>
+              <KnowledgePage
+                onSwitchToChat={() => {
+                  setSidebarTab('chats');
+                  setChatViewMode('detail');
+                  deactivateAllTabs();
+                }}
+                onOpenChat={openChatById}
+                onOpenSettings={() => setSidebarTab('settings')}
               />
             </div>
 
@@ -1239,6 +1257,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                   setSidebarTab('home');
                 }}
                 onDirectoriesChanged={setUserDirectories}
+                onOpenKnowledge={() => setSidebarTab('knowledge')}
                 inline
               />
             </div>

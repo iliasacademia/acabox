@@ -28,6 +28,13 @@ export const AGENT_MEMORY_SUBDIR = `${ACADEMIA_DIR}/${AGENT_MEMORY_DIR}`;
 export const MEMORY_FILE_ABOUT_YOU = 'about_you.md';
 export const MEMORY_FILE_WORKING_ON = 'working_on.md';
 
+// The CLI's own index for the memory directory. It is loaded unconditionally on
+// every turn (tagged `AutoMem`), so it is the one file here whose contents are
+// always in context — every other memory is reached only through a link in it.
+// That makes "is this file listed in MEMORY.md?" a real, checkable property of
+// a memory rather than a cosmetic one, which is why the Knowledge page shows it.
+export const MEMORY_INDEX_FILE = 'MEMORY.md';
+
 export const MEMORY_PATH_ABOUT_YOU = `${AGENT_MEMORY_DIR}/${MEMORY_FILE_ABOUT_YOU}`;
 export const MEMORY_PATH_WORKING_ON = `${AGENT_MEMORY_DIR}/${MEMORY_FILE_WORKING_ON}`;
 

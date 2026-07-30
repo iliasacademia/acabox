@@ -14,6 +14,8 @@ import { type HostApp } from './hostApps';
 import { IDENTITY_PREAMBLE } from './hostApps/identityPreamble';
 import { ACADEMIA_DIR, SOUL_MD } from '../shared/paths';
 import { recordConnectorStatus } from './connectorsStore';
+import { noteFindingsFileRead } from './knowledge/findingsLedger';
+import { noteTurn } from './knowledge/omissionWatch';
 
 class AuthRetryError extends Error {
   constructor(public originalError: string) {
@@ -64,6 +66,11 @@ interface TurnState {
    *  loop stops resuming it. See the declaration site for why the DB column
    *  alone is not sufficient. */
   resumeDisabled: boolean;
+  /** Tool names used this turn, for the knowledge omission rule. Reset per turn. */
+  toolNames: string[];
+  /** Paths passed to Read this turn. The omission rule is unfalsifiable
+   *  without them — every connector turn would raise a row. Reset per turn. */
+  readPaths: string[];
 }
 
 const CONTEXT_OVERFLOW_MESSAGE =
@@ -195,6 +202,8 @@ export function createAgentSession(
     currentMessageId: null,
     turnInProgress: false,
     resumeDisabled: false,
+    toolNames: [],
+    readPaths: [],
   };
   // Cursor into the agent-server's per-session event sequence. Updated as we
   // parse `id:` lines from the SSE stream. On reconnect we send this as the
@@ -525,6 +534,11 @@ export function createAgentSession(
       // 'result' message. The registry uses this to decide whether a
       // navigation-away triggers destroy-now or defer-until-turn-end.
       turnState.turnInProgress = true;
+      // The omission rule is per-TURN ("this turn queried the warehouse and
+      // read no findings file"), not per-session, so the accumulators reset
+      // here rather than at session create.
+      turnState.toolNames = [];
+      turnState.readPaths = [];
       // Broadcast the user message to every surface subscribed to this
       // session. Without this, a message typed in the overlay would land
       // in SQLite but the desktop chat (subscribing via IPC fanout) would
@@ -698,6 +712,44 @@ async function postMcpResultWithRetry(url: string, body: string, callId: string)
   }
 }
 
+/**
+ * Pull the two signals the knowledge loop needs out of one assistant message's
+ * content blocks, and bump `last_read` on any findings file the model read.
+ *
+ * The freshness bump happens HERE rather than at turn end because it is about
+ * the read itself, and it has to fire even for a turn that ends in an error.
+ * `noteFindingsFileRead` resolves symlinks itself, so the raw path as it
+ * appeared in the stream is what to hand it — the model addresses the ledger
+ * through `.claude/skills/<id>/…`, which is a symlink into the store.
+ *
+ * Every failure mode here is swallowed. This is bookkeeping hanging off the
+ * message loop; it must never be able to break a turn.
+ */
+function collectKnowledgeSignals(content: unknown, turnState: TurnState): void {
+  if (!Array.isArray(content)) return;
+  for (const block of content) {
+    if (!block || typeof block !== 'object') continue;
+    const b = block as { type?: string; name?: string; input?: Record<string, unknown> };
+    if (b.type !== 'tool_use' || typeof b.name !== 'string') continue;
+    turnState.toolNames.push(b.name);
+    // Read is the only tool whose path argument is load-bearing for the rule.
+    // Grep/Glob over the findings dir are not "consulting the ledger" — they
+    // return matches, not the entries, and the model still has to Read one.
+    if (b.name !== 'Read') continue;
+    const filePath = b.input?.file_path;
+    if (typeof filePath !== 'string' || !filePath) continue;
+    turnState.readPaths.push(filePath);
+    try {
+      const bumped = noteFindingsFileRead(filePath);
+      if (bumped.length) {
+        log.debug(`[Knowledge] last_read bumped on ${bumped.length} finding(s) via ${filePath}`);
+      }
+    } catch (err) {
+      log.warn(`[Knowledge] last_read bump failed for ${filePath}: ${(err as Error).message}`);
+    }
+  }
+}
+
 async function connectSSE(
   url: string,
   state: MessageProcessingState,
@@ -795,6 +847,7 @@ async function connectSSE(
               }
               if (message.type === 'assistant' && (message as any).message?.content) {
                 insertMessage(sessionId, 'assistant', JSON.stringify((message as any).message.content), turnState.currentMessageId ?? undefined);
+                collectKnowledgeSignals((message as any).message.content, turnState);
               }
               if (message.type === 'user' && (message as any).message?.content) {
                 const content = (message as any).message.content;
@@ -835,6 +888,26 @@ async function connectSSE(
                   result: (message as any).subtype === 'success' ? (message as any).result : undefined,
                   is_error: (message as any).is_error,
                 }), completedMessageId ?? undefined);
+                // Did this turn go to the warehouse without consulting the
+                // ledger? Evaluated here rather than incrementally because the
+                // rule is about the WHOLE turn: a findings read in the last
+                // tool call still counts.
+                try {
+                  const raised = noteTurn({
+                    sessionId,
+                    chatTitle: getSession(sessionId)?.title,
+                    toolNames: turnState.toolNames,
+                    readPaths: turnState.readPaths,
+                  });
+                  if (raised) {
+                    log.info(
+                      `[Knowledge] Turn used ${raised.connectors?.join(', ')} without reading the findings ledger `
+                      + `(sessionId=${sessionId})`,
+                    );
+                  }
+                } catch (err) {
+                  log.warn(`[Knowledge] omission watch failed: ${(err as Error).message}`);
+                }
                 // Clear turnInProgress BEFORE emitting turn-complete so any
                 // listener that reacts to the event (e.g. registry's
                 // deferred-destroy hook) sees the up-to-date state.

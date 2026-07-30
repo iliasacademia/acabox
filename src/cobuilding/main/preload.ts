@@ -27,6 +27,36 @@ contextBridge.exposeInMainWorld('connectorsAPI', {
   removeUnmanaged: () => ipcRenderer.invoke('connectors:removeUnmanaged'),
 });
 
+contextBridge.exposeInMainWorld('skillsAPI', {
+  list: () => ipcRenderer.invoke('skills:list'),
+  read: (id: string, relPath: string) => ipcRenderer.invoke('skills:read', id, relPath),
+  write: (id: string, relPath: string, content: string) => ipcRenderer.invoke('skills:write', id, relPath, content),
+  create: (id: string, description?: string) => ipcRenderer.invoke('skills:create', id, description),
+  remove: (id: string) => ipcRenderer.invoke('skills:delete', id),
+  setEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke('skills:setEnabled', id, enabled),
+  revertFile: (id: string, relPath: string) => ipcRenderer.invoke('skills:revertFile', id, relPath),
+  revert: (id: string) => ipcRenderer.invoke('skills:revert', id),
+  dismissUpdate: (id: string, relPath: string) => ipcRenderer.invoke('skills:dismissUpdate', id, relPath),
+  summarizeRestore: () => ipcRenderer.invoke('skills:summarizeRestore'),
+  restoreAll: () => ipcRenderer.invoke('skills:restoreAll'),
+  reveal: (id: string) => ipcRenderer.invoke('skills:reveal', id),
+  parseImportUrl: (input: string) => ipcRenderer.invoke('skills:parseImportUrl', input),
+  fetchCatalogue: (target: unknown) => ipcRenderer.invoke('skills:fetchCatalogue', target),
+  previewImport: (request: unknown) => ipcRenderer.invoke('skills:previewImport', request),
+  pickImportFolder: () => ipcRenderer.invoke('skills:pickImportFolder'),
+  importSkill: (request: unknown, asId?: string) => ipcRenderer.invoke('skills:import', request, asId),
+  cancelImport: () => ipcRenderer.invoke('skills:cancelImport'),
+});
+
+contextBridge.exposeInMainWorld('knowledgeAPI', {
+  ledger: (skill: string) => ipcRenderer.invoke('knowledge:ledger', skill),
+  supersede: (skill: string, id: string, bySupersedingId?: string) =>
+    ipcRenderer.invoke('knowledge:supersede', skill, id, bySupersedingId),
+  listReviews: () => ipcRenderer.invoke('knowledge:listReviews'),
+  dismissReview: (id: string) => ipcRenderer.invoke('knowledge:dismissReview', id),
+  memories: () => ipcRenderer.invoke('knowledge:memories'),
+});
+
 contextBridge.exposeInMainWorld('workspacesAPI', {
   getActive: () => ipcRenderer.invoke('workspaces:getActive'),
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),

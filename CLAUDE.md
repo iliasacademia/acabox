@@ -137,6 +137,20 @@ to `PATH`.
   `COSCIENTIST_AGENT_CONFIG=<agent.json> COSCIENTIST_WORKSPACE=<dir>
   COSCIENTIST_AGENT_PORT=23288 node dist/agent-server.js`, then curl `/health`.
 - `npx tsc --noEmit` must stay clean before committing.
+- **Run tests with `npm test`, never bare `npx jest`.** The script is
+  `ELECTRON_RUN_AS_NODE=1 electron node_modules/.bin/jest`, and the Electron ABI
+  is the point: `better_sqlite3.node` is built for it. Under plain `npx jest`
+  `fileMonitorIntegration` fails with `NODE_MODULE_VERSION 136 … requires 141`,
+  which is an artifact of the wrong runner, not a real failure. **The old
+  "245/246, only `fileMonitorIntegration` fails" baseline recorded throughout
+  this file is stale and was measured that way** — under `npm test` the suite is
+  fully green (592/592, 34 suites as of 2026-07-29).
+- **Electron 37 ships Node 22.17; your shell's `node` is likely much newer.**
+  `fs` semantics diverge between them, so measure platform behaviour with
+  `ELECTRON_RUN_AS_NODE=1 ./node_modules/electron/dist/Electron.app/Contents/MacOS/Electron`,
+  not with `node`. Concretely: `fs.cpSync` of a directory onto a symlink throws
+  `ERR_FS_CP_DIR_TO_NON_DIR` on Node 25 but **silently writes through the link**
+  on 22.17 — a design premise was wrong for exactly this reason.
 - Do NOT run `npm run package` for routine testing — production build only.
 - Logs: `~/Library/Application Support/acabox/development/cobuilding.log`,
   plus the in-app Debug tab (command log + system log streams).
@@ -144,6 +158,84 @@ to `PATH`.
   `pkill -9 -f "Acabox/node_modules/electron"`.
 
 ## Status (last updated 2026-07-29)
+
+**Skills are now user-owned, importable, and can accumulate knowledge
+(2026-07-29). Built, verified, NOT yet exercised in real daily use.** Design in
+`docs/design/skills-knowledge-loop.md` (operative) and
+`docs/design/skills-plugins-connectors.md` (taxonomy, registries, the leaked-harness
+assessment). Acabox is a private single-user tool, so third-party skill licences
+are moot — do not re-raise them.
+- **The old model destroyed user work by design.** `copySkillsToWorkspace`
+  `cpSync`'d every shipped skill over `<workspace>/.claude/skills` on every
+  provision and `rmSync`'d any directory not in a hardcoded `SKILLS` array. An
+  edit died at the next boot; a custom skill was deleted outright.
+- **Now Pristine / Store / Render.** Shipped skills stay read-only in
+  `Resources`; the only writable copy is `<userData>/<channel>/skills/<id>/`;
+  `<workspace>/.claude/skills/<id>` is an **absolute symlink** into it. Verified
+  the CLI loader accepts symlinked dirs (`isDirectory()&&!D.isSymbolicLink())return`
+  in the darwin-arm64 binary) and keys identity on the **dirent name** — frontmatter
+  `name` is a display alias only. Render must stay under `.claude/`: a
+  workspace-root symlink is unlinked on every `containerService.start()` by the
+  reaper at `containerService.ts:220-227`, which skips dot-prefixed names at `:221`.
+- **The write-path problem is dissolved, not solved.** Agent `Edit`, a Bash
+  heredoc, vim and the UI all land in the same inode. `MODIFIED` is *derived*
+  (`sha256(store file) !== baseline[relPath]`, **per file**, so one edited byte in
+  `xlsx/SKILL.md` does not block upstream fixes to its other 53 files), never a flag.
+- **Unknown directories are ADOPTED as custom skills, never pruned** — the
+  deliberate inversion of the old destructive loop. Revert is rename-to-trash then
+  copy-from-pristine, never a bare delete; trash at `<userData>/<channel>/skills-trash/`.
+  `references/findings/**` is host-owned and excluded from both baseline and revert,
+  so a Revert cannot destroy accumulated knowledge.
+- **Importing works end to end**, no git: one codeload tarball, `/usr/bin/tar`
+  (real bsdtar, unlike the `/usr/bin/git` CLT shim). Measured: `anthropics/skills`
+  18 skills / 3.68 MB / 1.5s; `openai/plugins` **581 skills / 21.7 MB / 8.2s with
+  zero further API calls**. Provenance pins a resolved **40-char SHA** plus two hash
+  sets — `upstreamBlobs` answers "did upstream change", `baseline` answers "did I
+  change it" — which is what lets an upstream fix be taken while local edits are kept.
+  Symlinks are stripped from every payload (bsdtar refuses `..` but *does*
+  materialise absolute links, and the workspace reaper only covers root-level ones).
+  **Imports arrive `enabled: false`**, enforced as a literal in `skillStore.ts:1153`
+  that no caller can override. Id collisions **refuse** — never silently rename
+  (the id is what the model types and what the skill's own prose refers to) and
+  never replace.
+- **The roster was silently over budget and is now fixed.** The always-in-context
+  skill listing is capped at `contextTokens × 4 × skillListingBudgetFraction`;
+  at the 1% default that is 8,000 chars and the 21 shipped skills need **10,193**
+  (real YAML parse — a regex under-counted by 55% because descriptions are
+  multi-line block scalars). `skillListingBudgetFraction: 0.05` set at
+  `agent-server/index.ts:473`. `autoDreamEnabled: false` alongside it: consolidation
+  runs with `Edit`/`Write`/`rm` in the memory dir, is told CLAUDE.md wins over any
+  contradicting memory, and cannot tell hand-authored bytes from generated ones.
+- **Memory ≠ skills, and the rule is: if Claude must type it into a prompt for
+  another system, it is a skill.** `mcp__hex__create_thread` takes one string and
+  Hex's agent cannot see the workspace, so warehouse knowledge must be restatable
+  into that string — a memory cannot guarantee it is in context. **Measured: automatic
+  memory recall is NOT firing here** — zero `memory_recall` / `relevant_memories`
+  across all 10 production transcripts; the gate is `tengu_moth_copse`, default off.
+  Memory works only because `MEMORY.md` is unconditionally loaded and the agent then
+  chooses to `Read` what it points at. Do not render a "recalled from memory" chip.
+- New: `shared/skills.ts`, `shared/agentAllowedTools.ts`, `main/skillHash.ts`,
+  `main/skillStore.ts`, `main/skillRender.ts`, `main/knowledge/{skillImporter,
+  skillImportService,findingsLedger,omissionWatch}.ts`, `renderer/components/knowledge/`.
+  Two boot assertions: `mcp__knowledge__record_finding` must be in the resolved
+  `allowedTools` (`filterMcpServers` drops a relay with no matching entry, so
+  forgetting it makes write-back vanish silently), and `.applications/_bridge` must
+  exist after provisioning.
+- Verified: tsc clean; **592/592, 34 suites**; smoke exits 0; and the acceptance
+  test run for real — an edit to a built-in **survived a reboot** and reads MODIFIED,
+  a hand-made custom skill **survived and was adopted**, and a real import from
+  `anthropics/skills` landed with all four `upstreamBlobs` matching GitHub's tree
+  API byte-for-byte.
+- **NOT verified, and the headline rests on the first one:** whether the model
+  *volunteers* `mcp__knowledge__record_finding` mid-task — every ledger test drove
+  the call directly or instructed it, and the design's one-week measurement has not
+  been run. Also unverified: that `skillListingBudgetFraction` is honoured **at
+  runtime** (fallback is the env var `SLASH_COMMAND_TOOL_CHAR_BUDGET`); that the
+  knowledge relay survives `applyConnectorsToSession`'s mid-session `setMcpServers`
+  replacement (this codebase has been burned by exactly that once); and a genuine
+  fresh-install boot on a virgin machine, which is covered by tests only.
+- Known and unpruned: `<userData>/workspace-file-backups/<stamp>/` accumulates one
+  directory per hook/settings restore with no counterpart to `pruneSkillsTrash`.
 
 **On-device voice dictation in both chat composers (2026-07-29).** Asked for
 after seeing dictation in the Claude Code IDE extension. **Being built on the
