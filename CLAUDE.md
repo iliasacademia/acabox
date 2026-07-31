@@ -166,7 +166,86 @@ to `PATH`.
 - To kill stray dev instances:
   `pkill -9 -f "Acabox/node_modules/electron"`.
 
-## Status (last updated 2026-07-29)
+## Status (last updated 2026-07-30)
+
+**Mini-apps now speak the Command Desk language (2026-07-30).** Reported as
+"our mini-app design still looks like Coscientist". It did, and nothing about a
+mini-app's appearance was connected to the host: an app is a separate esbuild
+bundle in a `local-file://` iframe, so it inherits **zero** CSS from the
+renderer and cannot reach it (different origin, webpack-content-hashed font
+URLs). Its look came from five places, all still carrying the pre-fork palette.
+- **The style guidance was not merely dated, it was false.** `SKILL.md` told the
+  agent the page MUST be `bg-[#faf8f5]` *because that is the host's nav-bar
+  colour*. Grep says `#faf8f5` existed in exactly three places, all inside
+  mini-app land — the host chrome is `#ffffff` on `--cd-border #dddde2`. The
+  rule written to prevent a seam was creating one. Past that hex it said only
+  "modern and professional": no tokens, no type scale, no vocabulary.
+- **The fix is shipped assets, not prose.** New `assets/vendor/acabox.css` —
+  the `:root` tokens, `@font-face` for DM Sans + IBM Plex Mono, and ~40 `ab-*`
+  component classes (`ab-label`, `ab-card`, `ab-stat`, `ab-btn`, `ab-table`, …).
+  `syncMiniAppAssets()` already force-copies `assets/vendor` → `_vendor` on
+  every boot, so it needed no new plumbing. Fonts are **DM Sans + IBM Plex Mono
+  only** (112 KB); Material Symbols is deliberately not shipped — mini-app icons
+  stay lucide, and it is 281 KB for glyphs nothing renders.
+- **The load-bearing trick is the REFLEX REMAP, not the token names.** The
+  scaffold's Tailwind config re-points Tailwind's own `gray/slate/blue/red/
+  amber/green` scales at the Acabox ramp. An agent writing React types
+  `text-gray-500` and `bg-blue-600` by reflex and no amount of prose reliably
+  suppresses that; redirecting the reflex works where forbidding it does not.
+  Verified against the **real vendored tailwind.js** driving the **real
+  scaffolded config**: `text-gray-500`→`#91919e`, `bg-blue-600`→`#0645b1`,
+  `font-sans`→DM Sans, 12/12. (Tailwind emits `rgb(r g b / …)`, not hex — an
+  assertion on the hex is a false negative, which cost one round here.)
+- **`index.html` is written once at scaffold time and is then the app's own
+  file**, so the link tag alone would never reach the 3 existing apps — and
+  restyling the shared components to `var(--cd-*)` would have left them
+  colourless there. The bridge (`_bridge/design-system.ts`) injects the sheet
+  when absent. It **appends** to `<head>` rather than prepending: legacy
+  scaffolds carry an inline `body { font-family: system-ui }` and both are
+  element selectors, so only document order separates them. Utilities are
+  unaffected either way — a class (0,1,0) beats an element rule (0,0,1)
+  regardless of order.
+- **Charts got the most attention because they dominate these apps visually.**
+  New `@reusable/plotTheme.ts` is the single source for chart chrome and colour;
+  `react-plotly/SKILL.md` had been shipping a *fifth* competing design system
+  (system-ui, `#fafafa` plot wash, stock Plotly ramp). The categorical palette
+  was **computed, not chosen** — run through the dataviz validator at
+  `--pairs all` and passing all six checks (worst CVD ΔE 8.4 protan, normal
+  floor 15.8, all ≥3:1 on white). **Six hues is a measured ceiling:** a 7th
+  olive step collided with the orange (5.2 protan) and the green (12.2 normal
+  vision) and was cut rather than re-tinted. Diverging arms are
+  lightness-symmetric to 0.010 OKLab L with a **neutral gray** midpoint.
+  `types.ts` no longer holds a second, different set of regulation colours.
+- **`ErrorDisplay` keeps literal fallbacks on every `var()`** — it is the one
+  component that must render when the app around it is broken, so it must not
+  depend on a stylesheet having loaded.
+- Verified: tsc clean; **757/757 across 43 suites** (35 new); smoke exits 0; a
+  real app scaffolded by the **real script**, bundled by the **real esbuild**
+  with the builder's exact flags, and executed in JSDOM — **29/29**, including
+  no-double-inject on a new app, injection-after-the-legacy-style on an old
+  one, and full token parity with `commandDesk.css`. Confirmed on disk that the
+  new assets reached the dev workspace's `_vendor`/`_bridge`.
+- **Existing apps do not self-heal.** Tokens, fonts and the shared components
+  land on next rebuild, but each app's own `App.tsx` is agent/user code the host
+  must not rewrite — so `bg-[#faf8f5]` written into an old app stays until the
+  agent restyles it. `SKILL.md` now tells it to bring such an app's `<head>` in
+  line when it touches one.
+- **NOT verified visually.** Every claim above is from tests and measurement;
+  nobody has looked at a rebuilt app. **Acceptance test: `npm start`, rebuild
+  `coScientistUserMessages`, and confirm it comes back in DM Sans on white with
+  blue (not green) accents.**
+- Same pass: the **mic button in the side-panel composer was 8px low**. That
+  field is `align-items: flex-end`, where the glyph (`margin-bottom: 14px`) and
+  send button (`7px`) are pushed onto a shared centre line by hand; the mic is a
+  `.cdIconBtn` and the compensating rule (`.cdComposerField .cdIconBtn`) is
+  scoped to the *docked* composer's field class, which this composer does not
+  use. Now given the send button's exact box. Pinned by a test that asserts the
+  two **match each other** rather than asserting the numbers. Fixed from the
+  computed geometry — a live layout measurement was attempted via Electron and
+  **could not be completed** (GUI launches produce no output under the agent's
+  shell, as recorded in Conventions).
+
+## Earlier status (last updated 2026-07-29)
 
 **Cleared the whole outstanding list: B21–B25, HTTP Basic, and mini-app API
 access (2026-07-29).** Everything the v0.1.9 report left open.

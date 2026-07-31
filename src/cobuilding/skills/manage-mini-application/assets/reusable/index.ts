@@ -20,3 +20,15 @@ export type { VolcanoGene, Regulation } from "./types";
 export type { CSVPreview } from "./csv-utils";
 export { classifyGene, COLORS, LABELS } from "./types";
 export { parseCsvLine, parseCSVPreview } from "./csv-utils";
+export {
+  ACABOX_CATEGORICAL,
+  ACABOX_SEQUENTIAL,
+  ACABOX_SEQUENTIAL_SCALE,
+  ACABOX_DIVERGING,
+  ACABOX_DIVERGING_SCALE,
+  REGULATION_COLORS,
+  ACABOX_AXIS,
+  ACABOX_LAYOUT,
+  ACABOX_MONO_TICKFONT,
+  ACABOX_CONFIG,
+} from "./plotTheme";

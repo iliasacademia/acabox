@@ -8,6 +8,10 @@ import type { UseKernelActionResult } from "./useKernelAction";
 // while running, elapsed seconds, disabled while running. The agent only
 // has to decide the label and the additional `disabled` condition (e.g.
 // "no input file selected").
+//
+// Styling comes from `ab-btn` in `_vendor/acabox.css` rather than Tailwind
+// colour utilities, so the button tracks the design tokens instead of pinning
+// a hex that has to be chased when the palette moves.
 
 interface RunButtonProps {
   action: UseKernelActionResult;
@@ -31,11 +35,7 @@ export function RunButton({
     <button
       onClick={onRun}
       disabled={isDisabled}
-      className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-        isDisabled
-          ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-          : "bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800"
-      }`}
+      className="ab-btn ab-btn--primary ab-btn--lg"
     >
       {isRunning ? (
         <>

@@ -1,0 +1,552 @@
+/*
+ * Acabox design system for mini-apps — the Command Desk language, shipped into
+ * mini-app land.
+ *
+ * WHY THIS FILE EXISTS. A mini-app is a separate esbuild bundle rendered in a
+ * `local-file://` iframe. It inherits nothing from the host renderer's CSS, and
+ * it cannot reach it: different origin, and the host's font URLs are
+ * webpack-content-hashed. So the only way a mini-app can look like Acabox is
+ * for the tokens and the fonts to be copied into `.applications/_vendor/`,
+ * which `syncMiniAppAssets()` (main/skills.ts) force-refreshes on every boot.
+ *
+ * SOURCE OF TRUTH. The `:root` block below is a copy of the one in
+ * `renderer/commandDesk.css`. It is a copy on purpose — a build step that
+ * generated it would have to run before the skill assets are packaged, and the
+ * palette has changed once in the life of the project. If you edit the tokens
+ * there, edit them here;
+ * `src/cobuilding/main/__tests__/miniAppDesignSystem.test.ts` fails if the two
+ * ever disagree.
+ *
+ * THE ONE RULE WORTH REPEATING: blue means *clickable*. Never colour a metric,
+ * a status, or a heading blue.
+ *
+ * Component classes are prefixed `ab-` so they can never collide with a
+ * Tailwind utility. They are not a replacement for Tailwind — they encode the
+ * handful of idioms that are recognisably Acabox (the mono section label, the
+ * stat tile, the hairline card) so an app gets them right without the agent
+ * having to reconstruct six declarations from prose.
+ */
+
+/* ═══ Fonts ═══
+   Paths are relative to THIS FILE, not to the app's index.html, so they
+   resolve from any app directory depth. */
+
+@font-face {
+  font-family: 'DM Sans';
+  src: url('./fonts/DM-Sans.woff2') format('woff2');
+  font-weight: 100 1000;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  src: url('./fonts/IBMPlexMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  src: url('./fonts/IBMPlexMono-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-display: swap;
+}
+
+/* ═══ Tokens ═══ */
+
+:root {
+  --cd-ink: #141413;
+  --cd-text2: #535366;
+  --cd-text3: #91919e;
+  --cd-stroke-disabled: #c7c7cf;
+  --cd-border: #dddde2;
+  --cd-border-soft: #ebebee;
+  --cd-blue: #0645b1;
+  --cd-blue-hover: #0c3b8d;
+  --cd-blue-pressed: #082f75;
+  --cd-pale: #f4f7fc;
+  --cd-error: #b60000;
+  --cd-error-bg: #fff2f2;
+  --cd-success: #05b01c;
+  --cd-busy: #fecf4c;
+  --cd-idle: #c7c7cf;
+  --cd-sans: 'DM Sans', sans-serif;
+  --cd-mono: 'IBM Plex Mono', monospace;
+}
+
+/* ═══ Base ═══
+   The host's tool viewer is #ffffff, so the app's page is #ffffff too. A
+   mini-app fills the viewer edge-to-edge with no gap, and any other page tone
+   shows up as a seam where the app meets the chrome. */
+
+html {
+  background: #ffffff;
+}
+
+body {
+  font-family: var(--cd-sans);
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--cd-ink);
+  background: #ffffff;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--cd-pale);
+}
+
+/* ═══ Layout ═══ */
+
+.ab-app {
+  min-height: 100vh;
+  background: #ffffff;
+  padding: 24px;
+}
+/* No page padding — for a layout with a full-bleed header or sidebar that
+   must run edge to edge. Sections inside supply their own padding. */
+.ab-app--flush { padding: 0; }
+
+/* Centred reading column. Matches the host's own 760px chat column at the
+   narrow end; `--wide` is for table- and chart-led apps. */
+.ab-page {
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.ab-page--wide { max-width: 1080px; }
+.ab-page--full { max-width: none; }
+
+.ab-divider {
+  height: 1px;
+  background: var(--cd-border-soft);
+  border: none;
+  margin: 0;
+}
+
+/* Hairline-separated list. Rules go *between* rows only — no leading or
+   trailing line, which inside a card would read as a doubled border. */
+.ab-rows > * + * {
+  border-top: 1px solid var(--cd-border-soft);
+}
+
+/* ═══ Type ═══ */
+
+.ab-h1 {
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 600;
+  color: var(--cd-ink);
+}
+.ab-h2 {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--cd-ink);
+}
+.ab-sub {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--cd-text2);
+}
+.ab-meta {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--cd-text3);
+}
+
+/* The signature. Mono, uppercase, 0.08em — this one class does more to make an
+   app read as Acabox than any other rule in this file. Use it for the header
+   over every card and section, in place of a bold sans heading. */
+.ab-label {
+  font-family: var(--cd-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--cd-text2);
+  text-transform: uppercase;
+}
+
+.ab-mono {
+  font-family: var(--cd-mono);
+  font-size: 12px;
+  color: var(--cd-text2);
+}
+
+.ab-link {
+  color: var(--cd-blue);
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+.ab-link:hover {
+  color: var(--cd-blue-hover);
+  text-decoration: underline;
+}
+
+/* ═══ Surfaces ═══ */
+
+.ab-card {
+  border: 1px solid var(--cd-border);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 16px;
+}
+.ab-card--pale { background: var(--cd-pale); border-color: transparent; }
+.ab-card--error { background: var(--cd-error-bg); border-color: transparent; }
+.ab-card--flush { padding: 0; overflow: hidden; }
+
+/* Clickable card. Only add `--action` when the whole surface is a button —
+   the hover tint is the affordance. */
+.ab-card--action {
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  font-family: var(--cd-sans);
+  transition: background 150ms ease-out;
+}
+.ab-card--action:hover { background: var(--cd-pale); }
+
+/* ═══ Stat tiles ═══
+   The KPI row at the top of a results app. Value is ink, never blue and never
+   the accent colour — a number is not a link. */
+
+.ab-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+.ab-stat {
+  border: 1px solid var(--cd-border);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.ab-stat__label {
+  font-family: var(--cd-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--cd-text2);
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ab-stat__value {
+  font-size: 26px;
+  line-height: 30px;
+  font-weight: 600;
+  color: var(--cd-ink);
+  font-variant-numeric: tabular-nums;
+}
+.ab-stat__meta {
+  font-family: var(--cd-mono);
+  font-size: 10px;
+  color: var(--cd-text3);
+  text-transform: uppercase;
+}
+
+/* ═══ Buttons ═══ */
+
+.ab-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--cd-ink);
+  border-radius: 8px;
+  background: #ffffff;
+  font-family: var(--cd-sans);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--cd-ink);
+  cursor: pointer;
+  transition: background 150ms ease-out, color 150ms ease-out, border-color 150ms ease-out;
+  flex: none;
+}
+.ab-btn:hover:not(:disabled) {
+  background: var(--cd-ink);
+  color: #ffffff;
+}
+.ab-btn:disabled {
+  border-color: var(--cd-stroke-disabled);
+  color: var(--cd-stroke-disabled);
+  background: #ffffff;
+  cursor: default;
+}
+
+.ab-btn--primary {
+  border-color: transparent;
+  background: var(--cd-blue);
+  color: #ffffff;
+}
+.ab-btn--primary:hover:not(:disabled) {
+  background: var(--cd-blue-hover);
+  color: #ffffff;
+}
+.ab-btn--primary:active:not(:disabled) { background: var(--cd-blue-pressed); }
+.ab-btn--primary:disabled {
+  background: var(--cd-stroke-disabled);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.ab-btn--ghost {
+  border-color: transparent;
+  color: var(--cd-blue);
+  background: none;
+}
+.ab-btn--ghost:hover:not(:disabled) {
+  background: var(--cd-pale);
+  color: var(--cd-blue-hover);
+}
+.ab-btn--ghost:disabled { background: none; color: var(--cd-stroke-disabled); }
+
+.ab-btn--danger { border-color: var(--cd-error); color: var(--cd-error); }
+.ab-btn--danger:hover:not(:disabled) { background: var(--cd-error); color: #ffffff; }
+
+.ab-btn--lg { height: 40px; padding: 0 20px; }
+.ab-btn--sm { height: 28px; padding: 0 10px; font-size: 13px; }
+
+/* Square icon button. */
+.ab-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--cd-text2);
+  cursor: pointer;
+  transition: background 150ms ease-out, color 150ms ease-out;
+  flex: none;
+}
+.ab-icon-btn:hover:not(:disabled) { background: var(--cd-pale); color: var(--cd-blue); }
+.ab-icon-btn:disabled { color: var(--cd-stroke-disabled); cursor: default; }
+.ab-icon-btn--danger:hover:not(:disabled) { background: var(--cd-error-bg); color: var(--cd-error); }
+
+/* ═══ Form controls ═══ */
+
+.ab-input,
+.ab-select,
+.ab-textarea {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--cd-border);
+  border-radius: 8px;
+  background: #ffffff;
+  font-family: var(--cd-sans);
+  font-size: 13px;
+  color: var(--cd-ink);
+  outline: none;
+  transition: border-color 150ms ease-out;
+}
+.ab-textarea {
+  height: auto;
+  min-height: 72px;
+  padding: 8px 10px;
+  line-height: 18px;
+  resize: vertical;
+}
+.ab-input::placeholder,
+.ab-textarea::placeholder { color: var(--cd-text3); }
+.ab-input:focus,
+.ab-select:focus,
+.ab-textarea:focus { border-color: var(--cd-blue); }
+.ab-input:disabled,
+.ab-select:disabled,
+.ab-textarea:disabled { background: var(--cd-pale); color: var(--cd-text3); cursor: default; }
+
+.ab-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.ab-field__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cd-text2);
+}
+
+.ab-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--cd-ink);
+  cursor: pointer;
+}
+.ab-check input { accent-color: var(--cd-blue); cursor: pointer; }
+
+/* ═══ Chips and status ═══ */
+
+.ab-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--cd-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  color: var(--cd-text2);
+  text-transform: uppercase;
+  flex: none;
+}
+.ab-chip--ok { color: var(--cd-success); }
+.ab-chip--error { color: var(--cd-error); }
+.ab-chip--busy { color: var(--cd-text2); }
+
+.ab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--cd-idle);
+}
+.ab-dot--ok { background: var(--cd-success); }
+.ab-dot--busy { background: var(--cd-busy); }
+.ab-dot--error { background: var(--cd-error); }
+
+/* Filled tag for a category or a count, when a bare chip is too quiet. */
+.ab-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--cd-pale);
+  font-family: var(--cd-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--cd-text2);
+  text-transform: uppercase;
+  flex: none;
+}
+.ab-tag--error { background: var(--cd-error-bg); color: var(--cd-error); }
+/* Warn is a busy-adjacent state — "behind", not "broken". Amber at a
+   text-legible darkness; the raw --cd-busy is a dot colour, not a type colour. */
+.ab-tag--warn { background: #fff3cc; color: #6b5200; }
+/* Sentence-case variant, for a tag that carries a whole clause rather than a
+   one-word label. Uppercase mono stops being readable past about three words. */
+.ab-tag--text {
+  height: auto;
+  padding: 4px 8px;
+  font-family: var(--cd-sans);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* ═══ Tabs ═══ */
+
+.ab-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--cd-border);
+}
+.ab-tab {
+  height: 34px;
+  padding: 0 12px;
+  border: none;
+  background: none;
+  font-family: var(--cd-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cd-text2);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 150ms ease-out, border-color 150ms ease-out;
+}
+.ab-tab:hover { color: var(--cd-ink); }
+.ab-tab--active {
+  color: var(--cd-ink);
+  border-bottom-color: var(--cd-blue);
+}
+
+/* ═══ Tables ═══
+   Mono uppercase header, hairline row rules, no zebra striping and no vertical
+   rules — the host's own lists read the same way. */
+
+.ab-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ab-table th {
+  font-family: var(--cd-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--cd-text2);
+  text-transform: uppercase;
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--cd-border);
+  white-space: nowrap;
+}
+.ab-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--cd-border-soft);
+  color: var(--cd-ink);
+  vertical-align: top;
+}
+.ab-table tbody tr:last-child td { border-bottom: none; }
+.ab-table tbody tr:hover td { background: var(--cd-pale); }
+.ab-table__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ═══ Notes ═══ */
+
+.ab-note {
+  border-radius: 8px;
+  background: var(--cd-pale);
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--cd-text2);
+}
+.ab-note--error {
+  background: var(--cd-error-bg);
+  color: var(--cd-error);
+}
+
+.ab-empty {
+  padding: 40px 20px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--cd-text3);
+}
+
+/* ═══ Spinner ═══ */
+
+.ab-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--cd-border);
+  border-top-color: var(--cd-text2);
+  border-radius: 50%;
+  animation: ab-spin 700ms linear infinite;
+  flex: none;
+}
+@keyframes ab-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ab-spinner { animation-duration: 2.4s; }
+}

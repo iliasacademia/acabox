@@ -8,14 +8,18 @@ export interface VolcanoGene {
   baseMean: number;
 }
 
-export const COLORS = { up: "#dc4a4a", down: "#4a90d9", ns: "#c4c4c4" } as const;
+// Re-exported from the chart theme so there is exactly one definition of the
+// up/down/ns polarity colours. Kept under this name because existing apps
+// import `COLORS` from `@reusable/types`.
+export { REGULATION_COLORS as COLORS } from "./plotTheme";
+import { REGULATION_COLORS } from "./plotTheme";
 export const LABELS = {
   up: "Upregulated",
   down: "Downregulated",
   ns: "Not significant",
 } as const;
 
-export type Regulation = keyof typeof COLORS;
+export type Regulation = keyof typeof REGULATION_COLORS;
 
 export const classifyGene = (
   gene: VolcanoGene,

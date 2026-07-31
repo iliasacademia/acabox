@@ -21,14 +21,14 @@
   mode: "lines+markers", // "lines", "markers", "text", or "+" combinations
   name: "Series A",
   marker: {
-    color: "#636efa",
+    color: ACABOX_CATEGORICAL[0],
     size: 6,             // or array for variable sizing
     opacity: 0.7,
     symbol: "circle",    // "square", "diamond", "cross", "x", "triangle-up", "star"
     line: { color: "#fff", width: 1 },
   },
   line: {
-    color: "#636efa",
+    color: ACABOX_CATEGORICAL[0],
     width: 2,
     dash: "solid",       // "dot", "dash", "longdash", "dashdot"
     shape: "linear",     // "spline", "hv", "vh", "hvh", "vhv"
@@ -48,7 +48,7 @@ Always set `mode` explicitly. Plotly defaults change based on point count.
   x: categories, y: values,
   orientation: "v",      // "h" for horizontal
   marker: {
-    color: "#636efa",
+    color: ACABOX_CATEGORICAL[0],
     line: { color: "rgba(0,0,0,0.1)", width: 1 },
     cornerradius: 4,
   },
@@ -83,7 +83,7 @@ marker: { pattern: { shape: "/", solidity: 0.3, size: 8 } }
   type: "heatmap",
   z: [[1, 2, 3], [4, 5, 6]],
   x: colLabels, y: rowLabels,
-  colorscale: "Viridis",
+  colorscale: ACABOX_SEQUENTIAL_SCALE,
   zmin: 0, zmax: 10,
   zmid: 5,              // center of diverging colorscale
   showscale: true,
@@ -97,12 +97,18 @@ marker: { pattern: { shape: "/", solidity: 0.3, size: 8 } }
 }
 ```
 
-**Built-in colorscales:** `"Viridis"`, `"Blues"`, `"Reds"`, `"RdBu"`, `"YlOrRd"`, `"YlGnBu"`, `"Greys"`, `"Hot"`, `"Portland"`
+**Prefer the Acabox ramps** — `ACABOX_SEQUENTIAL_SCALE` for magnitude,
+`ACABOX_DIVERGING_SCALE` (with `zmid: 0`) for signed values:
 
-**Custom diverging:**
 ```tsx
-colorscale: [[0, "#3b82f6"], [0.5, "#ffffff"], [1, "#ef4444"]]
+colorscale: ACABOX_SEQUENTIAL_SCALE
+colorscale: ACABOX_DIVERGING_SCALE, zmid: 0
 ```
+
+Plotly's built-ins (`"Viridis"`, `"Blues"`, `"RdBu"`, `"Greys"`, …) are still
+available and `Viridis` is a defensible choice when a figure has to match a
+published one. Never use `"Portland"`, `"Jet"`, `"Rainbow"` or `"Hot"` — a
+rainbow scale invents boundaries the data does not have.
 
 Use `reversescale: true` to flip any colorscale.
 
@@ -116,7 +122,7 @@ Use `reversescale: true` to flip any colorscale.
   histnorm: "",          // "percent", "probability", "density", "probability density"
   marker: {
     color: "rgba(99, 110, 250, 0.7)",
-    line: { color: "#4338ca", width: 1 },
+    line: { color: ACABOX_CATEGORICAL[5], width: 1 },
   },
   hovertemplate: "Range: %{x}<br>Count: %{y}<extra></extra>",
 }
@@ -139,8 +145,8 @@ Use `reversescale: true` to flip any colorscale.
   jitter: 0.3,
   pointpos: 0,
   boxmean: "sd",             // true for mean line, "sd" for mean + SD
-  marker: { color: "#636efa", outliercolor: "#ef4444", size: 3 },
-  line: { color: "#636efa" },
+  marker: { color: ACABOX_CATEGORICAL[0], outliercolor: REGULATION_COLORS.up, size: 3 },
+  line: { color: ACABOX_CATEGORICAL[0] },
   fillcolor: "rgba(99, 110, 250, 0.3)",
   whiskerwidth: 0.5,
 }
@@ -163,8 +169,8 @@ Use `reversescale: true` to flip any colorscale.
   box: { visible: true, fillcolor: "#fff", width: 0.25 },
   meanline: { visible: true, color: "#000", width: 1 },
   side: "both",              // "positive"/"negative" for split violins
-  marker: { color: "#636efa", size: 3 },
-  line: { color: "#636efa" },
+  marker: { color: ACABOX_CATEGORICAL[0], size: 3 },
+  line: { color: ACABOX_CATEGORICAL[0] },
   fillcolor: "rgba(99, 110, 250, 0.3)",
 }
 ```
@@ -205,7 +211,7 @@ A scatter with variable `marker.size`:
     sizeref: 2 * Math.max(...sizeValues) / (40 ** 2),  // max bubble = 40px
     sizemin: 4,
     color: colorValues,
-    colorscale: "Viridis",
+    colorscale: ACABOX_SEQUENTIAL_SCALE,
     showscale: true,
     line: { color: "#fff", width: 1 },
   },
@@ -222,7 +228,7 @@ A scatter with variable `marker.size`:
   x: xValues, y: yValues,
   fill: "tozeroy",           // "tozerox", "tonexty", "tonextx", "toself"
   fillcolor: "rgba(99, 110, 250, 0.2)",
-  line: { color: "#636efa", width: 2 },
+  line: { color: ACABOX_CATEGORICAL[0], width: 2 },
   mode: "lines" as const,
 }
 ```
@@ -237,7 +243,7 @@ error_y: {
   array: upperErrors,
   arrayminus: lowerErrors,   // omit for symmetric
   visible: true,
-  color: "#636efa",
+  color: ACABOX_CATEGORICAL[0],
   thickness: 1.5,
   width: 4,
 }

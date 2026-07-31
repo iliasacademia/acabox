@@ -39,15 +39,25 @@ export function FileSlotPicker<P extends Record<string, unknown>>({
 
   return (
     <div className="flex items-center gap-3">
-      <span className="text-sm text-gray-600 w-44 flex-shrink-0">{label}</span>
+      <span
+        className="text-sm w-44 flex-shrink-0"
+        style={{ color: "var(--cd-text2)" }}
+      >
+        {label}
+      </span>
       {path ? (
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <span className="text-sm text-gray-800 truncate" title={path}>
+          <span
+            className="text-sm truncate"
+            style={{ color: "var(--cd-ink)" }}
+            title={path}
+          >
             {filename}
           </span>
           <button
             onClick={() => state.clearInput(slot)}
-            className="text-gray-400 hover:text-gray-600"
+            className="ab-icon-btn ab-icon-btn--danger"
+            style={{ width: 24, height: 24 }}
             aria-label={`Clear ${label}`}
           >
             <XIcon className="w-4 h-4" />
@@ -56,7 +66,7 @@ export function FileSlotPicker<P extends Record<string, unknown>>({
       ) : (
         <button
           onClick={() => state.selectInput(slot, filters)}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50 transition-colors"
+          className="ab-btn ab-btn--ghost ab-btn--sm"
         >
           <UploadIcon className="w-4 h-4" />
           Choose file

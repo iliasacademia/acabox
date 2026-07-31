@@ -4,6 +4,10 @@
 // app code runs.
 import "./error-capture";
 
+// Ensures `_vendor/acabox.css` (fonts + design tokens + `ab-*` classes) is
+// loaded even in apps whose index.html predates it. See design-system.ts.
+import "./design-system";
+
 export {};
 
 interface BridgeFilesAPI {

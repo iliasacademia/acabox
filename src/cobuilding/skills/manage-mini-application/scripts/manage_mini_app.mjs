@@ -87,14 +87,86 @@ for (const sub of ["input", "output"]) {
 }
 
 // Scaffold index.html
+//
+// Three things make an app look like Acabox rather than like generic Tailwind,
+// and all three live here:
+//
+//   1. `acabox.css` — DM Sans + IBM Plex Mono, the design tokens as CSS custom
+//      properties, and the `ab-*` component classes. Shared out of `_vendor/`,
+//      which the host force-refreshes on every boot.
+//   2. The Tailwind theme extension below, which gives the tokens ergonomic
+//      class names (`text-ink`, `bg-pale`, `border-line`).
+//   3. The palette REMAP, which is the part that actually holds the line. An
+//      agent writing React reaches for `text-gray-500` and `bg-blue-600` by
+//      reflex; no amount of prose reliably suppresses that. Pointing those
+//      exact class names at the Acabox ramp redirects the reflex instead of
+//      fighting it, so even code written without reading the style guide comes
+//      out on-palette.
 const indexHtml = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8" />
+  <link rel="stylesheet" href="../../_vendor/acabox.css" />
   <script src="../../_vendor/tailwind.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            // Named tokens — prefer these in new code.
+            ink: "#141413",
+            text2: "#535366",
+            text3: "#91919e",
+            line: { DEFAULT: "#dddde2", soft: "#ebebee" },
+            muted: "#c7c7cf",
+            pale: "#f4f7fc",
+            accent: { DEFAULT: "#0645b1", hover: "#0c3b8d", pressed: "#082f75" },
+            success: "#05b01c",
+            busy: "#fecf4c",
+
+            // Reflex remap. Tailwind's own scales, re-pointed at the Acabox
+            // ramp so the habitual class name lands on the right colour.
+            gray: {
+              50: "#f4f7fc", 100: "#f4f7fc", 200: "#ebebee", 300: "#dddde2",
+              400: "#91919e", 500: "#91919e", 600: "#535366", 700: "#535366",
+              800: "#141413", 900: "#141413", 950: "#141413",
+            },
+            slate: {
+              50: "#f4f7fc", 100: "#f4f7fc", 200: "#ebebee", 300: "#dddde2",
+              400: "#91919e", 500: "#91919e", 600: "#535366", 700: "#535366",
+              800: "#141413", 900: "#141413", 950: "#141413",
+            },
+            blue: {
+              50: "#f4f7fc", 100: "#f4f7fc", 200: "#dbe4f3", 300: "#b3c6e4",
+              400: "#4c7bc9", 500: "#0645b1", 600: "#0645b1", 700: "#0c3b8d",
+              800: "#082f75", 900: "#082f75", 950: "#082f75",
+            },
+            red: {
+              50: "#fff2f2", 100: "#fff2f2", 200: "#f7d4d4", 300: "#e9a3a3",
+              400: "#d15c5c", 500: "#b60000", 600: "#b60000", 700: "#8f0000",
+              800: "#8f0000", 900: "#6b0000", 950: "#6b0000",
+            },
+            amber: {
+              50: "#fffaeb", 100: "#fff3cc", 200: "#fee9a3", 300: "#fedf7a",
+              400: "#fecf4c", 500: "#fecf4c", 600: "#c99b00", 700: "#8a6a00",
+              800: "#6b5200", 900: "#4d3b00", 950: "#4d3b00",
+            },
+            green: {
+              50: "#eefaf0", 100: "#d6f4dc", 200: "#a8e8b5", 300: "#6bd583",
+              400: "#2ac04c", 500: "#05b01c", 600: "#05b01c", 700: "#048516",
+              800: "#036611", 900: "#02470c", 950: "#02470c",
+            },
+          },
+          fontFamily: {
+            sans: ["DM Sans", "sans-serif"],
+            mono: ["IBM Plex Mono", "monospace"],
+          },
+        },
+      },
+    };
+  </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, -apple-system, sans-serif; }
   </style>
 </head>
 <body>

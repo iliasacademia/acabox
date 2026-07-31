@@ -297,14 +297,14 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#faf8f5] flex items-center justify-center">
+      <div className="ab-app flex items-center justify-center">
         <LoaderIcon className="w-6 h-6 animate-spin text-gray-400" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#faf8f5] p-6">
+    <div className="ab-app">
       <div className="max-w-5xl mx-auto space-y-6">
         {/* Header */}
         <div>
@@ -314,7 +314,7 @@ export default function App() {
 
         {/* Input Files */}
         <div className="bg-white rounded-lg border border-gray-200 p-5 space-y-4">
-          <h2 className="text-sm font-medium text-gray-700 uppercase tracking-wide">Input Files</h2>
+          <h2 className="ab-label">Input Files</h2>
           <div className="grid grid-cols-1 gap-3">
             <FileSlotPicker state={state} slot="counts_file" label="Raw Counts CSV" filters={CSV_FILTER} />
             <FileSlotPicker state={state} slot="coldata_file" label="Sample Annotation CSV" filters={CSV_FILTER} />
@@ -323,7 +323,7 @@ export default function App() {
 
         {/* Design Configuration */}
         <div className="bg-white rounded-lg border border-gray-200 p-5 space-y-4">
-          <h2 className="text-sm font-medium text-gray-700 uppercase tracking-wide">Design</h2>
+          <h2 className="ab-label">Design</h2>
 
           <div className="flex gap-4">
             <label className="flex items-center gap-2 cursor-pointer">
@@ -458,7 +458,7 @@ export default function App() {
             <div className="bg-white rounded-lg border border-gray-200 p-5">
               <div className="flex items-center gap-2 mb-4">
                 <CheckCircleIcon className="w-5 h-5 text-green-500" />
-                <h2 className="text-sm font-medium text-gray-700 uppercase tracking-wide">Summary</h2>
+                <h2 className="ab-label">Summary</h2>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <StatCard label="Genes (pre-filter)" value={runResult.summary_stats.n_genes_prefilter.toLocaleString()} />
@@ -555,7 +555,7 @@ export default function App() {
             {/* Other Visualizations (static images) */}
             {staticVisualizations.length > 0 && (
               <div className="bg-white rounded-lg border border-gray-200 p-5">
-                <h2 className="text-sm font-medium text-gray-700 uppercase tracking-wide mb-4">Other Visualizations</h2>
+                <h2 className="ab-label mb-4">Other Visualizations</h2>
                 <div className="flex gap-2 flex-wrap mb-4">
                   {staticVisualizations.map((viz, i) => (
                     <button

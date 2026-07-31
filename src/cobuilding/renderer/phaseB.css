@@ -740,6 +740,19 @@
 .cdPanelComposer__send:hover { background: var(--cd-blue-hover); }
 .cdPanelComposer__send:disabled { background: var(--cd-stroke-disabled); cursor: default; }
 
+/* The field is `align-items: flex-end`, so every control needs the same bottom
+   offset to share a centre line with the send button — the glyph does it with
+   `margin-bottom: 14px`, the send button with `7px`. The mic (`.cdIconBtn`)
+   arrives with neither: the global composer's compensating rule is scoped to
+   `.cdComposerField`, which is a different composer. Without this it renders
+   28px tall flush to the bottom and rides 8px low. Match the send button's box
+   exactly so the two read as a pair. */
+.cdPanelComposer__field .cdIconBtn {
+  width: 30px;
+  height: 30px;
+  margin-bottom: 7px;
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    Screen 2 — Tool viewer
    ═══════════════════════════════════════════════════════════════════ */

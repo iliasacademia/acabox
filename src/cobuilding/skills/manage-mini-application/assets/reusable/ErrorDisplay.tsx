@@ -1,6 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { XIcon, ChevronDownIcon, ChevronRightIcon, CheckIcon } from "lucide-react";
 
+// The floating error overlay. Deliberately styled inline rather than with
+// Tailwind or `ab-*` classes: this is the one component that has to render when
+// the app around it is broken, so it must not depend on a stylesheet having
+// loaded. Every `var(--cd-*)` here therefore carries the literal it replaces as
+// a fallback — the panel tracks the design tokens when acabox.css is present
+// and still comes out in the right colours if it is not.
+
 // Mirrors the CobuildError shape produced by _bridge/error-capture.ts.
 interface CobuildError {
   kind: "exception" | "unhandledrejection" | "console" | "fetch" | "resource";
@@ -107,7 +114,7 @@ export function ErrorDisplay() {
         display: "flex",
         flexDirection: "column",
         gap: 8,
-        fontFamily: "system-ui, -apple-system, sans-serif",
+        fontFamily: "var(--cd-sans, 'DM Sans', sans-serif)",
       }}
     >
       <div
@@ -116,9 +123,9 @@ export function ErrorDisplay() {
           alignItems: "center",
           justifyContent: "space-between",
           padding: "8px 12px",
-          background: "#991b1b",
+          background: "var(--cd-error, #b60000)",
           color: "white",
-          borderRadius: 6,
+          borderRadius: 8,
           fontSize: 12,
           fontWeight: 600,
           boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
@@ -136,7 +143,7 @@ export function ErrorDisplay() {
             cursor: "pointer",
             fontSize: 11,
             padding: "2px 8px",
-            borderRadius: 4,
+            borderRadius: 6,
             fontWeight: 500,
           }}
         >
@@ -147,9 +154,9 @@ export function ErrorDisplay() {
         <div
           key={err.id}
           style={{
-            background: "#fef2f2",
-            border: "1px solid #fecaca",
-            borderRadius: 6,
+            background: "var(--cd-error-bg, #fff2f2)",
+            border: "1px solid var(--cd-border, #dddde2)",
+            borderRadius: 8,
             padding: 10,
             fontSize: 12,
             boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
@@ -163,7 +170,7 @@ export function ErrorDisplay() {
                 border: "none",
                 cursor: "pointer",
                 padding: 0,
-                color: "#991b1b",
+                color: "var(--cd-error, #b60000)",
                 marginTop: 1,
                 display: "flex",
               }}
@@ -179,7 +186,7 @@ export function ErrorDisplay() {
               <div
                 style={{
                   fontSize: 10,
-                  color: "#6b7280",
+                  color: "var(--cd-text2, #535366)",
                   marginBottom: 2,
                   textTransform: "uppercase",
                   letterSpacing: 0.5,
@@ -190,7 +197,7 @@ export function ErrorDisplay() {
               </div>
               <div
                 style={{
-                  color: "#991b1b",
+                  color: "var(--cd-error, #b60000)",
                   fontWeight: 500,
                   wordBreak: "break-word",
                 }}
@@ -202,16 +209,16 @@ export function ErrorDisplay() {
                   style={{
                     margin: "8px 0 0",
                     padding: 8,
-                    background: "#fff1f2",
-                    borderRadius: 4,
+                    background: "var(--cd-error-bg, #fff2f2)",
+                    borderRadius: 6,
                     fontSize: 11,
-                    color: "#b91c1c",
+                    color: "var(--cd-error, #b60000)",
                     whiteSpace: "pre-wrap",
                     wordBreak: "break-word",
                     overflowX: "auto",
                     maxHeight: 240,
                     fontFamily:
-                      "ui-monospace, SFMono-Regular, Menlo, Monaco, monospace",
+                      "var(--cd-mono, 'IBM Plex Mono', monospace)",
                   }}
                 >
                   {err.source ? `at ${err.source}\n\n` : ""}
@@ -229,7 +236,7 @@ export function ErrorDisplay() {
                 border: "none",
                 cursor: "pointer",
                 padding: 0,
-                color: "#991b1b",
+                color: "var(--cd-error, #b60000)",
                 display: "flex",
               }}
               aria-label="Dismiss"
@@ -254,13 +261,13 @@ function FixButton({ state, onClick }: { state: FixState; onClick: () => void })
         display: "inline-flex",
         alignItems: "center",
         gap: 4,
-        background: state === "sent" ? "#dcfce7" : "white",
-        border: `1px solid ${state === "sent" ? "#86efac" : "#fecaca"}`,
-        color: state === "sent" ? "#166534" : "#991b1b",
+        background: state === "sent" ? "var(--cd-pale, #f4f7fc)" : "white",
+        border: `1px solid ${state === "sent" ? "var(--cd-success, #05b01c)" : "var(--cd-border, #dddde2)"}`,
+        color: state === "sent" ? "var(--cd-success, #05b01c)" : "var(--cd-error, #b60000)",
         cursor: disabled ? "default" : "pointer",
         fontSize: 11,
         padding: "3px 8px",
-        borderRadius: 4,
+        borderRadius: 6,
         fontWeight: 500,
         opacity: state === "sending" ? 0.7 : 1,
       }}

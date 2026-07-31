@@ -30,20 +30,20 @@ export function OutputFileList({ files, outputDir }: OutputFileListProps) {
   if (files.length === 0) return null;
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-md font-medium text-gray-700 uppercase tracking-wide">Output Files</h2>
+    <div className="ab-card">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="ab-label">Output Files</h2>
         <button
           onClick={async () => {
             try { await window.filesAPI.showInFinder(outputDir); } catch {}
           }}
           title="Open output folder"
-          className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+          className="ab-icon-btn"
         >
           <FolderOpenIcon className="w-5 h-5" />
         </button>
       </div>
-      <div className="divide-y divide-gray-100">
+      <div className="ab-rows">
         {files.map((file) => (
           <OutputFileRow key={file.path} file={file} />
         ))}
@@ -67,13 +67,20 @@ function OutputFileRow({ file }: { file: OutputFile }) {
   return (
     <div className="py-3 flex items-center gap-3">
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-mono text-gray-800">{file.name}</div>
-        <div className="text-sm text-gray-500 mt-0.5">{file.description}</div>
+        <div
+          className="text-sm truncate"
+          style={{ fontFamily: "var(--cd-mono)", color: "var(--cd-ink)" }}
+        >
+          {file.name}
+        </div>
+        <div className="text-sm mt-0.5" style={{ color: "var(--cd-text3)" }}>
+          {file.description}
+        </div>
       </div>
       <button
         onClick={handleDownload}
         title="Download"
-        className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
+        className="ab-icon-btn"
       >
         <DownloadIcon className="w-5 h-5" />
       </button>

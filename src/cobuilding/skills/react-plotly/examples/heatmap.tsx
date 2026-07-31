@@ -1,5 +1,10 @@
 import React, { useMemo, useRef, useEffect, useState } from "react";
 import Plot from "react-plotly.js";
+import {
+  ACABOX_LAYOUT, ACABOX_AXIS, ACABOX_CONFIG, ACABOX_CATEGORICAL,
+  ACABOX_DIVERGING_SCALE, ACABOX_SEQUENTIAL_SCALE, ACABOX_SANS,
+  ACABOX_INK, ACABOX_SURFACE, ACABOX_BORDER_SOFT, REGULATION_COLORS,
+} from "@reusable/plotTheme";
 
 interface HeatmapProps {
   z: number[][];
@@ -34,8 +39,8 @@ const HeatmapComponent = ({
         x: xLabels,
         y: yLabels,
         colorscale: diverging
-          ? ([[0, "#3b82f6"], [0.5, "#ffffff"], [1, "#ef4444"]] as [number, string][])
-          : ("Viridis" as const),
+          ? (ACABOX_DIVERGING_SCALE as [number, string][])
+          : (ACABOX_SEQUENTIAL_SCALE as [number, string][]),
         zmid: diverging ? 0 : undefined,
         xgap: 1,
         ygap: 1,
@@ -56,9 +61,9 @@ const HeatmapComponent = ({
         hoverlabel: {
           bgcolor: "white",
           font: {
-            family: "system-ui, -apple-system, sans-serif",
+            family: ACABOX_SANS,
             size: 12,
-            color: "#1a1a1a",
+            color: ACABOX_INK,
           },
         },
       },
@@ -68,7 +73,7 @@ const HeatmapComponent = ({
 
   const layout = useMemo(
     () => ({
-      font: { family: "system-ui, -apple-system, sans-serif" },
+      font: { family: ACABOX_SANS },
       xaxis: {
         tickfont: { size: 10, color: "#555" },
         tickangle: -45,

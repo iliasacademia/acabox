@@ -1,6 +1,15 @@
 import React, { useMemo, useRef, useEffect, useState } from "react";
 import Plot from "react-plotly.js";
 import { type VolcanoGene, COLORS, LABELS, type Regulation, classifyGene } from "./types";
+import {
+  ACABOX_SANS,
+  ACABOX_INK,
+  ACABOX_TEXT2,
+  ACABOX_TEXT3,
+  ACABOX_BORDER,
+  ACABOX_BORDER_SOFT,
+  ACABOX_SURFACE,
+} from "./plotTheme";
 
 interface MAPlotProps {
   data: VolcanoGene[];
@@ -45,12 +54,12 @@ const MAPlotComponent = ({ data, lfcThreshold, alpha }: MAPlotProps) => {
         ),
         hoverinfo: "text" as const,
         hoverlabel: {
-          bgcolor: "white",
+          bgcolor: ACABOX_SURFACE,
           bordercolor: COLORS[reg],
           font: {
-            family: "system-ui, -apple-system, sans-serif",
+            family: ACABOX_SANS,
             size: 12,
-            color: "#1a1a1a",
+            color: ACABOX_INK,
           },
         },
       };
@@ -76,37 +85,37 @@ const MAPlotComponent = ({ data, lfcThreshold, alpha }: MAPlotProps) => {
 
   const layout = useMemo(
     () => ({
-      font: { family: "system-ui, -apple-system, sans-serif" },
+      font: { family: ACABOX_SANS },
       xaxis: {
         title: {
           text: xAxisTitle,
-          font: { size: 13, color: "#555" },
+          font: { size: 13, color: ACABOX_TEXT2 },
           standoff: 12,
         },
-        gridcolor: "#f0f0f0",
+        gridcolor: ACABOX_BORDER_SOFT,
         gridwidth: 1,
         zeroline: false,
-        linecolor: "#ddd",
+        linecolor: ACABOX_BORDER,
         linewidth: 1,
         showline: true,
-        tickfont: { size: 11, color: "#777" },
+        tickfont: { size: 11, color: ACABOX_TEXT3 },
         range: [0, axisLimits.xMax],
       },
       yaxis: {
         title: {
           text: yAxisTitle,
-          font: { size: 13, color: "#555" },
+          font: { size: 13, color: ACABOX_TEXT2 },
           standoff: 8,
         },
-        gridcolor: "#f0f0f0",
+        gridcolor: ACABOX_BORDER_SOFT,
         gridwidth: 1,
         zeroline: true,
-        zerolinecolor: "#ddd",
+        zerolinecolor: ACABOX_BORDER,
         zerolinewidth: 1,
-        linecolor: "#ddd",
+        linecolor: ACABOX_BORDER,
         linewidth: 1,
         showline: true,
-        tickfont: { size: 11, color: "#777" },
+        tickfont: { size: 11, color: ACABOX_TEXT3 },
         range: [-axisLimits.yMax, axisLimits.yMax],
       },
       shapes: [
@@ -117,7 +126,7 @@ const MAPlotComponent = ({ data, lfcThreshold, alpha }: MAPlotProps) => {
           xref: "paper" as const,
           y0: lfcThreshold,
           y1: lfcThreshold,
-          line: { color: "#aaa", width: 1, dash: "dot" as const },
+          line: { color: ACABOX_TEXT3, width: 1, dash: "dot" as const },
         },
         {
           type: "line" as const,
@@ -126,7 +135,7 @@ const MAPlotComponent = ({ data, lfcThreshold, alpha }: MAPlotProps) => {
           xref: "paper" as const,
           y0: -lfcThreshold,
           y1: -lfcThreshold,
-          line: { color: "#aaa", width: 1, dash: "dot" as const },
+          line: { color: ACABOX_TEXT3, width: 1, dash: "dot" as const },
         },
       ],
       annotations: [
@@ -136,7 +145,7 @@ const MAPlotComponent = ({ data, lfcThreshold, alpha }: MAPlotProps) => {
           y: lfcThreshold,
           text: `LFC=${lfcThreshold.toFixed(1)}`,
           showarrow: false,
-          font: { size: 9, color: "#999" },
+          font: { size: 9, color: ACABOX_TEXT3 },
           xanchor: "left" as const,
           yanchor: "middle" as const,
         },
@@ -146,7 +155,7 @@ const MAPlotComponent = ({ data, lfcThreshold, alpha }: MAPlotProps) => {
           y: -lfcThreshold,
           text: `LFC=${(-lfcThreshold).toFixed(1)}`,
           showarrow: false,
-          font: { size: 9, color: "#999" },
+          font: { size: 9, color: ACABOX_TEXT3 },
           xanchor: "left" as const,
           yanchor: "middle" as const,
         },
@@ -154,14 +163,14 @@ const MAPlotComponent = ({ data, lfcThreshold, alpha }: MAPlotProps) => {
       autosize: true,
       margin: { l: 56, r: 56, t: 16, b: 52 },
       paper_bgcolor: "transparent",
-      plot_bgcolor: "#fafafa",
+      plot_bgcolor: ACABOX_SURFACE,
       legend: {
         orientation: "h" as const,
         x: 0.5,
         xanchor: "center" as const,
         y: -0.15,
         yanchor: "top" as const,
-        font: { size: 11, color: "#555" },
+        font: { size: 11, color: ACABOX_TEXT2 },
         tracegroupgap: 16,
       },
       hovermode: "closest" as const,

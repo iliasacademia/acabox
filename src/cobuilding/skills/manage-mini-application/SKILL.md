@@ -39,7 +39,7 @@ node \
 - **icon**: a [Lucide](https://lucide.dev/icons) icon name in PascalCase (e.g. `FlaskConical`, `LineChart`, `Microscope`, `Dna`, `Beaker`, `Image`, `Table`, `BarChart3`). Pick one that visually matches what the app does — the Tools page renders it as the app's icon.
 
 The script prints `{ name, dir_name, dir }` to stdout and creates:
-- `<dir>/src/index.html` — HTML shell with Tailwind
+- `<dir>/src/index.html` — HTML shell: the Acabox design system (`_vendor/acabox.css` — fonts, tokens, `ab-*` classes), Tailwind, and a Tailwind config that maps the tokens onto class names. You should not need to edit it.
 - `<dir>/src/index.tsx` — React mount boilerplate with error boundary
 - `<dir>/dist/` directory, plus `<dir>/output/` and `<dir>/input/` — these two are symlinks into `tool-data/<dir_name>/`, a **durable** data area that is preserved when the tool is deleted (deleting a tool only removes its code dir). Keep writing to `.applications/<dir_name>/input|output/...` as usual; the paths are unchanged and resolve through the symlinks. Do **not** write user data loosely into `<dir>/` itself — that is code and is destroyed on delete.
 - `<dir>/notebook.ipynb` — canonical notebook with a `parameters` cell + cobuild metadata; default kernel is `python3` (override with `--kernel ir` for R)
@@ -126,6 +126,7 @@ Available packages (already installed — import them directly, no wrapper call 
   - **Kernel runs**: `useKernelAction` (connect, inject params, execute action cell, surface errors).
   - **Recovering a run that outlived the UI**: `useRunsWhileClosed` (see below).
   - **UI building blocks**: `<FileSlotPicker>`, `<RunButton>`, `<RunStateBadge>`, `<OutputFileList>`, `<VolcanoPlot>`, `<MAPlot>`, `<ErrorDisplay>` (auto-mounted by the scaffolded `index.tsx`; do not add a second one).
+  - **Chart theme**: `plotTheme` — `ACABOX_LAYOUT`, `ACABOX_AXIS`, `ACABOX_CONFIG`, and the validated palettes. Import these instead of choosing chart colours.
   - **Utilities**: `readJsonOutput<T>(path)`, `parseCsvLine`, `formatParamsAssignment`.
 
 #### Your UI is not where the work lives
@@ -322,7 +323,117 @@ The component reads the slot from `params`, calls `selectInput`/`clearInput`, an
 
 **Prefer Plotly.js for all data visualizations** (charts, plots, graphs, heatmaps). Do not use custom SVG/Canvas rendering or other charting libraries when Plotly can handle the visualization.
 
-**App Style** This app is for use by scientists to analyze and visualize their data. Keep the style modern and professional. The app sits directly below the host's top nav bar (the strip with Home / Tools / Files / Chats), which uses `#faf8f5`. The app's outermost container MUST use that same warm off-white as its background — `bg-[#faf8f5]` in Tailwind, or `style={{ backgroundColor: '#faf8f5' }}` if you need an inline style. Do not use `bg-gray-50`, `bg-white`, or any other off-tone — a mismatch creates a visible seam where the app meets the surrounding chrome.
+### App style — the Acabox design language
+
+A mini-app is a panel inside Acabox, not a standalone web page. It should be
+indistinguishable from the surrounding app. The whole design system is already
+loaded for you — `_vendor/acabox.css` gives every app DM Sans, IBM Plex Mono,
+the design tokens as CSS variables, and a set of `ab-*` component classes; the
+scaffold's Tailwind config maps the tokens onto class names. You do not need to
+choose any colours.
+
+**The five rules that matter.**
+
+1. **The page is white.** `#ffffff`, which is what `.ab-app` gives you. The tool
+   viewer around your app is white, and any other page tone shows up as a seam.
+   (If you have seen `#faf8f5` in an older app, it is stale — it was the
+   Coscientist chrome colour and matches nothing in Acabox today.)
+2. **Section headers are mono, uppercase, letter-spaced** — the `ab-label`
+   class. Not a bold sans heading. This single idiom does more than anything
+   else to make an app read as Acabox.
+3. **Blue means clickable.** `#0645b1` is for links, primary buttons and the
+   active tab. Never colour a metric, a status or a heading blue — a number that
+   looks like a link is the most common way an app stops looking native.
+4. **Hairlines, not shadows.** Surfaces are separated by `1px` borders in
+   `--cd-border` with `8px` radius. No drop shadows except on the floating error
+   overlay.
+5. **Text uses the ink ramp**: `--cd-ink` for primary, `--cd-text2` for
+   secondary, `--cd-text3` for meta. Numbers in stat tiles get
+   `font-variant-numeric: tabular-nums` so they stop jittering as they update.
+
+**Use the `ab-*` classes rather than rebuilding them.** They are in
+`_vendor/acabox.css` — read it if you need the exact declarations.
+
+| Class | Use |
+| --- | --- |
+| `ab-app` (`--flush`), `ab-page` (`--wide`, `--full`) | Page shell and centred column. `--flush` drops the page padding for a full-bleed header or sidebar. |
+| `ab-label` | Mono uppercase section header |
+| `ab-h1`, `ab-h2`, `ab-sub`, `ab-meta` | Type scale |
+| `ab-card` (`--pale`, `--error`, `--flush`, `--action`) | Bordered surface |
+| `ab-stats`, `ab-stat`, `ab-stat__label/__value/__meta` | KPI tile row |
+| `ab-btn` (`--primary`, `--ghost`, `--danger`, `--sm`, `--lg`) | Buttons |
+| `ab-icon-btn` (`--danger`) | Square icon button |
+| `ab-input`, `ab-select`, `ab-textarea`, `ab-field`, `ab-check` | Form controls |
+| `ab-tabs`, `ab-tab` (`--active`) | Underline tabs |
+| `ab-table`, `ab-table__num` | Data table with a mono header row |
+| `ab-chip` (`--ok`, `--error`), `ab-dot`, `ab-tag` (`--warn`, `--text`) | Status |
+| `ab-rows` | Hairline-separated list |
+| `ab-note` (`--error`), `ab-empty`, `ab-spinner`, `ab-divider` | Misc |
+
+**Tailwind still works for layout** — flex, grid, spacing, sizing. For colour,
+prefer the token names (`text-ink`, `text-text2`, `text-text3`, `bg-pale`,
+`border-line`, `text-accent`). Tailwind's own `gray-*`, `blue-*`, `red-*`,
+`amber-*` and `green-*` scales have been remapped onto the Acabox ramp, so a
+reflexive `text-gray-500` lands on the right colour — but the token names say
+what you mean.
+
+**Charts:** import the theme, do not pick colours. `ACABOX_LAYOUT`,
+`ACABOX_AXIS`, `ACABOX_CONFIG`, `ACABOX_CATEGORICAL`,
+`ACABOX_SEQUENTIAL_SCALE`, `ACABOX_DIVERGING_SCALE` and `REGULATION_COLORS` all
+come from `@reusable/plotTheme`. The categorical palette is capped at six hues
+and that ceiling is real — it was validated for colourblind separation at every
+pair, and a seventh hue was tried and cut. A 7th series folds into "Other" or
+becomes small multiples. See the **react-plotly** skill for the full rationale.
+
+```tsx
+import { ACABOX_LAYOUT, ACABOX_AXIS, ACABOX_CONFIG } from "@reusable/plotTheme";
+
+<Plot
+  layout={{ ...ACABOX_LAYOUT,
+            xaxis: { ...ACABOX_AXIS, title: { text: "log2 fold change" } },
+            yaxis: { ...ACABOX_AXIS, title: { text: "−log10 p" } } }}
+  config={ACABOX_CONFIG}
+/>
+```
+
+**Icons** are `lucide-react`, at 16px inside buttons and rows. Do not add an
+icon font.
+
+A minimal app that is already on-language:
+
+```tsx
+<div className="ab-app">
+  <div className="ab-page">
+    <div>
+      <h1 className="ab-h1">Sample QC</h1>
+      <p className="ab-sub">Read depth and duplication across the run.</p>
+    </div>
+
+    <div className="ab-stats">
+      <div className="ab-stat">
+        <span className="ab-stat__label">Samples</span>
+        <span className="ab-stat__value">148</span>
+      </div>
+      <div className="ab-stat">
+        <span className="ab-stat__label">Median depth</span>
+        <span className="ab-stat__value">31×</span>
+        <span className="ab-stat__meta">min 12× · max 58×</span>
+      </div>
+    </div>
+
+    <div className="ab-card">
+      <h2 className="ab-label">Inputs</h2>
+      {/* … */}
+    </div>
+  </div>
+</div>
+```
+
+**Editing an app built before the design system landed?** Its `src/index.html`
+is missing the stylesheet link and the Tailwind config. The tokens and `ab-*`
+classes still reach it (the bridge injects the stylesheet at runtime), but the
+Tailwind colour names will not resolve. Bring its `<head>` in line with the
+scaffold in `scripts/manage_mini_app.mjs` when you touch such an app.
 
 ### Step 3: Add an action cell to the notebook (only for kernel-backed apps)
 

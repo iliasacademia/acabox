@@ -1,5 +1,10 @@
 import React, { useMemo, useRef, useEffect, useState } from "react";
 import Plot from "react-plotly.js";
+import {
+  ACABOX_LAYOUT, ACABOX_AXIS, ACABOX_CONFIG, ACABOX_CATEGORICAL,
+  ACABOX_DIVERGING_SCALE, ACABOX_SEQUENTIAL_SCALE, ACABOX_SANS,
+  ACABOX_INK, ACABOX_SURFACE, ACABOX_BORDER_SOFT, REGULATION_COLORS,
+} from "@reusable/plotTheme";
 
 interface BarChartProps {
   categories: string[];
@@ -40,7 +45,7 @@ const BarChartComponent = ({ categories, groups, yAxisLabel }: BarChartProps) =>
 
   const layout = useMemo(
     () => ({
-      font: { family: "system-ui, -apple-system, sans-serif" },
+      font: { family: ACABOX_SANS },
       barmode: "group" as const,
       bargap: 0.2,
       bargroupgap: 0.05,
@@ -48,12 +53,12 @@ const BarChartComponent = ({ categories, groups, yAxisLabel }: BarChartProps) =>
         tickfont: { size: 11, color: "#555" },
         linecolor: "#ddd",
         showline: true,
-        gridcolor: "#f0f0f0",
+        gridcolor: ACABOX_BORDER_SOFT,
       },
       yaxis: {
         title: { text: yAxisLabel, font: { size: 13, color: "#555" }, standoff: 8 },
         tickfont: { size: 11, color: "#777" },
-        gridcolor: "#f0f0f0",
+        gridcolor: ACABOX_BORDER_SOFT,
         linecolor: "#ddd",
         showline: true,
         zeroline: false,
@@ -62,7 +67,7 @@ const BarChartComponent = ({ categories, groups, yAxisLabel }: BarChartProps) =>
       autosize: true,
       margin: { l: 56, r: 20, t: 16, b: 52 },
       paper_bgcolor: "transparent",
-      plot_bgcolor: "#fafafa",
+      plot_bgcolor: ACABOX_SURFACE,
       legend: {
         orientation: "h" as const,
         x: 0.5,

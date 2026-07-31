@@ -556,7 +556,7 @@ export default function App() {
   if (loading) return <Loading text="Loading..." />;
 
   return (
-    <div className="min-h-screen bg-[#faf8f5]">
+    <div className="ab-app ab-app--flush">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">

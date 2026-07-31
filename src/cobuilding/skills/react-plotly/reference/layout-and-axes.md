@@ -157,7 +157,7 @@ shapes: [
     type: "line" as const,
     x0: 0, x1: 1, xref: "paper" as const,
     y0: cutoff, y1: cutoff,
-    line: { color: "#ef4444", width: 1.5, dash: "dash" as const },
+    line: { color: REGULATION_COLORS.up, width: 1.5, dash: "dash" as const },
   },
   // Shaded region
   {
@@ -196,7 +196,7 @@ annotations: [
     arrowhead: 0, arrowwidth: 0.8, arrowcolor: "#aaa",
     standoff: 4,
     ax: 30, ay: -25,  // arrow tail offset (pixels)
-    font: { size: 9, color: "#333", family: "system-ui, -apple-system, sans-serif" },
+    font: { size: 9, color: ACABOX_INK, family: ACABOX_SANS },
     bgcolor: "rgba(255,255,255,0.85)",
     borderpad: 1,
   },
