@@ -32,6 +32,8 @@ import { buildSkillRuntimeConfig } from '../../shared/skills';
 import { readSkillsState } from '../skillStore';
 import { provisionWorkspace } from '../skills';
 import { recordFinding } from '../knowledge/findingsLedger';
+import * as mcpHost from '../mcpHost';
+import type { HostedServerPush } from '../../shared/hostedMcp';
 
 export interface AgentInfrastructureDeps {
   workspaceController: WorkspaceController;
@@ -44,8 +46,74 @@ export class AgentInfrastructureController {
   private _activeNotifications = new Set<any>();
   private deps: AgentInfrastructureDeps;
 
+  // Debounces `mcpHost.onInventoryChanged` so a boot wave of several hosted
+  // servers becoming ready together collapses into one `POST /hosted`
+  // instead of one per server (docs/design/mcp-hosting.md, Increment 4 / R6).
+  // Short enough that a single server's readiness never feels delayed to the
+  // user; long enough to coalesce a burst.
+  private static readonly HOSTED_PUSH_DEBOUNCE_MS = 200;
+  private hostedPushTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(deps: AgentInfrastructureDeps) {
     this.deps = deps;
+
+    // Agent reach for hosted MCP servers (docs/design/mcp-hosting.md,
+    // Increment 4 / R6). Two triggers push the SAME live inventory, read
+    // fresh each time by `pushHostedInventory` — never a remembered
+    // snapshot:
+    //  - `mcpHost.onInventoryChanged` fires on every status transition of
+    //    every server, debounced below so a boot wave doesn't become a burst
+    //    of HTTP round-trips.
+    //  - `containerService.onAgentServerRestarted` fires once, after an
+    //    unexpected agent-server crash-restart. Deliberately NOT debounced:
+    //    the fresh agent-server process boots with whatever
+    //    `lastAgentServerConfig.hostedServers` was last remembered (which can
+    //    be stale — see `pushHostedInventory`'s comment), so this is a single
+    //    gap to close as fast as possible, not a burst to coalesce.
+    // Subscribed once here, in the constructor, rather than inside `start()`
+    // — `start()` has two call sites (a renderer reload re-enters it) and
+    // this controller is a single app-lifetime instance, so subscribing here
+    // guarantees exactly one listener of each kind for the process's whole
+    // life instead of accumulating one pair per `start()` call.
+    mcpHost.onInventoryChanged(() => this.scheduleHostedPush());
+    this.deps.containerService.onAgentServerRestarted(() => {
+      void this.pushHostedInventory();
+    });
+  }
+
+  private scheduleHostedPush(): void {
+    if (this.hostedPushTimer) return;
+    this.hostedPushTimer = setTimeout(() => {
+      this.hostedPushTimer = null;
+      void this.pushHostedInventory();
+    }, AgentInfrastructureController.HOSTED_PUSH_DEBOUNCE_MS);
+    // Never hold the process open on this timer alone.
+    this.hostedPushTimer.unref?.();
+  }
+
+  /**
+   * Read `mcpHost`'s CURRENT live state and push the whole set to the agent
+   * server. Always live, never a replay of what was last remembered in
+   * `lastAgentServerConfig.hostedServers` — that remembered copy exists so a
+   * crash-restart has SOMETHING to boot with (see `rememberAgentHosted`'s own
+   * comment), but it can only ever be as fresh as the last successful push,
+   * and this function's whole job is to make that push happen.
+   *
+   * Never throws: a down agent server (mid-boot, mid-restart) is the normal
+   * case this feature has to tolerate, not an error to propagate out of a
+   * supervisor status-change callback or a restart listener.
+   */
+  private async pushHostedInventory(): Promise<void> {
+    try {
+      const hosted = await mcpHost.readyServersForAgent();
+      const ok = await this.deps.containerService.updateAgentHosted(hosted);
+      log.info(
+        `[AgentInfrastructure] Pushed ${Object.keys(hosted).length} hosted MCP server(s) to agent server: `
+        + `${ok ? 'ok' : 'no live agent server'}`,
+      );
+    } catch (err) {
+      log.warn(`[AgentInfrastructure] Hosted MCP push failed: ${(err as Error).message}`);
+    }
   }
 
   private registerHostMcpServers(workspace: { id: string }, agentDir: string, userDirectoryPaths: string[]): void {
@@ -340,6 +408,34 @@ export class AgentInfrastructureController {
     // builder and `list_apis` all already handle.
     await apiProxy.start();
 
+    // mcpHost.startAll() (docs/design/mcp-hosting.md, Increment 2 / R10):
+    // spawns every enabled+autostart hosted MCP server. Same slot as
+    // apiProxy.start() above it — after the proxy, before the agent server
+    // — but NOT for the same reason: apiProxy has to be up before the agent
+    // server inherits its env at spawn, a one-shot dependency. mcpHost has
+    // no such dependency on either neighbour; it only needs to be started
+    // reasonably early, and here keeps it next to the app's other
+    // renderer-triggered infrastructure boot rather than inventing a new
+    // hook elsewhere.
+    //
+    // NOT awaited for readiness — `startAll()`'s own contract (see its
+    // module comment) is that it returns as soon as spawns are issued, with
+    // readiness arriving later via `onInventoryChanged`. A slow or hung
+    // hosted server must never hold a chat turn hostage the way a missing
+    // API key or a down proxy legitimately would. It is also single-flight
+    // (R10): this method has two call sites (`main/index.ts`, a renderer
+    // reload re-enters it), so a second concurrent call returns the same
+    // in-flight promise rather than issuing a second spawn wave.
+    //
+    // `startAll()` is documented never to throw (a failure is recorded in
+    // `mcpHost`'s own `lastStartAllErrorMessage()` and logged there) — the
+    // `.catch` below is a second line of defense, not reliance on that
+    // contract: a defect in it must not be able to take the rest of boot
+    // down with it.
+    void mcpHost.startAll().catch((err) => {
+      log.error(`[AgentInfrastructure] mcpHost.startAll() rejected unexpectedly: ${(err as Error).message}`);
+    });
+
     this.registerHostMcpServers(activeWorkspace, workspacePath, this.deps.workspaceController.userDirectoryPaths);
 
     const { apiKey: agentApiKey, baseURL: agentBaseURL } = getCredentials();
@@ -361,9 +457,25 @@ export class AgentInfrastructureController {
     const skills = buildSkillRuntimeConfig(await readSkillsState());
     log.info(`[AgentInfrastructure] Skill roster: ${skills.length} skill(s) — ${skills.join(', ')}`);
 
+    // Hosted MCP servers (docs/design/mcp-hosting.md, Increment 4). Usually
+    // EMPTY here: `mcpHost.startAll()` above is deliberately not awaited, so
+    // by this point nothing has had time to become ready — that is not a bug
+    // to fix by awaiting it (see the comment on that call), it is the whole
+    // reason the constructor wires an ongoing push (`onInventoryChanged` /
+    // `onAgentServerRestarted`) that delivers a server's tools live, the
+    // moment it IS ready, without needing a new session. Read fresh here
+    // anyway for the warm-start case: a second `start()` call (a renderer
+    // reload re-enters it) can find servers already `ready` from the first.
+    const hostedInventory: Record<string, HostedServerPush> = await mcpHost.readyServersForAgent();
+    const hostedIds = Object.keys(hostedInventory);
+    if (hostedIds.length) {
+      log.info(`[AgentInfrastructure] Hosted MCP servers ready at boot: ${hostedIds.join(', ')}`);
+    }
+
     const agentConfig = {
       port: 8080,
       mcpServers: connectorServers,
+      hostedServers: hostedInventory,
       anthropicApiKey: agentApiKey ?? '',
       ...(agentBaseURL ? { anthropicBaseURL: agentBaseURL } : {}),
       model: 'claude-opus-5',
@@ -373,8 +485,12 @@ export class AgentInfrastructureController {
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       // Built by the one shared function so this and containerService's
       // crash-restart config cannot drift — see shared/agentAllowedTools.ts.
-      // `mcp__<id>` auto-approves every tool on a user connector.
-      allowedTools: buildAgentAllowedTools(connectorTools),
+      // `mcp__<id>` auto-approves every tool on a user connector AND every
+      // hosted MCP server — the two share one id namespace (enforced at save
+      // time by connectorsStore.upsertConnector / mcpHost.save), so their ids
+      // are unioned into the same array here rather than computed as two
+      // lists `replaceConnectorAllowedTools` would have to reconcile later.
+      allowedTools: buildAgentAllowedTools([...connectorTools, ...hostedIds.map((id) => `mcp__${id}`)]),
       skills,
       // 'project' loads CLAUDE.md — required. It also makes the SDK read a
       // project `.mcp.json`, which the agent can write, so Settings surfaces
@@ -391,6 +507,13 @@ export class AgentInfrastructureController {
     // from a store that changed since that server booted would sit in the
     // restart config only — and a crash would be the first thing to apply it.
     await this.deps.containerService.updateAgentSkills(skills);
+
+    // Same "redundant on cold start, load-bearing on warm one" reasoning,
+    // applied to hosted MCP servers: on a warm `start()` this catches a
+    // server that became ready between an earlier `start()` call and this
+    // one, which the boot `agentConfig.hostedServers` above could not have
+    // known about.
+    await this.deps.containerService.updateAgentHosted(hostedInventory);
 
     // Bootstrap the Python venv in the background so the agent's install
     // wrapper has a `pip` to call when it first encounters a Python

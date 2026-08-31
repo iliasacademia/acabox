@@ -30,7 +30,11 @@ export function ChromeBar({ right }: { right?: React.ReactNode }) {
     <div className="cdChrome">
       <div className="cdChrome__title">
         <AcaboxMark size={16} className="cdChrome__mark" />
-        <span>ACABOX — LOCAL VM · V{version}</span>
+        {/* Not "LOCAL VM": the fork removed the Podman container, and everything
+            now runs as host child processes. The old string claimed a VM that has
+            not existed since the slim-down — the same class of stale copy the
+            de-Podman pass cleaned out of the agent-facing docs. */}
+        <span>ACABOX · V{version}</span>
       </div>
       <div className="cdChrome__right">
         {right}

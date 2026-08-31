@@ -52,6 +52,10 @@ class MiniAppMcpRegistry {
   // registrations even if the renderer never sent an explicit unregister
   // (renderer crash, window closed mid-turn, etc).
   private destroyHandlers = new WeakMap<WebContents, () => void>();
+  // Live-status fan-out (design: `docs/design/mcp-hosting.md`, Increment 3),
+  // mirroring the `Set<callback>` + emit pattern in `jobRegistry.ts` /
+  // `buildHealth.ts` / `connectorsStore.ts`'s connector status.
+  private listeners = new Set<(servers: MiniAppMcpServer[]) => void>();
 
   register(entry: {
     serverName: string;
@@ -77,31 +81,58 @@ class MiniAppMcpRegistry {
       entry.hostWebContents.once('destroyed', handler);
       this.destroyHandlers.set(entry.hostWebContents, handler);
     }
+    this.emitChanged();
   }
 
   private unregisterByWebContents(wc: WebContents): void {
+    let removedAny = false;
     for (const [name, entry] of this.servers) {
       if (entry.hostWebContents === wc) {
         this.servers.delete(name);
         log.info(`[MiniAppMcp] Reaped ${name} after WebContents destroyed`);
+        removedAny = true;
       }
     }
     this.destroyHandlers.delete(wc);
+    // Notify AFTER the loop, not per-entry — this runs from a 'destroyed'
+    // listener, so `wc` is already gone by the time any subscriber (e.g. a
+    // broadcast that sends to `BrowserWindow.getAllWindows()`) reacts. That
+    // broadcast must itself tolerate an already-destroyed sender; it does,
+    // by checking `!win.isDestroyed()` the same way every other broadcast in
+    // this codebase does.
+    if (removedAny) this.emitChanged();
   }
 
   unregister(serverName: string): void {
     if (this.servers.delete(serverName)) {
       log.info(`[MiniAppMcp] Unregistered ${serverName}`);
+      this.emitChanged();
     }
   }
 
   unregisterByRoute(iframeRouteKey: string): void {
+    let removedAny = false;
     for (const [name, entry] of this.servers) {
       if (entry.iframeRouteKey === iframeRouteKey) {
         this.servers.delete(name);
         log.info(`[MiniAppMcp] Unregistered ${name} (route ${iframeRouteKey})`);
+        removedAny = true;
       }
     }
+    if (removedAny) this.emitChanged();
+  }
+
+  private emitChanged(): void {
+    const snapshot = this.list();
+    for (const l of this.listeners) {
+      try { l(snapshot); } catch (err) { log.warn(`[MiniAppMcp] listener threw: ${(err as Error).message}`); }
+    }
+  }
+
+  /** Subscribe to every register/unregister. Returns an unsubscribe function. */
+  subscribe(cb: (servers: MiniAppMcpServer[]) => void): () => void {
+    this.listeners.add(cb);
+    return () => { this.listeners.delete(cb); };
   }
 
   list(): MiniAppMcpServer[] {

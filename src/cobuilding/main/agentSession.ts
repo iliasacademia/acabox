@@ -8,6 +8,7 @@ import path from 'path';
 import log from 'electron-log';
 import { captureError } from '../shared/telemetry';
 import { containerService } from './containerService';
+import * as mcpHost from './mcpHost';
 import { commandLogger, parseAppDirFromArgs } from './commandLogger';
 import http from 'http';
 import { type HostApp } from './hostApps';
@@ -91,7 +92,60 @@ export function resolveSessionHostApp(_documentPath: string | null | undefined):
 
 type ToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
 
-async function handleMcpRelay(serverName: string, toolName: string, args: Record<string, unknown>): Promise<ToolResult> {
+/**
+ * `mcpHost.invoke()` resolves to the MCP SDK's own `CallToolResult`
+ * (`{content: ContentBlock[], isError?}`), which is a different shape from
+ * this module's `ToolResult` — text-only content, `isError` always present.
+ * A hosted server is free to return a non-text block (an image, an embedded
+ * resource); `ToolResult.content` cannot carry one, so each block is
+ * converted deliberately rather than assumed to be `{type:'text',text}` —
+ * that assumption (`content[0].text`) is exactly what would throw on the
+ * first non-text block a hosted server ever returned.
+ */
+/**
+ * Increment 7's write gate, Layer 2 — the actual boundary (design:
+ * `docs/design/mcp-hosting.md`, the DECISION (2026-08-13) block superseding
+ * R15). Written to match the shipped API-proxy's refusal style
+ * (`apiProxy.ts`'s `performApiRequest`, step 3: `""${api.id}" is read-only, so
+ * ${method} is refused. Ask the user to enable writes for it in Settings →
+ * APIs if this is intended."` — CLAUDE.md records the agent "quot[ed] the
+ * actionable message verbatim" on that one) — names the server, names the
+ * tool, and states the fix in the user's own vocabulary (the Servers page's
+ * per-tool checkboxes), because this text is read by the MODEL, not logged
+ * for a human.
+ *
+ * Deliberately built from ONLY `serverId` and `toolName` — both already known
+ * to the caller from the tool-call arguments the model itself supplied, and
+ * neither is a secret. This is what keeps the record's `env` and its resolved
+ * `command`/`args` structurally unable to leak here: there is no code path in
+ * this function that could reach them, rather than a discipline of simply not
+ * mentioning them.
+ */
+function hostedToolRefusalMessage(serverId: string, toolName: string): string {
+  return `"${toolName}" on hosted MCP server "${serverId}" is not enabled for Claude to call. `
+    + `Ask the user to enable "${toolName}" for "${serverId}" on the Servers page.`;
+}
+
+function hostedResultToRelayResult(result: unknown): ToolResult {
+  const r = (result && typeof result === 'object') ? (result as { content?: unknown; isError?: boolean }) : {};
+  const blocks = Array.isArray(r.content) ? r.content : [];
+  const content = blocks.map((block: unknown): { type: 'text'; text: string } => {
+    if (block && typeof block === 'object' && (block as { type?: unknown }).type === 'text'
+      && typeof (block as { text?: unknown }).text === 'string') {
+      return { type: 'text', text: (block as { text: string }).text };
+    }
+    const kind = (block && typeof block === 'object' && typeof (block as { type?: unknown }).type === 'string')
+      ? (block as { type: string }).type
+      : 'unknown';
+    return { type: 'text', text: `[${kind} content omitted — this relay only carries text]` };
+  });
+  return {
+    content: content.length ? content : [{ type: 'text', text: '' }],
+    isError: r.isError === true,
+  };
+}
+
+export async function handleMcpRelay(serverName: string, toolName: string, args: Record<string, unknown>): Promise<ToolResult> {
   const mcpServers = (globalThis as any).__hostMcpServers as Record<string, any> | undefined;
   if (mcpServers?.[serverName]?.[toolName]) {
     try {
@@ -112,6 +166,58 @@ async function handleMcpRelay(serverName: string, toolName: string, args: Record
     }
     const text = typeof result === 'string' ? result : JSON.stringify(result);
     return { content: [{ type: 'text', text }] };
+  }
+
+  // Fall through to hosted MCP servers — Acabox's own supervised local stdio
+  // processes that stay alive for the life of the app (docs/design/mcp-hosting.md,
+  // Increment 4), rather than the CLI's superseded one-child-per-turn model.
+  //
+  // Checked by MEMBERSHIP first, not by calling invoke() and inspecting the
+  // failure: `mcpHost.invoke()` throws the exact same "Server \"<id>\" is
+  // stopped: cannot call …" message for an id it manages but has never
+  // started as it does for an id it has never heard of at all — there is no
+  // way to tell "not hosted, keep falling through to Unknown MCP server"
+  // apart from "hosted but down, report the real error" from the exception
+  // alone.
+  //
+  // Two membership checks, cheap one first, and the split is deliberate.
+  //
+  // `isHosted()` reads the supervisor's in-memory handle map, so it is free.
+  // It answers true for every server that has been started at least once this
+  // run — which covers the whole hot path, because a server only ever reaches
+  // the CLI's relay by appearing in a `POST /hosted` payload, and only a READY
+  // server does that.
+  //
+  // `list()` is the fallback, and it is not free: it reads the sealed store off
+  // disk synchronously and `safeStorage`-decrypts it, on the main thread. Doing
+  // that on every call would put a blocking decrypt inside a loop the model
+  // controls. Doing it only here costs nothing in practice and buys the honest
+  // error for a configured-but-never-started server — "this server is stopped"
+  // rather than "Unknown MCP server", which would send the user hunting for a
+  // typo in a name that is in fact perfectly correct.
+  const hosted = mcpHost.isHosted(serverName)
+    || (await mcpHost.list()).some((s) => s.id === serverName);
+  if (hosted) {
+    // Increment 7's write gate, Layer 2 — checked HERE, before
+    // `mcpHost.invoke()`, because this is the only place that can refuse a
+    // call with certainty. Layer 1 (`mcpHost.readyServersForAgent`'s filter
+    // on the `POST /hosted` push) only keeps an unselected tool's schema out
+    // of context; it cannot un-register a relay the CLI already holds from an
+    // earlier, wider push, so a selection narrowed mid-session would
+    // otherwise leave that tool callable until the next push happens to fire.
+    // `mcpHost.isToolEnabled` reads the supervisor's live in-memory record —
+    // no disk read, so this adds nothing to the hot-path decrypt count the
+    // membership check above already goes out of its way to avoid.
+    if (!mcpHost.isToolEnabled(serverName, toolName)) {
+      return { content: [{ type: 'text', text: hostedToolRefusalMessage(serverName, toolName) }], isError: true };
+    }
+    try {
+      const result = await mcpHost.invoke(serverName, toolName, args);
+      return hostedResultToRelayResult(result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: 'text', text: `MCP call failed: ${msg}` }], isError: true };
+    }
   }
 
   return { content: [{ type: 'text', text: `Unknown MCP server: ${serverName}` }], isError: true };
@@ -915,6 +1021,11 @@ async function connectSSE(
                     chatTitle: getSession(sessionId)?.title,
                     toolNames: turnState.toolNames,
                     readPaths: turnState.readPaths,
+                    // Hosted MCP servers are local processes, not warehouses —
+                    // see `connectorIdOfTool`. Supplied from here because
+                    // `omissionWatch` is pure over tool names and importing
+                    // `mcpHost` there would create a cycle through this module.
+                    hostedIds: mcpHost.hostedIds(),
                   });
                   if (raised) {
                     log.info(

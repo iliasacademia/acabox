@@ -1,3 +1,5 @@
+import type { HostedServerPush } from '../shared/hostedMcp';
+
 export interface AgentConfig {
   port: number;
   claudeBinaryPath?: string;
@@ -10,6 +12,25 @@ export interface AgentConfig {
    * `POST /connectors`.
    */
   mcpServers: Record<string, Record<string, unknown>>;
+  /**
+   * Local hosted MCP servers `main/mcpHost` keeps running for the life of the
+   * app (design: `docs/design/mcp-hosting.md`, Increment 4). A DELIBERATELY
+   * SEPARATE field from `mcpServers` above, never merged into it: `POST
+   * /connectors` replaces `mcpServers` wholesale, so sharing the field would
+   * mean each route silently wipes the other's half the next time it runs.
+   *
+   * This is the raw `tools/list` inventory per server id — NOT a built SDK
+   * relay server. Each live session builds its own `createSdkMcpServer`
+   * wrapper from this (see `buildHostedMcpServers` in `index.ts`), because the
+   * tool handler closure has to capture that session's own `SessionState` (its
+   * `pendingMcpCalls` map, its SSE clients) exactly the way the built-in relay
+   * servers already do — the same reason `mcpConnectors` is *not* stored
+   * pre-built either.
+   *
+   * Replaceable at runtime via `POST /hosted`, pushed per server the instant
+   * its readiness lands (R6) rather than batched — see that route's comment.
+   */
+  hostedServers?: Record<string, HostedServerPush>;
   anthropicApiKey: string;
   anthropicBaseURL?: string;
   model: string;

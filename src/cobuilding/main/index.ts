@@ -58,6 +58,9 @@ import {
 } from './knowledge/skillImportService';
 import { containerService } from './containerService';
 import { listBuildHealth, subscribeBuildHealth, forgetBuildHealth, type BuildHealth } from './buildHealth';
+import { createTeardown, handleBeforeQuit, handleWillQuit } from './appTeardown';
+import * as mcpHost from './mcpHost';
+import { reconcileOrphans, registerHostedServer, updateHostedServer, removeHostedServer } from './mcpHost/store';
 import {
   beginJob,
   endJob,
@@ -85,6 +88,7 @@ import {
   removeUnmanagedMcpJson,
   recordConnectorStatus,
   getConnectorStatus,
+  subscribeConnectorStatus,
 } from './connectorsStore';
 import { buildMcpServers, CONNECTOR_CATALOG, type ConnectorConfig } from '../shared/connectors';
 import {
@@ -184,6 +188,18 @@ import {
   track as trackAnalyticsEvent,
 } from './coscientistAnalytics';
 const isSmokeTest = process.argv.includes('--smoke-test');
+
+// R9 (docs/design/mcp-hosting.md): `--smoke-test` boots the whole app and
+// quits right after `startScheduledTasks`, which is BEFORE
+// `AgentInfrastructureController.start()` is ever reached — that controller
+// is triggered by the RENDERER (see its own two call sites), not by main
+// boot. So `--smoke-test` proves nothing about `mcpHost` despite appearing
+// to; CLAUDE.md already records that this exact misreading once sent a
+// session hunting a non-existent regression. `--smoke-test-mcp` is the
+// dedicated signal: it drives `mcpHost.startAll()` directly against a store
+// holding only the echo test fixture, waits for readiness, and exits
+// non-zero if the fixture never becomes reachable.
+const isSmokeTestMcp = process.argv.includes('--smoke-test-mcp');
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -336,10 +352,11 @@ app.setPath('userData', path.join(app.getPath('appData'), 'acabox', app.isPackag
 // SQLite file and one 23200-23299 port range, and the store reconciler is
 // serialised only within a process.
 //
-// Exempted under --smoke-test. The smoke run's whole job is to boot a second
-// process alongside whatever the developer already has open, and it quits on
-// its own; failing the lock would make it exit before proving anything.
-const gotSingleInstanceLock = isSmokeTest || app.requestSingleInstanceLock();
+// Exempted under --smoke-test and --smoke-test-mcp. Both smoke runs' whole
+// job is to boot a second process alongside whatever the developer already
+// has open, and both quit on their own; failing the lock would make either
+// exit before proving anything.
+const gotSingleInstanceLock = isSmokeTest || isSmokeTestMcp || app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   log.info('[APP] Another Acabox instance owns this profile — focusing it and exiting.');
   app.quit();
@@ -730,11 +747,134 @@ async function stampToolLastRun(workspacePath: string | null, dirName: string): 
   }
 }
 
+/**
+ * R9 (docs/design/mcp-hosting.md) — the only automated end-to-end signal for
+ * `mcpHost`. Runs `mcpHost.startAll()` against the real hosted-server store
+ * (userData is already redirected to the dev channel above) after
+ * registering exactly one record — the echo test fixture — then waits for
+ * it to report `ready` and proves a real tool call round-trips before
+ * exiting. The fixture registration is removed again in every case (success
+ * or failure) so a smoke run never leaves an autostarting server behind for
+ * the next ordinary `npm start` to pick up.
+ *
+ * Dev-only: the fixture lives under `src/cobuilding/main/__tests__/fixtures/`
+ * and is not part of any packaged build's `extraResource` list, so this is
+ * resolved via `app.getAppPath()` the same way `skillStore.ts:93` locates
+ * `src/cobuilding` in dev — which only ever returns the repo root when
+ * `!app.isPackaged`.
+ */
+async function runMcpHostSmokeTest(): Promise<void> {
+  const SMOKE_ID = 'smoke-test-echo';
+  const say = (msg: string) => {
+    log.info(`[SMOKE TEST MCP] ${msg}`);
+    console.log(`[SMOKE TEST MCP] ${msg}`);
+  };
+
+  const finish = async (ok: boolean, message: string): Promise<void> => {
+    say(`${ok ? 'PASS' : 'FAIL'} — ${message}`);
+    try {
+      await removeHostedServer(SMOKE_ID);
+    } catch (err) {
+      log.warn('[SMOKE TEST MCP] Cleanup (removeHostedServer) failed:', err);
+    }
+    app.exit(ok ? 0 : 1);
+  };
+
+  if (app.isPackaged) {
+    await finish(false, '--smoke-test-mcp is dev-only — the echo fixture is not shipped in a packaged build.');
+    return;
+  }
+
+  const fixture = path.join(app.getAppPath(), 'src', 'cobuilding', 'main', '__tests__', 'fixtures', 'echoMcpServer.mjs');
+  if (!fs.existsSync(fixture)) {
+    await finish(false, `echo fixture not found at ${fixture}`);
+    return;
+  }
+
+  const reg = await registerHostedServer({
+    id: SMOKE_ID,
+    label: 'Smoke test echo',
+    autostart: true,
+    install: { kind: 'custom' },
+    entry: { command: process.execPath, args: [fixture] },
+    // Runs the fixture under the Electron binary as plain node — the same
+    // launch shape the agent server and every mcpHost test already use.
+    env: { ELECTRON_RUN_AS_NODE: '1' },
+    concurrency: 1,
+  });
+  if (!reg.ok) {
+    await finish(false, `could not register the echo fixture: ${reg.error}`);
+    return;
+  }
+  await updateHostedServer(SMOKE_ID, { enabled: true });
+
+  try {
+    const readyOrFailed = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        unsub();
+        reject(new Error('timed out waiting for readiness (25s)'));
+      }, 25_000);
+      const unsub = mcpHost.onInventoryChanged((id) => {
+        if (id !== SMOKE_ID) return;
+        void mcpHost.list().then((all) => {
+          const entry = all.find((e) => e.id === SMOKE_ID);
+          if (entry?.state === 'ready') {
+            clearTimeout(timer);
+            unsub();
+            resolve();
+          } else if (entry?.state === 'failed') {
+            clearTimeout(timer);
+            unsub();
+            reject(new Error(entry.error ?? 'server reported failed'));
+          }
+        });
+      });
+    });
+
+    await mcpHost.startAll();
+    await readyOrFailed;
+
+    const result = await mcpHost.invoke(SMOKE_ID, 'echo', { text: 'acabox-mcp-smoke-test' });
+    if (!JSON.stringify(result).includes('acabox-mcp-smoke-test')) {
+      throw new Error(`unexpected echo result: ${JSON.stringify(result)}`);
+    }
+
+    await mcpHost.shutdown({ graceMs: 2000 });
+    await finish(true, 'startAll() spawned the echo fixture, it reached ready, and echo() round-tripped.');
+  } catch (err) {
+    try { await mcpHost.shutdown({ graceMs: 2000 }); } catch { /* best effort */ }
+    await finish(false, (err as Error).message);
+  }
+}
+
 app.whenReady().then(async () => {
   // We lost the single-instance race; `app.quit()` is already in flight and
   // the running instance has been focused. Booting anyway would put two
   // processes on one skill store, one skills-state.json and one SQLite file.
   if (!gotSingleInstanceLock) return;
+
+  // R5 (docs/design/mcp-hosting.md): reap survivors of a SIGKILL'd previous
+  // run before anything new can spawn. Deliberately here, at main boot, and
+  // not only inside the renderer-triggered AgentInfrastructureController.start()
+  // (which also calls this, as part of its own startAll()) — a hosted server
+  // orphaned by a crash is running RIGHT NOW, and waiting for the renderer to
+  // load and ask is too late. The two calls cannot double-kill anything:
+  // reconcileOrphans() clears a record's {lastPid, lastPidSignature} the
+  // first time it is checked, so whichever of the two runs first does the
+  // real work and the other is a fast no-op.
+  try {
+    const { killed, spared } = await reconcileOrphans();
+    if (killed > 0 || spared > 0) {
+      log.info(`[APP] mcpHost boot reconcile: reaped ${killed} orphaned hosted-server process(es), spared ${spared} (pid reused by something else).`);
+    }
+  } catch (err) {
+    log.warn('[APP] mcpHost boot reconcile failed:', err);
+  }
+
+  if (isSmokeTestMcp) {
+    await runMcpHostSmokeTest();
+    return;
+  }
 
   processCpuMonitor.start();
 
@@ -865,6 +1005,45 @@ app.whenReady().then(async () => {
     subscribeBuildHealth((all) => {
       for (const win of BrowserWindow.getAllWindows()) {
         if (!win.isDestroyed()) win.webContents.send('buildHealth:changed', all);
+      }
+    });
+
+    // Servers page live-status plumbing (docs/design/mcp-hosting.md,
+    // Increment 3, "Live status — pattern A, mandatory"): every tab stays
+    // mounted forever behind `display:none`, so a page that fetches on mount
+    // is correct once and wrong thereafter. Three independent feeds, each
+    // broadcast to every window the moment it changes rather than polled.
+
+    // Hosted servers: `onInventoryChanged` fires on any status transition for
+    // any server; re-read the masked list and broadcast it. `list()` is a
+    // cheap store read (no I/O to a live process), so re-fetching per event
+    // rather than trying to diff at the source is the simpler correct choice
+    // — `mcpServerStore`'s `republish()` on the renderer side is where
+    // redundant repaints actually get suppressed.
+    mcpHost.onInventoryChanged(() => {
+      mcpHost.list()
+        .then((all) => {
+          for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.isDestroyed()) win.webContents.send('mcpServers:changed', all);
+          }
+        })
+        .catch((err) => log.warn(`[McpHost] list() after inventory change failed: ${(err as Error).message}`));
+    });
+
+    // Remote connectors: the producer already exists (`agentSession.ts`'s
+    // `recordConnectorStatus` on every SDK `init`, and `recordConnectorLiveness`
+    // in `sessionRegistry.ts` on last-session teardown) — only the fan-out was
+    // missing.
+    subscribeConnectorStatus((status) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('connectors:statusChanged', status);
+      }
+    });
+
+    // Mini-app published servers: live only while an iframe is registered.
+    miniAppMcpRegistry.subscribe((servers) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('miniAppMcp:changed', servers);
       }
     });
 
@@ -1202,6 +1381,139 @@ ipcMain.handle('jobs:end', (_event, id: string, status?: 'done' | 'failed') => {
 ipcMain.handle('jobs:list', () => listJobs());
 
 ipcMain.handle('buildHealth:list', () => listBuildHealth());
+
+// Hosted MCP servers snapshot — the counterpart to the `mcpServers:changed`
+// broadcast above.
+ipcMain.handle('mcpServers:list', () => mcpHost.list());
+
+// Mutating IPC for the Servers page (docs/design/mcp-hosting.md, Increment 3).
+// A freshly registered/imported server always lands `enabled: false`
+// (`registerHostedServer`'s own non-negotiable stance) and the façade's own
+// `start()` deliberately refuses an off server ("Turn it on first" — pinned
+// by `mcpHostIndex.test.ts`). So "Start" in the UI means "turn it on AND
+// start it" — that enabling step happens HERE, at the IPC boundary, exactly
+// where `store.ts`'s own header anticipates a future caller reaching it
+// directly rather than through the façade.
+ipcMain.handle('mcpServers:start', async (_event, id: unknown) => {
+  if (typeof id !== 'string' || !id) return { ok: false, error: 'Bad id.' };
+  await updateHostedServer(id, { enabled: true });
+  return mcpHost.start(id);
+});
+
+// `disable` distinguishes a temporary Stop (façade `stop()`, which does not
+// disable — the server stays eligible for Start/Restart) from the
+// Increment-3-vocabulary "Off" (façade `pause()`, which disables AND stops).
+// Kept as one channel with an option rather than a seventh IPC name.
+ipcMain.handle('mcpServers:stop', async (_event, id: unknown, opts?: { disable?: boolean; graceMs?: number }) => {
+  if (typeof id !== 'string' || !id) return { ok: false, error: 'Bad id.' };
+  return opts?.disable ? mcpHost.pause(id, opts) : mcpHost.stop(id, opts);
+});
+
+ipcMain.handle('mcpServers:restart', async (_event, id: unknown) => {
+  if (typeof id !== 'string' || !id) return { ok: false, error: 'Bad id.' };
+  return mcpHost.restart(id);
+});
+
+ipcMain.handle('mcpServers:remove', async (_event, id: unknown) => {
+  if (typeof id !== 'string' || !id) return { ok: false, error: 'Bad id.' };
+  return mcpHost.remove(id);
+});
+
+// Increment 7's write gate (docs/design/mcp-hosting.md, DECISION 2026-08-13):
+// per-tool selection, not an `allowWrites` boolean. `enabledTools: undefined`
+// (renderer sends `null` over IPC — structured clone has no `undefined`, so
+// this normalizes it back) means "every tool"; `[]` means none. A dedicated
+// channel rather than folded into `mcpServers:save` — see `mcpHost.setEnabledTools`'s
+// own comment for why the detail panel's per-tool checkboxes should not have
+// to round-trip the Advanced form's full command/args/env draft just to flip
+// one tool's selection.
+ipcMain.handle('mcpServers:setEnabledTools', async (_event, id: unknown, enabledTools: unknown) => {
+  if (typeof id !== 'string' || !id) return { ok: false, error: 'Bad id.' };
+  if (enabledTools === undefined || enabledTools === null) return mcpHost.setEnabledTools(id, undefined);
+  return mcpHost.setEnabledTools(id, normalizeStringArray(enabledTools));
+});
+
+function normalizeStringArray(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+}
+
+function normalizeStringRecord(v: unknown): Record<string, string> {
+  if (!v || typeof v !== 'object') return {};
+  const out: Record<string, string> = {};
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof val === 'string') out[k] = val;
+  }
+  return out;
+}
+
+ipcMain.handle('mcpServers:save', async (_event, draft: unknown) => {
+  const d = (draft && typeof draft === 'object') ? (draft as Record<string, unknown>) : {};
+  return mcpHost.save({
+    id: typeof d.id === 'string' ? d.id : '',
+    label: typeof d.label === 'string' ? d.label : '',
+    command: typeof d.command === 'string' ? d.command : '',
+    args: normalizeStringArray(d.args),
+    cwd: typeof d.cwd === 'string' ? d.cwd : undefined,
+    envUpdates: normalizeStringRecord(d.envUpdates),
+    envDeletes: normalizeStringArray(d.envDeletes),
+    autostart: d.autostart === true,
+    concurrency: typeof d.concurrency === 'number' ? d.concurrency : undefined,
+  });
+});
+
+// Detail-panel reads: tool names (never just a count) and the stderr tail.
+// Both are live, in-memory-only facts about the CURRENT session's supervisor
+// state — nothing here is persisted or masked beyond what `list()` already
+// omits (there is no secret in a tool name or a server's own stdout/stderr).
+ipcMain.handle('mcpServers:inventory', (_event, id: unknown) => {
+  if (typeof id !== 'string' || !id) return undefined;
+  return mcpHost.inventory(id);
+});
+
+ipcMain.handle('mcpServers:stderrTail', (_event, id: unknown) => {
+  if (typeof id !== 'string' || !id) return '';
+  return mcpHost.stderrTail(id);
+});
+
+// The probe. Never registers or persists anything — see `mcpHost.test()`'s
+// own comment for why this reuses the supervisor's spawn path rather than a
+// second implementation.
+ipcMain.handle('mcpServers:test', async (_event, draft: unknown) => {
+  const d = (draft && typeof draft === 'object') ? (draft as Record<string, unknown>) : {};
+  return mcpHost.test({
+    id: typeof d.id === 'string' && d.id ? d.id : undefined,
+    command: typeof d.command === 'string' ? d.command : '',
+    args: normalizeStringArray(d.args),
+    cwd: typeof d.cwd === 'string' ? d.cwd : undefined,
+    envUpdates: normalizeStringRecord(d.envUpdates),
+    envDeletes: normalizeStringArray(d.envDeletes),
+  });
+});
+
+// Increment 5 (docs/design/mcp-hosting.md) — agent-authored servers. All
+// three are thin passthroughs to `mcpHost`'s own new façade functions
+// (`main/mcpHost/index.ts`), which wrap `main/mcpHost/authored.ts`; see that
+// module for the design. There is deliberately no MCP tool anywhere that
+// reaches these — only a user gesture in the renderer does.
+
+// Adoption already runs once per boot inside `mcpHost.startAll()`; this lets
+// the Servers page ask again on demand (e.g. right after a chat where the
+// agent said it wrote a server) without the user restarting Acabox.
+ipcMain.handle('mcpServers:rescanAuthored', async () => {
+  return mcpHost.scanAuthoredServers();
+});
+
+ipcMain.handle('mcpServers:listAuthored', async () => {
+  return mcpHost.listAuthoredInfo();
+});
+
+// Same operation for the first-ever approval ("Review & enable") and every
+// later re-promotion ("N changes … Review") — see `approveAuthoredServer`'s
+// own comment for why those are one function, not two.
+ipcMain.handle('mcpServers:approveAuthored', async (_event, id: unknown) => {
+  if (typeof id !== 'string' || !id) return { ok: false, error: 'Bad id.' };
+  return mcpHost.approveAuthoredServer(id);
+});
 
 ipcMain.handle('jobs:cancel', (_event, id: string) => {
   if (typeof id !== 'string') return { ok: false, reason: 'bad id' };
@@ -2363,7 +2675,13 @@ ipcMain.handle('connectors:list', () => {
 });
 
 ipcMain.handle('connectors:save', async (_event, connector: ConnectorConfig, originalId?: string) => {
-  const result = upsertConnector(connector, originalId);
+  // Ids share one namespace with hosted MCP servers (docs/design/mcp-hosting.md,
+  // Increment 4) — pass the current hosted id set so a connector can't be
+  // saved under a name a hosted server already owns. `mcpHost.list()` is a
+  // cheap store read (no I/O to a live process, see the comment on
+  // `mcpHost.onInventoryChanged` below).
+  const hostedIds = (await mcpHost.list()).map((s) => s.id);
+  const result = upsertConnector(connector, originalId, hostedIds);
   if (!result.success) return { ...result, pushed: false };
   const pushed = await pushConnectorsToAgent();
   return { ...result, pushed };
@@ -3029,60 +3347,69 @@ app.on('window-all-closed', () => {
  */
 let quitConfirmed = false;
 
+// See appTeardown.ts's module comment for why the 12 teardown steps live on
+// `will-quit` and NOT on this listener: `event.preventDefault()` here does
+// not stop a second `before-quit` listener from running to completion, so
+// teardown on `before-quit` ran on every emission — including "Cancel", where
+// the app was meant to stay open. This listener owns only the dialog now.
 app.on('before-quit', (event) => {
-  if (quitConfirmed) return;
-  // Never block a quit nobody is there to answer: the smoke test drives a
-  // headless boot-then-exit, and a modal would hang it forever.
-  if (process.argv.includes('--smoke-test')) return;
-  if (BrowserWindow.getAllWindows().every((w) => w.isDestroyed())) return;
-  const running = activeJobs();
-  if (running.length === 0) return;
-
-  event.preventDefault();
-  const names = [...new Set(running.map((j) => j.dirName))];
-  const choice = dialog.showMessageBoxSync({
-    type: 'question',
-    buttons: ['Quit', 'Stop them and quit', 'Cancel'],
-    defaultId: 0,
-    cancelId: 2,
-    message: running.length === 1
-      ? '1 tool is still working.'
-      : `${running.length} pieces of work are still running.`,
-    detail:
-      `${names.join(', ')}\n\n` +
-      "This work will keep running in the background and finish on its own. " +
-      'Acabox will show you what happened the next time you open it.',
+  handleBeforeQuit(event, {
+    isQuitConfirmed: () => quitConfirmed,
+    setQuitConfirmed: (value) => { quitConfirmed = value; },
+    // Never block a quit nobody is there to answer: the smoke test drives a
+    // headless boot-then-exit, and a modal would hang it forever.
+    isSmokeTest: () => process.argv.includes('--smoke-test'),
+    allWindowsDestroyed: () => BrowserWindow.getAllWindows().every((w) => w.isDestroyed()),
+    activeJobs,
+    cancelAll,
+    showQuitDialog: (names, count) => dialog.showMessageBoxSync({
+      type: 'question',
+      buttons: ['Quit', 'Stop them and quit', 'Cancel'],
+      defaultId: 0,
+      cancelId: 2,
+      message: count === 1
+        ? '1 tool is still working.'
+        : `${count} pieces of work are still running.`,
+      detail:
+        `${names.join(', ')}\n\n` +
+        "This work will keep running in the background and finish on its own. " +
+        'Acabox will show you what happened the next time you open it.',
+    }),
+    quit: () => app.quit(),
   });
-
-  if (choice === 2) return;             // stay open
-  if (choice === 1) cancelAll();
-  quitConfirmed = true;
-  app.quit();
 });
 
-app.on('before-quit', () => {
-  const steps: [string, () => void][] = [
-    ['globalShortcut.unregisterAll', () => globalShortcut.unregisterAll()],
-    ['stopFileMonitor', stopFileMonitor],
-    ['stopDictation', stopDictation],
-    ['stopScheduledTasks', stopScheduledTasks],
-    ['backgroundBuilder.dispose', () => backgroundBuilder.dispose()],
-    ['destroyTokenManager', destroyTokenManager],
-    ['destroyAllSessions', destroyAllSessions],
-    ['containerService.stop', () => containerService.stop()],
-    // Fire-and-forget: these steps are synchronous by contract and the app is
-    // going away regardless. Closing the listener still matters — an orphaned
-    // bind would make the next run pick 23501 and leave a dead port held.
-    ['apiProxy.stop', () => { void apiProxy.stop(); }],
-    ['closeSchedulingDatabase', closeSchedulingDatabase],
-    ['closeObservationsDatabase', closeObservationsDatabase],
-    ['closeDatabase', closeDatabase],
-  ];
-  for (const [name, fn] of steps) {
-    try {
-      fn();
-    } catch (err) {
-      log.error(`[APP] Cleanup step "${name}" failed:`, err);
-    }
-  }
+const appTeardown = createTeardown([
+  ['globalShortcut.unregisterAll', () => globalShortcut.unregisterAll()],
+  ['stopFileMonitor', stopFileMonitor],
+  ['stopDictation', stopDictation],
+  ['stopScheduledTasks', stopScheduledTasks],
+  ['backgroundBuilder.dispose', () => backgroundBuilder.dispose()],
+  ['destroyTokenManager', destroyTokenManager],
+  ['destroyAllSessions', destroyAllSessions],
+  ['containerService.stop', () => containerService.stop()],
+  // Fire-and-forget: these steps are synchronous by contract and the app is
+  // going away regardless. Closing the listener still matters — an orphaned
+  // bind would make the next run pick 23501 and leave a dead port held.
+  ['apiProxy.stop', () => { void apiProxy.stop(); }],
+  ['closeSchedulingDatabase', closeSchedulingDatabase],
+  ['closeObservationsDatabase', closeObservationsDatabase],
+  ['closeDatabase', closeDatabase],
+]);
+
+// `will-quit` fires only once a `before-quit` emission has run to completion
+// with nothing having called `preventDefault()` — i.e. exactly when the app
+// is actually going away — and is not re-emitted by the nested `app.quit()`
+// above. `handleWillQuit`'s own re-entrancy guard also makes this safe
+// however many times `will-quit` ends up firing across the app's lifetime
+// (tray quit, ⌘Q, the Debug tab's hard reset). It is async (R14): it awaits
+// `mcpHost.shutdown()` — stopping every hosted MCP server's child process —
+// behind a hard watchdog, so a wedged stdio child can delay `app.exit(0)` by
+// at most ~5s, never forever.
+app.on('will-quit', (event) => {
+  void handleWillQuit(event, {
+    teardown: appTeardown,
+    shutdownMcpHost: (opts) => mcpHost.shutdown(opts),
+    exit: (code) => app.exit(code),
+  });
 });

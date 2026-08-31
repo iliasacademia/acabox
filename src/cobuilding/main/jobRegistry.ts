@@ -1,9 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import { execFileSync } from 'child_process';
 import { app } from 'electron';
 import log from 'electron-log';
+import { descendantsOf, pidSignatureOf } from './mcpHost/processTree';
 
 /**
  * Host-owned record of work a tool is doing.
@@ -122,47 +122,11 @@ function emit(): void {
   }
 }
 
-/**
- * A fingerprint of a running process, so a recycled pid can't be mistaken for
- * our job after a restart. Deliberately **start time only**: pid + start time
- * is unique, whereas the command line is not stable. `sh -c "…"` execs into the
- * program it runs, so `ps` reports `/bin/sh -c sleep 30` at spawn and `sleep 30`
- * a moment later — including the command here made every shell command fail to
- * re-adopt. Caught by test, 2026-07-28.
- */
-function pidSignatureOf(pid: number): string | null {
-  try {
-    const out = execFileSync('/bin/ps', ['-p', String(pid), '-o', 'lstart='], {
-      encoding: 'utf-8', timeout: 5000,
-    });
-    return out.trim() || null;
-  } catch {
-    return null; // no such process
-  }
-}
-
-/**
- * Every descendant of `pid`, deepest first, so a tree can be killed from the
- * leaves up without orphaning anything.
- *
- * Deliberately NOT `kill(-pid)`: a process-group kill is the usual shortcut,
- * but these children are spawned without `detached`, so they share Acabox's own
- * process group — a negative-pid signal would kill the app itself. Adopted jobs
- * from an older build make that worse, since we can't know how they were
- * spawned. Walking the tree is safe regardless.
- */
-function descendantsOf(pid: number, depth = 0): number[] {
-  if (depth > 10) return [];
-  let children: number[] = [];
-  try {
-    const out = execFileSync('/usr/bin/pgrep', ['-P', String(pid)], { encoding: 'utf-8', timeout: 5000 });
-    children = out.trim().split('\n').filter(Boolean).map(Number).filter((n) => Number.isInteger(n) && n > 1);
-  } catch {
-    return []; // no children (pgrep exits non-zero when it matches nothing)
-  }
-  const deeper = children.flatMap((c) => descendantsOf(c, depth + 1));
-  return [...deeper, ...children];
-}
+// `descendantsOf` and `pidSignatureOf` moved to `mcpHost/processTree.ts`
+// (imported above) — hosted MCP servers need the identical tree-kill logic,
+// and the comment on why this is deliberately NOT `kill(-pid)` is too
+// important to risk a second, drifting copy. Nothing about their behaviour
+// changed; only their address did.
 
 function signal(pid: number, sig: NodeJS.Signals): void {
   try { process.kill(pid, sig); } catch { /* already gone */ }

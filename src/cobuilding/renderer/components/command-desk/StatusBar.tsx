@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useToolStatuses } from '../../toolStatusStore';
+import { useServerCounts } from '../../mcpServerStore';
 
 const POLL_MS = 5_000;
 
@@ -38,6 +39,7 @@ export function StatusBar() {
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [agentCount, setAgentCount] = useState<number | null>(null);
   const toolStatuses = useToolStatuses();
+  const serverCounts = useServerCounts();
   const workingToolNames = [...toolStatuses.entries()]
     .filter(([, s]) => s.kind === 'working')
     .map(([dirName]) => dirName);
@@ -78,6 +80,28 @@ export function StatusBar() {
         <span title={workingToolNames.join(', ')}>
           <span className="cdDot cdDot--busy cdDot--pulse" style={{ display: 'inline-block', marginRight: 6 }} />
           {workingTools} TOOL{workingTools === 1 ? '' : 'S'} WORKING
+        </span>
+      )}
+      {/* A server count is not news; a failing one is — no always-on count,
+          matching the module comment above: segments render only on real
+          data (docs/design/mcp-hosting.md, Increment 3). */}
+      {serverCounts.down > 0 && (
+        <span>
+          <span className="cdDot cdDot--busy" style={{ background: 'var(--cd-error, #b60000)', display: 'inline-block', marginRight: 6 }} />
+          {serverCounts.down} SERVER{serverCounts.down === 1 ? '' : 'S'} DOWN
+        </span>
+      )}
+      {/* The one place a TRANSIENT count is itself news (R6,
+          docs/design/mcp-hosting.md Increment 4): while a hosted server is
+          still completing its handshake, its tools genuinely don't exist yet
+          — a user who asks for them in that window deserves an explanation,
+          not a silent "Claude can't do that" with no reason given. Gone the
+          moment the last starting server lands (ready or failed), same as
+          every other segment on this line. */}
+      {serverCounts.starting > 0 && (
+        <span>
+          <span className="cdDot cdDot--busy cdDot--pulse" style={{ background: 'var(--cd-busy, #fecf4c)', display: 'inline-block', marginRight: 6 }} />
+          {serverCounts.starting} SERVER{serverCounts.starting === 1 ? '' : 'S'} STARTING
         </span>
       )}
       <span className="cdStatusBar__spacer" />

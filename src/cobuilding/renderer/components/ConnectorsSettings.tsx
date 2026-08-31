@@ -26,8 +26,6 @@ type Draft = {
   label: string;
   transport: ConnectorTransport;
   url: string;
-  command: string;
-  args: string;
   headerRows: Array<{ key: string; value: string }>;
   alwaysLoad: boolean;
   catalogId?: string;
@@ -38,8 +36,6 @@ const EMPTY_DRAFT: Draft = {
   label: '',
   transport: 'http',
   url: '',
-  command: '',
-  args: '',
   headerRows: [{ key: '', value: '' }],
   alwaysLoad: false,
 };
@@ -51,8 +47,6 @@ function draftFromCatalog(entry: CatalogEntry): Draft {
     label: entry.label,
     transport: entry.transport,
     url: entry.url ?? '',
-    command: entry.command ?? '',
-    args: (entry.args ?? []).join(' '),
     headerRows: entry.auth === 'header' && entry.headerName
       ? [{ key: entry.headerName, value: '' }]
       : [{ key: '', value: '' }],
@@ -73,14 +67,21 @@ function draftFromConnector(c: ConnectorConfig): Draft {
     label: c.label,
     transport: c.transport,
     url: c.url ?? '',
-    command: c.command ?? '',
-    args: (c.args ?? []).join(' '),
     headerRows: rows.length ? rows : [{ key: '', value: '' }],
     alwaysLoad: !!c.alwaysLoad,
     catalogId: c.catalogId,
   };
 }
 
+/**
+ * `headers` is ALWAYS an object here — `{}` when every row is empty — never
+ * omitted (audited defect, `docs/design/mcp-hosting.md` Increment 3). Omitting
+ * the key when the row editor is empty made an intentional "delete every
+ * header" indistinguishable, at `connectorsStore.ts`, from "this draft never
+ * mentioned headers" — which is what made clearing them not actually stick.
+ * `preserveUntouchedSecrets` there now depends on this: `undefined` reads as
+ * "keep stored", `{}` reads as "clear". Either half alone still loses data.
+ */
 function draftToConnector(d: Draft, enabled: boolean): ConnectorConfig {
   const headers: Record<string, string> = {};
   for (const row of d.headerRows) {
@@ -90,13 +91,8 @@ function draftToConnector(d: Draft, enabled: boolean): ConnectorConfig {
     id: d.id.trim(),
     label: d.label.trim() || d.id.trim(),
     transport: d.transport,
-    ...(d.transport === 'stdio'
-      ? {
-        command: d.command.trim(),
-        args: d.args.trim() ? d.args.trim().split(/\s+/) : undefined,
-      }
-      : { url: d.url.trim() }),
-    ...(Object.keys(headers).length ? { headers } : {}),
+    url: d.url.trim(),
+    headers,
     enabled,
     ...(d.catalogId ? { catalogId: d.catalogId } : {}),
     ...(d.alwaysLoad ? { alwaysLoad: true } : {}),
@@ -144,6 +140,24 @@ export const ConnectorsSettings: React.FC = () => {
   }, []);
 
   useEffect(() => { void load(); void refreshStatus(); }, [load, refreshStatus]);
+
+  // Live push, on top of the one-shot poll above — the fix for the audited
+  // "stale green" defect. `connectorsAPI.onStatusChanged` fires on every SDK
+  // `init` AND once more when the last session tears down (`live` flips to
+  // `false`), so a report that was genuinely `connected` a minute ago is
+  // demoted the moment nobody is left to have observed it, with no need to
+  // poll. Deliberately NOT unified with the `getStatus()` HTTP-poll-shaped
+  // read above — this page has two independent notions of "live" (the poll's
+  // own `s.live`, and this push channel's) and merging them is a decision for
+  // a later pass, not a side effect of wiring the push. Using the push
+  // channel for liveness only, here, is the choice being made.
+  useEffect(() => {
+    return window.connectorsAPI.onStatusChanged((status) => {
+      setStatusReports(status.reports);
+      setStatusLive(status.live);
+      setObservedAt(status.observedAt);
+    });
+  }, []);
 
   const statusFor = useMemo(() => {
     const map = new Map<string, ConnectorStatusReport>();
@@ -212,9 +226,17 @@ export const ConnectorsSettings: React.FC = () => {
         <div className="connectorList">
           {connectors.map((c) => {
             const report = statusFor.get(c.id);
-            const status: ConnectorStatus = !c.enabled
+            const rawStatus: ConnectorStatus = !c.enabled
               ? 'disabled'
               : (report?.status ?? 'unknown');
+            // Demotion fix for the audited "stale green" defect: a cached
+            // `connected` report from a session that has since torn down
+            // (`statusLive === false`) must read as "not checked", never as a
+            // stale "Connected" — the same rule `shared/mcpServers.ts`'s
+            // `connectorStatusToServerState` already enforces for the Servers
+            // page, applied here for Settings' own render path.
+            const demoted = rawStatus === 'connected' && !statusLive;
+            const status: ConnectorStatus = demoted ? 'unknown' : rawStatus;
             return (
               <div key={c.id} className={`connectorRow${c.enabled ? '' : ' connectorRow--off'}`}>
                 <span className={`connectorDot ${STATUS_CLASS[status]}`} aria-hidden="true" />
@@ -227,11 +249,13 @@ export const ConnectorsSettings: React.FC = () => {
                     {connectorTarget(c)}
                   </div>
                   <div className="connectorRow__status">
-                    {describeStatus(status)}
+                    {demoted
+                      ? `Not checked${observedAt ? ` · last seen ${new Date(observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}`
+                      : describeStatus(status)}
                     {report?.toolCount !== undefined && status === 'connected'
                       && ` · ${report.toolCount} tool${report.toolCount === 1 ? '' : 's'}`}
-                    {report?.error && ` · ${report.error}`}
-                    {status === 'needs-auth' && (
+                    {!demoted && report?.error && ` · ${report.error}`}
+                    {!demoted && status === 'needs-auth' && (
                       <> · ask in chat: <em>&ldquo;authenticate the {c.id} connector&rdquo;</em></>
                     )}
                   </div>
@@ -337,7 +361,8 @@ export const ConnectorsSettings: React.FC = () => {
             >
               <div className="connectorCard__name">Custom…</div>
               <div className="connectorCard__desc">
-                Any MCP server: a remote HTTP/SSE endpoint or a local command.
+                Any remote MCP server: an HTTP or SSE endpoint. To run a server
+                on this machine, use Servers.
               </div>
             </button>
           </div>
@@ -436,94 +461,67 @@ const ConnectorForm: React.FC<{
         >
           <option value="http">HTTP (remote)</option>
           <option value="sse">SSE (remote)</option>
-          <option value="stdio">Local command (stdio)</option>
         </select>
       </label>
 
-      {draft.transport === 'stdio' ? (
-        <>
-          <label className="connectorField">
-            <span className="connectorField__label">Command</span>
-            <input
-              className="connectorField__input connectorField__input--mono"
-              value={draft.command}
-              onChange={(e) => set('command', e.target.value)}
-              placeholder="npx"
-            />
-          </label>
-          <label className="connectorField">
-            <span className="connectorField__label">Arguments</span>
-            <input
-              className="connectorField__input connectorField__input--mono"
-              value={draft.args}
-              onChange={(e) => set('args', e.target.value)}
-              placeholder="-y @modelcontextprotocol/server-filesystem /path"
-            />
-            <span className="connectorField__help">Space-separated.</span>
-          </label>
-        </>
-      ) : (
-        <label className="connectorField">
-          <span className="connectorField__label">URL</span>
-          <input
-            className="connectorField__input connectorField__input--mono"
-            value={draft.url}
-            onChange={(e) => set('url', e.target.value)}
-            placeholder="https://app.hex.tech/mcp"
-          />
-          <span className="connectorField__help">
-            Must be https:// — http:// is allowed only for localhost.
-          </span>
-        </label>
-      )}
+      <label className="connectorField">
+        <span className="connectorField__label">URL</span>
+        <input
+          className="connectorField__input connectorField__input--mono"
+          value={draft.url}
+          onChange={(e) => set('url', e.target.value)}
+          placeholder="https://app.hex.tech/mcp"
+        />
+        <span className="connectorField__help">
+          Must be https:// — http:// is allowed only for localhost.
+        </span>
+      </label>
 
-      {draft.transport !== 'stdio' && (
-        <div className="connectorField">
-          <span className="connectorField__label">Headers</span>
-          {draft.headerRows.map((row, i) => (
-            <div key={i} className="connectorHeaderRow">
-              <input
-                className="connectorField__input connectorField__input--mono"
-                value={row.key}
-                onChange={(e) => setHeaderRow(i, { key: e.target.value })}
-                placeholder="Authorization"
-              />
-              <input
-                className="connectorField__input connectorField__input--mono"
-                type="password"
-                value={row.value}
-                onChange={(e) => setHeaderRow(i, { value: e.target.value })}
-                placeholder={savedHeaderKeys.has(row.key) ? 'saved — leave blank to keep' : 'Bearer …'}
-              />
-              <button
-                type="button"
-                className="connectorBtn"
-                onClick={() => setDraft((d) => d && ({
-                  ...d,
-                  headerRows: d.headerRows.length > 1
-                    ? d.headerRows.filter((_, j) => j !== i)
-                    : [{ key: '', value: '' }],
-                }))}
-              >
-                −
-              </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            className="connectorLink"
-            onClick={() => setDraft((d) => d && ({ ...d, headerRows: [...d.headerRows, { key: '', value: '' }] }))}
-          >
-            + Add header
-          </button>
-          <span className="connectorField__help">
-            Leave empty for services that sign in with OAuth — the agent handles
-            that in chat. Tokens are encrypted with your macOS keychain and are
-            never shown again after saving; leave a saved field blank to keep
-            it, or delete the row to remove it.
-          </span>
-        </div>
-      )}
+      <div className="connectorField">
+        <span className="connectorField__label">Headers</span>
+        {draft.headerRows.map((row, i) => (
+          <div key={i} className="connectorHeaderRow">
+            <input
+              className="connectorField__input connectorField__input--mono"
+              value={row.key}
+              onChange={(e) => setHeaderRow(i, { key: e.target.value })}
+              placeholder="Authorization"
+            />
+            <input
+              className="connectorField__input connectorField__input--mono"
+              type="password"
+              value={row.value}
+              onChange={(e) => setHeaderRow(i, { value: e.target.value })}
+              placeholder={savedHeaderKeys.has(row.key) ? 'saved — leave blank to keep' : 'Bearer …'}
+            />
+            <button
+              type="button"
+              className="connectorBtn"
+              onClick={() => setDraft((d) => d && ({
+                ...d,
+                headerRows: d.headerRows.length > 1
+                  ? d.headerRows.filter((_, j) => j !== i)
+                  : [{ key: '', value: '' }],
+              }))}
+            >
+              −
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          className="connectorLink"
+          onClick={() => setDraft((d) => d && ({ ...d, headerRows: [...d.headerRows, { key: '', value: '' }] }))}
+        >
+          + Add header
+        </button>
+        <span className="connectorField__help">
+          Leave empty for services that sign in with OAuth — the agent handles
+          that in chat. Tokens are encrypted with your macOS keychain and are
+          never shown again after saving; leave a saved field blank to keep
+          it, or delete the row to remove it.
+        </span>
+      </div>
 
       <label className="connectorCheck">
         <input

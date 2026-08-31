@@ -24,6 +24,7 @@ import { getLoginShellPath, prewarmLoginShellPath } from './shellPath';
 import { getClaudeConfigDir, migrateClaudeConfigDir } from './claudeConfigDir';
 import { findFreePort, isPortBindable, LOOPBACK } from './freePort';
 import { replaceConnectorAllowedTools } from '../shared/connectors';
+import type { HostedServerPush } from '../shared/hostedMcp';
 import { API_BASE_ENV, API_TOKEN_ENV } from '../shared/apis';
 import { apiProxy, type ProxyCallerRef } from './apiProxy';
 
@@ -134,7 +135,12 @@ function buildSubprocessEnv(caller: ProxyCallerRef = { kind: 'chat' }): NodeJS.P
 
 const NODE_HEAP_MB = 1536;
 
-class HostProcessService {
+// Exported (not just the `ContainerService` type alias below) so tests can
+// construct a fresh, isolated instance — the module-level singleton is
+// shared app-wide and its `agentServerRestartListeners` accumulate for the
+// life of the process, which a test suite constructing many instances would
+// otherwise leak across cases.
+export class HostProcessService {
   private startedFlag = false;
   private isStarting = false;
   private currentAgentDir: string | null = null;
@@ -161,6 +167,15 @@ class HostProcessService {
   private agentRestartTimestamps: number[] = [];
   private static readonly MAX_RESTARTS_IN_WINDOW = 3;
   private static readonly RESTART_WINDOW_MS = 60_000;
+
+  // Fired once a crash-restart's own health-poll loop confirms the NEW agent
+  // server is up (docs/design/mcp-hosting.md, Increment 4's mandatory guard
+  // #2). `mcpHost`'s subscriber (wired in `AgentInfrastructureController`'s
+  // constructor) uses this to re-push its LIVE hosted-MCP inventory rather
+  // than replaying whatever `lastAgentServerConfig.hostedServers` last
+  // remembered — see `onAgentServerRestarted`'s own comment for why that
+  // distinction is load-bearing.
+  private agentServerRestartListeners = new Set<() => void>();
 
   async start(mountMap: Array<{ hostPath: string; containerPath: string; readOnly?: boolean }>, onProgress?: ProgressCallback): Promise<void> {
     if (this.isStarting) return;
@@ -534,9 +549,16 @@ class HostProcessService {
       log.warn('[AgentServer] Restarting after unexpected exit');
       // Restart in a microtask so the exit handler doesn't recurse.
       setImmediate(() => {
-        this.startAgentServer(cfg, dir).catch((err) => {
-          log.error(`[AgentServer] Restart failed: ${(err as Error).message}`);
-        });
+        this.startAgentServer(cfg, dir)
+          // Only notify once the NEW process is confirmed healthy — firing
+          // this before that would tell subscribers "the agent server is
+          // back" while it's still spawning, and a hosted-MCP push that
+          // lands before the server can answer POST /hosted would just fail
+          // silently rather than land on the next successful push.
+          .then(() => this.notifyAgentServerRestarted())
+          .catch((err) => {
+            log.error(`[AgentServer] Restart failed: ${(err as Error).message}`);
+          });
       });
     });
 
@@ -720,6 +742,127 @@ class HostProcessService {
       if (ok) this.rememberAgentSkills(skills);
       return ok;
     });
+  }
+
+  /**
+   * Subscribe to "the agent server just came back up after an unexpected
+   * exit". Fired once the crash-restart's own health-poll loop (inside
+   * `startAgentServer`) confirms the NEW process is serving `/health` —
+   * never on the app's initial boot start (that call reaches
+   * `startAgentServer` directly from `AgentInfrastructureController.start()`,
+   * not through this exit handler), and never after a clean, intentional
+   * `stop()` (the `stoppedByUs` guard above returns before a restart is even
+   * attempted).
+   *
+   * `mcpHost`'s own subscriber uses this to re-push its LIVE inventory —
+   * strictly better than replaying whatever `lastAgentServerConfig
+   * .hostedServers` last remembered, because a server that is `failed` at
+   * the exact moment of the restart must not be re-registered with the
+   * fresh CLI relay just because an earlier snapshot said `ready`
+   * (docs/design/mcp-hosting.md, Increment 4's mandatory guard #2).
+   */
+  onAgentServerRestarted(cb: () => void): () => void {
+    this.agentServerRestartListeners.add(cb);
+    return () => { this.agentServerRestartListeners.delete(cb); };
+  }
+
+  private notifyAgentServerRestarted(): void {
+    for (const cb of this.agentServerRestartListeners) {
+      try {
+        cb();
+      } catch (err) {
+        // One subscriber's bug must not stop the others from hearing about
+        // the restart, the same posture `supervisor.ts`'s onStatusChange
+        // takes with its own listener set.
+        log.warn(`[HostProcess] onAgentServerRestarted listener threw: ${(err as Error).message}`);
+      }
+    }
+  }
+
+  /**
+   * Push the live hosted-MCP inventory to the running agent server (design:
+   * `docs/design/mcp-hosting.md`, Increment 4). Modelled on
+   * `updateAgentConnectors` immediately below it — same path shape, same
+   * never-throws contract (a down agent server during boot/restart is the
+   * normal case this exists to tolerate, not an error to propagate), same
+   * "fold into the replay config only on success" rule — but a DIFFERENT
+   * config field (`hostedServers`, never `mcpServers`): a hosted server is
+   * Acabox's own supervised child process, not a connector the CLI
+   * subprocess spawns itself, and blurring the two would replay the wrong
+   * shape for one of them on the next crash-restart.
+   *
+   * `hosted` is expected to be the FULL live set — `mcpHost
+   * .readyServersForAgent()`'s own shape — never a delta; see
+   * `shared/hostedMcp.ts`'s `HostedMcpPushPayload` doc comment for why.
+   */
+  async updateAgentHosted(hosted: Record<string, HostedServerPush>): Promise<boolean> {
+    const port = this.agentPort;
+    if (!port) return false;
+    return new Promise<boolean>((resolve) => {
+      const body = JSON.stringify({ hosted });
+      const req = http.request({
+        hostname: LOOPBACK,
+        port,
+        path: '/hosted',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+        // Unlike a connector this never involves a network round-trip — by
+        // the time this is called the hosted server is already `ready` (or
+        // we are pushing an empty set); the agent server only has to rebuild
+        // its in-process relay set, which is local work. Same budget as the
+        // skills push below.
+        timeout: 5000,
+      }, (res) => {
+        const ok = (res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300;
+        res.resume();
+        resolve(ok);
+      });
+      req.on('error', () => resolve(false));
+      req.on('timeout', () => { req.destroy(); resolve(false); });
+      req.write(body);
+      req.end();
+    }).then((ok) => {
+      // Same trap as connectors and skills: `lastAgentServerConfig` is only
+      // written by startAgentServer, so without this a crash-restart would
+      // replay the hosted set as it stood at BOOT (usually empty — see
+      // AgentInfrastructureController.start()'s own comment on why) and
+      // silently undo every server that became ready since, with the
+      // Servers page still showing them running.
+      if (ok) this.rememberAgentHosted(hosted);
+      return ok;
+    });
+  }
+
+  /**
+   * Update the stored restart config in place so a crash-restart preserves
+   * the live hosted-MCP set. Mirrors `rememberAgentConnectors` immediately
+   * above — including recomputing the `mcp__<id>` auto-approve entries so
+   * the replayed config and the running one agree on both halves — applied
+   * to the `hostedServers` field instead of `mcpServers`.
+   *
+   * Without this, an agent-server crash-restart replays the config as it
+   * stood at whatever `AgentInfrastructureController.start()` last built —
+   * usually zero hosted servers, since `mcpHost.startAll()` is deliberately
+   * not awaited there — silently deleting every hosted server that had
+   * become ready since, with no log line and the Servers page still showing
+   * them running.
+   */
+  private rememberAgentHosted(hosted: Record<string, HostedServerPush>): void {
+    if (!this.lastAgentServerConfig) return;
+    try {
+      const cfg = JSON.parse(this.lastAgentServerConfig);
+      cfg.allowedTools = replaceConnectorAllowedTools(
+        cfg.allowedTools ?? [],
+        Object.keys(cfg.hostedServers ?? {}),
+        Object.keys(hosted),
+      );
+      cfg.hostedServers = hosted;
+      this.lastAgentServerConfig = JSON.stringify(cfg);
+    } catch (err) {
+      // Never let a bookkeeping failure break a hosted-MCP push that has
+      // already been applied to the live server.
+      log.warn(`[HostProcess] Could not refresh restart config with hosted servers: ${(err as Error).message}`);
+    }
   }
 
   private rememberAgentSkills(skills: string[]): void {

@@ -4,8 +4,9 @@ import { AcaboxMark } from './AcaboxMark';
 import { resolveToolIcon } from './toolIcon';
 import { useToolStatuses } from '../../toolStatusStore';
 import { toolStatusDotClass } from './toolStatusDisplay';
+import { useServerCounts } from '../../mcpServerStore';
 
-export type RailTab = 'home' | 'chats' | 'tools' | 'knowledge' | 'files' | 'activity' | 'debug' | 'settings';
+export type RailTab = 'home' | 'chats' | 'tools' | 'knowledge' | 'servers' | 'files' | 'activity' | 'debug' | 'settings';
 
 export interface RailRecentChat {
   id: string;
@@ -23,6 +24,7 @@ const NAV_ITEMS: { tab: RailTab; label: string; icon: string }[] = [
   { tab: 'chats', label: 'Chats', icon: 'forum' },
   { tab: 'tools', label: 'Tools', icon: 'grid_view' },
   { tab: 'knowledge', label: 'Knowledge', icon: 'book_2' },
+  { tab: 'servers', label: 'Servers', icon: 'dns' },
   { tab: 'files', label: 'Files', icon: 'folder_open' },
   { tab: 'activity', label: 'Activity', icon: 'monitoring' },
 ];
@@ -55,6 +57,11 @@ export function Rail({
 }) {
   const [open, setOpen] = useState(() => localStorage.getItem(RAIL_OPEN_KEY) !== 'false');
   const toolStatuses = useToolStatuses();
+  // A failing server is news; a count of running servers is not — so the
+  // rail badge is a bare red dot, gated on `down > 0`, never a number
+  // (design: docs/design/mcp-hosting.md, Increment 3). Called directly here,
+  // the same way `useToolStatuses()` already is, so `Rail` stays prop-free.
+  const serverCounts = useServerCounts();
 
   const toggle = () => {
     setOpen((prev) => {
@@ -80,6 +87,7 @@ export function Rail({
             onClick={() => onNavigate(item.tab)}
           >
             <MSymbol name={item.icon} size={20} />
+            {item.tab === 'servers' && serverCounts.down > 0 && <span className="cdRail__badgeDot" />}
           </button>
         ))}
         <span className="cdRail__spacer" />
@@ -122,6 +130,7 @@ export function Rail({
             {item.tab === 'tools' && toolCount > 0 && (
               <span className="cdRail__navCount">{toolCount}</span>
             )}
+            {item.tab === 'servers' && serverCounts.down > 0 && <span className="cdRail__badgeDot" />}
           </button>
         ))}
       </nav>

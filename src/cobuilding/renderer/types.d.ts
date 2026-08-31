@@ -151,6 +151,107 @@ interface ConnectorsAPI {
     observedAt: number | null;
   }>;
   removeUnmanaged(): Promise<{ success: boolean; error?: string }>;
+  /**
+   * Pushed whenever observed connector status changes — every SDK `init`
+   * event, and once more when the last registered session is torn down
+   * (`live` flips to `false`, demoting any cached "Connected" report to
+   * "Not checked" without anyone having to poll). Same shape as `getStatus()`.
+   */
+  onStatusChanged(callback: (status: {
+    live: boolean;
+    reports: ConnectorStatusReportT[];
+    observedAt: number | null;
+  }) => void): () => void;
+}
+
+/**
+ * Hosted MCP servers (design: `docs/design/mcp-hosting.md`, Increment 3).
+ * Shapes mirror `main/mcpHost/index.ts`'s `McpHostListEntry` and
+ * `shared/hostedMcp.ts`'s `HostedRunState`/`HostedInstallSource`, imported as
+ * types only so this ambient file stays declaration-only.
+ */
+type HostedRunStateT = import('../shared/hostedMcp').HostedRunState;
+type HostedInstallSourceT = import('../shared/hostedMcp').HostedInstallSource;
+
+interface McpHostListEntryT {
+  id: string;
+  label: string;
+  /** Whether this server may run at all — the persisted `enabled` flag. */
+  enabled: boolean;
+  /** Whether `startAll()` spawns it at boot. */
+  autostart: boolean;
+  install: HostedInstallSourceT;
+  concurrency: number;
+  /** Resolved command + argv. Never `env` — a decrypted secret never crosses IPC. */
+  command: string;
+  args: string[];
+  cwd?: string;
+  /** Env var NAMES only — never values. */
+  envKeys: string[];
+  /**
+   * Increment 7's write gate (`docs/design/mcp-hosting.md`, DECISION
+   * 2026-08-13). `undefined` means every tool is selected (the default, no
+   * migration needed for an existing record); an EMPTY array means none —
+   * the two are distinct and `ServerDetail` must never collapse them (e.g.
+   * `enabledTools?.length` reads `undefined` the same as `0`, which is
+   * exactly the bug the decision block warns about).
+   */
+  enabledTools?: string[];
+  state: HostedRunStateT;
+  pid?: number;
+  startedAt?: number;
+  error?: string;
+  toolCount?: number;
+  restartCount?: number;
+}
+
+type HostedServerDraftT = import('../main/mcpHost/index').HostedServerDraft;
+type HostedServerTestRequestT = import('../main/mcpHost/index').HostedServerTestRequest;
+
+interface McpServersAPI {
+  list(): Promise<McpHostListEntryT[]>;
+  /** Pushed on any status transition for any hosted server — no polling. */
+  onChanged(callback: (servers: McpHostListEntryT[]) => void): () => void;
+  start(id: string): Promise<McpHostActionResultT>;
+  /** `disable: true` stops AND turns the server off ("Off" in the Increment 3
+   *  vocabulary); omitted/false is a temporary stop that leaves it eligible
+   *  for Start/Restart again. */
+  stop(id: string, opts?: { disable?: boolean }): Promise<McpHostActionResultT>;
+  restart(id: string): Promise<McpHostActionResultT>;
+  remove(id: string): Promise<McpHostActionResultT>;
+  /**
+   * Increment 7's write gate. `undefined` clears back to "every tool"; `[]`
+   * selects none. A dedicated channel, not folded into `save()` — see
+   * `main/mcpHost/index.ts`'s `setEnabledTools()` for why.
+   */
+  setEnabledTools(id: string, enabledTools: string[] | undefined): Promise<McpHostActionResultT>;
+  save(draft: HostedServerDraftT): Promise<McpHostActionResultT>;
+  test(draft: HostedServerTestRequestT): Promise<McpHostProbeResultT>;
+  /** `undefined` means "never read" — a real, distinct state from "read, and empty" (`[]`). */
+  inventory(id: string): Promise<McpHostToolDescriptorT[] | undefined>;
+  stderrTail(id: string): Promise<string>;
+
+  // --- Increment 5: agent-authored servers (docs/design/mcp-hosting.md) ---
+
+  /**
+   * Re-scan `<workspace>/.mcp-servers/` for servers Claude has written.
+   * Already runs once per boot; exposed so the Servers page can ask again
+   * on demand without a restart. Idempotent — see `authored.ts`.
+   */
+  rescanAuthored(): Promise<AuthoredScanResultT>;
+  /**
+   * The manifest description + file-drift count for every agent-authored
+   * server, on top of what `list()` already returns. A separate call, not
+   * folded into `list()`/`onChanged()`: computing drift hashes a directory,
+   * and `list()` backs the high-frequency status broadcast.
+   */
+  listAuthored(): Promise<AuthoredListResultT>;
+  /**
+   * Promote `.mcp-servers/<id>/` into Acabox's own app-data area and run
+   * that copy — the only way an authored server's `enabled` flag becomes
+   * true. Same call for the first-ever approval and a later re-promotion.
+   */
+  approveAuthored(id: string): Promise<McpHostActionResultT>;
 }
 
 /**
@@ -319,6 +420,37 @@ interface ElectronAPI {
 }
 
 declare global {
+  /**
+   * Hosted MCP servers (design: `docs/design/mcp-hosting.md`, Increment 3).
+   * Global — following the `MemoryFileInfo` precedent right below — because
+   * `ServersPage`/`ServerDetail`/`ServerConfigForm` (`renderer/components/
+   * servers/`) name these types directly rather than only ever consuming
+   * `window.mcpServersAPI` through inference.
+   */
+  interface McpHostToolDescriptorT {
+    name: string;
+    description?: string;
+    inputSchema?: unknown;
+  }
+
+  type McpHostProbeResultT = import('../main/mcpHost/supervisor').ProbeResult;
+
+  interface McpHostActionResultT {
+    ok: boolean;
+    error?: string;
+  }
+
+  /**
+   * Increment 5 (docs/design/mcp-hosting.md) — agent-authored servers. Global
+   * for the same reason as the three types above: `ServersPage.tsx` names
+   * `AuthoredListResultT` directly (its own `authoredInfo` state), not only
+   * through inference over `window.mcpServersAPI`.
+   */
+  type AuthoredScanRejectionT = import('../main/mcpHost/authored').AuthoredScanRejection;
+  type AuthoredScanResultT = import('../main/mcpHost/authored').AuthoredScanResult;
+  type AuthoredServerInfoT = import('../main/mcpHost/authored').AuthoredServerInfo;
+  type AuthoredListResultT = import('../main/mcpHost/authored').AuthoredListResult;
+
   /**
    * One file in `.academia/agent-memory/`. Everything here is measured off the
    * file itself or joined against `sessions.sdk_session_id`; there is
@@ -810,6 +942,8 @@ declare global {
       callback: (payload: { invocationId: string; iframeRouteKey: string; toolName: string; args: unknown }) => void,
     ): () => void;
     sendResult(payload: { invocationId: string; result?: unknown; error?: string }): void;
+    /** Pushed on every register/unregister/unregisterByRoute — no polling. */
+    onChanged(callback: (servers: MiniAppMcpServer[]) => void): () => void;
   }
 
   interface WritingAgentProject {
@@ -1093,6 +1227,7 @@ declare global {
     dictationAPI: DictationAPI;
     buildHealthAPI: BuildHealthAPI;
     miniAppMcpAPI: MiniAppMcpAPI;
+    mcpServersAPI: McpServersAPI;
     reportsAPI: ReportsAPI;
     scannerAPI: ScannerAPI;
     papersAPI: PapersAPI;

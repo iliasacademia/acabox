@@ -1,0 +1,322 @@
+/* Servers page (design: docs/design/mcp-hosting.md, Increment 3).
+   Deliberately small: rows are `.connectorRow` from ConnectorsSettings.css,
+   the page frame is `.pageShell` / `.toolsSection` / `.toolsSection__headingRow`
+   from App.css — see `KnowledgePage.tsx`'s own header comment for why that
+   sharing is a real dependency rather than an accident. Only what is
+   genuinely new to this page lives here. Design tokens from commandDesk.css;
+   DM Sans for prose, IBM Plex Mono for anything the user could paste into a
+   terminal or that names a command/argv/env var. */
+
+.serversPage {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── "Running here" empty state ────────────────────────────────── */
+
+.serversEmpty {
+  padding: 20px 14px;
+  background: #fff;
+  border: 1px solid var(--cd-border-soft, #ebebee);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.serversEmpty__lead {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 13px;
+  color: var(--cd-text2, #535366);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.serversEmpty__links {
+  display: flex;
+  gap: 14px;
+}
+
+/* ── Authored by Claude (Increment 5) ──────────────────────────── */
+
+.serversAuthoredNote {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--cd-text3, #91919e);
+  margin: 0 0 10px;
+}
+
+/* ── Built-in relays, collapsed ────────────────────────────────── */
+
+.serversBuiltin {
+  margin-top: 8px;
+}
+
+/* ── Advanced add/edit form ────────────────────────────────────── */
+
+.serversFormOverlay {
+  margin-top: 16px;
+}
+
+.serversArgRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.serversArgvPreview {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #fbfbfc;
+  border: 1px solid var(--cd-border-soft, #ebebee);
+  border-radius: 3px;
+}
+
+.serversArgvPreview__label {
+  display: block;
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--cd-text3, #91919e);
+  margin-bottom: 4px;
+}
+
+.serversArgvPreview code {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 11.5px;
+  color: var(--cd-text2, #535366);
+  word-break: break-all;
+}
+
+/* The required disclosure — always rendered, never dismissible. The last
+   sentence ("It does not make it safe.") is the point of the paragraph and
+   is bolded rather than softened. */
+.serversDisclosure {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--cd-ink, #141413);
+  background: var(--cd-error-bg, #fff2f2);
+  border-left: 2px solid var(--cd-error, #b60000);
+  padding: 10px 12px;
+  border-radius: 0 3px 3px 0;
+}
+
+.serversDisclosure code {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 2px;
+  padding: 1px 3px;
+  word-break: break-all;
+}
+
+/* ── Probe ("Test") result, shared shape between the form and the detail panel ── */
+
+.serversTestResult {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 12px;
+  line-height: 1.5;
+  border-radius: 3px;
+  padding: 10px 12px;
+}
+
+.serversTestResult--ok {
+  color: var(--cd-text2, #535366);
+  background: var(--cd-pale, #f4f7fc);
+  border: 1px solid rgba(6, 69, 177, 0.2);
+}
+
+.serversTestResult--error {
+  color: var(--cd-text2, #535366);
+  background: var(--cd-error-bg, #fff2f2);
+  border: 1px solid rgba(182, 0, 0, 0.25);
+}
+
+.serversTestResult__row { margin-top: 4px; }
+.serversTestResult__row:first-child { margin-top: 0; }
+.serversTestResult code {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+/* ── Log tail ───────────────────────────────────────────────────── */
+
+.serversLog {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--cd-text2, #535366);
+  background: #fbfbfc;
+  border: 1px solid var(--cd-border-soft, #ebebee);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin: 0;
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.serversLog--compact {
+  max-height: 100px;
+  margin-top: 6px;
+}
+
+/* ── Detail panel — right-docked over the scroll area, not a modal ──
+   Content streams (log tail, live state) and the shell has no router, both
+   reasons it is neither. Absolutely positioned within `.serversPage` (the
+   nearest `position: relative` ancestor) so `.pageShell` keeps scrolling
+   underneath it. */
+
+.serversDetail {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 420px;
+  max-width: 92vw;
+  background: #fff;
+  border-left: 1px solid var(--cd-border, #dddde2);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  z-index: 5;
+}
+
+.serversDetail__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--cd-border-soft, #ebebee);
+  flex-shrink: 0;
+}
+
+.serversDetail__title {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--cd-ink, #141413);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.serversDetail__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.serversDetail__status {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 13px;
+  color: var(--cd-text2, #535366);
+}
+
+.serversDetail__section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.serversDetail__label {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cd-text3, #91919e);
+}
+
+.serversDetail__mono {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 11.5px;
+  color: var(--cd-text2, #535366);
+  word-break: break-word;
+}
+
+.serversDetail__muted {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 12px;
+  color: var(--cd-text3, #91919e);
+  line-height: 1.5;
+}
+
+.serversDetail__toolList {
+  margin: 0;
+  padding-left: 18px;
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 12px;
+  color: var(--cd-text2, #535366);
+  line-height: 1.6;
+}
+
+.serversDetail__toolList code {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 11px;
+}
+
+/* ── Per-tool selection (Increment 7's write gate) ─────────────────
+   `docs/design/mcp-hosting.md`, DECISION (2026-08-13) — per-tool selection,
+   not an `allowWrites` boolean. The default ("every tool") reads as ONE
+   sentence, not as a list of boxes the user might think they ticked
+   themselves — `.serversToolRow__label--implied` is what keeps the per-tool
+   rows visibly non-interactive (dimmed, disabled) while that sentence is
+   checked; unchecking it is what hands control to the rows below. */
+
+.serversToolToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--cd-ink, #141413);
+  cursor: pointer;
+  margin-bottom: 2px;
+}
+
+.serversDetail__toolList--selectable {
+  list-style: none;
+  padding-left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.serversToolRow__label {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.serversToolRow__label input[type='checkbox'] {
+  position: relative;
+  top: 1px;
+}
+
+/* Following the default, not a choice the user made — dimmed and inert. */
+.serversToolRow__label--implied {
+  color: var(--cd-text3, #91919e);
+  cursor: default;
+}
+
+.serversDetail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

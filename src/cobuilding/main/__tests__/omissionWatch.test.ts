@@ -101,6 +101,52 @@ describe('classifyTurn', () => {
       classifyTurn({ toolNames: ['Bash', 'Read', 'Skill', 'mcp__workspace__get_scanned_files'], readPaths: [] }),
     ).toBe('no-connector');
   });
+
+  /**
+   * Regression for a real defect, observed on the very first Increment 4
+   * acceptance turn: hosted MCP servers are not in RESERVED_CONNECTOR_IDS, so
+   * a turn that called nothing but a local unit-converter-grade probe logged
+   * "queried spike without reading the findings ledger". A hosted-server
+   * population is mostly small local utilities, so counting them trains the
+   * channel away — the exact failure this module's header warns about.
+   */
+  it('is silent on a turn whose only MCP call was a locally hosted server', () => {
+    expect(
+      classifyTurn({ toolNames: ['mcp__spike__spike_counter'], readPaths: [], hostedIds: ['spike'] }),
+    ).toBe('no-connector');
+  });
+
+  it('still fires when a real connector ran alongside a hosted server', () => {
+    expect(
+      classifyTurn({
+        toolNames: ['mcp__spike__spike_counter', 'mcp__hex__create_thread'],
+        readPaths: [],
+        hostedIds: ['spike'],
+      }),
+    ).toBe('omitted-ledger');
+  });
+
+  it('without hostedIds it over-reports rather than under-reports', () => {
+    // The parameter is optional, so a caller that cannot cheaply supply it
+    // still gets the connector rule — it just also counts hosted servers.
+    // Pinned so the default is a known, deliberate direction.
+    expect(classifyTurn({ toolNames: ['mcp__spike__spike_counter'], readPaths: [] })).toBe('omitted-ledger');
+  });
+});
+
+describe('the evidence list a review row shows', () => {
+  it('names the connector but not a hosted server called in the same turn', () => {
+    const row = noteTurn({
+      sessionId: 'chat-hosted-mix',
+      toolNames: ['mcp__spike__spike_counter', 'mcp__hex__create_thread'],
+      readPaths: [],
+      hostedIds: ['spike'],
+    });
+    // The card reads "this chat queried <connectors> without…", so a hosted
+    // id leaking in here would name it to the user as a warehouse even though
+    // the classifier just decided to ignore it.
+    expect(row?.connectors).toEqual(['hex']);
+  });
 });
 
 describe('the review store', () => {

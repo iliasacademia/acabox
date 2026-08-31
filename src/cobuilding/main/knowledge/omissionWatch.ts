@@ -55,11 +55,38 @@ const RELAY_SERVER_IDS = new Set<string>(RESERVED_CONNECTOR_IDS);
  * ids may not contain `__` (enforced by `CONNECTOR_ID_PATTERN`), so the split
  * is unambiguous.
  */
-export function connectorIdOfTool(toolName: string): string | null {
+export function connectorIdOfTool(
+  toolName: string,
+  hostedIds?: ReadonlySet<string>,
+): string | null {
   const m = /^mcp__([^_](?:[^_]|_(?!_))*)__/.exec(String(toolName ?? ''));
   if (!m) return null;
   const id = m[1];
-  return RELAY_SERVER_IDS.has(id) ? null : id;
+  if (RELAY_SERVER_IDS.has(id)) return null;
+  // Locally hosted MCP servers (`docs/design/mcp-hosting.md`) are not
+  // connectors either, for the same reason the relays above are not — and
+  // this one was learned the hard way. Increment 4 made hosted servers
+  // callable for the first time, and the very first acceptance turn, which
+  // called nothing but a unit-converter-grade probe, logged "queried spike
+  // without reading the findings ledger".
+  //
+  // The population here is dominated by small local utilities — Claude
+  // writing itself a tool is the entire acquisition story for these — so
+  // counting them would fill the channel with rows that are correct to
+  // ignore. That is precisely the failure this module's own header warns
+  // against: "a notification channel that has been trained away is worse
+  // than no channel."
+  //
+  // The genuine warehouse case (a hosted server wrapping a real lab
+  // database) is real but is the minority, and belongs behind a per-server
+  // opt-in rather than being the default for everything.
+  //
+  // Passed in rather than imported: this function is pure over a tool name,
+  // and reaching into `main/mcpHost` from here would both break that and
+  // create a cycle (`agentSession` → `omissionWatch`, `agentSession` →
+  // `mcpHost`).
+  if (hostedIds?.has(id)) return null;
+  return id;
 }
 
 /** Did this path reach into a skill's findings ledger? */
@@ -80,11 +107,19 @@ export interface TurnToolActivity {
   toolNames: readonly string[];
   /** Every file path the turn read. Duplicates are fine. */
   readPaths: readonly string[];
+  /**
+   * Ids of locally hosted MCP servers, which are NOT connectors — see
+   * `connectorIdOfTool`. Optional: omitting it only over-reports, never
+   * under-reports, so a caller that cannot cheaply supply it still gets the
+   * connector rule.
+   */
+  hostedIds?: readonly string[];
 }
 
 export function classifyTurn(activity: TurnToolActivity): TurnVerdict {
+  const hosted = activity.hostedIds?.length ? new Set(activity.hostedIds) : undefined;
   const connectors = (activity.toolNames ?? [])
-    .map(connectorIdOfTool)
+    .map((name) => connectorIdOfTool(name, hosted))
     .filter((id): id is string => Boolean(id));
   if (connectors.length === 0) return 'no-connector';
   return (activity.readPaths ?? []).some(isFindingsRead) ? 'consulted-ledger' : 'omitted-ledger';
@@ -221,6 +256,8 @@ export function noteTurn(input: {
   chatTitle?: string;
   toolNames: readonly string[];
   readPaths: readonly string[];
+  /** See `TurnToolActivity.hostedIds` — hosted MCP servers are not connectors. */
+  hostedIds?: readonly string[];
   at?: number;
 }): KnowledgeReviewItem | null {
   load();
@@ -238,8 +275,17 @@ export function noteTurn(input: {
     return null;
   }
 
+  // Same exclusion as `classifyTurn` — this list is the EVIDENCE the card
+  // shows ("this chat queried Hex without…"), so a hosted server leaking in
+  // here would name it to the user as a warehouse even though it is exactly
+  // what the classifier just decided to ignore.
+  const hosted = input.hostedIds?.length ? new Set(input.hostedIds) : undefined;
   const connectors = [
-    ...new Set(input.toolNames.map(connectorIdOfTool).filter((id): id is string => Boolean(id))),
+    ...new Set(
+      input.toolNames
+        .map((name) => connectorIdOfTool(name, hosted))
+        .filter((id): id is string => Boolean(id)),
+    ),
   ].sort();
   const at = input.at ?? Date.now();
 

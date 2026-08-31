@@ -26,6 +26,7 @@ import { StatusBar } from './components/command-desk/StatusBar';
 import { CommandDesk } from './components/command-desk/CommandDesk';
 import { ActivityPanel } from './components/command-desk/ActivityPanel';
 import { KnowledgePage } from './components/knowledge/KnowledgePage';
+import { ServersPage } from './components/servers/ServersPage';
 import { useHomeData } from './components/command-desk/useHomeData';
 import { ReactionsToolView } from './components/ReactionsToolView';
 import { resolveWorkspacePath } from './utils/resolveWorkspacePath';
@@ -47,6 +48,7 @@ import { useTabs } from './tabs/useTabs';
 import type { TabDescriptor } from './tabs/types';
 import { kernelRegistry } from './components/notebook/kernelRegistry';
 import { applyHostJobs, applyBuildHealth } from './toolStatusStore';
+import { applyHostedServers, applyConnectorConfigs, applyConnectorStatus, applyMiniAppServers } from './mcpServerStore';
 import type { Workspace, WorkspaceDirectory } from '../shared/types';
 import { trackEvent } from './utils/fullstory';
 import { initSentryRenderer } from './sentry';
@@ -109,7 +111,7 @@ function QuickChatInjector({ onSwitchToChat }: { onSwitchToChat: () => void }) {
 }
 
 /** Listens for notification:navigate IPC and navigates to the specified target. */
-type SidebarTab = 'home' | 'tools' | 'knowledge' | 'files' | 'chats' | 'activity' | 'debug' | 'settings';
+type SidebarTab = 'home' | 'tools' | 'knowledge' | 'servers' | 'files' | 'chats' | 'activity' | 'debug' | 'settings';
 
 function NotificationNavigator({
   setSidebarTab,
@@ -838,6 +840,44 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
     return () => { stale = true; unsubscribe(); };
   }, []);
 
+  // Servers page live status (docs/design/mcp-hosting.md, Increment 3 —
+  // "Live status — pattern A, mandatory"). Same reasoning as the jobs/build
+  // health effects just above: `sidebarTab === 'servers'` is a `display:none`
+  // sibling that stays mounted forever, so fetching on ITS mount would be
+  // correct once and wrong on every later push; and the rail badge + status
+  // bar segment need this data with no Servers viewer ever having been open.
+  // Three independent feeds, snapshot-then-subscribe, each feeding
+  // `mcpServerStore`'s own `applyX` writer — never fetched or merged here.
+  useEffect(() => {
+    let stale = false;
+    window.mcpServersAPI.list()
+      .then((all) => { if (!stale) applyHostedServers(all); })
+      .catch((err) => console.error('[McpServers] initial list failed:', err));
+    const unsubscribe = window.mcpServersAPI.onChanged(applyHostedServers);
+    return () => { stale = true; unsubscribe(); };
+  }, []);
+
+  useEffect(() => {
+    let stale = false;
+    window.connectorsAPI.list()
+      .then((data) => { if (!stale) applyConnectorConfigs(data.connectors); })
+      .catch((err) => console.error('[McpServers] initial connector list failed:', err));
+    window.connectorsAPI.getStatus()
+      .then((status) => { if (!stale) applyConnectorStatus(status); })
+      .catch((err) => console.error('[McpServers] initial connector status failed:', err));
+    const unsubscribe = window.connectorsAPI.onStatusChanged(applyConnectorStatus);
+    return () => { stale = true; unsubscribe(); };
+  }, []);
+
+  useEffect(() => {
+    let stale = false;
+    window.miniAppMcpAPI.list()
+      .then((servers) => { if (!stale) applyMiniAppServers(servers); })
+      .catch((err) => console.error('[McpServers] initial mini-app server list failed:', err));
+    const unsubscribe = window.miniAppMcpAPI.onChanged(applyMiniAppServers);
+    return () => { stale = true; unsubscribe(); };
+  }, []);
+
   // Main can kill a shell command itself, but kernel work only stops if the
   // renderer driving it interrupts the kernel. Handled at the shell so it works
   // whether or not the tool's viewer happens to be mounted.
@@ -881,6 +921,10 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
         break;
       case 'knowledge':
         setSidebarTab('knowledge');
+        deactivateAllTabs();
+        break;
+      case 'servers':
+        setSidebarTab('servers');
         deactivateAllTabs();
         break;
       case 'files':
@@ -1056,6 +1100,18 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                   deactivateAllTabs();
                 }}
                 onOpenChat={openChatById}
+                onOpenSettings={() => setSidebarTab('settings')}
+              />
+            </div>
+
+            {/* Servers tab — local MCP servers Acabox hosts on this machine */}
+            <div style={{ display: sidebarTab === 'servers' ? 'flex' : 'none', flex: 1, flexDirection: 'column' }}>
+              <ServersPage
+                onSwitchToChat={() => {
+                  setSidebarTab('chats');
+                  setChatViewMode('detail');
+                  deactivateAllTabs();
+                }}
                 onOpenSettings={() => setSidebarTab('settings')}
               />
             </div>

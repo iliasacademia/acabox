@@ -37,13 +37,20 @@ import { replaceConnectorAllowedTools } from '../shared/connectors';
 import { assertKnowledgeToolAllowed } from '../shared/agentAllowedTools';
 import { mergeSessionConfig, filterMcpServers, type AgentConfig, type SessionOverrides } from './sessionConfig';
 import { ensureApiKeyApproved } from '../shared/claudeConfigApproval';
+import { jsonSchemaToZod } from './jsonSchemaToZod';
+import { mergeDynamicMcpServers, applyDynamicMcpToSession } from './dynamicMcp';
+import type { HostedServerPush } from '../shared/hostedMcp';
 
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-interface SessionState {
+// Exported (only) so `agentServerHostedRelay.test.ts` can build a
+// minimally-populated stand-in and drive `buildHostedMcpServers` with real
+// code — see the `require.main` guard at the bottom of this file for why
+// importing this module from a test is safe.
+export interface SessionState {
   sessionId: string;
   queryInstance: Query | null;
   messageQueue: MessageQueue<UserMessagePayload>;
@@ -68,11 +75,17 @@ interface SessionState {
   lastBumpAt: number;
   // Acabox's own MCP relay servers for this session, already filtered by
   // allowedTools. Kept on the session because `setMcpServers` REPLACES the
-  // whole dynamic set — see applyConnectorsToSession.
+  // whole dynamic set — see applyDynamicMcpToSession.
   mcpRelayServers: Record<string, unknown>;
   // User connectors (Settings → Connectors) currently applied to this session,
   // in the SDK's McpServerConfig shape.
   mcpConnectors: Record<string, Record<string, unknown>>;
+  // Local hosted MCP servers (Increment 4), applied to this session as
+  // per-server `createSdkMcpServer` relays built by `buildHostedMcpServers`.
+  // Same reason this is stored per-session rather than shared: each tool's
+  // handler closure is `createMcpRelayHandler(state, id, toolName)`, bound to
+  // THIS session's `pendingMcpCalls`/SSE clients, not a global one.
+  mcpHosted: Record<string, unknown>;
 }
 
 // Server-side idle eviction window. Host-side visibility cleanup is the
@@ -346,6 +359,48 @@ function createMcpRelayServers(state: SessionState) {
   };
 }
 
+/**
+ * Build one in-process `createSdkMcpServer` relay per hosted server id, from
+ * whatever `POST /hosted` most recently pushed (design:
+ * `docs/design/mcp-hosting.md`, Increment 4).
+ *
+ * Shaped exactly like `createMcpRelayServers` above — same `createMcpRelayHandler`,
+ * unchanged — because a hosted server's tool call has to travel the identical
+ * path a built-in relay's does: SSE `mcp-call` to the host, `main/mcpHost`
+ * forwards it to the real child over its own MCP client, and the result comes
+ * back via `POST /sessions/:id/mcp-result`. The only thing that differs is
+ * that the tool LIST is discovered at runtime instead of hand-written, which
+ * is what `jsonSchemaToZod` is for.
+ *
+ * Called once per session (here, in `createSession`) and again on every
+ * `POST /hosted` push for every LIVE session (R6: a session created while a
+ * server was still starting must be able to call it in the same turn once it
+ * becomes ready) — never shared across sessions, because
+ * `createMcpRelayHandler(state, id, toolName)` closes over THIS session's
+ * `pendingMcpCalls` map and SSE clients, the same reason `mcpRelayServers`
+ * itself is rebuilt per session rather than memoized once.
+ */
+export function buildHostedMcpServers(
+  state: SessionState,
+  hosted: Record<string, HostedServerPush>,
+): Record<string, unknown> {
+  const servers: Record<string, unknown> = {};
+  for (const [id, push] of Object.entries(hosted)) {
+    servers[id] = createSdkMcpServer({
+      name: id,
+      tools: push.tools.map((toolDescriptor) =>
+        tool(
+          toolDescriptor.name,
+          toolDescriptor.description ?? '',
+          jsonSchemaToZod(toolDescriptor.inputSchema),
+          createMcpRelayHandler(state, id, toolDescriptor.name),
+        ),
+      ),
+    });
+  }
+  return servers;
+}
+
 // ---------------------------------------------------------------------------
 // Async Message Queue
 // ---------------------------------------------------------------------------
@@ -479,6 +534,7 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
     lastBumpAt: 0,
     mcpRelayServers: {},
     mcpConnectors: {},
+    mcpHosted: {},
   };
 
   console.log(`[AgentServer] Creating session ${sessionId}`);
@@ -487,11 +543,17 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
 
   const sessionConfig = mergeSessionConfig(config, overrides);
 
-  // Snapshot both halves of the MCP server set onto the session. The relay
-  // half is fixed for the session's lifetime; the connector half is replaced
-  // live by POST /connectors.
+  // Snapshot all three halves of the MCP server set onto the session. The
+  // relay half is fixed for the session's lifetime; the connector and hosted
+  // halves are replaced live by POST /connectors and POST /hosted
+  // respectively. Hosted, like connectors and unlike the relays, is NOT run
+  // through `filterMcpServers` — that filter checks for a per-TOOL
+  // `mcp__<name>__<tool>` entry, which is how Acabox's own built-in relays are
+  // gated, whereas a hosted server (like a connector) is approved whole via a
+  // single `mcp__<id>` entry from `replaceConnectorAllowedTools`.
   state.mcpRelayServers = filterMcpServers(mcpRelayServers, sessionConfig.allowedTools);
   state.mcpConnectors = config.mcpServers ?? {};
+  state.mcpHosted = buildHostedMcpServers(state, config.hostedServers ?? {});
 
   async function startQuery(resume?: string): Promise<void> {
     // Defence in depth behind the host's chat:send guard. The key is snapshotted
@@ -569,10 +631,12 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
           // written ones that exist to catch oblique questions. 5% = 40,000.
           skillListingBudgetFraction: 0.05,
         },
-        // Acabox's relay servers plus the user's connectors. Connector ids are
-        // validated host-side against RESERVED_CONNECTOR_IDS, so a connector
-        // cannot shadow a relay server here.
-        mcpServers: { ...state.mcpRelayServers, ...state.mcpConnectors } as any,
+        // Acabox's relay servers, the user's connectors, and local hosted
+        // servers (Increment 4) — see `mergeDynamicMcpServers`. Connector and
+        // hosted ids are validated host-side against RESERVED_CONNECTOR_IDS
+        // (both namespaces share it — see `shared/hostedMcp.ts`'s module
+        // comment), so neither can shadow a relay server here.
+        mcpServers: mergeDynamicMcpServers(state) as any,
         allowedTools: sessionConfig.allowedTools,
       },
     });
@@ -753,83 +817,13 @@ function parseRoute(url: string): { path: string; sessionId?: string; action?: s
     if (parts.length === 1) return { path: 'connectors' };
     if (parts.length === 2 && parts[1] === 'status') return { path: 'connectors-status' };
   }
+  if (parts[0] === 'hosted' && parts.length === 1) return { path: 'hosted' };
   if (parts[0] === 'skills' && parts.length === 1) return { path: 'skills' };
   if (parts[0] === 'sessions') {
     if (parts.length === 1) return { path: 'sessions' };
     if (parts.length === 3) return { path: 'session-action', sessionId: parts[1], action: parts[2] };
   }
   return { path: 'unknown' };
-}
-
-/**
- * Push a new connector set into one live session.
- *
- * `setMcpServers` REPLACES the entire set of dynamically-added MCP servers,
- * and Acabox's relay servers (activity, mini-apps, workspace, notification,
- * reaction) were themselves added dynamically via the `mcpServers` option —
- * so sending only the connectors silently disconnects the relays and the
- * agent loses the ability to open mini-apps or query the workspace. Measured:
- * `setMcpServers({hex})` against a session holding a relay returned
- * `{added:['hex'], removed:['relaydemo']}`.
- *
- * Always send both halves. That is the whole reason this function exists;
- * do not call `setMcpServers` directly anywhere else.
- */
-async function applyConnectorsToSession(
-  state: SessionState,
-  connectors: Record<string, Record<string, unknown>>,
-): Promise<{ added: string[]; removed: string[]; errors: Record<string, string> } | null> {
-  const previous = Object.keys(state.mcpConnectors);
-  state.mcpConnectors = connectors;
-
-  // No live query (session created but idle, or between turns after a close):
-  // the next startQuery() reads state.mcpConnectors, so we're already done.
-  const q = state.queryInstance;
-  if (!q || typeof (q as any).setMcpServers !== 'function') return null;
-
-  const result = await (q as any).setMcpServers({
-    ...state.mcpRelayServers,
-    ...state.mcpConnectors,
-  });
-
-  // setMcpServers does not always drop a server it wasn't given. Measured
-  // against the bundled SDK: a server supplied in the original `mcpServers`
-  // option that never got past `needs-auth` survives `setMcpServers({})` with
-  // `removed: []` and stays in mcpServerStatus(). (One that was itself ADDED
-  // by a previous setMcpServers call removes cleanly, as does a connected
-  // one — it is specifically the option-passed, never-connected case.)
-  //
-  // `toggleMcpServer(name, false)` does move it to `disabled`, so use that as
-  // the backstop, and only for names WE previously supplied — never a relay
-  // server, and never a `.mcp.json` server the user set up themselves.
-  const stillExpected = new Set(Object.keys(connectors));
-  const dropped = previous.filter((name) => !stillExpected.has(name) && !(name in state.mcpRelayServers));
-  if (dropped.length && typeof (q as any).toggleMcpServer === 'function') {
-    let present: Set<string>;
-    try {
-      const status = await (q as any).mcpServerStatus();
-      present = new Set((status ?? []).map((s: any) => s?.name));
-    } catch {
-      present = new Set(dropped); // can't tell — try them all
-    }
-    for (const name of dropped) {
-      if (!present.has(name)) continue;
-      try {
-        await (q as any).toggleMcpServer(name, false);
-        result.removed = [...(result.removed ?? []), name];
-        console.log(`[AgentServer] Force-disabled lingering connector "${name}" on ${state.sessionId}`);
-      } catch (err) {
-        console.warn(`[AgentServer] Could not disable "${name}" on ${state.sessionId}:`, err);
-      }
-    }
-  }
-
-  console.log(
-    `[AgentServer] Connectors applied to ${state.sessionId}: `
-    + `added=[${result?.added ?? []}] removed=[${result?.removed ?? []}] `
-    + `errors=${JSON.stringify(result?.errors ?? {})}`,
-  );
-  return result;
 }
 
 function startServer(initialConfig: AgentConfig): void {
@@ -905,7 +899,7 @@ function startServer(initialConfig: AgentConfig): void {
         const applied: Array<{ sessionId: string; added: string[]; removed: string[]; errors: Record<string, string> }> = [];
         for (const [sessionId, state] of sessions) {
           try {
-            const result = await applyConnectorsToSession(state, connectors);
+            const result = await applyDynamicMcpToSession(state, { connectors });
             if (result) applied.push({ sessionId, ...result });
           } catch (err) {
             // One wedged session must not block the rest, and the config
@@ -918,6 +912,66 @@ function startServer(initialConfig: AgentConfig): void {
         // the divergence — this line is what makes the two visibly agree.
         console.log(
           `[AgentServer] Connectors updated: [${Object.keys(connectors).join(', ')}] `
+          + `across ${applied.length} live session(s); `
+          + `auto-approve=[${(currentConfig.allowedTools ?? []).filter((t) => t.startsWith('mcp__') && !t.slice(5).includes('__')).join(', ')}]`,
+        );
+        sendJSON(res, 200, { ok: true, applied });
+        return;
+      }
+
+      // Replace the hosted-server set (Increment 4 — `main/mcpHost`'s local,
+      // persistent MCP servers, as distinct from remote `connectors` above).
+      // Modelled on the `connectors` route directly above it, with one
+      // difference forced by `shared/hostedMcp.ts`'s "full replacement, never
+      // a delta" contract: `main/mcpHost` calls this once PER SERVER, at the
+      // moment that server's own readiness lands (R6 — so a session created
+      // while a server is still starting can call it in the same turn once
+      // it's ready), and each of those calls still carries the complete live
+      // set, not just the one server that just became ready.
+      //
+      // `hostedServers` is its OWN field on `currentConfig` — never merged
+      // into `mcpServers` — because `POST /connectors` above replaces
+      // `mcpServers` wholesale; sharing the field would mean each route
+      // silently wipes the other's half the next time either one runs. See
+      // the `AgentConfig.hostedServers` doc comment in `sessionConfig.ts`.
+      if (route.path === 'hosted' && req.method === 'POST') {
+        const body = JSON.parse(await readBody(req));
+        const hosted = (body.hosted ?? {}) as Record<string, HostedServerPush>;
+        // Same "read into a local first" discipline as the connectors route:
+        // this reads the OLD value before it's overwritten below.
+        const priorHostedIds = Object.keys(currentConfig.hostedServers ?? {});
+        currentConfig = {
+          ...currentConfig,
+          hostedServers: hosted,
+          // Reuses `replaceConnectorAllowedTools` unchanged: it swaps the
+          // `mcp__<id>` entries for exactly the ids passed as `priorIds`/
+          // `nextIds` and leaves everything else — including every
+          // `mcp__<connectorId>` entry — untouched, because a connector id
+          // never appears in either list here. Verified by reading the
+          // function rather than assumed: it builds its `prior` set only
+          // from `priorHostedIds`, so a `mcp__<connectorId>` entry is never a
+          // member of that set and survives the `.filter()` unconditionally.
+          allowedTools: replaceConnectorAllowedTools(
+            currentConfig.allowedTools ?? [],
+            priorHostedIds,
+            Object.keys(hosted),
+          ),
+        };
+
+        const applied: Array<{ sessionId: string; added: string[]; removed: string[]; errors: Record<string, string> }> = [];
+        for (const [sessionId, state] of sessions) {
+          try {
+            // Rebuilt per session, not shared — see buildHostedMcpServers's
+            // own comment on why the handler closures are session-bound.
+            const nextHosted = buildHostedMcpServers(state, hosted);
+            const result = await applyDynamicMcpToSession(state, { hosted: nextHosted });
+            if (result) applied.push({ sessionId, ...result });
+          } catch (err) {
+            console.error(`[AgentServer] Failed to apply hosted servers to ${sessionId}:`, err);
+          }
+        }
+        console.log(
+          `[AgentServer] Hosted servers updated: [${Object.keys(hosted).join(', ')}] `
           + `across ${applied.length} live session(s); `
           + `auto-approve=[${(currentConfig.allowedTools ?? []).filter((t) => t.startsWith('mcp__') && !t.slice(5).includes('__')).join(', ')}]`,
         );
@@ -1113,9 +1167,51 @@ function startServer(initialConfig: AgentConfig): void {
 // Entry Point
 // ---------------------------------------------------------------------------
 
-// Set CLAUDE_CONFIG_DIR at the process level so the SDK parent process
-// (which handles session load/resume) uses the same persistent directory.
-// The subprocess also receives it via the query() env option.
-process.env.CLAUDE_CONFIG_DIR = getClaudeConfigDir();
+// Gated on `require.main === module` so this file stays an ordinarily
+// importable CommonJS module rather than one that boots a real HTTP server
+// and reads a real config file the instant anything `require`s it.
+//
+// NOTE for whoever next tries to import this from a Jest test: Jest itself
+// still can't do it, for a SEPARATE reason this guard doesn't fix —
+// `@anthropic-ai/claude-agent-sdk` ships ESM-only (`sdk.mjs`, no CJS build)
+// and `jest.config.js`'s `transformIgnorePatterns` doesn't allow-list it, so
+// even a bare `import { createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'`
+// fails Jest's parser regardless of this guard (measured directly). What this
+// guard DOES enable is importing `buildHostedMcpServers`/`SessionState` from a
+// webpack-bundled standalone harness run with plain `node` (the same technique
+// as `webpack.agent-server.config.js` itself) — that's how the hosted-relay
+// wiring below was actually verified end-to-end against a real MCP
+// `Client`/`InMemoryTransport` pair; see the Increment 4 report for the run.
+//
+// MEASURED, not assumed, in both directions this matters:
+// - Under `ts-jest` (unbundled — Jest is the real process entry point),
+//   `require.main === module` is `false` for this file, exactly as plain Node
+//   semantics say it should be, so importing it from a test does not run
+//   anything below this line.
+// - Inside the actual webpack bundle (`dist/agent-server.js`), webpack's
+//   `target:'node'` build REWRITES a bare `require.main` reference to
+//   `__webpack_require__.c[__webpack_require__.s]` (its own node-module-decorator,
+//   which tracks webpack's OWN entry chunk) rather than leaving it as real
+//   Node's `require.main`. That rewrite evaluates to `true` regardless of
+//   whether the bundle is executed directly or `require()`'d by something
+//   else — which sounds like it defeats the point, but doesn't: the ONLY way
+//   `dist/agent-server.js` is ever loaded in production is a direct
+//   `node dist/agent-server.js` launch (`containerService.ts`), never a
+//   `require()` from another script, so "always true inside the bundle" is
+//   identical to today's unconditional call. Confirmed with a throwaway
+//   webpack build of this exact idiom: printed `true` both run directly and
+//   `require()`'d from another script, which is why this comment states the
+//   mechanism rather than just the intent — the naive reading of the idiom
+//   would predict `false` in the second case and be wrong. Also confirmed in
+//   the OTHER direction that matters here: bundled as a DEPENDENCY of a
+//   different entry file (the standalone harness), `__webpack_require__.s`
+//   points at the HARNESS's own module id, not this file's, so the check
+//   correctly evaluates `false` and this file's auto-start stays suppressed.
+if (require.main === module) {
+  // Set CLAUDE_CONFIG_DIR at the process level so the SDK parent process
+  // (which handles session load/resume) uses the same persistent directory.
+  // The subprocess also receives it via the query() env option.
+  process.env.CLAUDE_CONFIG_DIR = getClaudeConfigDir();
 
-startServer(loadConfig());
+  startServer(loadConfig());
+}

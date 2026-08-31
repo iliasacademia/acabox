@@ -197,8 +197,18 @@ describe('roster arithmetic against the real shipped tree', () => {
     return { id, description: fm.description, whenToUse: fm.whenToUse };
   });
 
-  it('parses all 21 shipped skills', () => {
-    expect(shipped).toHaveLength(21);
+  // THESE NUMBERS ARE MEANT TO BREAK WHEN A SKILL IS ADDED, and the break is
+  // the feature — do not "fix" it by deriving the expectation from the tree,
+  // which would assert nothing. The roster budget in this repo was once
+  // silently blown by 55% precisely because it was estimated rather than
+  // measured (CLAUDE.md, 2026-07-29), so shipping a new skill is supposed to
+  // cost one deliberate re-measure here.
+  //
+  // Last re-measured 2026-08-13, when `manage-mcp-server` took the count from
+  // 21 to 22 (+889 description chars).
+
+  it('parses all 22 shipped skills', () => {
+    expect(shipped).toHaveLength(22);
     for (const id of shipped) {
       expect(parseSkillFrontmatter(readSkillMd(id)).ok).toBe(true);
     }
@@ -206,15 +216,37 @@ describe('roster arithmetic against the real shipped tree', () => {
 
   it('reproduces the measured total description size', () => {
     // THE REGRESSION TEST FOR THE PARSER. A regex frontmatter reader gives
-    // 4,594 here because it truncates every folded block scalar; a real YAML
-    // parse gives 10,201. If this number collapses, the parser broke.
+    // roughly 4.6k here because it truncates every folded block scalar; a real
+    // YAML parse gives 11,090. If this number collapses, the parser broke.
     //
-    // `docs/design/skills-knowledge-loop.md` states 10,193. The 8-character
-    // difference is entirely manage-mini-application: that document's
-    // measurement collapsed the 8 double-spaces its folded scalar produces.
-    // 10,201 is what js-yaml returns and what the model actually receives.
+    // `docs/design/skills-knowledge-loop.md` states 10,193 against the 21-skill
+    // tree. Two separate deltas, both understood: +8 because that document's
+    // measurement collapsed the 8 double-spaces manage-mini-application's
+    // folded scalar produces (js-yaml keeps them, and they are what the model
+    // actually receives), and +889 for manage-mcp-server.
     const total = entries.reduce((sum, e) => sum + (e.description?.length ?? 0), 0);
-    expect(total).toBe(10201);
+    expect(total).toBe(11090);
+  });
+
+  it('keeps folded block scalars intact — the specific thing a regex reader loses', () => {
+    // The structural half of the assertion above, and the one that stays
+    // meaningful no matter how the counts move: a truncating reader keeps only
+    // the first physical line, and for a block scalar (`description: >` or
+    // `|`) that line holds no description text at all — just the indicator. So
+    // every block-scalar skill must parse to something substantial.
+    //
+    // Selected by SOURCE SYNTAX, not by parsed length. An earlier version of
+    // this filtered on `description.length > 200` and failed: several skills
+    // write a long description on ONE line, where the raw line is legitimately
+    // longer than the parsed value it yields.
+    const blockScalar = entries.filter((e) => {
+      const line = readSkillMd(e.id).split('\n').find((l) => l.startsWith('description:'));
+      return /^description:\s*[>|]/.test(line ?? '');
+    });
+    expect(blockScalar.length).toBeGreaterThan(5);
+    for (const entry of blockScalar) {
+      expect(entry.description?.length ?? 0).toBeGreaterThan(80);
+    }
   });
 
   it('is over budget at the SDK default and inside it at ours', () => {
@@ -222,10 +254,10 @@ describe('roster arithmetic against the real shipped tree', () => {
       contextTokens: ROSTER_CONTEXT_TOKENS_DEFAULT,
       fraction: ROSTER_DEFAULT_BUDGET_FRACTION,
     });
-    expect(usage.entries).toBe(21);
-    expect(usage.chars).toBe(10595);
+    expect(usage.entries).toBe(22);
+    expect(usage.chars).toBe(11506);
     expect(usage.budget).toBe(8000);
-    // This is the state Acabox ships in today: roughly ten of twenty-one
+    // This is the state Acabox ships in today: roughly half of the
     // descriptions are being silently shortened before a single import.
     expect(usage.fits).toBe(false);
 

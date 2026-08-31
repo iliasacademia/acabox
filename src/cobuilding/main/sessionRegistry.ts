@@ -5,6 +5,7 @@ import {
   MCP_AUTHENTICATE_TOOL,
   MCP_COMPLETE_AUTH_TOOL,
 } from '../shared/oauthWindow';
+import { recordConnectorLiveness } from './connectorsStore';
 import type { AgentSession } from './agentSession';
 
 /**
@@ -358,4 +359,16 @@ function destroyEntry(id: string): void {
   // After destroy(), never before: a hook may want to observe the session's
   // final state, and none of them can revive it.
   fireDestroyHooks(id, 'session destroyed');
+
+  // This is the single choke point every session-destroyed path funnels
+  // through (registerSession's replace, unregisterSession, removeSubscriber's
+  // idle/pin-expiry evictions, destroyAllSessions' quit teardown). Once no
+  // session is registered at all, there is nobody left who could have
+  // observed a connector's status — demote the cached facts to "Not checked"
+  // rather than let them read as a live "Connected" forever. Because "one
+  // turn = one query = one CLI subprocess" in practice, this fires after
+  // nearly every turn, which is exactly the point: a connector's dot goes
+  // grey the moment there is no session to vouch for it, and turns green
+  // again on the next turn's `init` event (`recordConnectorStatus`).
+  if (entries.size === 0) recordConnectorLiveness(false);
 }

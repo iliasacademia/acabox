@@ -161,12 +161,99 @@ to `PATH`.
   `ERR_FS_CP_DIR_TO_NON_DIR` on Node 25 but **silently writes through the link**
   on 22.17 — a design premise was wrong for exactly this reason.
 - Do NOT run `npm run package` for routine testing — production build only.
+- **A packaged build launched headlessly will hang forever, and it is not a bug
+  in your change.** Root-caused with `sample` on 2026-08-05: the main thread
+  blocks in `SecKeychainFindGenericPassword` -> `CSSM_DecryptDataFinal` — Chromium's
+  own OSCrypt keychain init, which runs *before* `app.whenReady()` and cannot be
+  moved. Every freshly packaged, ad-hoc-signed binary carries a new signature, so
+  macOS demands fresh Keychain authorization and waits for a click nobody makes.
+  Same root cause as the auto-update TCC re-prompt in Known hazards. A real user
+  double-clicking the app just dismisses the prompt. For measurement only, pass
+  Chromium's `--use-mock-keychain`; no code change.
 - Logs: `~/Library/Application Support/acabox/development/cobuilding.log`,
   plus the in-app Debug tab (command log + system log streams).
 - To kill stray dev instances:
   `pkill -9 -f "Acabox/node_modules/electron"`.
 
-## Status (last updated 2026-07-30)
+## Status (last updated 2026-08-31)
+
+**Local MCP servers: Acabox now hosts them, and Claude can write you one
+(2026-08-31).** Design, review and every decision in
+`docs/design/mcp-hosting.md` — read its header table first, it is kept in sync.
+**Increments 0-5 and 7 are built and green; 6 (installer) and 8 (scheduler) are
+not started.**
+- **The charter line "mini-apps can create and run MCP servers" was half-true and
+  the stdio connector was a dead end**, for three measured reasons: the connector
+  was serialized into the SDK's `mcpServers` and the **per-turn CLI subprocess**
+  spawned the child, so the server was killed once per chat message; no typable
+  string produced working argv for a path with a space
+  (`d.args.trim().split(/\s+/)` + `shell:false`); and the child inherited the
+  agent server's whole environment, `ANTHROPIC_API_KEY` included.
+- **Architecture: main owns the child, and the agent reaches it through an SDK
+  relay — no loopback HTTP server.** `setMcpServers` special-cases `type:'sdk'`
+  entries whose only contract is speaking MCP JSON-RPC, and this repo already
+  runs seven such relays daily. So there is **no fifth port range**, no bearer
+  token, no Streamable-HTTP compliance — which is also what "local-only" actually
+  means. Main owns the child rather than the agent-server because the
+  agent-server is itself crash-restarted, which would kill every server on every
+  restart.
+- **`main/appTeardown.ts` fixes a live bug that had nothing to do with MCP.**
+  There were two `before-quit` listeners and no `will-quit` anywhere; the second
+  ran its 12 teardown steps **even when the user clicked Cancel**, and twice on
+  accept. Clicking Cancel SIGTERMed the agent server and kernel gateway, stopped
+  the file monitor, dictation, scheduler and background builder, invalidated
+  every API-proxy token and closed three SQLite handles — while leaving the app
+  open. Teardown is now one idempotent `teardown()` on `will-quit`, ending in
+  `app.exit(0)` (**not** `app.quit()`, which re-enters the emit chain).
+- **Env is an allowlist, not spread-and-strip** (`mcpHost/hostedEnv.ts`) — it
+  starts from the MCP SDK's own `DEFAULT_INHERITED_ENV_VARS`, imported by
+  reference rather than transcribed. There is nothing to strip because nothing is
+  spread; the test asserts on **values**, not key names, so it catches the next
+  accidental spread.
+- **There is no write-gate boolean, and the reasoning is worth keeping.** A tool
+  cannot be classified read-vs-write from an untrusted server (name heuristics
+  fail on `run_query`/`execute`/`fetch`, and a self-declared `readOnly:true` is
+  the attacker's own claim), so `allowWrites:false` could only honestly mean "all
+  or none" — and "none" is already spelled `enabled:false`. It ships instead as
+  per-tool `enabledTools?: string[]` (**absent means all**, so no migration),
+  enforced twice: filtered before `POST /hosted` (the optimisation, and it keeps
+  unselected schemas out of context) and re-checked in the host relay handler
+  (the boundary — a mid-session narrowing leaves the CLI holding the wider push).
+- **The curated catalog was cut after measurement, not after debate.** Nothing
+  credible existed to put in it: three candidates were never on npm, one is
+  deprecated abandonware, and the survivors duplicate `Read`/`Write`/`Glob`/`Grep`
+  — shipping `filesystem` would charge a permanent ~2,000-token context tax for a
+  *narrower* version of tools the agent already holds. **Increment 5 (Claude
+  authors the server) is therefore the only acquisition path**, which is also the
+  fork's own charter. What survived: typed inputs instead of a freeform argv row
+  editor, plain-language confirmation instead of a `tools/list` dump, and the
+  rule that any future catalog entry is spawned in a real test and carries a
+  `verifiedOn` date.
+- **`@modelcontextprotocol/sdk` is now a direct, exactly-pinned dependency
+  (1.29.0)** — it was transitive under the Agent SDK, so any bump could have moved
+  it silently. Two rules for importing it here, both measured: **always use the
+  `.js`-suffixed deep path** (`@modelcontextprotocol/sdk/client/stdio.js` — the
+  extensionless form resolves at runtime but not for types), and **never import
+  the bare specifier**, whose `.` export points at a `dist/cjs/index.js` that does
+  not exist in 1.29.0. It resolves under `moduleResolution: node` only because the
+  exports map has a `"./*"` wildcard and the package ships legacy `typesVersions`;
+  no `paths` entry or `.d.ts` shim is needed, and none should be added.
+- Verified 2026-08-31: `npx tsc --noEmit` clean; **1021/1021 across 65 suites**;
+  `npm start -- -- --smoke-test` exits 0. Note the smoke test proves **nothing**
+  about hosted MCP — `mcpHost.startAll()` sits on the renderer-triggered
+  `agentInfrastructure.start` path the smoke run never reaches. Use the
+  `--smoke-test-mcp` flag for that.
+- **NOT verified, and it is the one that matters: the Increment 5 funnel has
+  never been driven end to end by a human.** Chat turn -> Claude writes a server
+  -> *Authored by Claude* row -> enable -> host promotes the copy out of the
+  agent-writable workspace -> agent calls it -> quit -> reopen. Every part is
+  tested; the whole is not, and the catalog cut made it the only way in. Also
+  unverified: the "Published by your tools" section with a mini-app actually
+  mounted. And R3's `runtime` field was never added, so "we control
+  `NODE_MODULE_VERSION`" stays narrower than stated for the Advanced
+  typed-command path.
+
+## Earlier status (last updated 2026-07-30)
 
 **Mini-apps now speak the Command Desk language (2026-07-30).** Reported as
 "our mini-app design still looks like Coscientist". It did, and nothing about a

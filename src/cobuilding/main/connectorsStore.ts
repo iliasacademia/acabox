@@ -147,12 +147,25 @@ export interface ConnectorMutationResult {
  * empty strings. Treat "key present, value empty, key existed before" as
  * "unchanged" and reuse the stored ciphertext. Dropping a header row is how
  * you delete one.
+ *
+ * `incoming === undefined` and `incoming === {}` are DIFFERENT questions and
+ * must answer differently (audited defect, `docs/design/mcp-hosting.md`
+ * Increment 3): `undefined` means the caller didn't submit a headers field at
+ * all — nothing to compare, so keep whatever is stored. `{}` means the caller
+ * submitted a real, empty set — every row was deleted — and that must persist
+ * AS `{}`, not silently coerce back to "keep stored" the way an unconditional
+ * "empty result → undefined" used to. The two used to collapse to the same
+ * `undefined` return, which is what made a fully-cleared header list
+ * indistinguishable from an untouched one on the next read. This alone is
+ * only half the fix — `draftToConnector` must also stop omitting the
+ * `headers` key when its row editor is empty, or an intentional clear can
+ * never reach here as `{}` in the first place.
  */
 function preserveUntouchedSecrets(
   incoming: Record<string, string> | undefined,
   stored: Record<string, string> | undefined,
 ): Record<string, string> | undefined {
-  if (!incoming) return undefined;
+  if (incoming === undefined) return stored;
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(incoming)) {
     if (value === '' && stored && key in stored) {
@@ -162,16 +175,30 @@ function preserveUntouchedSecrets(
     }
     // key present, value empty, no stored value → nothing to keep; drop it.
   }
-  return Object.keys(out).length ? out : undefined;
+  return out; // a real, explicit {} is a valid "cleared" answer — never coerced to undefined
 }
 
+/**
+ * `hostedIds` — ids of currently-registered hosted MCP servers
+ * (`docs/design/mcp-hosting.md`, Increment 4) — is caller-supplied rather
+ * than read in here. Ids share ONE namespace with hosted servers (both
+ * become the middle segment of `mcp__<id>__<tool>`), so a connector saved
+ * under an id a hosted server already owns would silently shadow one of the
+ * two in the SDK's merged `mcpServers` record — but `mcpHost.list()` is
+ * async (a store read), and threading that through here would make this
+ * function async for every caller, all of which is unnecessary: the one real
+ * caller (`main/index.ts`'s `connectors:save` IPC handler) already awaits
+ * other things and can fetch the list once, the same way it already resolves
+ * `originalId`'s uniqueness scope itself via `others`.
+ */
 export function upsertConnector(
   connector: ConnectorConfig,
   originalId?: string,
+  hostedIds: readonly string[] = [],
 ): ConnectorMutationResult {
   const stored = readStoredConnectors();
   const others = stored.filter((c) => c.id !== originalId);
-  const validation = validateConnector(connector, others.map((c) => c.id));
+  const validation = validateConnector(connector, [...others.map((c) => c.id), ...hostedIds]);
   if (!validation.ok) {
     return { success: false, error: validation.error, connectors: listConnectors() };
   }
@@ -246,13 +273,71 @@ export function migratePlaintextConnectorSecrets(): void {
 let lastStatus: ConnectorStatusReport[] = [];
 let lastStatusAt: number | null = null;
 
+/**
+ * Whether a chat session currently exists to have observed `lastStatus` at
+ * all. This is the fix for the audited "cached green Connected on a server
+ * that provably is not live" defect: `lastStatus`/`lastStatusAt` are
+ * deliberately NOT cleared when a session ends (the facts are still true —
+ * the server WAS connected, at that time), only demoted. `recordLiveStatus`
+ * sets this true; `recordConnectorLiveness(false)` is the demotion.
+ */
+let live = false;
+
+export interface ConnectorLiveStatus {
+  reports: ConnectorStatusReport[];
+  observedAt: number | null;
+  live: boolean;
+}
+
+/**
+ * Live listener set, mirroring the `Set<callback>` + `emit()` pattern already
+ * used by `jobRegistry.ts` and `buildHealth.ts` — the Servers page (design:
+ * `docs/design/mcp-hosting.md`, Increment 3) needs to push status the moment
+ * it changes rather than have every surface poll `connectors:getStatus`.
+ */
+const statusListeners = new Set<(status: ConnectorLiveStatus) => void>();
+
+function emitStatus(): void {
+  const status = getConnectorStatus();
+  for (const l of statusListeners) {
+    try { l(status); } catch (err) { log.warn(`[Connectors] status listener threw: ${(err as Error).message}`); }
+  }
+}
+
+/** Called on every SDK `system`/`init` event (`agentSession.ts`) — a session
+ *  exists and just told us the truth, so this both records the facts AND
+ *  marks the connector set live. */
 export function recordConnectorStatus(reports: ConnectorStatusReport[]): void {
   lastStatus = reports;
   lastStatusAt = Date.now();
+  live = true;
+  emitStatus();
 }
 
-export function getConnectorStatus(): { reports: ConnectorStatusReport[]; observedAt: number | null } {
-  return { reports: lastStatus, observedAt: lastStatusAt };
+/**
+ * Explicitly mark whether a session exists to observe connector status right
+ * now. Called with `false` from `sessionRegistry.destroyEntry` once the last
+ * registered session is gone, so the UI's dots go grey the moment there is
+ * nobody left to have observed them — without polling. `lastStatus`/
+ * `lastStatusAt` are left untouched: a demoted row still shows what was last
+ * observed and when, just relabelled "Not checked" instead of a stale
+ * "Connected".
+ */
+export function recordConnectorLiveness(nowLive: boolean): void {
+  if (live === nowLive) return; // no-op transition — nothing for a subscriber to react to
+  live = nowLive;
+  emitStatus();
+}
+
+export function getConnectorStatus(): ConnectorLiveStatus {
+  return { reports: lastStatus, observedAt: lastStatusAt, live };
+}
+
+/** Subscribe to every connector-status change (push, not poll). Returns an
+ *  unsubscribe function, exactly like `jobRegistry.subscribe`. */
+export function subscribeConnectorStatus(cb: (status: ConnectorLiveStatus) => void): () => void {
+  statusListeners.add(cb);
+  return () => { statusListeners.delete(cb); };
 }
 
 // ---------------------------------------------------------------------------

@@ -238,6 +238,7 @@
   margin-top: 16px;
 }
 .cdRail__navItem {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -341,6 +342,7 @@
 
 /* Collapsed-rail icon buttons (40×40). */
 .cdRail__bigIconBtn {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -362,6 +364,19 @@
   background: var(--cd-pale);
   color: var(--cd-blue);
 }
+
+/* A failing server is news; a server COUNT is not — so this is a bare dot,
+   never a number (docs/design/mcp-hosting.md, Increment 3). */
+.cdRail__badgeDot {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cd-error, #b60000);
+}
+.cdRail__navItem .cdRail__badgeDot { top: 50%; right: 10px; transform: translateY(-50%); }
 
 /* ═══ Command Desk home screen ═══ */
 

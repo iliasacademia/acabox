@@ -116,6 +116,32 @@ export function getLoginShellPath(): string {
 }
 
 /**
+ * Did the last `getLoginShellPath()` return a PATH the login shell actually
+ * produced, or the bare `process.env.PATH` fallback?
+ *
+ * `getLoginShellPath()` returns a plain `string` either way, deliberately — its
+ * callers all need *a* PATH and none of them has anything better to do on
+ * failure. But the two cases are not equally good, and the difference is
+ * invisible at the call site: launchd's PATH omits `/opt/homebrew/bin`, and
+ * there is no `/usr/bin/node` on macOS, so a Finder-launched app that fell back
+ * will spawn children that cannot find `node` and exit 127. That reads to a
+ * user as "the thing I installed is broken", and to a developer as "works in
+ * Terminal, fails from the Dock" — a report that costs hours precisely because
+ * nothing records which branch was taken.
+ *
+ * So: no behaviour change and no signature change (there are several callers),
+ * just a reader over state the module already keeps. Callers that spawn a
+ * user-supplied command should surface this when the spawn fails.
+ *
+ * Returns false before any resolution has been attempted — "we have not
+ * established a good PATH" is the honest answer at that point, not a claim of
+ * failure.
+ */
+export function didResolveLoginShellPath(): boolean {
+  return cachedPath !== null;
+}
+
+/**
  * Resolve and cache the login-shell PATH without blocking the event loop.
  * Fire this early in startup (before any subprocess spawn) so the later
  * synchronous `getLoginShellPath()` — called on the main thread by

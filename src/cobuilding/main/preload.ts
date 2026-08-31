@@ -25,6 +25,42 @@ contextBridge.exposeInMainWorld('connectorsAPI', {
   setEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke('connectors:setEnabled', id, enabled),
   getStatus: () => ipcRenderer.invoke('connectors:getStatus'),
   removeUnmanaged: () => ipcRenderer.invoke('connectors:removeUnmanaged'),
+  // Pushed whenever observed connector status changes (every SDK `init`, and
+  // on last-session teardown) — no polling required. Shape mirrors getStatus().
+  onStatusChanged: (callback: (status: { live: boolean; reports: unknown[]; observedAt: number | null }) => void) => {
+    const handler = (_e: unknown, status: { live: boolean; reports: unknown[]; observedAt: number | null }) => callback(status);
+    ipcRenderer.on('connectors:statusChanged', handler);
+    return () => ipcRenderer.removeListener('connectors:statusChanged', handler);
+  },
+});
+
+contextBridge.exposeInMainWorld('mcpServersAPI', {
+  list: () => ipcRenderer.invoke('mcpServers:list'),
+  onChanged: (callback: (servers: unknown[]) => void) => {
+    const handler = (_e: unknown, servers: unknown[]) => callback(servers);
+    ipcRenderer.on('mcpServers:changed', handler);
+    return () => ipcRenderer.removeListener('mcpServers:changed', handler);
+  },
+  start: (id: string) => ipcRenderer.invoke('mcpServers:start', id),
+  // `disable: true` is the Increment-3-vocabulary "Off" (stops AND disables);
+  // omitted/false is a temporary Stop that leaves the server eligible for
+  // Start/Restart again.
+  stop: (id: string, opts?: { disable?: boolean }) => ipcRenderer.invoke('mcpServers:stop', id, opts),
+  restart: (id: string) => ipcRenderer.invoke('mcpServers:restart', id),
+  remove: (id: string) => ipcRenderer.invoke('mcpServers:remove', id),
+  // Increment 7's write gate (docs/design/mcp-hosting.md, DECISION 2026-08-13):
+  // `undefined` selects every tool (the default); `[]` selects none — the two
+  // are distinct and must stay that way all the way to the IPC call.
+  setEnabledTools: (id: string, enabledTools: string[] | undefined) =>
+    ipcRenderer.invoke('mcpServers:setEnabledTools', id, enabledTools),
+  save: (draft: unknown) => ipcRenderer.invoke('mcpServers:save', draft),
+  test: (draft: unknown) => ipcRenderer.invoke('mcpServers:test', draft),
+  inventory: (id: string) => ipcRenderer.invoke('mcpServers:inventory', id),
+  stderrTail: (id: string) => ipcRenderer.invoke('mcpServers:stderrTail', id),
+  // Increment 5 (docs/design/mcp-hosting.md) — agent-authored servers.
+  rescanAuthored: () => ipcRenderer.invoke('mcpServers:rescanAuthored'),
+  listAuthored: () => ipcRenderer.invoke('mcpServers:listAuthored'),
+  approveAuthored: (id: string) => ipcRenderer.invoke('mcpServers:approveAuthored', id),
 });
 
 contextBridge.exposeInMainWorld('apisAPI', {
@@ -185,6 +221,18 @@ contextBridge.exposeInMainWorld('miniAppMcpAPI', {
   },
   sendResult: (payload: { invocationId: string; result?: unknown; error?: string }) =>
     ipcRenderer.send('miniAppMcp:result', payload),
+  // Pushed on every register/unregister/unregisterByRoute — live rather than
+  // a one-shot read, so a page mounted behind `display:none` stays correct.
+  onChanged: (
+    callback: (servers: Array<{ serverName: string; dirName: string; tools: Array<{ name: string; description: string; input_schema: Record<string, unknown> }> }>) => void,
+  ) => {
+    const handler = (
+      _e: unknown,
+      servers: Array<{ serverName: string; dirName: string; tools: Array<{ name: string; description: string; input_schema: Record<string, unknown> }> }>,
+    ) => callback(servers);
+    ipcRenderer.on('miniAppMcp:changed', handler);
+    return () => { ipcRenderer.removeListener('miniAppMcp:changed', handler); };
+  },
 });
 
 contextBridge.exposeInMainWorld('settingsAPI', {

@@ -30,6 +30,11 @@ export interface RowAction {
   title?: string;
 }
 
+export interface RowDot {
+  tone: 'ok' | 'warn' | 'error' | 'idle' | 'pending';
+  title?: string;
+}
+
 export function KnowledgeRow({
   name,
   alias,
@@ -38,6 +43,7 @@ export function KnowledgeRow({
   meta,
   actions,
   dimmed,
+  dot,
   onOpen,
 }: {
   name: string;
@@ -49,11 +55,21 @@ export function KnowledgeRow({
   meta?: React.ReactNode;
   actions?: RowAction[];
   dimmed?: boolean;
+  /**
+   * Optional status dot, first child of the row (the Servers page's use —
+   * `docs/design/mcp-hosting.md`, Increment 3). Deliberately optional with
+   * no default: Knowledge's own rows (skills, memories) render no dot at
+   * all, and that "no default status dot" invariant is asserted by
+   * `KnowledgePage.test.tsx` — a caller that doesn't pass `dot` must not
+   * grow one just because this prop exists.
+   */
+  dot?: RowDot;
   /** Clicking the name opens the detail modal. */
   onOpen?: () => void;
 }) {
   return (
     <div className={`connectorRow${dimmed ? ' connectorRow--off' : ''}`}>
+      {dot && <span className={`connectorDot connectorDot--${dot.tone}`} aria-hidden="true" title={dot.title} />}
       <div className="connectorRow__main">
         <div className="connectorRow__name">
           {onOpen ? (
