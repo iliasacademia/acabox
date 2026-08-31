@@ -1495,6 +1495,14 @@ natural Increment 9 follow-up.
 Deleted: `ScheduledTaskEditor.tsx`, `ScheduledTasksSidebar.tsx`,
 `ScheduledTasks.css` — **828 lines**, all of it unreferenced.
 
+**Verified live over CDP**, not just by test: create → list → pause → reopen
+(cron round-trips to "24 hours") → delete → empty state, plus the validation
+and unit-snap paths. That run caught a layout bug every test missed —
+`.connectorField__input`'s `width: 100%` tied on specificity with
+`.scheduleIntervalRow__num` and won on import order, pushing the unit dropdown
+off the panel's right edge. Fixed with chained selectors. A value-asserting
+test cannot see a correct value rendered into an invisible box.
+
 The tab-union fix landed as `SIDEBAR_TAB_IDS` in `shared/types.ts`, imported by
 both zod sites. `shared/__tests__/sidebarTabs.test.ts` scans the source for a
 fourth copy and asserts the two known sites still import the constant, so the

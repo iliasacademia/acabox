@@ -224,8 +224,24 @@ because it was 494 lines of finished UI held hostage by a four-week plan.
   is the natural next follow-up.
 - Verified: tsc clean; **1055/1055 across 67 suites**; smoke exits 0 (its log
   now ends `[APP] will-quit: exiting via the shutdown path`, which is the
-  Increment 1 teardown firing on the right event). **NOT verified visually** —
-  no screenshot of the new section or panel has been taken.
+  Increment 1 teardown firing on the right event). Then driven live over CDP
+  against a real `npm start`: the full lifecycle — create, list, pause (row
+  dims, button flips to Resume), reopen with the cron round-tripping back into
+  the form as "24 hours", delete through the confirm modal, empty state
+  restored — plus the validation path (`7` minutes → "Must be a multiple of 5",
+  Create disabled) and the unit-snap (7 → 5 on switching to minutes).
+- **A layout bug got through every test and was caught only by looking at a
+  screenshot.** `.connectorField__input` sets `width: 100%`, and
+  `.scheduleIntervalRow__num` carried the same (0,1,0) specificity — so which
+  won came down to stylesheet import order, and this file lost. The number
+  input ate the whole row and **the unit dropdown was pushed clean off the
+  panel's right edge**: the user could set a number but never a unit. The
+  component was computing the right values into a box nobody could see, which
+  is precisely the class of defect a value-asserting test cannot reach. Now
+  chained selectors (`.scheduleIntervalRow .x.connectorField__input`) so it
+  cannot lose that race again. **The lesson is the general one: when reusing a
+  shared input class inside a new layout, specificity ties resolve by import
+  order — take the screenshot.**
 
 **Local MCP servers: Acabox now hosts them, and Claude can write you one
 (2026-08-31).** Design, review and every decision in

@@ -99,14 +99,32 @@
   color: var(--cd-text, #1a1a1f);
 }
 
-.scheduleIntervalRow__num {
-  width: 80px;
+/* `.connectorField__input` sets `width: 100%`, and these two carry the same
+   specificity (0,1,0) — so which one wins came down to stylesheet order, and
+   this file loses. The result was the number input eating the whole row and
+   the unit dropdown pushed clean off the panel's right edge: invisible, so the
+   user could set a number but never a unit.
+   Found by looking at a screenshot. Every test passed — tests assert on the
+   values the component computes, and the component was computing correctly
+   into a box nobody could see. Chained selectors here so the row cannot lose
+   that race again regardless of import order. */
+.scheduleIntervalRow .scheduleIntervalRow__num.connectorField__input {
+  width: 84px;
   flex: 0 0 auto;
+  min-width: 0;
 }
 
-.scheduleIntervalRow__unit {
+.scheduleIntervalRow .scheduleIntervalRow__unit.connectorField__input {
   width: auto;
   flex: 0 0 auto;
+  min-width: 0;
+  padding-right: 24px;
+}
+
+/* Belt and braces: the row must never be the thing that widens the panel. */
+.scheduleIntervalRow {
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .schedulePanel__error {
