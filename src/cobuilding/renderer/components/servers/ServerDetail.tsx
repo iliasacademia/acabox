@@ -19,10 +19,18 @@ export function ServerDetail({
   row,
   onClose,
   onEdit,
+  onOpenSchedule,
 }: {
   row: ServerRowModel;
   onClose: () => void;
   onEdit: () => void;
+  /**
+   * Jump to Activity, where schedules live. A scheduled task runs through the
+   * same `createAgentSession` path as a chat turn, so it sees this server's
+   * tools exactly as a chat would — which is the entire feature, and is not
+   * discoverable from here without saying so.
+   */
+  onOpenSchedule: () => void;
 }) {
   const meta = row.meta.kind === 'hosted' ? row.meta : null;
 
@@ -250,6 +258,12 @@ export function ServerDetail({
           <div className="serversDetail__label">Log</div>
           <pre className="serversLog">{stderrTail || '(nothing written yet)'}</pre>
         </div>
+
+        {meta && (
+          <button type="button" className="connectorLink" onClick={onOpenSchedule}>
+            Run something on a schedule with this server →
+          </button>
+        )}
 
         {error && <p className="gsStep__error">{error}</p>}
 

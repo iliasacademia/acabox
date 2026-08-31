@@ -1,9 +1,9 @@
 # Local MCP servers: host, manage, and author them in Acabox
 
-> **Status: Increments 0–5 and 7 are built and green. 6, 8 and most of 9 are not.**
+> **Status: Increments 0–5, 7 and 8 are built and green. 6 and most of 9 are not.**
 > Written 2026-08-05 as a proposal; brought in line with the code 2026-08-31.
 > Measured on that date, not recalled: `npx tsc --noEmit` clean,
-> `npm test` **1021/1021 across 65 suites**, `npm start -- -- --smoke-test` exits 0.
+> `npm test` **1055/1055 across 67 suites**, `npm start -- -- --smoke-test` exits 0.
 >
 > | Increment | State |
 > |---|---|
@@ -15,7 +15,7 @@
 > | 5 Claude authors | Done — `mcpHost/authored.ts`, `skills/manage-mcp-server` |
 > | 6 Install from GitHub/npm | **Not started** |
 > | 7 Write gate | Done, reshaped — per-tool `enabledTools`, not a boolean (2026-08-13 decision) |
-> | 8 Scheduler on Activity | **Not started** |
+> | 8 Scheduler on Activity | Done — `renderer/components/schedule/`, section on Activity |
 > | 9 Hardening | Partial — this header and CLAUDE.md; log rotation outstanding |
 >
 > **Unverified, and the first one is the one that matters.** The Increment 5 user
@@ -1464,6 +1464,41 @@ zero new backend.
 unknown value, so fixing the first two alone produces a notification that navigates
 nowhere with no error. Define the array once and import it into both zod sites. All
 three are already missing `knowledge` and `activity`.
+
+
+### SHIPPED (2026-08-31)
+
+Built as specified, with three deviations worth recording:
+
+1. **Rows use `cdActivityRow`, not `KnowledgeRow`.** The plan says reuse
+   `KnowledgeRow`; that is right on Servers, which is a `.connectorRow` page,
+   and wrong here — ActivityPanel is built entirely from `cdActivityRow`, and a
+   different row shape in the first section of the page would read as a
+   different product. Reuse the page's vocabulary, not the plan's.
+2. **The page needed a shell.** ActivityPanel is mounted in a container that
+   scrolls (`index.tsx`, `overflow: 'auto'`), so an absolutely-positioned panel
+   inside it scrolls away with the content. It now has the same three-part
+   structure as ServersPage — non-scrolling relative shell, scrolling body,
+   panel as a **sibling** of the body.
+3. **One deviation from the verbatim lift, found by a test.** `cronToInterval`
+   parsed a zero step into `{interval: 0}`, which `intervalToCron` wrote
+   straight back out and `cronToHuman` rendered as "Every 0 minutes". A
+   non-positive step now falls through to the default. The editor could never
+   produce one, but the list is fed from a hand-editable `scheduling.db`.
+
+Also: **there is no `scheduledTasks:changed` broadcast**, so the section polls
+every 30s while the tab is visible. A run started by the scheduler's own clock
+would otherwise leave `last_run_at` stale for as long as the page stays mounted
+— and every tab stays mounted forever. A broadcast would be better and is the
+natural Increment 9 follow-up.
+
+Deleted: `ScheduledTaskEditor.tsx`, `ScheduledTasksSidebar.tsx`,
+`ScheduledTasks.css` — **828 lines**, all of it unreferenced.
+
+The tab-union fix landed as `SIDEBAR_TAB_IDS` in `shared/types.ts`, imported by
+both zod sites. `shared/__tests__/sidebarTabs.test.ts` scans the source for a
+fourth copy and asserts the two known sites still import the constant, so the
+test cannot pass vacuously if someone deletes one.
 
 ---
 

@@ -90,10 +90,13 @@ function hostedTarget(meta: Extract<ServerRowModel['meta'], { kind: 'hosted' }>,
 export function ServersPage({
   onSwitchToChat,
   onOpenSettings,
+  onOpenSchedule,
 }: {
   /** Switch the shell to the chat view — the empty state's real acquisition path. */
   onSwitchToChat: () => void;
   onOpenSettings: () => void;
+  /** Jump to Activity, where scheduled tasks live. */
+  onOpenSchedule: () => void;
 }) {
   const composerRuntime = useComposerRuntime();
   const rows = useServerRows();
@@ -468,6 +471,7 @@ export function ServersPage({
           row={detailRow}
           onClose={() => setDetailId(null)}
           onEdit={() => openEditForm(detailRow)}
+          onOpenSchedule={onOpenSchedule}
         />
       )}
     </div>

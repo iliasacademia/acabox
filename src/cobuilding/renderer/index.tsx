@@ -1113,6 +1113,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                   deactivateAllTabs();
                 }}
                 onOpenSettings={() => setSidebarTab('settings')}
+                onOpenSchedule={() => setSidebarTab('activity')}
               />
             </div>
 

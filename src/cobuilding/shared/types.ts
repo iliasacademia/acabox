@@ -172,9 +172,30 @@ export interface UpdateTaskData {
   session_source?: string;
 }
 
+/**
+ * Every tab a notification may deep-link to. THE one definition — the zod enums
+ * in `main/mcpServers/notificationMcpServer.ts` and `agent-server/index.ts` both
+ * import it.
+ *
+ * There used to be three hand-maintained copies of this list, and the third (the
+ * agent-server one) is a zod enum, which **silently strips** a value it does not
+ * know rather than erroring. So a tab added to the other two produced a
+ * notification that navigated nowhere, with nothing in any log to say why. All
+ * three were missing `knowledge` and `activity` at the time this was unified.
+ *
+ * Keep in sync with `RailTab` (renderer/components/command-desk/Rail.tsx) and
+ * `SidebarTab` (renderer/index.tsx). Those are renderer-side and cannot be
+ * imported here without dragging the renderer into the agent-server bundle.
+ */
+export const SIDEBAR_TAB_IDS = [
+  'home', 'chats', 'tools', 'knowledge', 'servers', 'files', 'activity', 'debug', 'settings',
+] as const;
+
+export type SidebarTabId = (typeof SIDEBAR_TAB_IDS)[number];
+
 export type NotificationNavigationAction =
-  | { type: 'thread'; threadId: string; sidebarTab?: 'home' | 'tools' | 'files' | 'chats' | 'debug' | 'settings' }
-  | { type: 'sidebar'; tab: 'home' | 'tools' | 'files' | 'chats' | 'debug' | 'settings' };
+  | { type: 'thread'; threadId: string; sidebarTab?: SidebarTabId }
+  | { type: 'sidebar'; tab: SidebarTabId };
 
 // ---- Calendar ----
 

@@ -95,7 +95,7 @@ afterAll(() => {
 async function render(): Promise<void> {
   await act(async () => {
     root.render(
-      <ServersPage onSwitchToChat={jest.fn()} onOpenSettings={jest.fn()} />,
+      <ServersPage onSwitchToChat={jest.fn()} onOpenSettings={jest.fn()} onOpenSchedule={jest.fn()} />,
     );
   });
   await act(async () => { await new Promise((r) => setTimeout(r, 0)); });

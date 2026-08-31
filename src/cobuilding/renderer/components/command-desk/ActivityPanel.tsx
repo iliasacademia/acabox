@@ -2,6 +2,9 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useComposerRuntime } from '@assistant-ui/react';
 import { MSymbol } from './MSymbol';
 import { resolveToolIcon } from './toolIcon';
+import { ScheduleSection, SchedulePanel } from '../schedule/SchedulePanel';
+import '../schedule/schedule.css';
+import type { ScheduledTask } from '../../../shared/types';
 
 /**
  * "What is my computer doing for me, and what happened while I wasn't looking?"
@@ -18,6 +21,13 @@ import { resolveToolIcon } from './toolIcon';
  *
  * A section with nothing in it is not rendered: an empty panel is the correct
  * answer to "is anything happening?" and beats three empty headings.
+ *
+ * "On a schedule" is the one exception, and it sits above the rest. The other
+ * three report news; that one is also the only place scheduling can be
+ * discovered, so it renders even when empty — a heading that vanishes when
+ * nothing is scheduled can never teach anyone the feature exists. It is here
+ * because a schedule and the output it produces are one subject: these tasks
+ * are what fills the sections below.
  */
 
 interface Props {
@@ -74,6 +84,34 @@ export function ActivityPanel({ apps, onOpenTool, onSwitchToChat }: Props) {
   const [jobs, setJobs] = useState<ToolJob[]>([]);
   const [broken, setBroken] = useState<BuildHealth[]>([]);
   const [now, setNow] = useState(() => Date.now());
+  const [tasks, setTasks] = useState<ScheduledTask[]>([]);
+  // `undefined` = panel closed. `null` = open, composing a new task.
+  const [editingTaskId, setEditingTaskId] = useState<string | null | undefined>(undefined);
+
+  const reloadTasks = useCallback(() => {
+    window.scheduledTasksAPI.list().then(setTasks).catch(() => {});
+  }, []);
+
+  useEffect(() => { reloadTasks(); }, [reloadTasks]);
+
+  /**
+   * There is no `scheduledTasks:changed` broadcast, so a run that starts on the
+   * scheduler's own clock would otherwise leave `last_run_at` stale for as long
+   * as the page stays mounted — and every tab stays mounted forever. Poll while
+   * the tab is actually visible; the interval is coarse because a schedule's
+   * shortest cadence is five minutes.
+   */
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (!document.hidden) reloadTasks();
+    }, 30_000);
+    return () => clearInterval(t);
+  }, [reloadTasks]);
+
+  const toggleTask = useCallback(async (task: ScheduledTask) => {
+    await window.scheduledTasksAPI.setEnabled(task.id, task.enabled === 0);
+    reloadTasks();
+  }, [reloadTasks]);
 
   useEffect(() => {
     window.jobsAPI.list().then(setJobs).catch(() => {});
@@ -133,13 +171,27 @@ export function ActivityPanel({ apps, onOpenTool, onSwitchToChat }: Props) {
     composerRuntime.send();
   }, [composerRuntime, nameOf, onSwitchToChat]);
 
+  // Deliberately excludes `tasks`: the schedule section renders regardless, so
+  // the "nothing at all" line is about work, not about whether a task exists.
   const nothingAtAll = running.length === 0 && unseen.length === 0 && recent.length === 0 && broken.length === 0;
 
   return (
-    <div className="cdActivity">
+    // Shell / scroller / docked-panel, the same three-part structure
+    // `ServersPage` uses. The panel must be a SIBLING of the scrolling element,
+    // not a child: the container this page is mounted in scrolls, so an
+    // absolutely-positioned panel inside it would scroll away with the content.
+    <div className="cdActivityShell">
+      <div className="cdActivity">
       <div className="cdActivity__header">
         <h1 className="cdHome__title">Activity</h1>
       </div>
+
+      <ScheduleSection
+        tasks={tasks}
+        onOpen={(id) => setEditingTaskId(id)}
+        onNew={() => setEditingTaskId(null)}
+        onToggle={toggleTask}
+      />
 
       {nothingAtAll && (
         <div className="cdActivity__empty">
@@ -234,6 +286,15 @@ export function ActivityPanel({ apps, onOpenTool, onSwitchToChat }: Props) {
             );
           })}
         </section>
+      )}
+      </div>
+
+      {editingTaskId !== undefined && (
+        <SchedulePanel
+          taskId={editingTaskId}
+          onClose={() => setEditingTaskId(undefined)}
+          onChanged={reloadTasks}
+        />
       )}
     </div>
   );

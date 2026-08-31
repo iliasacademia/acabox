@@ -2,6 +2,7 @@ import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { Notification } from 'electron';
 import { z } from 'zod';
 import type { NotificationNavigationAction } from '../../shared/types';
+import { SIDEBAR_TAB_IDS } from '../../shared/types';
 
 // Hold references to active notifications so they aren't garbage-collected
 // before the user clicks them (which would silently drop the click handler).
@@ -25,7 +26,7 @@ export function createNotificationMcpServer(
           navigation: z.object({
             type: z.enum(['thread', 'sidebar']).describe('The type of navigation action.'),
             threadId: z.string().optional().describe('The thread ID to navigate to (required when type is "thread").'),
-            sidebarTab: z.enum(['home', 'tools', 'files', 'chats', 'debug', 'settings']).optional()
+            sidebarTab: z.enum(SIDEBAR_TAB_IDS).optional()
               .describe('The sidebar tab to show when navigating (optional for "thread", required for "sidebar").'),
           }).optional().describe('Optional navigation action when the user clicks the notification.'),
         },

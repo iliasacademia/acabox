@@ -40,6 +40,7 @@ import { ensureApiKeyApproved } from '../shared/claudeConfigApproval';
 import { jsonSchemaToZod } from './jsonSchemaToZod';
 import { mergeDynamicMcpServers, applyDynamicMcpToSession } from './dynamicMcp';
 import type { HostedServerPush } from '../shared/hostedMcp';
+import { SIDEBAR_TAB_IDS } from '../shared/types';
 
 
 // ---------------------------------------------------------------------------
@@ -242,7 +243,7 @@ function createMcpRelayServers(state: SessionState) {
             navigation: z.object({
               type: z.enum(['thread', 'sidebar']).describe('The type of navigation action.'),
               threadId: z.string().optional().describe('Thread ID to navigate to (required for "thread" type).'),
-              sidebarTab: z.enum(['home', 'tools', 'files', 'chats', 'debug', 'settings']).optional().describe('Sidebar tab to show.'),
+              sidebarTab: z.enum(SIDEBAR_TAB_IDS).optional().describe('Sidebar tab to show.'),
             }).optional().describe('Optional navigation action when the user clicks the notification.'),
           },
           relay('notification', 'show_notification'),

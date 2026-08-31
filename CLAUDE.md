@@ -177,6 +177,56 @@ to `PATH`.
 
 ## Status (last updated 2026-08-31)
 
+**The scheduler is finally reachable, on the Activity page (2026-08-31).**
+Increment 8 of `docs/design/mcp-hosting.md`, unrelated to MCP and pulled forward
+because it was 494 lines of finished UI held hostage by a four-week plan.
+- **The backend was complete and already running the whole time** —
+  `startScheduledTasks` at `main/index.ts`, eight IPC channels, its own
+  `scheduling.db` with run history. What did not exist was any way to see it:
+  `ScheduledTaskEditor.tsx` (372 lines) and `ScheduledTasksSidebar.tsx` (122)
+  were imported nowhere, and `ScheduledTasks.css` (334 lines) was never swept in
+  the palette pass because nothing imported it either. All three are deleted —
+  **828 lines** — and their cron translation survives in
+  `renderer/components/schedule/scheduleCron.ts`, which **has tests it never
+  had** (29).
+- **It lives on Activity because a schedule and the output it produces are one
+  subject.** The counter-argument is real and recorded: Activity is also the one
+  nav slot where someone hunting for "automations" would not look. If that
+  bites, the fix is a rail entry pointing here, not a second home.
+- **"On a schedule" renders even when empty**, unlike every other section on
+  that page. The others signal news; this one is also the only place the feature
+  can be discovered, and a heading that vanishes when nothing is scheduled can
+  never teach anyone that scheduling exists.
+- **Found by a test, not by reading:** `cronToInterval` parsed a zero step into
+  `{interval: 0}`, which `intervalToCron` wrote straight back out and
+  `cronToHuman` rendered as "Every 0 minutes". The editor could never produce
+  one (`validateInterval` rejects 0) but the list is fed from a hand-editable
+  `scheduling.db`. A non-positive step now falls through to the default — the
+  **one** deviation from an otherwise verbatim lift.
+- **The docked panel needed a shell.** ActivityPanel is mounted in a container
+  that scrolls, so an absolutely-positioned panel inside it scrolls away with
+  the content. It now has ServersPage's three-part structure: non-scrolling
+  relative shell, scrolling body, panel as a **sibling** of the body. Copy that
+  shape for the next docked panel rather than rediscovering it.
+- **The three-copy deep-link tab union is fixed.** It lived in
+  `shared/types.ts`, `main/mcpServers/notificationMcpServer.ts` and
+  `agent-server/index.ts` — and the third is a **zod enum, which silently
+  strips** an unknown value, so fixing the first two alone produced a
+  notification that navigated nowhere with no error anywhere. Now one
+  `SIDEBAR_TAB_IDS` in `shared/types.ts` imported by both zod sites; all three
+  had been missing `knowledge` and `activity`. `shared/__tests__/sidebarTabs.test.ts`
+  scans the source for a fourth copy **and** asserts the two known sites still
+  import the constant, so it cannot pass vacuously.
+- **Known gap: there is no `scheduledTasks:changed` broadcast**, so the section
+  polls every 30s while the tab is visible. A run started by the scheduler's own
+  clock would otherwise leave `last_run_at` stale for as long as the page stays
+  mounted, and every tab stays mounted forever. A broadcast is the right fix and
+  is the natural next follow-up.
+- Verified: tsc clean; **1055/1055 across 67 suites**; smoke exits 0 (its log
+  now ends `[APP] will-quit: exiting via the shutdown path`, which is the
+  Increment 1 teardown firing on the right event). **NOT verified visually** —
+  no screenshot of the new section or panel has been taken.
+
 **Local MCP servers: Acabox now hosts them, and Claude can write you one
 (2026-08-31).** Design, review and every decision in
 `docs/design/mcp-hosting.md` — read its header table first, it is kept in sync.
@@ -238,7 +288,7 @@ not started.**
   not exist in 1.29.0. It resolves under `moduleResolution: node` only because the
   exports map has a `"./*"` wildcard and the package ships legacy `typesVersions`;
   no `paths` entry or `.d.ts` shim is needed, and none should be added.
-- Verified 2026-08-31: `npx tsc --noEmit` clean; **1021/1021 across 65 suites**;
+- Verified 2026-08-31: `npx tsc --noEmit` clean; **1055/1055 across 67 suites**;
   `npm start -- -- --smoke-test` exits 0. Note the smoke test proves **nothing**
   about hosted MCP — `mcpHost.startAll()` sits on the renderer-triggered
   `agentInfrastructure.start` path the smoke run never reaches. Use the
