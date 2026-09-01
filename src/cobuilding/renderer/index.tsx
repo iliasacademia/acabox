@@ -1107,6 +1107,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
             {/* Servers tab — local MCP servers Acabox hosts on this machine */}
             <div style={{ display: sidebarTab === 'servers' ? 'flex' : 'none', flex: 1, flexDirection: 'column' }}>
               <ServersPage
+                active={sidebarTab === 'servers'}
                 onSwitchToChat={() => {
                   setSidebarTab('chats');
                   setChatViewMode('detail');

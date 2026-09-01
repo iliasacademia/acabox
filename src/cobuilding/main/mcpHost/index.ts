@@ -179,6 +179,7 @@ async function startAllInner(): Promise<void> {
   // be allowed to block real, already-approved servers from starting.
   try {
     const scan = await authored.scanAndAdoptAuthoredServers();
+    for (const id of scan.adopted) emitRecordChange(id);
     if (scan.adopted.length > 0 || scan.rejected.length > 0) {
       log.info(`[McpHost] Authored-server scan: adopted ${scan.adopted.length}, rejected ${scan.rejected.length}.`);
     }
@@ -269,6 +270,11 @@ export async function remove(id: string, opts: { graceMs?: number } = {}): Promi
   if (!record) return { ok: false, error: `No hosted server named "${id}".` };
   await supervisor.forgetServer(id, opts);
   const removed = await removeHostedServer(id);
+  // Same silence as adoption, in the other direction: a server that was never
+  // started has no handle, so `forgetServer` fires no status change and the
+  // row it just deleted would sit on the Servers page until a reload. Measured
+  // 2026-09-01 alongside the adoption case.
+  if (removed) emitRecordChange(id);
   return { ok: removed, error: removed ? undefined : `"${id}" was removed by someone else already.` };
 }
 
@@ -573,7 +579,34 @@ export async function invoke(id: string, toolName: string, args?: Record<string,
  * `HostedStatus` a second time here.
  */
 export function onInventoryChanged(cb: (id: string) => void): () => void {
-  return supervisor.onStatusChange((status) => cb(status.id));
+  const offStatus = supervisor.onStatusChange((status) => cb(status.id));
+  recordChangeListeners.add(cb);
+  return () => { offStatus(); recordChangeListeners.delete(cb); };
+}
+
+/**
+ * Record-level changes that produce NO supervisor status transition.
+ *
+ * `supervisor.onStatusChange` only fires for a server that has a live handle —
+ * it is a *process* event. A record that is merely adopted or registered has
+ * never been started, so it has no handle and emits nothing, and every
+ * subscriber (the Servers page broadcast in `main/index.ts`, the hosted push in
+ * `AgentInfrastructureController`) stayed silent.
+ *
+ * Measured 2026-09-01: the agent wrote `.mcp-servers/dna-toolkit/`, a scan
+ * adopted it, `servers.json` gained the record — and the Servers page still
+ * read "No servers yet" until the app was restarted. Adoption is exactly the
+ * moment a user is told to go and look, so it is the worst possible moment to
+ * be silent. Folded into `onInventoryChanged` rather than shipped as a second
+ * subscription, for the same reason `setEnabledTools` reuses it: one
+ * notification primitive, so a caller cannot subscribe to half the truth.
+ */
+const recordChangeListeners = new Set<(id: string) => void>();
+
+function emitRecordChange(id: string): void {
+  for (const cb of [...recordChangeListeners]) {
+    try { cb(id); } catch (err) { log.warn(`[McpHost] record-change listener threw: ${(err as Error).message}`); }
+  }
 }
 
 /** Stop every running server. For the app's own quit path (Increment 1's `will-quit`) — awaited there with the hard watchdog R14 describes; this function itself has no timeout of its own beyond `killTree`'s grace window. */
@@ -597,7 +630,11 @@ export async function shutdown(opts: { graceMs?: number } = {}): Promise<void> {
  * repeat call over the same directory a no-op.
  */
 export async function scanAuthoredServers(): Promise<authored.AuthoredScanResult> {
-  return authored.scanAndAdoptAuthoredServers();
+  const result = await authored.scanAndAdoptAuthoredServers();
+  // Adoption creates a record with no process, so nothing else would announce
+  // it — see `emitRecordChange`.
+  for (const id of result.adopted) emitRecordChange(id);
+  return result;
 }
 
 /**

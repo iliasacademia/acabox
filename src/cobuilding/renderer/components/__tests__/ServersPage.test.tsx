@@ -95,7 +95,7 @@ afterAll(() => {
 async function render(): Promise<void> {
   await act(async () => {
     root.render(
-      <ServersPage onSwitchToChat={jest.fn()} onOpenSettings={jest.fn()} onOpenSchedule={jest.fn()} />,
+      <ServersPage active onSwitchToChat={jest.fn()} onOpenSettings={jest.fn()} onOpenSchedule={jest.fn()} />,
     );
   });
   await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
@@ -204,5 +204,53 @@ describe('ServersPage', () => {
     expect(saveSpy).toHaveBeenCalledTimes(1);
     const draft = saveSpy.mock.calls[0][0];
     expect(draft.args).toEqual(['--root', '/Users/i/Dev Folders/X']);
+  });
+});
+
+/**
+ * Regression for the Increment 5 funnel failure of 2026-09-01. Claude wrote a
+ * server, the page said "No servers yet", and the only control that could have
+ * found it — "Check for new servers" — was rendered INSIDE the "Authored by
+ * Claude" section, which only appears once a server has already been found.
+ * A control that requires its own outcome to already have happened is not a
+ * control. Both halves of the fix are pinned here.
+ */
+describe('finding a server Claude just wrote', () => {
+  it('scans on arriving at the page — every tab stays mounted, so mount fires only at boot', async () => {
+    await render();
+    expect((window as any).mcpServersAPI.rescanAuthored).toHaveBeenCalled();
+  });
+
+  it('does not scan while the tab is not the visible one', async () => {
+    await act(async () => {
+      root.render(
+        <ServersPage active={false} onSwitchToChat={jest.fn()} onOpenSettings={jest.fn()} onOpenSchedule={jest.fn()} />,
+      );
+    });
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect((window as any).mcpServersAPI.rescanAuthored).not.toHaveBeenCalled();
+  });
+
+  it('offers a manual check from the EMPTY state, where there is no authored section to hide it in', async () => {
+    await render();
+    const empty = document.querySelector('.serversEmpty');
+    expect(empty).toBeTruthy();
+    const labels = [...empty!.querySelectorAll('button')].map((b) => b.textContent ?? '');
+    expect(labels.some((l) => /check now/i.test(l))).toBe(true);
+  });
+
+  it('that button really triggers a scan and then re-reads the authored list', async () => {
+    await render();
+    (window as any).mcpServersAPI.rescanAuthored.mockClear();
+    (window as any).mcpServersAPI.listAuthored.mockClear();
+
+    const btn = [...document.querySelectorAll('.serversEmpty button')]
+      .find((b) => /check now/i.test(b.textContent ?? '')) as HTMLButtonElement;
+    await act(async () => { btn.click(); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+    expect((window as any).mcpServersAPI.rescanAuthored).toHaveBeenCalled();
+    // Re-reading is what makes the row appear without a reload.
+    expect((window as any).mcpServersAPI.listAuthored).toHaveBeenCalled();
   });
 });

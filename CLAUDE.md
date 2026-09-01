@@ -309,8 +309,43 @@ not started.**
   about hosted MCP — `mcpHost.startAll()` sits on the renderer-triggered
   `agentInfrastructure.start` path the smoke run never reaches. Use the
   `--smoke-test-mcp` flag for that.
-- **NOT verified, and it is the one that matters: the Increment 5 funnel has
-  never been driven end to end by a human.** Chat turn -> Claude writes a server
+- **The Increment 5 funnel WAS driven end to end (2026-09-01) and it failed at
+  exactly one seam — now fixed.** Claude wrote `.mcp-servers/dna-toolkit/`, the
+  user was told to go to the Servers page, and the page said **"No servers
+  yet."** Three causes, all the same shape — *the moment a record changes,
+  nothing tells anyone*:
+  1. **Nothing scanned mid-session.** `scanAndAdoptAuthoredServers` ran at boot
+     or from a button, and the agent writes servers between boots. The Servers
+     page now scans **whenever it becomes the visible tab** (an `active` prop —
+     every tab stays mounted forever behind `display:none`, so `useEffect` on
+     mount fires once at boot and never again). Arriving on the page is exactly
+     when the user is asking "did it appear?".
+  2. **The only manual control was unreachable.** "Check for new servers" lived
+     *inside* the `Authored by Claude` section, which renders only once a server
+     has been found — a control that required its own outcome to have already
+     happened. It is now also in the empty state.
+  3. **`onInventoryChanged` was a PROCESS event, not a record event.** It was
+     wired only to `supervisor.onStatusChange`, and an adopted-but-never-started
+     record has no handle, so it fired nothing — `servers.json` gained the row
+     and every subscriber stayed silent. Adoption is the one moment the user is
+     told to go and look, which makes it the worst possible moment to be quiet.
+     Now `emitRecordChange` folds record changes into the *same* subscription
+     (one primitive, so no caller can subscribe to half the truth). **Removal
+     had the identical bug in mirror image** — a deleted row sat on the page
+     until a reload — and is fixed in the same place.
+- **What the funnel proved once step 3 worked:** adopted **disabled** as
+  "Awaiting review"; enable promotes a **separate copy** into
+  `<userData>/mcp-servers/<id>/` (verified by hash, running from the
+  non-agent-writable path); the model called `dna-toolkit/reverse_complement`
+  and got `TACCGCAT`; quit stopped the child cleanly before `will-quit` with
+  **no orphan**; reopen brought it back Available as a single instance.
+- **Two more findings from the same run.** (1) **Saving an API key does not take
+  effect until restart** — the agent server snapshots credentials at spawn, so a
+  correctly-stored key still 401s and the UI gives no hint; a user would
+  conclude their key was bad. Not fixed. (2) The turn that called the tool
+  produced **no prose reply**, only a collapsed tool card — the right answer was
+  inside it, but the user has to expand it to see anything. Not fixed.
+- **Still NOT verified:** Chat turn -> Claude writes a server
   -> *Authored by Claude* row -> enable -> host promotes the copy out of the
   agent-writable workspace -> agent calls it -> quit -> reopen. Every part is
   tested; the whole is not, and the catalog cut made it the only way in. Also

@@ -88,10 +88,18 @@ function hostedTarget(meta: Extract<ServerRowModel['meta'], { kind: 'hosted' }>,
 }
 
 export function ServersPage({
+  active,
   onSwitchToChat,
   onOpenSettings,
   onOpenSchedule,
 }: {
+  /**
+   * True while the Servers tab is the visible one. Every tab in this shell
+   * stays mounted forever behind `display: none`, so "on mount" fires once at
+   * boot and never again — which is exactly when a server the agent writes
+   * mid-session would be missed. See the scan effect below.
+   */
+  active: boolean;
   /** Switch the shell to the chat view — the empty state's real acquisition path. */
   onSwitchToChat: () => void;
   onOpenSettings: () => void;
@@ -139,6 +147,32 @@ export function ServersPage({
     setAuthoredInfo(await window.mcpServersAPI.listAuthored());
   }, []);
   useEffect(() => { void refreshAuthoredInfo(); }, [refreshAuthoredInfo]);
+
+  /**
+   * Scan for agent-authored servers whenever this page becomes visible.
+   *
+   * This is the fix for the funnel's one broken seam, found by running it
+   * 2026-09-01: Claude writes a server, tells the user to come here, and the
+   * page said "No servers yet" because nothing had scanned since boot. The
+   * only control that would have found it — "Check for new servers" — lived
+   * inside the section that only renders once a server has been found.
+   *
+   * Arriving on the page is the exact moment the user is asking "did it
+   * appear?", so that is when to look. Idempotent: `authored.ts`'s known-ids
+   * ledger makes a repeat scan over the same directory a no-op, so this costs
+   * a directory read per tab switch and nothing else.
+   */
+  useEffect(() => {
+    if (!active) return;
+    let live = true;
+    void (async () => {
+      try {
+        await window.mcpServersAPI.rescanAuthored();
+      } catch { /* a scan failure must not blank the page — the rows we already have stay */ }
+      if (live) await refreshAuthoredInfo();
+    })();
+    return () => { live = false; };
+  }, [active, refreshAuthoredInfo]);
   const handleRescanAuthored = useCallback(async () => {
     setRescanBusy(true);
     try {
@@ -287,6 +321,19 @@ export function ServersPage({
                   </p>
                   <div className="serversEmpty__links">
                     <button type="button" className="connectorLink" onClick={askClaude}>Open chat</button>
+                    {/* Reachable from the empty state on purpose. This used to
+                        live only inside "Authored by Claude", which renders
+                        only once a server has been found — so the one control
+                        that could find a server required a server to already
+                        have been found. */}
+                    <button
+                      type="button"
+                      className="connectorLink"
+                      disabled={rescanBusy}
+                      onClick={() => void handleRescanAuthored()}
+                    >
+                      {rescanBusy ? 'Checking…' : 'Claude just built one? Check now'}
+                    </button>
                     <button type="button" className="connectorLink" onClick={openAddForm}>
                       Advanced: add a server yourself
                     </button>

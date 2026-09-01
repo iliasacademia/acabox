@@ -355,3 +355,75 @@ describe('listAuthoredInfo', () => {
     expect(info.rejected[0].dir).toBe('info-bad');
   });
 });
+
+/**
+ * Regression: the Increment 5 funnel, run end to end for the first time on
+ * 2026-09-01, failed at exactly one seam. The agent wrote
+ * `.mcp-servers/dna-toolkit/`, a scan adopted it, `servers.json` gained the
+ * record — and the Servers page still read "No servers yet" until the app was
+ * restarted.
+ *
+ * Cause: `onInventoryChanged` was wired only to `supervisor.onStatusChange`,
+ * which is a PROCESS event. An adopted record has never been started, so it
+ * has no handle and fired nothing. Adoption is the exact moment the user is
+ * told to go and look, which makes it the worst possible moment to be silent.
+ *
+ * Asserted through the `mcpHost` façade rather than `authored.ts` directly,
+ * because the façade is what `main/index.ts` subscribes to — testing the
+ * inner function would pass while the actual broadcast stayed broken.
+ */
+describe('adoption announces itself (funnel regression, 2026-09-01)', () => {
+  it('fires onInventoryChanged for a server adopted from the workspace', async () => {
+    const mcpHost = await import('../index');
+    const seen: string[] = [];
+    const off = mcpHost.onInventoryChanged((id) => seen.push(id));
+
+    writeAuthoredFixture('announce-me');
+    const result = await mcpHost.scanAuthoredServers();
+    off();
+
+    expect(result.adopted).toEqual(['announce-me']);
+    expect(seen).toContain('announce-me');
+  });
+
+  it('says nothing when a scan adopts nothing — no spurious repaints', async () => {
+    const mcpHost = await import('../index');
+    writeAuthoredFixture('quiet');
+    await mcpHost.scanAuthoredServers();          // first scan adopts it
+
+    const seen: string[] = [];
+    const off = mcpHost.onInventoryChanged((id) => seen.push(id));
+    const again = await mcpHost.scanAuthoredServers();   // idempotent no-op
+    off();
+
+    expect(again.adopted).toEqual([]);
+    expect(seen).toEqual([]);
+  });
+
+  it('also announces a REMOVAL of a never-started server', async () => {
+    const mcpHost = await import('../index');
+    writeAuthoredFixture('remove-me');
+    await mcpHost.scanAuthoredServers();
+
+    const seen: string[] = [];
+    const off = mcpHost.onInventoryChanged((id) => seen.push(id));
+    const result = await mcpHost.remove('remove-me');
+    off();
+
+    expect(result.ok).toBe(true);
+    // Without this the deleted row sits on the page until a reload — the
+    // adoption bug's mirror image, found the same afternoon.
+    expect(seen).toContain('remove-me');
+  });
+
+  it('unsubscribes cleanly — a released listener stops hearing adoptions', async () => {
+    const mcpHost = await import('../index');
+    const seen: string[] = [];
+    mcpHost.onInventoryChanged((id) => seen.push(id))();  // subscribe then immediately release
+
+    writeAuthoredFixture('after-off');
+    await mcpHost.scanAuthoredServers();
+
+    expect(seen).toEqual([]);
+  });
+});
