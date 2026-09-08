@@ -95,18 +95,13 @@ export function ActivityPanel({ apps, onOpenTool, onSwitchToChat }: Props) {
   useEffect(() => { reloadTasks(); }, [reloadTasks]);
 
   /**
-   * There is no `scheduledTasks:changed` broadcast, so a run that starts on the
-   * scheduler's own clock would otherwise leave `last_run_at` stale for as long
-   * as the page stays mounted — and every tab stays mounted forever. Poll while
-   * the tab is actually visible; the interval is coarse because a schedule's
-   * shortest cadence is five minutes.
+   * A run started on the scheduler's own clock changes `last_run_at` with no
+   * user gesture, and every tab stays mounted forever — so this cannot be a
+   * fetch-on-mount. It was a 30s poll until the repository grew a change
+   * broadcast; the broadcast is strictly better because it also fires on the
+   * scheduler's timer path, which no IPC call passes through.
    */
-  useEffect(() => {
-    const t = setInterval(() => {
-      if (!document.hidden) reloadTasks();
-    }, 30_000);
-    return () => clearInterval(t);
-  }, [reloadTasks]);
+  useEffect(() => window.scheduledTasksAPI.onChanged(reloadTasks), [reloadTasks]);
 
   const toggleTask = useCallback(async (task: ScheduledTask) => {
     await window.scheduledTasksAPI.setEnabled(task.id, task.enabled === 0);

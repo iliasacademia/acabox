@@ -416,6 +416,27 @@ describe('adoption announces itself (funnel regression, 2026-09-01)', () => {
     expect(seen).toContain('remove-me');
   });
 
+  it('removing a server reclaims the promoted copy from disk (R13)', async () => {
+    const mcpHost = await import('../index');
+    const store = await import('../store');
+    writeAuthoredFixture('reclaim-me');
+    await mcpHost.scanAuthoredServers();
+    await mcpHost.approveAuthoredServer('reclaim-me');
+
+    const promoted = store.hostedServerDir('reclaim-me');
+    expect(fs.existsSync(promoted)).toBe(true);
+
+    await mcpHost.remove('reclaim-me');
+
+    // Left behind, this is both dead disk (an npm-installed server carries its
+    // own node_modules) and a landmine: re-adopting the same id would promote
+    // a fresh copy on top of a stale tree.
+    expect(fs.existsSync(promoted)).toBe(false);
+    // The agent's own source is NOT ours to delete — removing a server stops
+    // hosting it, it does not destroy the code Claude wrote.
+    expect(fs.existsSync(path.join(workspaceServersRoot(), 'reclaim-me'))).toBe(true);
+  }, 20000);
+
   it('unsubscribes cleanly — a released listener stops hearing adoptions', async () => {
     const mcpHost = await import('../index');
     const seen: string[] = [];

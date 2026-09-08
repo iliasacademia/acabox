@@ -407,6 +407,17 @@ contextBridge.exposeInMainWorld('scheduledTasksAPI', {
   setEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke('scheduledTasks:setEnabled', id, enabled),
   runNow: (id: string) => ipcRenderer.invoke('scheduledTasks:runNow', id),
   listRuns: (taskId: string) => ipcRenderer.invoke('scheduledTasks:listRuns', taskId),
+  /**
+   * Fires on every scheduled-task write, including runs started by the
+   * scheduler's own clock. Returns its own unsubscribe closure — do NOT use
+   * `removeAllListeners`, which would tear down another component's
+   * subscription to the same channel.
+   */
+  onChanged: (cb: () => void) => {
+    const handler = () => cb();
+    ipcRenderer.on('scheduledTasks:changed', handler);
+    return () => ipcRenderer.removeListener('scheduledTasks:changed', handler);
+  },
 });
 
 contextBridge.exposeInMainWorld('reactionPromptAPI', {

@@ -1,9 +1,9 @@
 # Local MCP servers: host, manage, and author them in Acabox
 
-> **Status: Increments 0–5, 7 and 8 are built and green. 6 and most of 9 are not.**
+> **Status: Increments 0–5 and 7–9 are built and green. Only 6 (installer) is not.**
 > Written 2026-08-05 as a proposal; brought in line with the code 2026-08-31.
 > Measured on that date, not recalled: `npx tsc --noEmit` clean,
-> `npm test` **1055/1055 across 67 suites**, `npm start -- -- --smoke-test` exits 0.
+> `npm test` **1082/1082 across 69 suites**, `npm start -- -- --smoke-test` exits 0.
 >
 > | Increment | State |
 > |---|---|
@@ -16,7 +16,7 @@
 > | 6 Install from GitHub/npm | **Not started** |
 > | 7 Write gate | Done, reshaped — per-tool `enabledTools`, not a boolean (2026-08-13 decision) |
 > | 8 Scheduler on Activity | Done — `renderer/components/schedule/`, section on Activity |
-> | 9 Hardening | Partial — this header and CLAUDE.md; log rotation outstanding |
+> | 9 Hardening | Done — log rotation verified as already-bounded (see CLAUDE.md); disk reclaim on remove (R13) shipped |
 >
 > **Unverified, and the first one is the one that matters.** The Increment 5 user
 > journey has never been driven end to end by a human — chat turn → Claude writes a

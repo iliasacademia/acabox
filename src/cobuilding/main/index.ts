@@ -152,6 +152,7 @@ import {
   setTaskEnabled,
   listTaskRuns,
   getTaskBySessionSource,
+  onScheduledTasksChanged,
 } from './db/scheduledTaskRepository';
 import { startScheduledTasks, stopScheduledTasks, getTaskScheduler } from './scheduledTasks';
 import { runScheduledTask } from './scheduledTasks/runner';
@@ -485,13 +486,22 @@ let inflightCredentialRefresh: Promise<boolean> | null = null;
 // restarting the turn forever on the same bad key.
 let lastPushedApiKey: string | null = null;
 
-async function refreshAndPushCredentials(): Promise<boolean> {
-  if (inflightCredentialRefresh) return inflightCredentialRefresh;
+/**
+ * `force` is for the one caller that is NOT a retry: the user pressing Save in
+ * Settings. The `lastPushedApiKey` short-circuit below is correct for the 401
+ * path (re-trying an identical key just loops), but it is wrong for an explicit
+ * save — re-entering the same key is exactly what someone does when a push
+ * failed the first time, e.g. the agent server was not up yet, in which case
+ * `currentConfig` still holds the old key and nothing would ever correct it.
+ * Measured 2026-09-01: a correctly-stored key kept returning 401 until restart.
+ */
+async function refreshAndPushCredentials(opts: { force?: boolean } = {}): Promise<boolean> {
+  if (inflightCredentialRefresh && !opts.force) return inflightCredentialRefresh;
   inflightCredentialRefresh = (async () => {
     try {
       const { apiKey, baseURL } = loadCredentialsIntoStore();
       if (!apiKey) return false;
-      if (apiKey === lastPushedApiKey) return false; // unchanged → nothing to retry
+      if (!opts.force && apiKey === lastPushedApiKey) return false; // unchanged → nothing to retry
       const ok = await containerService.updateAgentCredentials(apiKey, baseURL);
       if (ok) lastPushedApiKey = apiKey;
       return ok;
@@ -1020,6 +1030,20 @@ app.whenReady().then(async () => {
     // rather than trying to diff at the source is the simpler correct choice
     // — `mcpServerStore`'s `republish()` on the renderer side is where
     // redundant repaints actually get suppressed.
+    // Scheduled tasks: same pattern, same reason. A run started by the
+    // scheduler's own clock changes `last_run_at` with no user gesture, so the
+    // Activity section polled every 30s to notice. The repository now announces
+    // every write (see `onScheduledTasksChanged`), which is strictly better —
+    // it fires on the scheduler's timer path too, which no IPC covers.
+    // Payload-free on purpose: `scheduledTasks:list` is workspace-scoped and
+    // the renderer re-reads it, rather than this block having to know which
+    // workspace each window is showing.
+    onScheduledTasksChanged(() => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('scheduledTasks:changed');
+      }
+    });
+
     mcpHost.onInventoryChanged(() => {
       mcpHost.list()
         .then((all) => {
@@ -2634,9 +2658,20 @@ ipcMain.handle('auth:setApiKey', async (_event, key: string, baseURL?: string) =
   setCustomAnthropicKey(trimmed, url);
   setCredentials(trimmed, url);
   // Push to an already-running agent server so a pasted key takes effect
-  // without an app restart.
-  await refreshAndPushCredentials().catch((err) => log.warn('[Auth] push new key to agent failed:', err));
-  log.info('[Auth] Anthropic API key updated from Settings');
+  // without an app restart. `force` because this is a deliberate save, not a
+  // retry — see refreshAndPushCredentials.
+  const pushed = await refreshAndPushCredentials({ force: true })
+    .catch((err) => { log.warn('[Auth] push new key to agent failed:', err); return false; });
+  log.info(`[Auth] Anthropic API key updated from Settings (pushed to agent: ${pushed})`);
+  // A failed push is not a failed save — the key is on disk and every future
+  // session reads it — but it IS the case where a restart is genuinely needed,
+  // so say so instead of reporting a clean success the next turn contradicts.
+  if (!pushed) {
+    return {
+      success: true,
+      warning: 'Saved. The assistant was not reachable just now, so restart Acabox if the next message still reports a key problem.',
+    };
+  }
   return { success: true };
 });
 

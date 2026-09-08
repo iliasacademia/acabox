@@ -1,4 +1,5 @@
 import log from 'electron-log';
+import * as fs from 'fs';
 import * as supervisor from './supervisor';
 import * as authored from './authored';
 import {
@@ -10,6 +11,7 @@ import {
   removeHostedServer,
   reconcileOrphans,
   isEncryptionAvailable,
+  hostedServerDir,
 } from './store';
 import { validateHostedServer, isToolSelected } from '../../shared/hostedMcp';
 import type {
@@ -274,8 +276,41 @@ export async function remove(id: string, opts: { graceMs?: number } = {}): Promi
   // started has no handle, so `forgetServer` fires no status change and the
   // row it just deleted would sit on the Servers page until a reload. Measured
   // 2026-09-01 alongside the adoption case.
-  if (removed) emitRecordChange(id);
+  if (removed) {
+    emitRecordChange(id);
+    reclaimHostedServerDir(id);
+  }
   return { ok: removed, error: removed ? undefined : `"${id}" was removed by someone else already.` };
+}
+
+/**
+ * Delete the promoted copy a removed server was running from.
+ *
+ * Removing a server used to drop only its record, leaving
+ * `<userData>/mcp-servers/<id>/` on disk forever. Two consequences, and the
+ * second is the one that bites: an npm-installed server carries its own
+ * `node_modules` (tens of MB), and re-adopting the SAME id later would promote
+ * a fresh copy on top of a stale tree rather than into a clean directory. This
+ * repo already carries one unpruned-accumulation bug on record
+ * (`workspace-file-backups/`); this is not going to be the second.
+ *
+ * Deliberately `rm`, not trash: this tree is a COPY the host made at approve
+ * time. The user's own artifact is the agent-written source in
+ * `<workspace>/.mcp-servers/<id>/`, which is untouched — removing a server here
+ * is not meant to destroy the code Claude wrote, only to stop hosting it.
+ *
+ * Never throws: the record is already gone, so failing here would report a
+ * failed removal that in fact succeeded.
+ */
+function reclaimHostedServerDir(id: string): void {
+  const dir = hostedServerDir(id);
+  try {
+    if (!fs.existsSync(dir)) return;
+    fs.rmSync(dir, { recursive: true, force: true });
+    log.info(`[McpHost] Reclaimed the running copy of "${id}" from disk.`);
+  } catch (err) {
+    log.warn(`[McpHost] Could not delete the running copy of "${id}" at ${dir}: ${(err as Error).message}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

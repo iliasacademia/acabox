@@ -217,11 +217,14 @@ because it was 494 lines of finished UI held hostage by a four-week plan.
   had been missing `knowledge` and `activity`. `shared/__tests__/sidebarTabs.test.ts`
   scans the source for a fourth copy **and** asserts the two known sites still
   import the constant, so it cannot pass vacuously.
-- **Known gap: there is no `scheduledTasks:changed` broadcast**, so the section
-  polls every 30s while the tab is visible. A run started by the scheduler's own
-  clock would otherwise leave `last_run_at` stale for as long as the page stays
-  mounted, and every tab stays mounted forever. A broadcast is the right fix and
-  is the natural next follow-up.
+- **The 30s poll is gone (2026-09-08): the repository now broadcasts.**
+  `onScheduledTasksChanged` in `db/scheduledTaskRepository.ts` fires on all
+  seven mutations, main fans it out as `scheduledTasks:changed`, and Activity
+  subscribes. **Notified from the REPOSITORY, not the IPC handlers**, because
+  `runner.ts` writes run rows and `scheduler.ts` stamps `updateLastRun` from the
+  timer — neither passes through IPC, and those are exactly the writes the poll
+  existed to catch. Same lesson as `emitRecordChange` in `mcpHost`: announce at
+  the write, which is the one place that cannot be bypassed.
 - Verified: tsc clean; **1055/1055 across 67 suites**; smoke exits 0 (its log
   now ends `[APP] will-quit: exiting via the shutdown path`, which is the
   Increment 1 teardown firing on the right event). Then driven live over CDP
@@ -304,7 +307,7 @@ not started.**
   not exist in 1.29.0. It resolves under `moduleResolution: node` only because the
   exports map has a `"./*"` wildcard and the package ships legacy `typesVersions`;
   no `paths` entry or `.d.ts` shim is needed, and none should be added.
-- Verified 2026-08-31: `npx tsc --noEmit` clean; **1055/1055 across 67 suites**;
+- Verified 2026-09-08: `npx tsc --noEmit` clean; **1082/1082 across 69 suites**;
   `npm start -- -- --smoke-test` exits 0. Note the smoke test proves **nothing**
   about hosted MCP — `mcpHost.startAll()` sits on the renderer-triggered
   `agentInfrastructure.start` path the smoke run never reaches. Use the
@@ -339,12 +342,38 @@ not started.**
   non-agent-writable path); the model called `dna-toolkit/reverse_complement`
   and got `TACCGCAT`; quit stopped the child cleanly before `will-quit` with
   **no orphan**; reopen brought it back Available as a single instance.
-- **Two more findings from the same run.** (1) **Saving an API key does not take
-  effect until restart** — the agent server snapshots credentials at spawn, so a
-  correctly-stored key still 401s and the UI gives no hint; a user would
-  conclude their key was bad. Not fixed. (2) The turn that called the tool
-  produced **no prose reply**, only a collapsed tool card — the right answer was
-  inside it, but the user has to expand it to see anything. Not fixed.
+- **Two more findings from the same run. (1) is FIXED (2026-09-08).** Saving an
+  API key did not take effect until restart. `POST /credentials` updated only
+  the server-wide `currentConfig` — the template for FUTURE sessions — while a
+  live session held its own merged copy and kept the stale key for life,
+  **including across the 401 retry, whose entire purpose is to pick up a
+  refreshed credential**. Now `applyCredentialsToSessions`
+  (`agent-server/sessionConfig.ts`, extracted there because `index.ts` cannot be
+  imported under Jest — the Agent SDK is ESM-only, the same constraint
+  `dynamicMcp.ts` was carved out for) patches every live session in place;
+  `startQuery` closes over the same object, so replacing it rather than mutating
+  it would silently not work. Two supporting changes: the explicit Settings save
+  passes `force` so the `lastPushedApiKey` short-circuit (correct for the retry
+  path, wrong for a deliberate save) cannot skip it, and a push that fails now
+  returns a `warning` the UI shows — *"Saved. The assistant was not reachable
+  just now, so restart Acabox if the next message still reports a key problem."*
+  Silence there is what made a stored-but-401ing key read as a bad key.
+  **(2) is NOT fixed:** the turn that called the tool produced no prose reply,
+  only a collapsed tool card — the right answer was inside it, but the user has
+  to expand it to see anything.
+- **`remove()` now reclaims the promoted copy (R13, 2026-09-08).** It dropped the
+  record and left `<userData>/mcp-servers/<id>/` on disk forever — dead disk for
+  an npm-installed server (its own `node_modules`), and a landmine besides:
+  re-adopting the same id would promote a fresh copy on top of a stale tree.
+  Deliberately `rm`, not trash — that tree is a COPY the host made at approve
+  time; the user's artifact is the agent-written source under
+  `<workspace>/.mcp-servers/<id>/`, which is left alone.
+- **Increment 9's "log rotation" needed no work, checked rather than assumed:**
+  `cobuilding.log` already rotates (`log.transports.file.maxSize = 5MB`) and
+  hosted-server stderr is a bounded 8192-char in-memory ring
+  (`STDERR_RING_MAX_CHARS`), never written to disk. Nothing in this subsystem
+  grows without bound. (`workspace-file-backups/` still does — unrelated, and
+  still open.)
 - **Still NOT verified:** Chat turn -> Claude writes a server
   -> *Authored by Claude* row -> enable -> host promotes the copy out of the
   agent-writable workspace -> agent calls it -> quit -> reopen. Every part is

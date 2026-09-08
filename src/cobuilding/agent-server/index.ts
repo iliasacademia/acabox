@@ -35,7 +35,7 @@ import { AGENT_MEMORY_SUBDIR } from '../shared/paths';
 import { OAUTH_FLOW_WINDOW_MS } from '../shared/oauthWindow';
 import { replaceConnectorAllowedTools } from '../shared/connectors';
 import { assertKnowledgeToolAllowed } from '../shared/agentAllowedTools';
-import { mergeSessionConfig, filterMcpServers, type AgentConfig, type SessionOverrides } from './sessionConfig';
+import { mergeSessionConfig, filterMcpServers, applyCredentialsToSessions, type AgentConfig, type SessionOverrides } from './sessionConfig';
 import { ensureApiKeyApproved } from '../shared/claudeConfigApproval';
 import { jsonSchemaToZod } from './jsonSchemaToZod';
 import { mergeDynamicMcpServers, applyDynamicMcpToSession } from './dynamicMcp';
@@ -87,6 +87,21 @@ export interface SessionState {
   // handler closure is `createMcpRelayHandler(state, id, toolName)`, bound to
   // THIS session's `pendingMcpCalls`/SSE clients, not a global one.
   mcpHosted: Record<string, unknown>;
+  /**
+   * This session's merged config, held by REFERENCE so `POST /credentials` can
+   * patch the API key on a session that already exists.
+   *
+   * Before this, the key was a `const` captured at `createSession()` and
+   * `POST /credentials` only updated `currentConfig` — the default for FUTURE
+   * sessions. A session that had already been created kept the old key for
+   * life, including across the 401 retry, whose whole purpose is to pick up a
+   * refreshed credential. Measured 2026-09-01: the user pasted a valid key into
+   * Settings, it was stored correctly, the push landed, and the very next turn
+   * still returned `authentication_error` — recoverable only by restarting the
+   * app, with nothing in the UI to suggest that. Saving a key is the first
+   * thing a new user does, so this failed at the worst possible moment.
+   */
+  sessionConfig: AgentConfig;
 }
 
 // Server-side idle eviction window. Host-side visibility cleanup is the
@@ -521,7 +536,13 @@ function buildContentBlocks(payload: UserMessagePayload): string | unknown[] {
 function createSession(sessionId: string, config: AgentConfig, resumeSessionId?: string, overrides?: SessionOverrides): SessionState {
   const messageQueue = createMessageQueue<UserMessagePayload>();
 
+  // Merged up here rather than after the literal so it can go ON the session:
+  // `POST /credentials` patches this object in place, which is what lets a key
+  // fixed mid-session take effect without an app restart. See SessionState.
+  const sessionConfig = mergeSessionConfig(config, overrides);
+
   const state: SessionState = {
+    sessionConfig,
     sessionId,
     queryInstance: null,
     messageQueue,
@@ -542,8 +563,6 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
 
   const mcpRelayServers = createMcpRelayServers(state);
 
-  const sessionConfig = mergeSessionConfig(config, overrides);
-
   // Snapshot all three halves of the MCP server set onto the session. The
   // relay half is fixed for the session's lifetime; the connector and hosted
   // halves are replaced live by POST /connectors and POST /hosted
@@ -557,10 +576,13 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
   state.mcpHosted = buildHostedMcpServers(state, config.hostedServers ?? {});
 
   async function startQuery(resume?: string): Promise<void> {
-    // Defence in depth behind the host's chat:send guard. The key is snapshotted
-    // into sessionConfig at createSession() time and POST /credentials only
-    // updates currentConfig, so a session born before the key landed stays
-    // keyless. Handing '' to the SDK blanks any inherited ANTHROPIC_API_KEY
+    // Defence in depth behind the host's chat:send guard. Read from
+    // `sessionConfig` on every call rather than captured once: `POST
+    // /credentials` patches this object in place for live sessions (see
+    // SessionState.sessionConfig), so a key fixed mid-session is picked up
+    // here — including by the 401 retry. A session created while no key
+    // existed at all can still reach this with nothing set.
+    // Handing '' to the SDK blanks any inherited ANTHROPIC_API_KEY
     // (see the env spread below) and the CLI replies "Not logged in · Please
     // run /login". Refuse instead — the throw is caught by the caller and
     // broadcast as an 'error' SSE, which the host forwards to chat:error.
@@ -866,7 +888,12 @@ function startServer(initialConfig: AgentConfig): void {
         if ('anthropicBaseURL' in body) {
           currentConfig = { ...currentConfig, anthropicBaseURL: body.anthropicBaseURL || undefined };
         }
-        console.log('[AgentServer] Credentials updated');
+        // Reach the sessions that ALREADY exist, not just the next one — see
+        // applyCredentialsToSessions for the bug this fixes. Lives in
+        // sessionConfig.ts because this file cannot be imported under Jest
+        // (the Agent SDK is ESM-only), the same reason dynamicMcp.ts exists.
+        const patched = applyCredentialsToSessions(sessions.values(), body);
+        console.log(`[AgentServer] Credentials updated (${patched} live session(s) repointed)`);
         sendJSON(res, 200, { ok: true });
         return;
       }

@@ -105,3 +105,56 @@ export function mergeSessionConfig(config: AgentConfig, overrides?: SessionOverr
     apiGuidance: overrides?.apiGuidance ?? config.apiGuidance,
   };
 }
+
+/** The body `POST /credentials` accepts. Both fields optional and independent. */
+export interface CredentialsPush {
+  anthropicApiKey?: string;
+  anthropicBaseURL?: string | null;
+}
+
+/** Just enough of a live session for `applyCredentialsToSessions`. */
+export interface CredentialTarget {
+  sessionConfig?: Pick<AgentConfig, 'anthropicApiKey' | 'anthropicBaseURL'>;
+}
+
+/**
+ * Point already-running sessions at a newly-saved credential.
+ *
+ * `POST /credentials` used to update only the server-wide `currentConfig`,
+ * which is the template for FUTURE sessions. A session that already existed
+ * held its own merged copy and kept the old key for life — including across
+ * the 401 retry, whose entire purpose is to pick up a refreshed credential.
+ *
+ * Measured 2026-09-01: a valid key pasted into Settings was stored correctly
+ * and pushed successfully, and the next turn still returned
+ * `authentication_error`. Only an app restart fixed it, and nothing in the UI
+ * hinted at that. Saving a key is the first thing a new user does.
+ *
+ * Mutates in place, deliberately: `startQuery` closes over the same object, so
+ * replacing it would leave the closure pointing at the old one. Returns how
+ * many sessions were repointed, for the log line.
+ *
+ * An absent `anthropicApiKey` leaves the key alone (a base-URL-only push must
+ * not blank it); `anthropicBaseURL` is keyed on PRESENCE, not truthiness, so an
+ * explicit `null` clears a previously-set URL — the same convention
+ * `updateAgentCredentials` sends and the handler's own `in` check applies.
+ */
+export function applyCredentialsToSessions(
+  sessions: Iterable<CredentialTarget>,
+  body: CredentialsPush,
+): number {
+  const nextKey = body.anthropicApiKey;
+  const setsKey = typeof nextKey === 'string' && nextKey.length > 0;
+  const setsUrl = 'anthropicBaseURL' in body;
+  if (!setsKey && !setsUrl) return 0;
+
+  let patched = 0;
+  for (const session of sessions) {
+    const cfg = session.sessionConfig;
+    if (!cfg) continue;
+    if (setsKey) cfg.anthropicApiKey = nextKey as string;
+    if (setsUrl) cfg.anthropicBaseURL = body.anthropicBaseURL || undefined;
+    patched++;
+  }
+  return patched;
+}

@@ -113,7 +113,8 @@ interface ContainerAPI {
 interface AuthAPI {
   getApiKey(): Promise<{ apiKey: string | null; baseURL?: string }>;
   getApiKeyStatus(): Promise<{ hasKey: boolean; source: 'env' | 'settings' | null; baseURL: string | null }>;
-  setApiKey(key: string, baseURL?: string): Promise<{ success: boolean; error?: string }>;
+  /** `warning` = saved to disk, but the running assistant could not be told; a restart may be needed. */
+  setApiKey(key: string, baseURL?: string): Promise<{ success: boolean; error?: string; warning?: string }>;
   isDev: boolean;
   setEndpoint(endpoint: string): Promise<{ success: boolean; endpoint: string }>;
 }
@@ -721,6 +722,8 @@ declare global {
     setEnabled(id: string, enabled: boolean): Promise<void>;
     runNow(id: string): Promise<void>;
     listRuns(taskId: string): Promise<ScheduledTaskRun[]>;
+    /** Fires on every write, including runs the scheduler's own clock starts. Returns its unsubscribe. */
+    onChanged(cb: () => void): () => void;
   }
 
   interface TodayFileSession {
