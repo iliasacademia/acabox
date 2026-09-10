@@ -44,6 +44,7 @@ import { ToolWorkspace } from './components/command-desk/ToolWorkspace';
 import { ToolFallback } from './components/assistant-ui/tool-fallback';
 import { SetupBanner } from './components/SetupBanner';
 import { GlobalComposer } from './components/GlobalComposer';
+import { QuoteToolbar } from './components/command-desk/QuoteToolbar';
 import { useTabs } from './tabs/useTabs';
 import type { TabDescriptor } from './tabs/types';
 import { kernelRegistry } from './components/notebook/kernelRegistry';
@@ -1021,6 +1022,19 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
     !(sidebarTab === 'tools' && toolsViewMode === 'paper-monitor') &&
     !(sidebarTab === 'tools' && toolsViewMode === 'reactions');
 
+  // The selection toolbar is mounted wherever a quote has somewhere to land.
+  // That is a WIDER set than `globalComposerVisible`: mini-app detail hides the
+  // docked composer but the tool's own side-panel chat is right there, and the
+  // thread composer holding the quote exists whether or not that panel happens
+  // to be expanded — quoting expands it. Settings and Debug have no chat at
+  // all, and a control that cannot do anything is worse than no control, so
+  // there the toolbar simply never appears.
+  const quoteToolbarEnabled =
+    sidebarTab !== 'settings' &&
+    sidebarTab !== 'debug' &&
+    !(sidebarTab === 'tools' && toolsViewMode === 'paper-monitor') &&
+    !(sidebarTab === 'tools' && toolsViewMode === 'reactions');
+
   // Toggle a body class while dragging any panel divider so iframes/webviews
   // don't swallow the mousemove/mouseup events. CSS pairs this with
   // `pointer-events: none` on iframes during drag.
@@ -1322,6 +1336,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
           </div>
           {/* Global composer — shown on all pages except settings, debug, tool detail view */}
           {globalComposerVisible && <GlobalComposer />}
+          <QuoteToolbar enabled={quoteToolbarEnabled} />
           <StatusBar />
             </div>
           </div>

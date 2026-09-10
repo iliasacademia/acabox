@@ -175,7 +175,101 @@ to `PATH`.
 - To kill stray dev instances:
   `pkill -9 -f "Acabox/node_modules/electron"`.
 
-## Status (last updated 2026-08-31)
+## Status (last updated 2026-09-09)
+
+**Select any text, quote it into the composer (2026-09-09).** Asked for after
+seeing it in Devin: select text in a reply, a floating toolbar appears, clicking
+it drops the excerpt into the message box as a chip that rides along with the
+next turn. Design decisions were the user's: blockquote wire format, all
+surfaces, one quote at a time, persisted block, everything in one change.
+- **`@assistant-ui/react` 0.12.22 already ships half of this** and the half it
+  ships is the half worth keeping: a composer quote slot (`setQuote`, one at a
+  time, auto-cleared on send), a `Quote` render slot on `MessagePrimitive.Parts`,
+  and `data-message-id` already emitted by `MessageRoot`. The load-bearing
+  discovery is that **`setQuote` writes its argument VERBATIM into the outgoing
+  message's `metadata.custom.quote`, and `custom` is untyped** — so `AcaboxQuote`
+  (text + truncated + provenance) rides through unchanged with a cast, and the
+  optimistic bubble and the rehydrated-from-SQLite bubble render through one
+  component. Two renderers for "before send" and "after reload" is how they
+  drift; there is one.
+- **What the library does NOT do is send it.** The quote lands in metadata and
+  `chatAdapter` built `userText` from text parts only, so without wiring, a
+  quote would render, send cleanly, and be invisible to the agent. It now travels
+  as its own field to main, which composes the blockquote on the way out
+  (`composeQuotedText`, the only place composition happens) while the row stores
+  the text the user TYPED. Storing the composed string instead would render the
+  excerpt twice in the bubble — once as its block, once in the body.
+- **Its own toolbar, not `SelectionToolbarPrimitive.Root`**, because that one
+  requires `data-message-id` and refuses every surface that is not a chat
+  message. `renderer/components/command-desk/quoteSource.ts` generalizes the
+  lookup to an opt-in `[data-quote-source="kind:value"]` ancestor with
+  `data-message-id` as fallback, so chat messages needed no markup change.
+  Inner claim wins: a tool card inside a reply is attributed to the tool.
+- **Deliberate divergence from the library: a TIMER, not `requestAnimationFrame`.**
+  Found by driving the real app — with the window occluded (`document.hidden`),
+  **rAF never fires in either the host page or a mini-app frame** while
+  `setTimeout` fires in both, so the rAF version silently stopped offering to
+  quote. The deferral only has to outlast the selection settling; it has nothing
+  to do with painting. Pinned by a test asserting on the shipped shim SOURCE so a
+  revert to rAF fails.
+- **Mini-app iframes work via `main/miniAppSelectionShim.ts`**, injected beside
+  the link shim on `did-frame-navigate` (same reason: `local-file://` is
+  cross-origin, `contentDocument` is null). The frame reports text + rect;
+  MiniAppViewer offsets the rect by the iframe's own box and the HOST draws the
+  toolbar, so it can't inherit the tool's CSS. Two consequences the protocol has
+  to carry: a host button **cannot** clear a selection in the frame's document
+  (clearing is a message back in), and the frame's internal scroll is invisible
+  to the host's scroll listener (the shim reports it). The frame slices at
+  **cap + 1**, not cap — pre-slicing at the cap would make a million-character
+  selection arrive at the limit and be reported as complete.
+- **`MAX_QUOTE_CHARS = 8000`, and it is not a guardrail against carelessness.**
+  It is the same failure mode as the 39,335-row CSV that produced a 5.5 MB
+  transcript and bricked a thread forever: a rendered spreadsheet is one Cmd-A
+  from megabytes. Truncation is never silent — flagged, ellipsized, and stated
+  in the attribution line even for chat prose, which is otherwise unattributed.
+- **Attribution asymmetry, deliberate:** the agent gets no source line for chat
+  prose (the excerpt is verbatim in the transcript directly above) but always
+  gets one for a file/tool/mini-app; the chip always shows one (the user is
+  looking at something detached from its origin). A file is also the one source
+  where the two differ in content: the agent gets the **full path** (it can hand
+  that to `Read`), the chip gets the tail.
+- **Routing:** the toolbar is mounted wherever a quote has somewhere to land —
+  wider than `globalComposerVisible`, since mini-app detail hides the docked
+  composer but the tool's side-panel chat is right there. Quoting expands that
+  panel if collapsed. Settings and Debug have no chat, so no toolbar.
+- Verified: tsc clean; **1148/1148 across 74 suites** (+66, 5 new suites,
+  including 11 against the REAL injected shim string in JSDOM); smoke exits 0.
+  Then driven live over CDP against a real `npm start`: toolbar positioned 8px
+  above the selection and horizontally centred on it; quote → chip → send → the
+  SDK transcript holds exactly
+  `> Built it as DNA Toolkit…\n\nQUOTETEST: reply with only the word ACK` while
+  the SQLite row holds the typed text and the quote as separate fields; agent
+  replied; **reload → the block came back from SQLite** with the typed text
+  appearing exactly once. Refusals confirmed live: a drag spanning two messages,
+  a selection inside the composer's own textarea, and scroll-dismiss. The shim
+  was proven injected into a real `local-file://` frame and its report reached
+  the host.
+- **A screenshot caught what no assertion did, again.** The meta line is mono
+  UPPERCASE across this design system — right for a category, wrong for a path:
+  it rendered `MyResearch/Data.csv` as `MYRESEARCH/DATA.CSV`. The component was
+  holding the correct string the whole time. File labels now opt out via
+  `cdQuoteMeta--literal` (chained selectors, so it cannot lose a specificity tie
+  to import order — the scheduler lesson).
+- **NOT verified: a quote taken from a real mini-app iframe end to end.** The
+  only tool in this dev workspace (`liverAtlasExplorer`) has a **pre-existing,
+  unrelated build failure** — `Could not resolve "lucide-react"` from the shared
+  `.applications/_reusable/ErrorDisplay.tsx`, i.e. the dep is missing from the
+  dev npm-site — so no mini-app iframe can mount. Deliberately not fixed here,
+  as it is someone else's bug and papering over it would hide it. What WAS proven
+  instead: injection into a real `local-file://` frame, the frame→host message,
+  and the host contract (`cd:frame-selection` → toolbar at the translated
+  coordinates → chip naming the tool → panel-expand and clear-selection events
+  both firing). The one unproven link is MiniAppViewer's `event.source` check
+  against its own iframe. **Acceptance test: install `lucide-react` into the
+  npm-site, rebuild that tool, select text inside it, confirm the chip appears
+  and the panel expands.**
+
+## Earlier status (last updated 2026-08-31)
 
 **The scheduler is finally reachable, on the Activity page (2026-08-31).**
 Increment 8 of `docs/design/mcp-hosting.md`, unrelated to MCP and pulled forward

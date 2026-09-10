@@ -24,6 +24,11 @@ jest.mock('@assistant-ui/react', () => {
   return {
     __esModule: true,
     useAuiState: (_selector: any) => false,
+    // The composer now renders a quote chip, which reads the composer runtime
+    // and the message quote. Both resolve to "no quote", so the chip renders
+    // nothing and these structural assertions stay about the composer itself.
+    useComposerRuntime: () => ({ setQuote: () => {} }),
+    useMessageQuote: () => undefined,
     AuiIf: ({ children }: any) => React.createElement(React.Fragment, null, children),
     ComposerPrimitive: {
       Root: passthrough,

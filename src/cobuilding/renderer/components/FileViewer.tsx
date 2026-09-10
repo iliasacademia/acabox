@@ -39,7 +39,10 @@ export const FileViewer: FC<FileViewerProps> = ({ filePath }) => {
     (fileContent.type === 'pdf' || fileContent.type === 'csv' || fileContent.type === 'spreadsheet');
 
   return (
-    <div className="fileViewer">
+    // One descriptor here covers every viewer this wrapper dispatches to —
+    // markdown, code, CSV, spreadsheet, PDF text layer — so quoting a cell or
+    // a line is attributed to the file it came from rather than to nothing.
+    <div className="fileViewer" data-quote-source={`file:${filePath}`}>
       <div className={flush ? 'fileViewerBody fileViewerBodyFlush' : 'fileViewerBody'}>
         {loading && <p className="fileViewerMessage">Loading...</p>}
         {fileContent && <FileContentView content={fileContent} filePath={filePath} />}

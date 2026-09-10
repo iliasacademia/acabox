@@ -88,7 +88,16 @@ const ToolFallbackImpl: ToolCallMessagePartComponent = (props: any) => {
         : 'cdDot--running';
 
   return (
-    <div className={`cdTool${failed ? ' cdTool--error' : ''}${open && expandable ? ' cdTool--open' : ''}`}>
+    // `data-quote-source` opts this card into the selection toolbar and, being
+    // the innermost claim, wins over the surrounding message — so quoting a
+    // command's output is attributed to the tool rather than to the reply that
+    // happens to contain it. What gets quoted is what is RENDERED: these cards
+    // truncate long output for display, and offering more than the user can
+    // see would be a worse lie than the truncation.
+    <div
+      className={`cdTool${failed ? ' cdTool--error' : ''}${open && expandable ? ' cdTool--open' : ''}`}
+      data-quote-source={`tool:${toolName}`}
+    >
       <button
         type="button"
         className="cdTool__row"

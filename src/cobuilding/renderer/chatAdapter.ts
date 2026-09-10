@@ -9,6 +9,7 @@ import type { ChatStreamMessage, ChatMessageStream, IPCAttachment } from '../sha
 import { setToolProgress, clearToolProgress, resetProgress, setSubagentStarted, updateSubagentProgress, setSubagentDone, setProcessingLabel, RECONNECTING_LABEL } from './progressStore';
 import { track as trackAnalytics } from './coscientistAnalytics';
 import { getSelectedEffort, getSelectedModel } from './components/ModelSelector';
+import { parseStoredQuote } from '../shared/quotes';
 
 /**
  * How long a stream may be completely silent before we stop trusting it.
@@ -70,6 +71,17 @@ export function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefO
         )
         .map((part) => part.text)
         .join('');
+
+      // A quoted excerpt travels as its own field, not folded into userText.
+      // The composer put it on the outgoing message's metadata (the library
+      // writes whatever `setQuote` was handed there verbatim), and MAIN is what
+      // composes the blockquote on the way to the agent — so the row keeps the
+      // text the user actually typed, and the composition has exactly one
+      // implementation instead of one per caller.
+      const quote = parseStoredQuote(
+        (lastUserMessage as { metadata?: { custom?: Record<string, unknown> } })
+          .metadata?.custom?.quote,
+      );
 
       // The assistant-ui model context is only registered while ModelSelector
       // is mounted, and it isn't in the tool side panel (that composer has no
@@ -151,7 +163,7 @@ export function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefO
       // listens on. Awaiting across contextBridge would break the stream's
       // `next()` proxying — see preload's sendMessage comment.
       const { stream, release } = window.chatAPI.sendMessage(
-        threadId, userText, attachments, model, pendingDocPath, messageId, effort,
+        threadId, userText, attachments, model, pendingDocPath, messageId, effort, quote,
       );
       const response = responseBuilder(threadId);
       resetProgress(threadId);

@@ -30,6 +30,7 @@ import log from 'electron-log';
 import { isInternalUrl } from '../../shared/urlTargets';
 import { validateExternalUrl } from '../../utils/urlValidation';
 import { MINI_APP_LINK_SHIM } from './miniAppLinkShim';
+import { MINI_APP_SELECTION_SHIM } from './miniAppSelectionShim';
 
 /**
  * Hand a URL to the OS. Reuses `validateExternalUrl` so navigation-guard
@@ -92,6 +93,13 @@ export function installExternalLinkGuards(): void {
         if (!frame) return;
         frame.executeJavaScript(MINI_APP_LINK_SHIM).catch((err: Error) => {
           log.warn(`[ExternalLinks] Could not install mini-app link shim in ${url}: ${err.message}`);
+        });
+        // Same injection point, same reason (see miniAppSelectionShim.ts):
+        // a cross-origin frame's text selection is unreachable from the host.
+        // Injected separately rather than concatenated so a failure in one
+        // shim cannot take the other down with it.
+        frame.executeJavaScript(MINI_APP_SELECTION_SHIM).catch((err: Error) => {
+          log.warn(`[ExternalLinks] Could not install mini-app selection shim in ${url}: ${err.message}`);
         });
       },
     );

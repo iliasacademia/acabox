@@ -1313,3 +1313,145 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ═══ Quote-to-composer ═══════════════════════════════════════════
+ *
+ * Three surfaces: the floating toolbar over a selection, the chip above the
+ * composer while drafting, and the block attached to the sent message.
+ *
+ * The chip and the block are styled as one family on purpose — what you saw
+ * before sending should be recognisably the same object afterwards. Both lead
+ * with a blue vertical rule, the one mark this app already reads as "quoted".
+ */
+
+.cdQuoteToolbar {
+  position: fixed;
+  transform: translate(-50%, -100%);
+  z-index: 60;
+  background: var(--cd-ink);
+  border-radius: 8px;
+  padding: 3px;
+  box-shadow: 0 4px 14px rgba(20, 20, 19, 0.22);
+}
+.cdQuoteToolbar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #ffffff;
+  font-family: var(--cd-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.cdQuoteToolbar__btn:hover { background: rgba(255, 255, 255, 0.14); }
+.cdQuoteToolbar__btn .msi { color: #ffffff; }
+
+/* ── Composer chip ── */
+
+.cdQuoteChip {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-bottom: 8px;
+  padding: 8px 9px 8px 0;
+  background: var(--cd-pale);
+  border: 1px solid var(--cd-border-soft);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.cdQuoteChip__rule {
+  flex: none;
+  align-self: stretch;
+  width: 3px;
+  background: var(--cd-blue);
+  border-radius: 0 2px 2px 0;
+}
+.cdQuoteChip__body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  /* Without this a long unbroken excerpt refuses to shrink and pushes the
+     remove button off the composer's right edge — the same flexbox failure
+     that hid the scheduler's unit dropdown. */
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.cdQuoteChip__meta,
+.cdMsgQuote__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--cd-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cd-text2);
+  min-width: 0;
+  /* The label can be a path. Ellipsize rather than trust it to be short:
+     the side-panel composer is as narrow as 320px, and a label that grows
+     the row is how the scheduler's unit dropdown ended up off-screen. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cdQuoteChip__meta .msi,
+.cdMsgQuote__meta .msi { color: var(--cd-text3); flex: none; }
+/* A path is data, not a category label — uppercasing it rewrites a
+   case-sensitive filename. Chained so it cannot lose a specificity tie to the
+   base rule on stylesheet order. */
+.cdQuoteChip__meta.cdQuoteMeta--literal,
+.cdMsgQuote__meta.cdQuoteMeta--literal {
+  text-transform: none;
+  letter-spacing: 0;
+}
+.cdQuoteChip__text {
+  font-family: var(--cd-sans);
+  font-size: 12.5px;
+  line-height: 17px;
+  color: var(--cd-text2);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cdQuoteChip__remove {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cd-text2);
+  cursor: pointer;
+}
+.cdQuoteChip__remove:hover { background: #ffffff; color: var(--cd-ink); }
+
+/* ── Attached to a sent message ── */
+
+.cdMsgQuote {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 9px;
+  padding-left: 10px;
+  border-left: 3px solid var(--cd-blue);
+  text-align: left;
+}
+.cdMsgQuote__text {
+  margin: 0;
+  font-family: var(--cd-sans);
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--cd-text2);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}

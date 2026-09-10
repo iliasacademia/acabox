@@ -3,6 +3,7 @@ import { ComposerPrimitive, AuiIf } from '@assistant-ui/react';
 import { MSymbol } from '../command-desk/MSymbol';
 import { DictationButton } from '../command-desk/DictationButton';
 import { composerAttachmentComponents } from './composer-attachments';
+import { ComposerQuoteChip } from './message-quote';
 import { useSetupState } from '../../setupStore';
 
 /**
@@ -27,6 +28,7 @@ export const ChatComposer: FC<{ placeholder?: string }> = ({
 
   return (
     <ComposerPrimitive.Root className="cdPanelComposer">
+      <ComposerQuoteChip />
       <ComposerPrimitive.Attachments components={composerAttachmentComponents} />
       <div className="cdPanelComposer__field">
         <span className="cdPanelComposer__glyph">▸</span>

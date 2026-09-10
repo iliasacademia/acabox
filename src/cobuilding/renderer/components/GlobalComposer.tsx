@@ -7,6 +7,7 @@ import {
   useComposerRuntime,
 } from '@assistant-ui/react';
 import { composerAttachmentComponents } from './assistant-ui/composer-attachments';
+import { ComposerQuoteChip } from './assistant-ui/message-quote';
 import { ModelSelector } from './ModelSelector';
 import { MSymbol } from './command-desk/MSymbol';
 import { DictationButton } from './command-desk/DictationButton';
@@ -62,6 +63,7 @@ const ComposerBody: FC = () => {
 
   return (
     <ComposerPrimitive.Root className="cdComposerRoot">
+      <ComposerQuoteChip />
       <ComposerPrimitive.Attachments components={composerAttachmentComponents} />
       <div className="cdComposerField">
         <span className="cdComposerGlyph">▸</span>

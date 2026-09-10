@@ -20,6 +20,7 @@ import { createCalendarAgentSession } from './calendarAgentSession';
 import type { CalendarMutationEvent } from './calendarAgentSession';
 import { registerSession, unregisterSession, getRegisteredSession, hasSession, destroyAllSessions, addSubscriber, removeSubscriber, onSessionDestroyed } from './sessionRegistry';
 import type { IPCAttachment } from '../shared/types';
+import { parseStoredQuote } from '../shared/quotes';
 import { provisionWorkspace } from './skills';
 import {
   createSkill,
@@ -2130,13 +2131,18 @@ async function generateSessionTitle(sessionId: string, firstMessage: string): Pr
   }
 }
 
-ipcMain.handle('chat:send', (event, { threadId, text, attachments, model, documentPath, messageId, effort }: { threadId: string; text: string; attachments?: IPCAttachment[]; model?: string; documentPath?: string; messageId?: string; effort?: string }) => {
+ipcMain.handle('chat:send', (event, { threadId, text, attachments, model, documentPath, messageId, effort, quote }: { threadId: string; text: string; attachments?: IPCAttachment[]; model?: string; documentPath?: string; messageId?: string; effort?: string; quote?: unknown }) => {
   const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) {
     throw new Error('No active workspace');
   }
 
-  log.info(`[chat:send] messageId=${messageId ?? '(none)'} threadId=${threadId} textLen=${text.length}`);
+  // Re-parsed rather than trusted: this is an IPC boundary, and a renderer
+  // mid-upgrade can send a shape this build does not understand. A malformed
+  // quote degrades to "no quote" instead of reaching SQLite.
+  const parsedQuote = parseStoredQuote(quote);
+
+  log.info(`[chat:send] messageId=${messageId ?? '(none)'} threadId=${threadId} textLen=${text.length}${parsedQuote ? ` quote=${parsedQuote.source.kind}/${parsedQuote.text.length}ch` : ''}`);
 
   // No key → refuse the turn rather than run it. Without this the agent server
   // is handed anthropicApiKey:'' and the bundled Claude Code binary answers
@@ -2176,7 +2182,7 @@ ipcMain.handle('chat:send', (event, { threadId, text, attachments, model, docume
     // Session is already running (e.g. scheduled task or previous user chat).
     // Ensure IPC forwarding is set up (idempotent — won't duplicate).
     ensureForwarding(threadId, event.sender);
-    existingRunning.sendMessage(text, attachments, messageId);
+    existingRunning.sendMessage(text, attachments, messageId, parsedQuote);
     return { messageId };
   }
 
@@ -2261,7 +2267,7 @@ ipcMain.handle('chat:send', (event, { threadId, text, attachments, model, docume
   }
 
   ensureForwarding(threadId, event.sender);
-  getRegisteredSession(threadId)!.sendMessage(text, attachments, messageId);
+  getRegisteredSession(threadId)!.sendMessage(text, attachments, messageId, parsedQuote);
 
   if (isFirstMessage && !isCalendarSession) {
     generateSessionTitle(threadId, text);

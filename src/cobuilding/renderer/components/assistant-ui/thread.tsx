@@ -6,6 +6,7 @@ import { TodoWrite } from './todo-write';
 import { EnterPlanMode } from './enter-plan-mode';
 import { Reasoning } from './thinking-indicator';
 import { ChatComposer } from './chat-composer';
+import { MessageQuoteBlock } from './message-quote';
 import { useProcessingLabel, RECONNECTING_LABEL } from '../../progressStore';
 import { useSetupState } from '../../setupStore';
 import { MSymbol } from '../command-desk/MSymbol';
@@ -270,7 +271,11 @@ const UserMessage: FC = () => {
   return (
     <MessagePrimitive.Root className="cdUser" data-role="user">
       <div className="cdUser__bubble">
-        <MessagePrimitive.Parts />
+        {/* `Quote` renders above the parts whenever the message carries
+            metadata.custom.quote — set by the composer on send, and restored
+            by historyMessageConverter on reload, so this one registration
+            covers both. */}
+        <MessagePrimitive.Parts components={{ Quote: MessageQuoteBlock }} />
         {hasAttachments && (
           <div className="cdUser__files">
             <MessagePrimitive.Attachments components={userAttachmentComponents} />

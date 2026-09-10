@@ -31,6 +31,9 @@ const ReasoningImpl: ReasoningMessagePartComponent = () => {
       open={isOpen}
       onOpenChange={handleOpenChange}
       className="reasoningRoot"
+      // Quoting a thinking block attributes it as thinking rather than as
+      // ordinary reply prose — the two read very differently to the agent.
+      data-quote-source="reasoning"
     >
       <CollapsibleTrigger className="reasoningTrigger">
         {isRunning && (

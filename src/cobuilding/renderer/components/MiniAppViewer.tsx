@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react';
+import { prepareQuoteText } from '../../shared/quotes';
 import { ChevronDownIcon, ChevronRightIcon, FileIcon, FolderIcon, FolderOpenIcon } from 'lucide-react';
 import { useComposerRuntime } from '@assistant-ui/react';
 import { CodeView, languageForPath } from './CodeView';
@@ -291,6 +292,7 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
             workspacePath={workspacePath}
             preBuilt
             nativeToolUrl={nativeToolUrl}
+            appName={appName}
           />
         ) : preBuilt ? (
           <CenteredMonoStatus label="STARTING" />
@@ -307,6 +309,7 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
                 key={`${rebuildKey}-${reloadNonce ?? 0}`}
                 dirName={dirName}
                 workspacePath={workspacePath}
+                appName={appName}
               />
             )}
           </ContainerGate>
@@ -819,7 +822,7 @@ const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dir
   return <>{children}</>;
 };
 
-const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; workspacePath: string; preBuilt?: boolean; nativeToolUrl?: string }>(({ dirName, workspacePath, preBuilt, nativeToolUrl }, ref) => {
+const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; workspacePath: string; preBuilt?: boolean; nativeToolUrl?: string; appName?: string | null }>(({ dirName, workspacePath, preBuilt, nativeToolUrl, appName }, ref) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   React.useImperativeHandle(ref, () => iframeRef.current!, []);
   const [loadError, setLoadError] = useState(false);
@@ -925,6 +928,44 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
       // event.source check is the correct origin-validation mechanism for local-file:// pages.
       // event.origin is unreliable on local-file:// in Electron (reported as "null" or "file://").
       if (!iframe || event.source !== iframe.contentWindow) return;
+
+      // A selection report from the injected shim. It is a notification, not a
+      // request — there is no `id` and nothing to post back — so it has to be
+      // handled ahead of the dispatch below, which drops anything unpaired.
+      //
+      // The rect arrives in the FRAME's viewport coordinates and is useless
+      // until offset by where the frame sits in ours. Everything else about
+      // the toolbar (positioning, dismissal, the click) is the host's ordinary
+      // path, so a quote taken from a tool is indistinguishable from any other.
+      if (event.data?.type === 'quoteSelection') {
+        const selection = event.data.selection as
+          | { text: string; rect: { top: number; left: number; width: number } }
+          | null;
+        if (!selection) {
+          window.dispatchEvent(new CustomEvent('cd:frame-selection', { detail: null }));
+          return;
+        }
+        const prepared = prepareQuoteText(selection.text);
+        if (!prepared) {
+          window.dispatchEvent(new CustomEvent('cd:frame-selection', { detail: null }));
+          return;
+        }
+        const frameBox = iframe.getBoundingClientRect();
+        window.dispatchEvent(new CustomEvent('cd:frame-selection', {
+          detail: {
+            text: prepared.text,
+            truncated: prepared.truncated,
+            messageId: `src:miniapp:${dirName}`,
+            source: { kind: 'miniapp', appDirName: dirName, appName: appName || dirName },
+            rect: {
+              top: frameBox.top + selection.rect.top,
+              left: frameBox.left + selection.rect.left,
+              width: selection.rect.width,
+            },
+          },
+        }));
+        return;
+      }
 
       // Mini-app MCP responses follow a separate protocol: the iframe is
       // returning a result for an invocation main initiated, so the id field
@@ -1120,13 +1161,30 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
         );
       }
     },
-    [connect, executeCode, composerRuntime, dirName, preBuilt],
+    [connect, executeCode, composerRuntime, dirName, preBuilt, appName],
   );
 
   useEffect(() => {
     window.addEventListener('message', handleBridgeMessage);
     return () => window.removeEventListener('message', handleBridgeMessage);
   }, [handleBridgeMessage]);
+
+  // The quote has been taken. A host-document button cannot drop a selection
+  // living in the frame's document, so clearing has to travel back in.
+  useEffect(() => {
+    const clear = () => {
+      iframeRef.current?.contentWindow?.postMessage({ type: 'clearQuoteSelection' }, '*');
+    };
+    window.addEventListener('cd:clear-frame-selection', clear);
+    return () => window.removeEventListener('cd:clear-frame-selection', clear);
+  }, []);
+
+  // A frame selection outlives the viewer being unmounted otherwise: the
+  // toolbar lives in the host's body and would be left pointing at a tool that
+  // is no longer on screen.
+  useEffect(() => () => {
+    window.dispatchEvent(new CustomEvent('cd:frame-selection', { detail: null }));
+  }, []);
 
   const iframeSrc = nativeToolUrl || `local-file://${encodeURI(appDir)}/src/index.html`;
 

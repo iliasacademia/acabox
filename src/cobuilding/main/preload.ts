@@ -722,7 +722,7 @@ contextBridge.exposeInMainWorld('chatAPI', {
     ipcRenderer.on('quick-chat:inject', handler);
     return () => { ipcRenderer.removeListener('quick-chat:inject', handler); };
   },
-  sendMessage: (threadId: string, text: string, attachments?: any[], model?: string, documentPath?: string, messageId?: string, effort?: string) => {
+  sendMessage: (threadId: string, text: string, attachments?: any[], model?: string, documentPath?: string, messageId?: string, effort?: string, quote?: any) => {
     // Fire-and-forget invoke for the ack/dedup round-trip. We can't await it
     // here because contextBridge doesn't proxy nested methods through a
     // resolved Promise — the renderer would receive a structured-cloned
@@ -730,7 +730,7 @@ contextBridge.exposeInMainWorld('chatAPI', {
     // Errors are routed to the chat:error IPC channel so the stream iterator
     // (which already listens for that) surfaces them the same way it
     // surfaces in-stream errors.
-    ipcRenderer.invoke('chat:send', { threadId, text, attachments, model, documentPath, messageId, effort })
+    ipcRenderer.invoke('chat:send', { threadId, text, attachments, model, documentPath, messageId, effort, quote })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         ipcRenderer.emit('chat:error', null, threadId, message);

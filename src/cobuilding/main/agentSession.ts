@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import path from 'path';
 import log from 'electron-log';
 import { captureError } from '../shared/telemetry';
+import { composeQuotedText, type AcaboxQuote } from '../shared/quotes';
 import { containerService } from './containerService';
 import * as mcpHost from './mcpHost';
 import { commandLogger, parseAppDirFromArgs } from './commandLogger';
@@ -262,7 +263,7 @@ export interface AgentSession {
   // `messageId` is a renderer-generated UUID that correlates a turn end-to-end.
   // Optional so internal callers (scheduled tasks, calendar) that don't model
   // turns this way can omit it.
-  sendMessage(userMessage: string, attachments?: IPCAttachment[], messageId?: string): void;
+  sendMessage(userMessage: string, attachments?: IPCAttachment[], messageId?: string, quote?: AcaboxQuote): void;
   destroy(): void;
   addListener(callbacks: Partial<ChatCallbacks>): () => void;
   /** True while the session loop is alive — does NOT track per-turn busy state. */
@@ -630,7 +631,7 @@ export function createAgentSession(
   startLoop();
 
   return {
-    sendMessage(userMessage: string, attachments?: IPCAttachment[], messageId?: string) {
+    sendMessage(userMessage: string, attachments?: IPCAttachment[], messageId?: string, quote?: AcaboxQuote) {
       // Stamp the turn so the SSE reader's synthetic turn-complete event can
       // include the same messageId. Cleared when the turn completes.
       // Only update when a messageId is actually provided — callers without
@@ -652,7 +653,17 @@ export function createAgentSession(
           title: att.type === 'document' ? att.title : undefined,
         };
       });
-      insertMessage(sessionId, 'user', JSON.stringify({ text: userMessage, attachments: storedAttachments }), messageId);
+      // The row stores what the user TYPED, plus the quote as its own field.
+      // What the agent receives is the composed form built a few lines below.
+      // Those two deliberately differ, and storing the composed string instead
+      // would make the bubble render the excerpt twice — once as its own block
+      // and once inside the message text.
+      insertMessage(
+        sessionId,
+        'user',
+        JSON.stringify({ text: userMessage, attachments: storedAttachments, ...(quote ? { quote } : {}) }),
+        messageId,
+      );
       // Mark a turn as in flight. Cleared by the SSE reader on the next
       // 'result' message. The registry uses this to decide whether a
       // navigation-away triggers destroy-now or defer-until-turn-end.
@@ -669,7 +680,10 @@ export function createAgentSession(
       log.info(`[AgentSession] emitting user-message sessionId=${sessionId} messageId=${messageId ?? '(none)'} textLen=${userMessage.length}`);
       emitEvent({ type: 'user-message', text: userMessage, messageId });
 
-      const processedText = messagePreprocessor ? messagePreprocessor(userMessage) : userMessage;
+      // Compose the quote in exactly one place, on the way out. `composeQuotedText`
+      // is a no-op when there is no quote, so the ordinary path is unchanged.
+      const quotedText = composeQuotedText(quote, userMessage);
+      const processedText = messagePreprocessor ? messagePreprocessor(quotedText) : quotedText;
 
       // Rewrite file attachment paths so the agent sees them relative to the
       // workspace cwd. User-shared directories are symlinked into the

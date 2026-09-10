@@ -18,6 +18,7 @@
 
 import type { ThreadMessageLike } from '@assistant-ui/react';
 import type { ReadonlyJSONObject } from 'assistant-stream/utils';
+import { parseStoredQuote } from '../shared/quotes';
 
 // ─── Wire shapes ────────────────────────────────────────────────────
 
@@ -29,7 +30,7 @@ import type { ReadonlyJSONObject } from 'assistant-stream/utils';
 export interface HistoryDbMessage {
   type: string;
   /**
-   * For 'user': `{ text, attachments? }`.
+   * For 'user': `{ text, attachments?, quote? }`.
    * For 'assistant': `Array<{ type: 'text'|'tool_use'|... }>`.
    * For 'tool_result': `Array<{ type: 'tool_result', tool_use_id, content, is_error? }>`.
    */
@@ -126,10 +127,15 @@ function buildToolResultsMap(dbMessages: readonly HistoryDbMessage[]): ToolResul
 
 function convertUserMessage(content: unknown, createdAt?: string): ThreadMessageLike {
   const parsed = (typeof content === 'object' && content !== null
-    ? (content as { text?: string; attachments?: StoredAttachment[] })
+    ? (content as { text?: string; attachments?: StoredAttachment[]; quote?: unknown })
     : { text: typeof content === 'string' ? content : '' });
   const text = typeof parsed.text === 'string' ? parsed.text : '';
   const storedAttachments = Array.isArray(parsed.attachments) ? parsed.attachments : [];
+  // Restored to the exact key the live composer writes
+  // (`metadata.custom.quote`), so a rehydrated message renders through the same
+  // component as one that was just sent. Rows written before quoting existed
+  // simply have no `quote` field and parse to undefined.
+  const quote = parseStoredQuote(parsed.quote);
 
   const attachments = storedAttachments.map((att, i) => ({
     id: `att-${i}`,
@@ -144,6 +150,7 @@ function convertUserMessage(content: unknown, createdAt?: string): ThreadMessage
     role: 'user',
     content: text,
     ...(attachments.length > 0 ? { attachments } : {}),
+    ...(quote ? { metadata: { custom: { quote } } } : {}),
     ...(createdAt ? { createdAt: new Date(createdAt) } : {}),
   };
 }

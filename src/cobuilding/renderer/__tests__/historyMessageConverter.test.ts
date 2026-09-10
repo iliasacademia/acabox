@@ -192,3 +192,99 @@ describe('convertHistoryMessagesFromStringContent', () => {
     ]);
   });
 });
+
+/**
+ * A quoted excerpt has to survive a restart, and it has to come back in the
+ * exact place the live composer writes it — `metadata.custom.quote` — because
+ * that is what lets one component render both an optimistic bubble and a
+ * rehydrated one. Two renderers for "before send" and "after reload" is how
+ * they drift.
+ *
+ * The rows below are the literal shape `agentSession.sendMessage` writes.
+ */
+describe('quoted user messages', () => {
+  const quote = {
+    text: 'n_refs counts mentions',
+    truncated: false,
+    messageId: 'm-42',
+    source: { kind: 'message', role: 'assistant' },
+  };
+
+  it('restores a quote onto metadata.custom.quote', () => {
+    const rows = [
+      { type: 'user', content: JSON.stringify({ text: 'Is that per user?', quote }) },
+    ];
+    const [message] = convertHistoryMessagesFromStringContent(rows);
+    expect(message).toEqual({
+      role: 'user',
+      content: 'Is that per user?',
+      metadata: { custom: { quote } },
+    });
+  });
+
+  it('keeps the TYPED text, not the composed blockquote', () => {
+    // The row stores what the user typed; the blockquote is built on the way
+    // to the agent and lives only in the transcript. Storing the composed
+    // string instead would make the bubble show the excerpt twice — once as
+    // its own block and once inside the message text.
+    const rows = [
+      { type: 'user', content: JSON.stringify({ text: 'Is that per user?', quote }) },
+    ];
+    const [message] = convertHistoryMessagesFromStringContent(rows);
+    expect(message.content).toBe('Is that per user?');
+    expect(String(message.content)).not.toContain('>');
+  });
+
+  it('carries a quote alongside attachments and a timestamp', () => {
+    const rows = [{
+      type: 'user',
+      content: JSON.stringify({
+        text: 'look',
+        quote,
+        attachments: [{ type: 'document', mediaType: 'application/pdf', name: 'paper.pdf' }],
+      }),
+      created_at: '2026-09-09T10:00:00.000Z',
+    }];
+    const [message] = convertHistoryMessagesFromStringContent(rows) as any[];
+    expect(message.metadata.custom.quote).toEqual(quote);
+    expect(message.attachments).toHaveLength(1);
+    expect(message.createdAt).toEqual(new Date('2026-09-09T10:00:00.000Z'));
+  });
+
+  it('emits no metadata at all for a row written before quoting existed', () => {
+    // Every row already in every user's database looks like this. An empty
+    // `metadata.custom` would be harmless but is still a lie about the row.
+    const rows = [{ type: 'user', content: JSON.stringify({ text: 'plain' }) }];
+    expect(convertHistoryMessagesFromStringContent(rows)).toEqual([
+      { role: 'user', content: 'plain' },
+    ]);
+  });
+
+  it('drops a malformed quote rather than failing the whole history render', () => {
+    // A row a newer or older build wrote. Losing one chip is recoverable;
+    // throwing inside the converter blanks the entire conversation.
+    const rows = [
+      { type: 'user', content: JSON.stringify({ text: 'a', quote: { text: 'x' } }) },
+      { type: 'user', content: JSON.stringify({ text: 'b', quote: 'not an object' }) },
+      { type: 'user', content: JSON.stringify({ text: 'c', quote: { source: { kind: 'file', path: 'p' } } }) },
+    ];
+    const messages = convertHistoryMessagesFromStringContent(rows);
+    expect(messages).toEqual([
+      { role: 'user', content: 'a' },
+      { role: 'user', content: 'b' },
+      { role: 'user', content: 'c' },
+    ]);
+  });
+
+  it('restores a file quote, whose anchor is synthetic', () => {
+    const fileQuote = {
+      text: '39,335',
+      truncated: true,
+      messageId: 'src:file:counts.csv',
+      source: { kind: 'file', path: 'counts.csv' },
+    };
+    const rows = [{ type: 'user', content: JSON.stringify({ text: 'why?', quote: fileQuote }) }];
+    const [message] = convertHistoryMessagesFromStringContent(rows) as any[];
+    expect(message.metadata.custom.quote).toEqual(fileQuote);
+  });
+});

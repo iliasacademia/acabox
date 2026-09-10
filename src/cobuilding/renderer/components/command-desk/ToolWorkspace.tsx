@@ -107,6 +107,19 @@ export const ToolWorkspace: FC<ToolWorkspaceProps> = ({
     if (activeDirName) setPanelOpen(activeDirName, !panelOpen);
   }, [activeDirName, panelOpen, setPanelOpen]);
 
+  // Quoting from inside a tool puts the excerpt on the thread composer, which
+  // exists whether or not this panel is expanded — so with the panel collapsed
+  // the quote would land somewhere the user cannot see, and the gesture would
+  // read as having done nothing. Taking a quote is an unambiguous "I want to
+  // say something about this", so the panel opens itself.
+  useEffect(() => {
+    const expand = () => {
+      if (activeDirName) setPanelOpen(activeDirName, true);
+    };
+    window.addEventListener('cd:expand-tool-panel', expand);
+    return () => window.removeEventListener('cd:expand-tool-panel', expand);
+  }, [activeDirName, setPanelOpen]);
+
   // ── Divider drag (320–560, persisted) ──
   const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
   const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
