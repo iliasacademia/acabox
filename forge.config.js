@@ -271,6 +271,14 @@ module.exports = {
                 js: './src/cobuilding/main/quickChatPreload.ts',
               },
             },
+            {
+              html: './src/cobuilding/renderer/find-bar.html',
+              js: './src/cobuilding/renderer/find-bar-entry.tsx',
+              name: 'find_bar_window',
+              preload: {
+                js: './src/cobuilding/main/findBarPreload.ts',
+              },
+            },
           ],
         },
       },

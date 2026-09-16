@@ -1,0 +1,16 @@
+# `acabox-share-api` — the publish side. Bearer-token authenticated (see
+# `PUBLISH_TOKEN`, set via `wrangler secret put`), never behind Cloudflare
+# Access. See src/share-workers/README.md for the full setup.
+
+name = "acabox-share-api"
+main = "src/index.ts"
+
+# Must not be newer than the wrangler release this project pins in
+# package.json (wrangler refuses a future compatibility_date). Pinned to
+# wrangler 4.131.2 (released 2026-09-14); this date is a few weeks earlier so
+# it stays valid as the pinned wrangler version is bumped over time.
+compatibility_date = "2026-08-25"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "acabox-share"

@@ -1,0 +1,136 @@
+/*
+ * Styles for the viewer page (`/a/<id>/`) — the banner, the two failure
+ * states, and the iframe that fills the rest of the viewport.
+ *
+ * These are literal copies of a handful of values from the `--cd-*` token
+ * block at the top of `src/cobuilding/renderer/commandDesk.css`, NOT an
+ * import of that file — this page ships to a Cloudflare Worker's static
+ * assets and is served to an arbitrary visitor's browser, with no access to
+ * the Electron app's asset pipeline (self-hosted fonts included). Keep this
+ * list in sync by hand if those values ever change; do not add every token,
+ * only the ones this page actually uses.
+ *
+ *   --cd-ink:    #141413  (primary text)
+ *   --cd-text2:  #535366  (muted meta text)
+ *   --cd-border: #dddde2  (banner's bottom border)
+ *   --cd-blue:   #0645b1  ("All shared" link)
+ *   --cd-pale:   #f4f7fc  (hint line background)
+ *
+ * No external assets: no webfonts, no icon font, no scripts beyond
+ * `/viewer.js`. `"DM Sans"` is named first per the ticket so a visitor who
+ * happens to have it installed sees the same face the Acabox app uses; for
+ * everyone else this is a plain system-font fallback stack.
+ */
+
+:root {
+  color-scheme: light dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  color: #141413;
+  background: #ffffff;
+}
+
+#banner {
+  flex: none;
+  min-height: 40px;
+  padding: 10px 20px;
+  border-bottom: 1px solid #dddde2;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.viewerBanner__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.viewerBanner__meta {
+  color: #535366;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.viewerBanner__all {
+  flex-shrink: 0;
+  color: #0645b1;
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.viewerBanner__all:hover {
+  text-decoration: underline;
+}
+
+.viewerBanner__hint {
+  background: #f4f7fc;
+  color: #535366;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+
+#frame-host {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.viewerFrame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+}
+
+.viewerState {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  text-align: center;
+  padding: 24px;
+}
+
+.viewerState__message {
+  margin: 0;
+  color: #535366;
+  font-size: 15px;
+  max-width: 420px;
+}
+
+.viewerState__retry {
+  appearance: none;
+  border: 1px solid #dddde2;
+  background: #ffffff;
+  color: #141413;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.viewerState__retry:hover {
+  border-color: #0645b1;
+  color: #0645b1;
+}

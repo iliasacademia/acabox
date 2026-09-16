@@ -20,7 +20,9 @@ declare const window: Window & {
   filesAPI: {
     readFile(path: string): Promise<{ type: string; content: string } | { error: string }>;
   };
-  getWorkspacePath(): string;
+  hostAPI: {
+    fileUrl(relPath: string): string;
+  };
 };
 
 const DIR_NAME = "differentialExpression";
@@ -293,7 +295,6 @@ export default function App() {
   };
 
   const hasInteractivePlots = volcanoData !== null || maData !== null;
-  const workspacePath = window.getWorkspacePath();
 
   if (loading) {
     return (
@@ -574,7 +575,6 @@ export default function App() {
                 <div className="border border-gray-100 rounded-lg overflow-hidden bg-white">
                   <VizImage
                     viz={staticVisualizations[selectedVizIndex]}
-                    workspacePath={workspacePath}
                   />
                 </div>
                 <p className="text-sm text-gray-500 mt-2">
@@ -642,13 +642,14 @@ function StatCard({
 
 function VizImage({
   viz,
-  workspacePath,
 }: {
   viz: Visualization;
-  workspacePath: string;
 }) {
   const imageFileName = viz.image_file_path.split("/").pop() || viz.image_file_path;
-  const src = `local-file://${workspacePath}/${OUTPUT_DIR}/${imageFileName}`;
+  // `hostAPI.fileUrl` is the only sanctioned way to build an <img> src from a
+  // workspace path — it also keeps this component working unchanged if the
+  // app is ever published as a read-only shared snapshot (see SKILL.md).
+  const src = window.hostAPI.fileUrl(`${OUTPUT_DIR}/${imageFileName}`);
 
   return (
     <img

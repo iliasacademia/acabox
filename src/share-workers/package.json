@@ -1,0 +1,16 @@
+{
+  "name": "acabox-share-workers",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Cloudflare Workers backing Acabox's sharing feature: acabox-share-api (publish, bearer token) and acabox-share (public, Access-gated viewer). See src/share-workers/README.md.",
+  "scripts": {
+    "build:viewer": "../../node_modules/.bin/esbuild web/viewer/viewer.ts --bundle --format=iife --target=es2020 --outfile=web/public/viewer.js && cp web/viewer/viewer.css web/public/viewer.css",
+    "deploy:api": "wrangler deploy --config api/wrangler.toml",
+    "deploy:web": "wrangler deploy --config web/wrangler.toml",
+    "dev:api": "wrangler dev --config api/wrangler.toml",
+    "dev:web": "wrangler dev --config web/wrangler.toml"
+  },
+  "devDependencies": {
+    "wrangler": "4.131.2"
+  }
+}

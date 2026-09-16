@@ -420,6 +420,17 @@ interface ElectronAPI {
   invoke(channel: string, ...args: any[]): Promise<any>;
 }
 
+/**
+ * Shape comes from `shared/share.ts`; imported as a type only so this
+ * ambient file stays declaration-only (same pattern as `ConnectorConfigT` /
+ * `ApiConfigForUiT` above). Used by `MiniAppEntry.published` below.
+ */
+type PublishedInfoT = import('../shared/share').PublishedInfo;
+/** Per-group file counts/bytes for a snapshot about to be (or already) shared. */
+type SnapshotSummaryT = import('../shared/share').SnapshotSummary;
+/** The token itself never reaches the renderer — only `hasToken`. */
+type ShareSettingsForUiT = import('../main/share/shareStore').ShareSettingsForUi;
+
 declare global {
   /**
    * Hosted MCP servers (design: `docs/design/mcp-hosting.md`, Increment 3).
@@ -811,6 +822,8 @@ declare global {
     /** Configured API ids this tool may call through the proxy. */
     apis: string[];
     hasManifest: boolean;
+    /** Set when this app has been shared (docs/design/sharing.md); null if never published or unpublished since. */
+    published: PublishedInfoT | null;
   }
 
   /** Work a tool is doing, owned by the host so it outlives the tool's viewer. */
@@ -887,6 +900,41 @@ declare global {
       callback: (req: { id: string; dirName: string; kind: string }) => void,
     ): () => void;
     onChanged(callback: (jobs: ToolJob[]) => void): () => void;
+  }
+
+  /**
+   * Sharing (design: `docs/design/sharing.md`; contracts:
+   * `docs/design/sharing-tickets.md`, C1 + ticket M9). Publishes a mini-app
+   * or a single workspace file as a read-only snapshot on the operator's own
+   * Cloudflare Workers deployment.
+   */
+  interface ShareAPI {
+    getSettings(): Promise<ShareSettingsForUiT>;
+    saveSettings(patch: {
+      siteUrl: string;
+      apiUrl: string;
+      publishToken?: string;
+      clearToken?: boolean;
+    }): Promise<{ ok: boolean; error?: string }>;
+    /** One real GET at `/v1/health`, through the same client a publish uses. */
+    test(): Promise<{ ok: boolean; status: number; error: string | null }>;
+    planApp(dirName: string, includeInput: boolean): Promise<
+      | { ok: true; summary: SnapshotSummaryT; hash: string; published: PublishedInfoT | null; behind: boolean }
+      | { ok: false; error: string }
+    >;
+    publishApp(dirName: string, opts: { includeInput: boolean }): Promise<
+      { ok: true; published: PublishedInfoT; unchanged: boolean } | { ok: false; error: string }
+    >;
+    unpublishApp(dirName: string): Promise<{ ok: boolean; error?: string }>;
+    statusApp(dirName: string): Promise<{ published: PublishedInfoT | null; behind: boolean }>;
+    /** `filePath` is absolute. */
+    publishFile(filePath: string): Promise<
+      { ok: true; published: PublishedInfoT; unchanged: boolean } | { ok: false; error: string }
+    >;
+    unpublishFile(filePath: string): Promise<{ ok: boolean; error?: string }>;
+    statusFile(filePath: string): Promise<{ published: PublishedInfoT | null; behind: boolean }>;
+    onChanged(callback: (evt: { dirName?: string; filePath?: string }) => void): () => void;
+    onProgress(callback: (p: { dirName: string; uploaded: number; total: number }) => void): () => void;
   }
 
   interface MiniAppsAPI {
@@ -1227,6 +1275,7 @@ declare global {
     miniAppsAPI: MiniAppsAPI;
     toolDataAPI: ToolDataAPI;
     jobsAPI: JobsAPI;
+    shareAPI: ShareAPI;
     dictationAPI: DictationAPI;
     buildHealthAPI: BuildHealthAPI;
     miniAppMcpAPI: MiniAppMcpAPI;

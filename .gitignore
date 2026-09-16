@@ -72,3 +72,10 @@ src/cobuilding/swift/dictation-mac/build/
 # paths. 4 MB of build artifact; never source.
 /index.js
 /index.js.LICENSE.txt
+
+# share-workers: its own npm install (wrangler is pinned only there, never at
+# the repo root) and the viewer bundle esbuild produces from web/viewer/*.ts —
+# a build artifact of that source, not source itself.
+src/share-workers/node_modules/
+src/share-workers/web/public/viewer.js
+src/share-workers/web/public/viewer.css

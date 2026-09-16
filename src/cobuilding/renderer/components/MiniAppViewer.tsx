@@ -13,6 +13,7 @@ import { MSymbol } from './command-desk/MSymbol';
 import { resolveToolIcon } from './command-desk/toolIcon';
 import { setToolLifecycle, clearToolStatus, useToolStatus, beginToolActivity } from '../toolStatusStore';
 import { toolStatusLabel, toolStatusDetail } from './command-desk/toolStatusDisplay';
+import { ToolShareChip, ToolShareHeaderControls } from './share/ToolShareHeaderControls';
 
 interface RequestFixError {
   kind: string;
@@ -440,6 +441,7 @@ const MiniAppHeader: FC<{
           IDLE
         </span>
       )}
+      {!preBuilt && <ToolShareChip dirName={dirName} />}
       <span className="cdToolHeader__spacer" />
       {!preBuilt && (
         <button
@@ -462,6 +464,7 @@ const MiniAppHeader: FC<{
           <MSymbol name="forum" size={18} />
         </button>
       )}
+      {!preBuilt && <ToolShareHeaderControls dirName={dirName} appName={appName} />}
       {preBuilt && nativeToolUrl && (
         <button
           type="button"

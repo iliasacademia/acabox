@@ -23,6 +23,19 @@ export interface MiniAppBuildResult {
   exitCode: number;
 }
 
+let buildSucceededHandler: ((dirName: string) => void) | null = null;
+
+/**
+ * Registered by `main/index.ts` (ticket M10) so a successful build can
+ * trigger a "behind" recompute for an app that is published for sharing.
+ * A setter rather than importing `share/shareHandlers` directly here: that
+ * module reaches back into workspace/manifest state owned by main, and
+ * importing it from this shared builder risks a cycle. This is the seam.
+ */
+export function setBuildSucceededHandler(fn: ((dirName: string) => void) | null): void {
+  buildSucceededHandler = fn;
+}
+
 /**
  * Locate the esbuild executable.
  *
@@ -94,5 +107,11 @@ export async function buildMiniApp(workspacePath: string, dirName: string): Prom
     return { ok: false, error: detail, exitCode: result.exitCode };
   }
   recordBuildResult(dirName, true);
+  // Guarded: a handler bug must never fail a build that already succeeded.
+  try {
+    buildSucceededHandler?.(dirName);
+  } catch (err) {
+    log.warn(`[MiniAppBuilder] ${dirName}: build-succeeded handler threw: ${(err as Error).message}`);
+  }
   return { ok: true, outfile, exitCode: 0 };
 }

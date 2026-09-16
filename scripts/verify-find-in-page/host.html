@@ -1,0 +1,48 @@
+<!doctype html>
+<!--
+  Fixture page for scripts/verify-find-in-page.js.
+
+  Every probe word below is unique to the one assertion that searches for it,
+  so each `findInPage` call in the driver script measures exactly one
+  Chromium behaviour with no cross-contamination from the others. See
+  docs/design/find-in-page.md -> "Measured Chromium behaviour" for what each
+  one is pinning down. FIPOVERLAYWORD is deliberately absent from this file:
+  it lives only on the WebContentsView overlay the driver script creates, so
+  a zero-match search for it on THIS page proves the overlay's text is
+  invisible to the host page's own find.
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>find-in-page probe host</title>
+  </head>
+  <body>
+    <!-- 1. A word in ordinary body text AND in an <input value> is counted
+         twice -- the premise for putting the find bar in its own
+         WebContentsView instead of a component inside this page. -->
+    <p>This fixture paragraph contains the word FIPINPUTWORD exactly once.</p>
+    <input id="probe-input" type="text" value="FIPINPUTWORD" />
+
+    <!-- 2. display:none text is not matched -- hidden tabs must not produce
+         false matches. -->
+    <p style="display: none">This hidden paragraph contains FIPHIDDENTEXT.</p>
+
+    <!-- 3. An iframe that is itself display:none is not matched, even though
+         its cross-origin child loads normally. -->
+    <iframe
+      id="hidden-iframe"
+      style="display: none"
+      src="probe-app://host/hidden-child.html"
+    ></iframe>
+
+    <!-- 4. A visible cross-origin iframe (out-of-process) IS matched --
+         mini-apps come free. -->
+    <iframe id="visible-iframe" src="probe-app://host/visible-child.html"></iframe>
+
+    <!-- 6. hidden="until-found" content is matched, and the attribute is
+         removed once the window paints a frame with the match revealed. -->
+    <div id="until-found-div" hidden="until-found">
+      This paragraph is revealed by find: FIPUNTILFOUND.
+    </div>
+  </body>
+</html>

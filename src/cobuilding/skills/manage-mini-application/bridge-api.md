@@ -47,6 +47,14 @@ Everything below runs **on the user's machine**. Acabox has no container — the
 
   `window.containerAPI` is a deprecated alias for the same object, left over from when Acabox ran a Podman container. Use `window.hostAPI` in new code.
 
+- `window.hostAPI.fileUrl(relPath)` — Build a URL for an `<img>`/`<a>`/`<video>` `src` or `href` that points at a workspace file, e.g. a plot written to `output/`. Pass the same workspace-relative path you'd give `filesAPI.readFile`:
+
+  ```tsx
+  <img src={window.hostAPI.fileUrl(`.applications/${dirName}/output/plot.png`)} alt="Plot" />
+  ```
+
+  This is the **only** sanctioned way to build such a URL — never hand-build `` `local-file://${window.getWorkspacePath()}/...` `` yourself. Locally it resolves to a `local-file://` URL; if this app is later published as a read-only shared snapshot (see the sharing feature) there is no workspace on disk and no `local-file://` scheme at all, and `fileUrl` instead returns a plain relative URL the shared viewer can serve. Routing through `fileUrl` is what makes the same `<img>` tag work in both places with no branching in your code.
+
 ## APIs (external HTTP services the user has configured)
 
 `window.hostAPI.api.fetch(apiId, path, init?)` calls an HTTP API that the user
@@ -143,4 +151,4 @@ const msg = await window.anthropicAPI.complete({
 
 ## Utilities
 
-- `window.getWorkspacePath()` — Returns the filesystem path of the workspace. Use this to convert absolute paths (from file pickers) to relative workspace paths: `"./" + hostPath.slice(workspacePath.length + 1)`. Store and pass relative paths everywhere — `filesAPI`, `hostAPI.exec`, and the kernel all resolve them against the workspace root. The absolute form is only needed for `local-file://` image `src` attributes.
+- `window.getWorkspacePath()` — Returns the filesystem path of the workspace. Use this to convert absolute paths (from file pickers) to relative workspace paths: `"./" + hostPath.slice(workspacePath.length + 1)`. Store and pass relative paths everywhere — `filesAPI`, `hostAPI.exec`, `hostAPI.fileUrl`, and the kernel all resolve them against the workspace root.

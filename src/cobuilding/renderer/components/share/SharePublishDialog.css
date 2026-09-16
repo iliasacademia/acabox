@@ -1,0 +1,102 @@
+/* Publish dialog (ticket U3). Deliberately thin: the overlay, card, title,
+   message and action-row classes all come from ToolsPage's confirm modal
+   (`.toolsConfirmOverlay` / `.toolsConfirmModal*` in App.css). This file
+   covers only what that doesn't: the five-row summary table, the checkbox,
+   the mono URL field, the footnote, and an error modifier for
+   `.toolsConfirmModal__message` (no such modifier existed to reuse). */
+
+/* Chained with the base class (not just `.sharePublishDialog` alone) so this
+   beats `.toolsConfirmModal`'s own `max-width: 400px` on specificity — not
+   on import order, which is not guaranteed between App.css and this file
+   (see CLAUDE.md's scheduler-specificity lesson). */
+.toolsConfirmModal.sharePublishDialog {
+  max-width: 440px;
+}
+
+.sharePublishDialog__table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 4px 0 14px;
+}
+
+.sharePublishDialog__row td {
+  padding: 5px 0;
+  border-bottom: 1px solid var(--cd-border-soft, #ebebee);
+}
+
+.sharePublishDialog__row:last-child td {
+  border-bottom: none;
+}
+
+.sharePublishDialog__rowLabel {
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cd-text3, #91919e);
+}
+
+.sharePublishDialog__rowValue {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 13px;
+  color: var(--cd-ink, #141413);
+  text-align: right;
+}
+
+.sharePublishDialog__row--total .sharePublishDialog__rowLabel,
+.sharePublishDialog__row--total .sharePublishDialog__rowValue {
+  font-weight: 700;
+  color: var(--cd-ink, #141413);
+}
+
+.sharePublishDialog__row--total td {
+  border-top: 1px solid var(--cd-border, #dddde2);
+  border-bottom: none;
+  padding-top: 8px;
+}
+
+.sharePublishDialog__checkbox {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 12.5px;
+  color: var(--cd-text2, #535366);
+  cursor: pointer;
+  margin: 0 0 14px;
+}
+
+.sharePublishDialog__checkbox input {
+  flex: none;
+}
+
+.sharePublishDialog__urlRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 14px;
+}
+
+.sharePublishDialog__urlInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--cd-mono, 'IBM Plex Mono', monospace);
+  font-size: 11.5px;
+  color: var(--cd-ink, #141413);
+  background: var(--cd-pale, #f4f7fc);
+  border: 1px solid var(--cd-border, #dddde2);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+
+.sharePublishDialog__footnote {
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--cd-text3, #91919e);
+  margin: 0 0 18px;
+}
+
+.toolsConfirmModal__message--error {
+  color: var(--cd-error, #b60000);
+}

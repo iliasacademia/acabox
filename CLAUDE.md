@@ -175,7 +175,53 @@ to `PATH`.
 - To kill stray dev instances:
   `pkill -9 -f "Acabox/node_modules/electron"`.
 
-## Status (last updated 2026-09-09)
+## Status (last updated 2026-09-16)
+
+**"The API proxy isn't running" was the page lying, not the proxy (2026-09-16).**
+Reported from the field, with a screenshot: the banner up, the Hex row green,
+and Test greyed out. The proxy was listening the whole time.
+- **It is a boot RACE that the Settings page then froze forever.** The Settings
+  tab is mounted at app start and merely hidden behind `display: none`
+  (`renderer/index.tsx`), so `ApiSettings`' `useEffect(..., [load])` — `load`
+  being a `useCallback([])`, hence stable — fired once, milliseconds after the
+  renderer loaded. `apiProxy.start()` is ~200ms behind that, because the proxy
+  is started by `agentInfrastructure.start()`, which **the renderer itself**
+  triggers via `container:ensureSetup`. Measured on two real boots:
+  production `did-finish-load` 11:48:03.687 → `[APIs] Proxy listening`
+  11:48:03.908 (221ms); dev 12:25:43.006 → .177 (171ms). The `running: false`
+  snapshot was correct for a fifth of a second and then never re-read.
+- **The banner's own advice could not clear it, which is why it never went
+  away.** "Open a chat" does not start the proxy (boot does) and does not make
+  the page look again; "restart Acabox" reproduces the identical race. Greyed
+  Test is the same stale bit — it is gated on `proxy.running`.
+- **Same defect, same fix as the Servers page's mid-session scan**: an `active`
+  prop threaded `index.tsx` → `DirectoryPermissions` → `ApiSettings`, re-reading
+  on arrival. Deterministic here because the app lands on `home`, so the tab
+  always transitions false → true before anyone can see the banner. A hidden
+  tab now reads **nothing at all** rather than taking a snapshot it cannot
+  refresh, so `loaded` stays false and the section renders empty.
+- **Deliberately NOT a broadcast**, unlike `scheduledTasks:changed`. Checked
+  rather than assumed: `apiProxy.start()` is early-return-if-running and the
+  only `stop()` is app teardown, so in practice the proxy starts once per boot
+  and stops at quit — the renderer is destroyed in between. "Announce at the
+  write" would buy nothing a re-read on arrival does not already cover.
+  `ConnectorsSettings` next door already has a push channel plus a manual
+  refresh, which is why it never showed this; `ApiSettings` was the one
+  status section with neither.
+- Verified: tsc clean; **1586/1586 across 105 suites**; the 3 new cases proven
+  non-vacuous by reverting the effect (2 of 3 fail on the old code, and the
+  genuine-bind-failure case correctly still passes). Then driven live over CDP
+  against a real `npm start`: with main reporting
+  `{running:true, baseUrl:'http://127.0.0.1:23501'}`, the hidden tab held only
+  the "APIs" heading, and clicking through to Settings rendered the section
+  with **no banner** and Test **enabled** (`title="Send one real GET at the
+  base URL"`) — the same bit the screenshot showed greyed.
+- **NOT changed: the banner copy.** After this fix the no-error branch is
+  nearly unreachable (a genuine bind failure takes the other branch, which
+  names the error), but "It starts with the agent — open a chat" is still
+  wrong about how the proxy starts. Left alone rather than churned.
+
+## Earlier status (last updated 2026-09-09)
 
 **Select any text, quote it into the composer (2026-09-09).** Asked for after
 seeing it in Devin: select text in a reply, a floating toolbar appears, clicking

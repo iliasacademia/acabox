@@ -6,6 +6,7 @@ import DirectoryPermBadge from './DirectoryPermBadge';
 import ApiKeySettings from './ApiKeySettings';
 import ConnectorsSettings from './ConnectorsSettings';
 import ApiSettings from './ApiSettings';
+import SharingSettings from './SharingSettings';
 import './DirectoryPermissions.css';
 import './shared-forms.css';
 
@@ -18,9 +19,16 @@ interface DirectoryPermissionsProps {
   /** Jump to the Knowledge page, which shows every memory rather than these two. */
   onOpenKnowledge?: () => void;
   inline?: boolean;
+  /**
+   * Whether this page is the visible tab. Forwarded to the sections whose
+   * content is observed host state rather than stored settings, so they
+   * re-read on arrival instead of showing a snapshot taken at app boot.
+   * See `ApiSettingsProps.active`.
+   */
+  active?: boolean;
 }
 
-const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, userDirectories, onClose, onDirectoriesChanged, onOpenKnowledge, inline }) => {
+const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, userDirectories, onClose, onDirectoriesChanged, onOpenKnowledge, inline, active = true }) => {
   const [localDirs, setLocalDirs] = useState<WorkspaceDirectory[]>(userDirectories);
   const [dirError, setDirError] = useState<string | null>(null);
   const [togglingDirId, setTogglingDirId] = useState<string | null>(null);
@@ -336,7 +344,14 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
         <section className="wsSettings__section">
           <p className="wsSettings__sectionLabel">APIs</p>
           <div className="wsSettings__sectionCard">
-            <ApiSettings />
+            <ApiSettings active={active} />
+          </div>
+        </section>
+
+        <section className="wsSettings__section">
+          <p className="wsSettings__sectionLabel">Sharing</p>
+          <div className="wsSettings__sectionCard">
+            <SharingSettings />
           </div>
         </section>
 

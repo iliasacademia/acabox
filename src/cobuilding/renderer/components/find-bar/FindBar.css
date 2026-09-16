@@ -1,0 +1,38 @@
+html, body { margin: 0; background: transparent; overflow: hidden; }
+
+.findBar {
+  box-sizing: border-box;
+  width: 360px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px 0 12px;
+  background: #ffffff;
+  border: 1px solid var(--cd-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
+  font-family: var(--cd-sans);
+}
+
+.findBar__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--cd-ink);
+}
+.findBar__input::placeholder {
+  color: var(--cd-text3);
+}
+
+.findBar__count {
+  font-family: var(--cd-mono);
+  font-size: 11px;
+  color: var(--cd-text3);
+  white-space: nowrap;
+  padding: 0 4px;
+}

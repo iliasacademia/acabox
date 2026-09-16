@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import { FIND_IPC } from '../shared/findInPage';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   on: (channel: string, callback: (...args: any[]) => void) => {
@@ -171,6 +172,12 @@ contextBridge.exposeInMainWorld('toolDataAPI', {
   delete: (dirName: string) => ipcRenderer.invoke('toolData:delete', dirName),
 });
 
+contextBridge.exposeInMainWorld('findAPI', {
+  open: () => ipcRenderer.invoke(FIND_IPC.open),
+  next: (forward: boolean) => ipcRenderer.send(FIND_IPC.next, { forward }),
+  refresh: () => ipcRenderer.send(FIND_IPC.refresh),
+});
+
 contextBridge.exposeInMainWorld('buildHealthAPI', {
   list: () => ipcRenderer.invoke('buildHealth:list'),
   onChanged: (callback: (all: unknown[]) => void) => {
@@ -196,6 +203,32 @@ contextBridge.exposeInMainWorld('jobsAPI', {
     const handler = (_e: unknown, jobs: unknown[]) => callback(jobs);
     ipcRenderer.on('jobs:changed', handler);
     return () => ipcRenderer.removeListener('jobs:changed', handler);
+  },
+});
+
+contextBridge.exposeInMainWorld('shareAPI', {
+  getSettings: () => ipcRenderer.invoke('share:getSettings'),
+  saveSettings: (patch: { siteUrl: string; apiUrl: string; publishToken?: string; clearToken?: boolean }) =>
+    ipcRenderer.invoke('share:saveSettings', patch),
+  test: () => ipcRenderer.invoke('share:test'),
+  planApp: (dirName: string, includeInput: boolean) =>
+    ipcRenderer.invoke('share:planApp', dirName, includeInput),
+  publishApp: (dirName: string, opts: { includeInput: boolean }) =>
+    ipcRenderer.invoke('share:publishApp', dirName, opts),
+  unpublishApp: (dirName: string) => ipcRenderer.invoke('share:unpublishApp', dirName),
+  statusApp: (dirName: string) => ipcRenderer.invoke('share:statusApp', dirName),
+  publishFile: (filePath: string) => ipcRenderer.invoke('share:publishFile', filePath),
+  unpublishFile: (filePath: string) => ipcRenderer.invoke('share:unpublishFile', filePath),
+  statusFile: (filePath: string) => ipcRenderer.invoke('share:statusFile', filePath),
+  onChanged: (callback: (evt: { dirName?: string; filePath?: string }) => void) => {
+    const handler = (_e: unknown, evt: { dirName?: string; filePath?: string }) => callback(evt);
+    ipcRenderer.on('share:changed', handler);
+    return () => ipcRenderer.removeListener('share:changed', handler);
+  },
+  onProgress: (callback: (p: { dirName: string; uploaded: number; total: number }) => void) => {
+    const handler = (_e: unknown, p: { dirName: string; uploaded: number; total: number }) => callback(p);
+    ipcRenderer.on('share:progress', handler);
+    return () => ipcRenderer.removeListener('share:progress', handler);
   },
 });
 

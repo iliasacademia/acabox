@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 import { FileViewer } from './FileViewer';
+import { useToolShare } from '../shareStore';
+import { SharePublishDialog } from './share/SharePublishDialog';
 
 type ToolsPageMiniApp = MiniAppEntry;
 
@@ -101,6 +103,90 @@ async function listSavedFiles(dirName: string): Promise<SavedFile[]> {
   await walk(root);
   out.sort((a, b) => a.label.localeCompare(b.label));
   return out;
+}
+
+/**
+ * Per-row sharing UI (`docs/design/sharing-tickets.md`, ticket U4). A `.map()`
+ * callback in the parent can't call hooks itself — every iteration runs
+ * inside the SAME component instance, so the hook count would vary with the
+ * app list's length — so this is a real child component, giving each row its
+ * own `useToolShare` subscription. It is mounted twice per row (`mode="chip"`
+ * next to the row's status text, always; `mode="panel"` inside the settings
+ * panel, only while open) — both reads land on the same module-level cache in
+ * `shareStore.ts`, so the two never disagree.
+ */
+function ToolRowSharing({
+  app,
+  mode,
+  onOpenDialog,
+}: {
+  app: ToolsPageMiniApp;
+  mode: 'chip' | 'panel';
+  /** Only used by `mode="panel"` — opens the publish/refresh/unpublish dialog for this row. */
+  onOpenDialog?: (dirName: string, appName: string) => void;
+}): React.ReactElement | null {
+  const { published, behind, loading } = useToolShare(app.dirName);
+
+  if (mode === 'chip') {
+    // No-mocks rule: nothing renders until we actually know the tool is
+    // published, rather than guessing from a stale/idle default.
+    if (loading || !published) return null;
+    return (
+      <span className="cdStatusChip">
+        {behind && <span className="cdDot cdDot--busy" />}
+        {behind ? 'SHARED · BEHIND' : 'SHARED'}
+      </span>
+    );
+  }
+
+  const label = loading
+    ? null
+    : !published
+      ? 'NOT SHARED'
+      : behind
+        ? 'SHARED · BEHIND'
+        : 'SHARED · UP TO DATE';
+
+  const openDialog = () => onOpenDialog?.(app.dirName, app.name);
+  const handleCopyLink = () => {
+    if (published) void navigator.clipboard.writeText(published.url);
+  };
+  const handleOpen = () => {
+    if (published) void (window as any).electronAPI.invoke('shell:openExternal', published.url);
+  };
+
+  return (
+    <div className="toolRow__sharing">
+      {label && <div className="toolRow__grantsLabel">{label}</div>}
+      {!loading && (
+        <div className="toolRow__settingsActions">
+          {!published && (
+            <button type="button" className="toolRow__secondaryBtn" onClick={openDialog}>
+              Publish…
+            </button>
+          )}
+          {published && behind && (
+            <button type="button" className="toolRow__secondaryBtn" onClick={openDialog}>
+              Refresh…
+            </button>
+          )}
+          {published && (
+            <>
+              <button type="button" className="toolRow__secondaryBtn" onClick={handleCopyLink}>
+                Copy link
+              </button>
+              <button type="button" className="toolRow__secondaryBtn" onClick={handleOpen}>
+                Open
+              </button>
+              <button type="button" className="toolRow__deleteBtn" onClick={openDialog}>
+                Unpublish
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function ToolsPage({
@@ -191,6 +277,8 @@ export function ToolsPage({
 
   const [settingsOpen, setSettingsOpen] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ToolsPageMiniApp | null>(null);
+  /** The one sharing dialog open at a time (Publish…/Refresh…/Unpublish), U3/U4. */
+  const [shareDialog, setShareDialog] = useState<{ dirName: string; appName: string } | null>(null);
   /** Configured APIs, for the per-tool grant checklist. Empty until loaded. */
   const [configuredApis, setConfiguredApis] = useState<Array<{ id: string; label: string; allowWrites: boolean }>>([]);
   const [deleting, setDeleting] = useState(false);
@@ -355,7 +443,12 @@ export function ToolsPage({
                         {app.description && <div className="toolRow__description">{app.description}</div>}
                         {(() => {
                           const status = formatLastUsed(app.lastOpened);
-                          return status ? <div className="toolRow__status">{status}</div> : null;
+                          return (
+                            <div className="toolRow__statusRow">
+                              {status && <div className="toolRow__status">{status}</div>}
+                              <ToolRowSharing app={app} mode="chip" />
+                            </div>
+                          );
                         })()}
                       </div>
                       <div className="toolRow__actions">
@@ -402,6 +495,11 @@ export function ToolsPage({
                             </p>
                           </div>
                         )}
+                        <ToolRowSharing
+                          app={app}
+                          mode="panel"
+                          onOpenDialog={(dirName, appName) => setShareDialog({ dirName, appName })}
+                        />
                         <div className="toolRow__settingsActions">
                           <button
                             className="toolRow__deleteBtn"
@@ -667,6 +765,14 @@ export function ToolsPage({
             </div>
           </div>
         </div>
+      )}
+
+      {shareDialog && (
+        <SharePublishDialog
+          dirName={shareDialog.dirName}
+          appName={shareDialog.appName}
+          onClose={() => setShareDialog(null)}
+        />
       )}
     </div>
   );

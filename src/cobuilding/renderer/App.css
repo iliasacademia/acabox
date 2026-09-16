@@ -2299,6 +2299,63 @@ body.cobuild-resizing webview {
   margin: 4px 8px;
 }
 
+/* Sharing (docs/design/sharing-tickets.md, ticket U6) — inline notice shown
+   near the tree root after a publish/refresh, or its error. */
+.fileShareNotice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 8px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-family: var(--cd-sans, 'DM Sans', sans-serif);
+  color: var(--cd-text2, #535366);
+  background: var(--cd-pale, #f4f7fc);
+  border: 1px solid rgba(6, 69, 177, 0.2);
+}
+
+.fileShareNotice--error {
+  background: var(--cd-error-bg, #fff2f2);
+  border: 1px solid rgba(182, 0, 0, 0.25);
+}
+
+.fileShareNotice__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileShareNotice__copy {
+  flex-shrink: 0;
+  font-family: inherit;
+  font-size: inherit;
+  color: #0645b1;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.fileShareNotice__close {
+  flex-shrink: 0;
+  font-size: 0.9375rem;
+  line-height: 1;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0.6;
+}
+
+.fileShareNotice__close:hover {
+  opacity: 1;
+}
+
 /* ============================================================
    Files Page (redesigned listing + detail view)
    ============================================================ */
@@ -3956,6 +4013,24 @@ body.cobuild-resizing webview {
   color: var(--cd-text3, #91919e);
   margin: 6px 0 0;
   max-width: 52ch;
+}
+
+/* Row-level "used N ago" + share status (docs/design/sharing-tickets.md, U4).
+   The chip is absent entirely (no wrapper markup shift) when unpublished. */
+.toolRow__statusRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.toolRow__statusRow .toolRow__status {
+  margin-top: 0;
+}
+
+/* Settings-panel sharing block — same spacing rhythm as .toolRow__grants. */
+.toolRow__sharing {
+  margin-bottom: 14px;
 }
 
 .toolRow--archived .toolRow__icon,

@@ -28,6 +28,7 @@ import { ActivityPanel } from './components/command-desk/ActivityPanel';
 import { KnowledgePage } from './components/knowledge/KnowledgePage';
 import { ServersPage } from './components/servers/ServersPage';
 import { useHomeData } from './components/command-desk/useHomeData';
+import { findShortcutAction } from './components/command-desk/findShortcut';
 import { ReactionsToolView } from './components/ReactionsToolView';
 import { resolveWorkspacePath } from './utils/resolveWorkspacePath';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
@@ -948,6 +949,13 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
   // command palette exists.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      const action = findShortcutAction(e);
+      if (action) {
+        e.preventDefault();
+        if (action === 'open') void window.findAPI?.open();
+        else window.findAPI?.next(action === 'next');
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         handleChatsClick();
@@ -956,6 +964,13 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [handleChatsClick]);
+
+  // Find results are a snapshot of the visible surface (Chromium does not
+  // re-run a find when the DOM changes), so ask main to re-run the active
+  // query whenever the visible tab changes.
+  useEffect(() => {
+    window.findAPI?.refresh();
+  }, [sidebarTab, activeTabId]);
 
   // Suppress ShowChatOnThreadSelect when switching threads for a miniapp
   const suppressThreadDeactivateRef = useRef(false);
@@ -1321,6 +1336,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
             {/* Settings tab */}
             <div style={{ display: sidebarTab === 'settings' ? 'flex' : 'none', flex: 1 }}>
               <DirectoryPermissions
+                active={sidebarTab === 'settings'}
                 workspace={workspace}
                 userDirectories={userDirectories}
                 onClose={() => setSidebarTab('home')}

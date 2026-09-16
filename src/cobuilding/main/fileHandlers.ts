@@ -14,17 +14,18 @@ import { updateManifest, readManifest } from './manifestIO';
 import { ensureToolDataLayoutForApp } from './toolDataMigration';
 import { APPLICATIONS_DIR, TOOL_DATA_DIR } from '../shared/paths';
 import { forgetBuildHealth } from './buildHealth';
+import { isPublishedInfo } from './share/publishedRecord';
+import type { PublishedInfo } from '../shared/share';
+import {
+  IMAGE_EXTENSIONS,
+  PDF_EXTENSIONS,
+  SPREADSHEET_EXTENSIONS,
+  MARKDOWN_EXTENSIONS,
+  CSV_EXTENSIONS,
+} from '../shared/fileKinds';
 
 const MAX_FILE_SIZE = 10_000_000; // 10 MB
-const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'tiff', 'tif']);
-// PDFs are streamed via the local-file protocol, so the 10 MB read limit doesn't apply.
-const PDF_EXTENSIONS = new Set(['pdf']);
-const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkdn', 'mkd']);
-const CSV_EXTENSIONS = new Set(['csv', 'tsv']);
 const LATEX_EXTENSIONS = new Set(['tex', 'latex']);
-// Modern Excel formats parsed by ExcelJS in the renderer. Legacy .xls (binary)
-// and .ods are not supported by ExcelJS and would fail at parse time.
-const SPREADSHEET_EXTENSIONS = new Set(['xlsx', 'xlsm']);
 const SENSITIVE_DIRS = new Set(['.ssh', '.gnupg', '.aws', '.config', '.password-store']);
 
 export function assertWithinWorkspace(filePath: string, workspaceDir: string): string {
@@ -439,7 +440,7 @@ export function registerFileHandlers(getAllowedPaths: () => string[], getMainWin
         .map(async (e) => {
           const dirName = e.name;
           const manifestPath = path.join(appsDir, dirName, 'manifest.json');
-          let manifest: { name?: unknown; description?: unknown; icon?: unknown; lastOpened?: unknown; lastRun?: unknown; preBuilt?: unknown; archived?: unknown; apis?: unknown } | null = null;
+          let manifest: { name?: unknown; description?: unknown; icon?: unknown; lastOpened?: unknown; lastRun?: unknown; preBuilt?: unknown; archived?: unknown; apis?: unknown; published?: unknown } | null = null;
           try {
             const raw = await fsPromises.readFile(manifestPath, 'utf-8');
             manifest = JSON.parse(raw);
@@ -465,6 +466,12 @@ export function registerFileHandlers(getAllowedPaths: () => string[], getMainWin
               ? (manifest.apis as unknown[]).filter((a): a is string => typeof a === 'string')
               : [],
             hasManifest: manifest !== null,
+            // Set by `main/share/publishedRecord.ts::writePublished` when the
+            // app is shared (docs/design/sharing.md). Same validation the
+            // module itself uses on read, so a hand-edited or malformed
+            // value here reads as "not published" rather than crashing the
+            // Tools page or the SHARED chip.
+            published: (isPublishedInfo(manifest?.published) ? manifest.published : null) as PublishedInfo | null,
           };
         }),
     );

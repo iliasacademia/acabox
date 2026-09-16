@@ -1,0 +1,26 @@
+# `acabox-share` — the public side. Every route requires a valid Cloudflare
+# Access JWT unless ACCESS_DISABLED=true (local dev only — see the README).
+# Serves the same R2 bucket the api Worker writes to, read-only, plus the
+# static viewer assets under ./public (built by `npm run build:viewer`).
+
+name = "acabox-share"
+main = "src/index.ts"
+
+# Keep in sync with api/wrangler.toml — see the comment there.
+compatibility_date = "2026-08-25"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "acabox-share"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+# Placeholders — filled in after creating the Cloudflare Access application
+# (README step: "Copy the AUD tag and team domain into [vars]"), then
+# `npm run deploy:web` again.
+[vars]
+ACCESS_TEAM_DOMAIN = "your-team.cloudflareaccess.com"
+ACCESS_AUD = "replace-with-the-access-application-aud-tag"

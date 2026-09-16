@@ -265,11 +265,17 @@ export default function App() {
     await markRunComplete();
 
     // Load the source image into a canvas for cropping in the editor / export.
+    // `input_image` is normally already workspace-relative (see
+    // useAppState's `selectInput`); the startsWith check is a defensive
+    // fallback for an absolute path from an older manifest.
     const ws = window.getWorkspacePath();
     setStatus("Loading image...");
-    const img = await loadImg(`local-file://${ws}/${params.input_image.startsWith(".")
+    const inputImageRelPath = params.input_image.startsWith(".")
       ? params.input_image
-      : params.input_image.slice(ws.length + 1)}`);
+      : params.input_image.slice(ws.length + 1);
+    // `hostAPI.fileUrl` is the only sanctioned way to build an <img>/canvas
+    // source URL from a workspace path — see SKILL.md's "Image tags".
+    const img = await loadImg(window.hostAPI.fileUrl(inputImageRelPath));
     const c = document.createElement("canvas");
     c.width = img.naturalWidth;
     c.height = img.naturalHeight;
@@ -288,7 +294,7 @@ export default function App() {
 
     // LLM band/lane filter (UI helper — falls back to "keep everything" on failure).
     setStatus("AI: Filtering band rows...");
-    const visUrl = `local-file://${ws}/${analysisData.visualization_path}`;
+    const visUrl = window.hostAPI.fileUrl(analysisData.visualization_path);
     const visImg = await loadImg(visUrl);
     const visCanvas = document.createElement("canvas");
     visCanvas.width = visImg.naturalWidth;

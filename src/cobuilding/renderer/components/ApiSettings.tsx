@@ -125,7 +125,33 @@ function describeCounters(c: ApiCounters | undefined): string | null {
   return parts.join(' · ');
 }
 
-export const ApiSettings: React.FC = () => {
+export interface ApiSettingsProps {
+  /**
+   * Whether the Settings tab is the visible one.
+   *
+   * Load-bearing, and the reason is a RACE this component lost on every single
+   * boot. The Settings tab is mounted at app start and merely hidden behind
+   * `display: none` (see the tab block in `renderer/index.tsx`), so a bare
+   * `useEffect(..., [])` fires once, ~milliseconds after the renderer loads —
+   * while `apiProxy.start()` is still ~200ms away, because the proxy is
+   * started by `agentInfrastructure.start()`, which the renderer itself
+   * triggers via `container:ensureSetup`. Measured on a real boot:
+   * `did-finish-load` 11:48:03.687, `[APIs] Proxy listening` 11:48:03.908.
+   *
+   * The snapshot that read `running: false` was therefore correct for about a
+   * fifth of a second and then frozen for the life of the app, so the page
+   * told every user the proxy was down while it was serving requests — and
+   * the banner's own advice ("open a chat, or restart Acabox") could never
+   * clear it, since neither re-reads. Re-reading on activation fixes it
+   * deterministically: the tab starts on `home`, so this always transitions
+   * false → true before anyone can see the banner.
+   *
+   * Same defect, same fix as the Servers page's mid-session scan.
+   */
+  active?: boolean;
+}
+
+export const ApiSettings: React.FC<ApiSettingsProps> = ({ active = true }) => {
   const [apis, setApis] = useState<ApiConfigForUi[]>([]);
   const [catalog, setCatalog] = useState<ApiCatalogEntry[]>([]);
   const [counters, setCounters] = useState<Record<string, ApiCounters>>({});
@@ -152,7 +178,14 @@ export const ApiSettings: React.FC = () => {
     setLoaded(true);
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  // Re-reads whenever the tab becomes visible, not just on mount — see
+  // `ApiSettingsProps.active`. Arriving on the page is exactly when the user
+  // is asking "is this thing working?", which makes it the right moment to
+  // look. Cheap: `apis:list` is three in-memory reads on the main side.
+  useEffect(() => {
+    if (!active) return;
+    void load();
+  }, [active, load]);
 
   const catalogTaken = useMemo(
     () => new Set(apis.map((a) => a.catalogId).filter(Boolean)),

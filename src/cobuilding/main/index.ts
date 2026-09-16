@@ -10,6 +10,9 @@ import * as path from 'path';
 import { pathToFileURL } from 'url';
 import Anthropic from '@anthropic-ai/sdk';
 import { registerFileHandlers, assertWithinAllowedDirs } from './fileHandlers';
+import { registerShareHandlers, recomputeAndBroadcastApp } from './share/shareHandlers';
+import { migratePlaintextShareToken } from './share/shareStore';
+import { setBuildSucceededHandler } from './miniAppBuilder';
 import { installExternalLinkGuards } from './externalLinks';
 import { registerSystemStatsHandlers } from './systemStats';
 import { registerDictationHandlers, stopDictation } from './dictationService';
@@ -168,6 +171,7 @@ import { setBaseUrl, BASE_URL } from '../../apiClient';
 import { getDeviceId } from '../../utils/deviceId';
 import { destroyTokenManager, getCredentials, setCredentials } from './cobuildingTokenManager';
 import { createQuickChatWindow, showQuickChat, updateMainWindowRef } from './quickChat';
+import { installFindInPage } from './findInPageHost';
 import { registerCalendarHandlers } from './ipc/calendar';
 import { registerDebugHandlers } from './ipc/debug';
 import { registerReactionsHandlers, getReactionsEnabled, ensureReactionsTask } from './ipc/reactions';
@@ -205,6 +209,8 @@ const isSmokeTestMcp = process.argv.includes('--smoke-test-mcp');
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
+declare const FIND_BAR_WINDOW_WEBPACK_ENTRY: string;
+declare const FIND_BAR_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
 function getSettingsPath(): string {
   return path.join(app.getPath('userData'), 'cobuilding-settings.json');
@@ -894,6 +900,7 @@ app.whenReady().then(async () => {
   migratePlaintextApiKey();
   migratePlaintextConnectorSecrets();
   migratePlaintextApiSecrets();
+  migratePlaintextShareToken();
 
   // No login: load the user's Anthropic API key (env → settings) into the
   // credential store before anything spawns the agent, so getCredentials() is
@@ -997,6 +1004,12 @@ app.whenReady().then(async () => {
     // before any window can render a stale spinner.
     setRunCompletedHandler((dirName) => {
       void stampToolLastRun(workspaceController.workspacePath, dirName);
+      void recomputeAndBroadcastApp(dirName);
+    });
+    // A build changes the snapshot a published app's shared copy was taken
+    // from, same as a finished run above — recompute "behind" at that write.
+    setBuildSucceededHandler((dirName) => {
+      void recomputeAndBroadcastApp(dirName);
     });
     // Kernel and Claude work can only be interrupted by the renderer driving
     // it, so a cancel is relayed to the window that reported the job.
@@ -1103,6 +1116,15 @@ app.whenReady().then(async () => {
     createMainWindow();
 
     registerFileHandlers(() => workspaceController.allAllowedPaths, () => mainWindow);
+    registerShareHandlers({
+      getWorkspaceRoot: () => workspaceController.workspacePath ?? null,
+      getAllowedPaths: () => workspaceController.allAllowedPaths,
+      broadcast: (channel, payload) => {
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) win.webContents.send(channel, payload);
+        }
+      },
+    });
     registerSystemStatsHandlers();
     registerDictationHandlers();
     initFileMonitor(() => workspaceController.workspacePath);
@@ -1168,6 +1190,11 @@ app.whenReady().then(async () => {
     log.info('[APP] Updater and tray initialized.');
 
     createQuickChatWindow(mainWindow!);
+    installFindInPage({
+      getMainWindow: () => mainWindow,
+      barEntryUrl: FIND_BAR_WINDOW_WEBPACK_ENTRY,
+      barPreloadPath: FIND_BAR_WINDOW_PRELOAD_WEBPACK_ENTRY,
+    });
     // Alt+Shift+A rather than the original app's Alt+Shift+Space, so the two
     // apps don't fight over one OS-wide exclusive hotkey when both are running.
     const shortcutRegistered = globalShortcut.register('Alt+Shift+A', () => {

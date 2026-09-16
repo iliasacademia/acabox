@@ -33,6 +33,22 @@ interface BridgeHostAPI {
   api: {
     fetch(apiId: string, path: string, init?: ApiFetchInit): Promise<ApiFetchResponse>;
   };
+  /**
+   * The ONLY sanctioned way to build a URL for an `<img>`/`<a>`/`<video>` `src`
+   * or `href` that points at a file under `.applications/<dir>/...` (e.g. a
+   * generated plot in `output/`). Do not hand-build
+   * `` `local-file://${workspacePath}/...` `` yourself.
+   *
+   * Locally this resolves to `local-file://<workspacePath>/<relPath>`. But a
+   * mini-app can also be published as a read-only shared snapshot (see the
+   * sharing feature) and served over plain HTTP, where `local-file://` cannot
+   * resolve and there is no workspace path at all — the shared viewer sends
+   * an empty one, and this returns `/<relPath>` instead, which the viewer's
+   * own base URL then serves. Routing every such URL through this one
+   * function is what makes the same component render correctly in both
+   * places with no branching in app code.
+   */
+  fileUrl(relPath: string): string;
 }
 
 interface BridgeErrorAPI {
@@ -143,6 +159,17 @@ const kernel: BridgeKernelAPI = {
   executeCode: (code: string) => request("executeCode", { code }),
 };
 
+// Shared by `fileUrl` below: strip a leading `./` (the common relative-path
+// form apps already use for `filesAPI`/`hostAPI.exec`), then collapse any
+// leading `/` so the result is a bare path with no scheme or root of its own
+// — callers may pass either form and get the same URL out.
+function normalizeFileUrlPath(relPath: string): string {
+  let rel = relPath;
+  if (rel.startsWith("./")) rel = rel.slice(2);
+  while (rel.startsWith("/")) rel = rel.slice(1);
+  return rel;
+}
+
 const hostAPI: BridgeHostAPI = {
   exec: (command: string, args: string[]) => request("executeCommand", { command, args }),
   api: {
@@ -162,6 +189,16 @@ const hostAPI: BridgeHostAPI = {
         headers: init.headers,
         body: init.body,
       }) as Promise<ApiFetchResponse>,
+  },
+  fileUrl: (relPath: string) => {
+    const rel = normalizeFileUrlPath(relPath);
+    // `_workspacePath` is set from the `init` message the host sends after
+    // load (see below) — empty only in a published shared snapshot, whose
+    // viewer shim never sends a workspace path (see M2 in the sharing design:
+    // `local-file://` literals are rewritten to a versioned base URL at
+    // publish time, and there is no filesystem workspace to resolve against
+    // on a viewer's machine).
+    return _workspacePath ? `local-file://${_workspacePath}/${rel}` : `/${rel}`;
   },
 };
 

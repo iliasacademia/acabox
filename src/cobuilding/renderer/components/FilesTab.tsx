@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import DirectoryPermBadge from './DirectoryPermBadge';
 import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
+import type { PublishedInfo } from '../../shared/share';
 
 const INTERNAL_DRAG_TYPE = 'application/x-filetree-path';
 
@@ -87,6 +88,11 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
   const [fileTagMap, setFileTagMap] = useState<Map<string, FileTagType>>(new Map());
   const [localDirs, setLocalDirs] = useState<WorkspaceDirectory[]>(userDirectories ?? []);
   const [togglingDirId, setTogglingDirId] = useState<string | null>(null);
+  // Sharing (docs/design/sharing-tickets.md, ticket U6). Keyed by the node's
+  // absolute path. No entry means "not yet known" and renders like unpublished
+  // (Share… alone) — see handleContextMenu.
+  const [fileShareStatus, setFileShareStatus] = useState<Map<string, { published: PublishedInfo | null; behind: boolean }>>(new Map());
+  const [shareNotice, setShareNotice] = useState<{ kind: 'ok'; url: string } | { kind: 'error'; message: string } | null>(null);
 
   useEffect(() => {
     setLocalDirs(userDirectories ?? []);
@@ -234,6 +240,7 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
   const refreshTree = useCallback(async () => {
     await loadRoot();
     setRefreshKey((k) => k + 1);
+    setShareNotice(null);
   }, [loadRoot]);
 
   // Auto-refresh when files change on disk (e.g., created by container commands)
@@ -341,6 +348,21 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
     e.preventDefault();
     e.stopPropagation();
     setContextMenu({ x: e.clientX, y: e.clientY, node });
+    // Fetch fresh status every time the menu opens. Drop any entry left over
+    // from a previous opening first, so the menu never shows a stale status
+    // (renders as if unpublished — Share… alone — until the real answer
+    // comes back).
+    if (!node.isDirectory && window.shareAPI) {
+      setFileShareStatus((prev) => {
+        if (!prev.has(node.path)) return prev;
+        const next = new Map(prev);
+        next.delete(node.path);
+        return next;
+      });
+      window.shareAPI.statusFile(node.path).then((status) => {
+        setFileShareStatus((prev) => new Map(prev).set(node.path, status));
+      }).catch(() => {});
+    }
   }, []);
 
   const handleDelete = useCallback(async () => {
@@ -362,6 +384,41 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
     setContextMenu(null);
     await window.filesAPI.revealInFinder(targetPath);
   }, [contextMenu]);
+
+  // Sharing (docs/design/sharing-tickets.md, ticket U6). Same call backs
+  // both the first publish ("Share…") and a re-publish ("Refresh shared
+  // copy") — both are just `publishFile(path)`.
+  const handlePublishFile = useCallback(async () => {
+    if (!contextMenu || !window.shareAPI) return;
+    const targetPath = contextMenu.node.path;
+    setContextMenu(null);
+    const result = await window.shareAPI.publishFile(targetPath);
+    if (result.ok) {
+      setFileShareStatus((prev) => new Map(prev).set(targetPath, { published: result.published, behind: false }));
+      setShareNotice({ kind: 'ok', url: result.published.url });
+    } else {
+      setShareNotice({ kind: 'error', message: result.error });
+    }
+  }, [contextMenu]);
+
+  const handleUnpublishFile = useCallback(async () => {
+    if (!contextMenu || !window.shareAPI) return;
+    const targetPath = contextMenu.node.path;
+    setContextMenu(null);
+    const result = await window.shareAPI.unpublishFile(targetPath);
+    if (result.ok) {
+      setFileShareStatus((prev) => new Map(prev).set(targetPath, { published: null, behind: false }));
+    } else if (result.error) {
+      setShareNotice({ kind: 'error', message: result.error });
+    }
+  }, [contextMenu]);
+
+  const handleCopyShareLink = useCallback(() => {
+    if (!contextMenu) return;
+    const url = fileShareStatus.get(contextMenu.node.path)?.published?.url;
+    setContextMenu(null);
+    if (url) navigator.clipboard.writeText(url);
+  }, [contextMenu, fileShareStatus]);
 
   const handleSetTag = useCallback(async (tagType: FileTagType) => {
     if (!contextMenu || contextMenu.node.isDirectory) return;
@@ -507,6 +564,32 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
             </button>
           </div>
         </div>
+        {shareNotice && (
+          <div className={`fileShareNotice${shareNotice.kind === 'error' ? ' fileShareNotice--error' : ''}`}>
+            {shareNotice.kind === 'ok' ? (
+              <>
+                <span className="fileShareNotice__text">{shareNotice.url}</span>
+                <button
+                  type="button"
+                  className="fileShareNotice__copy"
+                  onClick={() => navigator.clipboard.writeText(shareNotice.url)}
+                >
+                  Copy link
+                </button>
+              </>
+            ) : (
+              <span className="fileShareNotice__text">{shareNotice.message}</span>
+            )}
+            <button
+              type="button"
+              className="fileShareNotice__close"
+              aria-label="Dismiss"
+              onClick={() => setShareNotice(null)}
+            >
+              ×
+            </button>
+          </div>
+        )}
         {rootExpanded && creatingIn?.dirPath === workspacePath && (
           <div className="fileTreeRow" style={{ paddingLeft: fileTreeRowPaddingLeft(1) }}>
             {creatingIn.type === 'folder' ? (
@@ -646,6 +729,36 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
           <button className="fileTreeContextMenuItem" onClick={handleShowInFinder}>
             Show in Finder
           </button>
+          {!contextMenu.node.isDirectory && window.shareAPI && (() => {
+            const status = fileShareStatus.get(contextMenu.node.path);
+            const published = status?.published ?? null;
+            const behind = status?.behind ?? false;
+            return (
+              <>
+                <div className="fileTreeContextMenuSeparator" />
+                {!published ? (
+                  <button className="fileTreeContextMenuItem" onClick={handlePublishFile}>
+                    Share…
+                  </button>
+                ) : (
+                  <>
+                    <button className="fileTreeContextMenuItem" onClick={handleCopyShareLink}>
+                      Copy link
+                    </button>
+                    {behind && (
+                      <button className="fileTreeContextMenuItem" onClick={handlePublishFile}>
+                        Refresh shared copy
+                      </button>
+                    )}
+                    <button className="fileTreeContextMenuItem fileTreeContextMenuItem--destructive" onClick={handleUnpublishFile}>
+                      Unpublish
+                    </button>
+                  </>
+                )}
+                <div className="fileTreeContextMenuSeparator" />
+              </>
+            );
+          })()}
           <button className="fileTreeContextMenuItem fileTreeContextMenuItem--destructive" onClick={handleDelete}>
             Delete
           </button>
