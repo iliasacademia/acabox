@@ -1,18 +1,32 @@
 # Sharing: publish a mini-app or a file as a login-gated link
 
-> **Status: proposal, nothing built.** Written 2026-09-10 from a clarifying
-> round with the user. Every row in "Decisions from the user" is theirs, not
-> inferred. Every Cloudflare limit quoted here was looked up on 2026-09-10, not
-> recalled, and should be re-checked at build time.
+> **Status: the code is built and shipped; the Cloudflare side is not set up
+> and nothing has been published end to end.** Written 2026-09-10 from a
+> clarifying round with the user; status corrected 2026-09-16, when this
+> header still read "proposal, nothing built" while every implementation
+> ticket had landed. Every row in "Decisions from the user" is theirs, not
+> inferred. Every Cloudflare limit quoted here was looked up on 2026-09-10,
+> not recalled, and should be re-checked at build time.
 >
 > | Increment | State |
 > |---|---|
-> | 0 Cloudflare setup (manual, documented) | Not started |
-> | 1 Two Workers + R2 (`cloudflare/share/`) | Not started |
-> | 2 Snapshot + publisher in main (`main/share/`) | Not started |
-> | 3 Viewer shim (read-only stand-in for the host) | Not started |
-> | 4 UI: Publish / Refresh / Unpublish, Settings → Sharing, Files → Share | Not started |
-> | 5 End-to-end verification in a real browser | Not started |
+> | 0 Cloudflare setup (manual, documented) | **Not started** — the one thing standing between this and working |
+> | 1 Two Workers + R2 (`src/share-workers/`) | Built, unit-tested; never deployed |
+> | 2 Snapshot + publisher in main (`main/share/`) | Built, unit-tested |
+> | 3 Viewer shim (read-only stand-in for the host) | Built, tested against the real bridge |
+> | 4 UI: Publish / Refresh / Unpublish, Settings → Sharing, Files → Share | Built |
+> | 5 End-to-end verification in a real browser | **Not done** (ticket X1) |
+>
+> Shipped in v0.1.14 and **inert until configured**: no auto-publish anywhere,
+> no hardcoded endpoints, and nothing leaves the laptop until the user sets a
+> site URL, an API URL and a publish token in Settings → Sharing. The token is
+> encrypted at rest and never crosses the IPC boundary.
+>
+> Note the directory moved: this doc's prose says `cloudflare/share/`, but the
+> Workers actually live in `src/share-workers/`.
+>
+> **Next step is Increment 0**, the ~1 hour manual Cloudflare Zero Trust setup
+> in `src/share-workers/README.md`, followed by X1.
 >
 > Rough size: about five developer-days in total. No Mac mini, no domain,
 > no server code beyond two small Workers, and $0/month at this scale.

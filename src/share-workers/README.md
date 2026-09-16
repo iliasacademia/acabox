@@ -10,11 +10,14 @@ This guide assumes you have never used Cloudflare Zero Trust (or Cloudflare
 Access) before, and walks through every screen. If you get stuck, the design
 doc at `docs/design/sharing.md` explains the *why* behind each piece.
 
-> **Where things stand:** this README describes the finished setup, once all
-> of the `docs/design/sharing-tickets.md` "W" tickets have landed. Today the
-> two Workers are a scaffold — routes return `501` — so the deploy and Zero
-> Trust steps below are safe to do at any time (nothing breaks), but the app
-> itself won't do anything useful until the routes ship.
+> **Where things stand (2026-09-16):** the Workers are **finished** — every
+> "W" and "V" ticket in `docs/design/sharing-tickets.md` has landed and the
+> routes are implemented and unit-tested, not the `501` scaffold this note
+> used to describe. What has **not** happened is the setup below: nothing has
+> ever been deployed to Cloudflare, and no app or file has been published end
+> to end (ticket X1). Following this guide is now the next step, and the app
+> side shipped in v0.1.14 is waiting for it — Settings → Sharing stays inert
+> until you paste in the two URLs and a publish token.
 
 ## What gets deployed
 

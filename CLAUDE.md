@@ -177,6 +177,45 @@ to `PATH`.
 
 ## Status (last updated 2026-09-16)
 
+**Released v0.1.14 (2026-09-16).** Find in page, sharing, and the API proxy
+banner fix below, plus the two prior sessions' uncommitted work, which had been
+sitting in the tree. Verified after publishing rather than from the release
+log: the three assets carry the right 0.1.14 names/sizes (dmg 187,846,189 · zip
+190,723,146 · yml 395), `latest-mac.yml` is **anonymously downloadable** with
+the token stripped from the environment (`http=200` — the property the updater
+depends on), its sha512 matches the built zip byte-for-byte, and the packaged
+bundle is `valid on disk / satisfies its Designated Requirement` with
+`CFBundleShortVersionString` 0.1.14 and id `com.electron.acabox`. Also checked
+that the work **shipped** rather than merely built, which is the check a
+release log cannot answer: `/.webpack/renderer/find_bar_window` is present in
+the packaged asar (so the new forge entry took), and the minified renderer
+holds `createElement(ApiSettings,{active:a})` inside the `wsSettings__sectionCard`
+under the "APIs" label — the proxy fix, in the artifact. Ad-hoc signed as
+usual, so a fresh download still needs right-click → Open.
+- **Sharing shipped INERT and that is the point.** Increments 1-4 are built and
+  unit-tested, but Increment 0 — the manual Cloudflare Zero Trust setup in
+  `src/share-workers/README.md` — has never been run, and no app or file has
+  been published end to end (ticket X1). Nothing auto-publishes, there are no
+  hardcoded endpoints, and nothing leaves the laptop until the user sets a site
+  URL, an API URL and a publish token; the token is encrypted at rest and never
+  crosses IPC. Checked, not assumed, before shipping it.
+- **Two status headers were lying in opposite directions and are fixed.**
+  `docs/design/sharing.md` still said "**proposal, nothing built**" while every
+  implementation ticket had landed, and `src/share-workers/README.md` still said
+  the Workers were a scaffold returning `501` when the routes are implemented
+  and tested. A reader trusting either would have drawn the wrong conclusion
+  about what is safe to ship. Both now say what is true: code done, deployment
+  and end-to-end not.
+- **One commit, deliberately, and the reason is worth keeping.** The three
+  workstreams overlap in `index.tsx`, `preload.ts`, `types.d.ts` and
+  `DirectoryPermissions.tsx`, so no subset of them typechecks alone — splitting
+  by path would have produced an intermediate commit that does not build.
+- Gate before publishing: tsc clean; **1586/1586 across 105 suites**; smoke
+  exits 0. Note `git push` reported `remote: fatal error in commit_refs` and
+  then `Everything up-to-date` — a transient GitHub hiccup after the objects
+  were already written, confirmed by `git ls-remote` matching local HEAD. Not a
+  failed push; do not re-push blindly on that message, check the ref.
+
 **"The API proxy isn't running" was the page lying, not the proxy (2026-09-16).**
 Reported from the field, with a screenshot: the banner up, the Hex row green,
 and Test greyed out. The proxy was listening the whole time.
