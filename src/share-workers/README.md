@@ -65,6 +65,45 @@ Share links look like `https://share.acabox.us/a/<id>/`.
 the first 50 seats — see the callout in the Zero Trust section below, that is
 the one limit worth knowing about up front.
 
+## As deployed (2026-09-16)
+
+This is live. The walkthrough below is kept for a rebuild or a second
+environment, but on this account the setup steps are already done, and two of
+them turned out to be unnecessary:
+
+| Thing | Value |
+| --- | --- |
+| Account | `9863ef369f1e2915b43eddaf38f7361e` |
+| Zero Trust team domain | `proud-butterfly-1eb0.cloudflareaccess.com` |
+| Access application | "Acabox Share" on `share.acabox.us` |
+| AUD | `97abc425842008224961c8264c1bf786c079a50b81958bc15712423e4fe80a7f` |
+| Identity provider | the pre-existing Google IdP, `15bd2f93-…` |
+| Policy | allow, emails ending in `@academia.edu` |
+
+**The Zero Trust org and the Google identity provider already existed** — the
+account has been running paper-monitor behind Access since June 2026 — so the
+"add Google as an identity provider" section below was skipped entirely, along
+with its Google Cloud Console detour. Check for an existing IdP before
+creating one:
+
+```sh
+curl -H "Authorization: Bearer $CF_TOKEN" \
+  https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/access/identity_providers
+```
+
+**`allowed_idps` is set to that one Google provider, deliberately.** Leaving it
+empty means *all* providers, and one-time PIN is enabled account-wide on this
+account — which would let any email address on earth request a code and pass
+the gate. The sibling applications (paper-monitor, reader) do leave it empty,
+with an `include: everyone` policy; do not copy that shape here.
+
+Verified end to end on the day it went up: `/v1/health` returns `{"ok":true}`
+with the token and 401 without it; `share.acabox.us/` and `/viewer.js` both
+302 to the Access login, with the redirect's `kid` matching the AUD above; and
+a real file was published, fetched back out of R2 byte-for-byte with a
+matching sha256, and deleted again — which also proved the delete reclaims the
+object and not just the index row.
+
 ## Prerequisites
 
 - A Cloudflare account. The free tier is enough (create one at
@@ -240,7 +279,10 @@ npx wrangler dev --config web/wrangler.toml
 ```
 
 `wrangler dev` simulates R2 locally, so nothing you do here touches the real
-`acabox-share` bucket. The `web` Worker's Access check has nothing to talk to
+`acabox-share` bucket. The same default catches out `wrangler r2 object get`,
+which reads the **local** simulated store unless you pass `--remote` — against
+a key that genuinely exists in the real bucket it reports "The specified key
+does not exist", which reads exactly like a failed upload. The `web` Worker's Access check has nothing to talk to
 outside of a real deploy, so local requests would otherwise always be
 refused. Skip the check in dev by creating a `web/.dev.vars` file (wrangler
 loads this automatically; do not commit it — it's a local-only override) containing:
