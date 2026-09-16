@@ -9,6 +9,12 @@ main = "src/index.ts"
 # Keep in sync with api/wrangler.toml — see the comment there.
 compatibility_date = "2026-08-25"
 
+# The viewer hostname — this is the one the Cloudflare Access application
+# protects, and the only one a human ever opens.
+[[routes]]
+pattern = "share.acabox.us"
+custom_domain = true
+
 [[r2_buckets]]
 binding = "BUCKET"
 bucket_name = "acabox-share"
@@ -18,9 +24,14 @@ directory = "./public"
 binding = "ASSETS"
 run_worker_first = true
 
-# Placeholders — filled in after creating the Cloudflare Access application
-# (README step: "Copy the AUD tag and team domain into [vars]"), then
-# `npm run deploy:web` again.
+# The Cloudflare Access application "Acabox Share" on share.acabox.us.
+# ACCESS_AUD is that application's Application Audience tag; the Worker
+# requires it as the `aud` claim, so a JWT minted for any OTHER application
+# on this same team domain (paper-monitor, reader, …) is rejected here.
+# Both are public identifiers, not secrets — the aud is a claim inside every
+# token Access issues. Re-read them with:
+#   curl -H "Authorization: Bearer $CF_TOKEN" \
+#     https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/access/apps
 [vars]
-ACCESS_TEAM_DOMAIN = "your-team.cloudflareaccess.com"
-ACCESS_AUD = "replace-with-the-access-application-aud-tag"
+ACCESS_TEAM_DOMAIN = "proud-butterfly-1eb0.cloudflareaccess.com"
+ACCESS_AUD = "97abc425842008224961c8264c1bf786c079a50b81958bc15712423e4fe80a7f"

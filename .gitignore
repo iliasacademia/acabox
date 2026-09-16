@@ -79,3 +79,10 @@ src/cobuilding/swift/dictation-mac/build/
 src/share-workers/node_modules/
 src/share-workers/web/public/viewer.js
 src/share-workers/web/public/viewer.css
+
+# wrangler's local scratch: `wrangler dev` writes a simulated R2 here, and
+# `.dev.vars` is the local-only ACCESS_DISABLED override the README describes.
+# Committing either would be a mistake — the second one especially, since it
+# turns the sign-in gate off wherever it is read.
+src/share-workers/**/.wrangler/
+src/share-workers/**/.dev.vars

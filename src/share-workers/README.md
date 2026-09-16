@@ -18,6 +18,13 @@ doc at `docs/design/sharing.md` explains the *why* behind each piece.
 > to end (ticket X1). Following this guide is now the next step, and the app
 > side shipped in v0.1.14 is waiting for it — Settings → Sharing stays inert
 > until you paste in the two URLs and a publish token.
+>
+> **This guide now targets the custom domain `acabox.us`**, which is live in
+> Cloudflare. Both `wrangler.toml` files already carry their hostname, so
+> `wrangler deploy` creates the DNS record for you. If you are setting this up
+> on a different account or domain, change the `pattern` in both files (or
+> delete both `[[routes]]` blocks to fall back to `workers.dev`) — everything
+> else below is the same.
 
 ## What gets deployed
 
@@ -34,9 +41,24 @@ Two Workers, one shared R2 bucket:
   Cloudflare Access login (fail closed: if Access is ever misconfigured or
   turned off, the site goes dark, not public).
 
-Both live behind their Worker's own `workers.dev` subdomain — no custom
-domain is required. URLs look like
-`https://acabox-share.<your-account>.workers.dev/a/<id>/`.
+The two run on **two different hostnames**, and that is forced rather than
+cosmetic. A Cloudflare Access application covers a whole hostname, so the
+publish Worker cannot share one with the gated viewer without being dragged
+behind the login it must never be behind:
+
+| Worker | Hostname | Gate |
+| --- | --- | --- |
+| `acabox-share` (viewer) | `share.acabox.us` | Cloudflare Access — Google, `@academia.edu` |
+| `acabox-share-api` (publish) | `share-api.acabox.us` | Bearer `PUBLISH_TOKEN` only |
+
+Share links look like `https://share.acabox.us/a/<id>/`.
+
+> **Never create an Access application for `acabox.us` or `*.acabox.us`.**
+> A wildcard is the obvious move once you own the whole zone, and it would
+> also cover `share-api.acabox.us` — so every publish would be redirected to a
+> Google sign-in page that Acabox's main process has no browser to complete.
+> Publishing would fail with an HTML login page where a JSON response was
+> expected. Scope the application to `share.acabox.us` exactly.
 
 **Free at this scale.** Workers: 100k requests/day free. R2: 10 GB storage,
 1M writes/month, 10M reads/month free. Zero Trust (the login gate): free for
@@ -84,8 +106,9 @@ If you want a different bucket name, edit `bucket_name` in both
 npx wrangler deploy --config api/wrangler.toml
 ```
 
-This prints the Worker's URL — that's your **API URL**,
-`https://acabox-share-api.<your-account>.workers.dev`.
+`wrangler` creates the `share-api.acabox.us` DNS record on first deploy (a
+proxied record on the `acabox.us` zone). That hostname is your **API URL**:
+`https://share-api.acabox.us`.
 
 Generate a random token and store it as a Worker secret (this prompts you to
 paste the value; it is never written to a file in this repo):
@@ -105,10 +128,17 @@ the agent.
 npx wrangler deploy --config web/wrangler.toml
 ```
 
-This prints the Worker's URL — that's your **site URL**,
-`https://acabox-share.<your-account>.workers.dev`. At this point the site is
-live but wide open (Access isn't configured yet) — the next three sections
-close that gap before anyone should be told the link exists.
+This creates the `share.acabox.us` record the same way. That hostname is your
+**site URL**: `https://share.acabox.us`.
+
+**The site is dark at this point, not open** — an earlier version of this
+guide said the opposite and it was wrong. The Worker verifies a Cloudflare
+Access JWT on *every* route itself, static viewer assets included
+(`run_worker_first = true`), and answers `401 Sign in required` when there is
+none. Measured against the real Worker with no Access configured: `/`,
+`/a/<id>/`, `/viewer.js` and an unknown path all returned 401. So deploying
+before the next three sections exposes nothing; it just means nobody can get
+in yet, including you.
 
 ## Zero Trust: add Google as an identity provider
 
@@ -142,8 +172,8 @@ Still in Zero Trust:
 
 1. Go to **Access → Applications → Add an application → Self-hosted**.
 2. Give it a name (e.g. "Acabox Share") and set the **Application domain** to
-   your `acabox-share` Worker's hostname from the deploy step above —
-   `acabox-share.<your-account>.workers.dev` — with no path.
+   exactly `share.acabox.us`, with no path and no wildcard. (See the warning
+   in *What gets deployed* — a wildcard over the zone would break publishing.)
 3. Under **Identity providers**, select **Google** (and turn off "Accept all
    available identity providers" if that's shown, so only Google applies).
 4. Add one policy: **Action: Allow**, rule **Include → Emails ending in**,
@@ -184,11 +214,15 @@ sign-in, and only an `@academia.edu` account gets past it.
 
 In Acabox, open **Settings → Sharing** and fill in:
 
-- **Site URL** — `https://acabox-share.<your-account>.workers.dev` (no
-  trailing slash)
-- **API URL** — `https://acabox-share-api.<your-account>.workers.dev` (no
-  trailing slash)
+- **Site URL** — `https://share.acabox.us` (no trailing slash)
+- **API URL** — `https://share-api.acabox.us` (no trailing slash)
 - **Token** — the exact value you generated for `PUBLISH_TOKEN` above
+
+> **Settle the hostname before you publish anything.** A share's URL is built
+> at publish time by `artifactUrl()` and then stored, absolute, in the share
+> registry. Changing the Site URL later does not rewrite records that already
+> exist, so previously published links keep pointing at the old host. Nothing
+> has been published yet, which is why now is the moment this is free.
 
 Click **Test**. It calls the api Worker's health check with your token; a
 green result means Acabox can publish. The token is encrypted at rest and

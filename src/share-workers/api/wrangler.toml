@@ -11,6 +11,17 @@ main = "src/index.ts"
 # it stays valid as the pinned wrangler version is bumped over time.
 compatibility_date = "2026-08-25"
 
+# The publish hostname. A SEPARATE host from the viewer's, and that separation
+# is load-bearing rather than cosmetic: a Cloudflare Access application covers
+# a whole hostname, and this Worker must never sit behind one — the main
+# process authenticates with a bearer token and has no browser to complete a
+# Google login with. Never create an Access application for `acabox.us` or
+# `*.acabox.us`: it would cover this host too and every publish would be
+# bounced to a sign-in page nothing can answer.
+[[routes]]
+pattern = "share-api.acabox.us"
+custom_domain = true
+
 [[r2_buckets]]
 binding = "BUCKET"
 bucket_name = "acabox-share"
