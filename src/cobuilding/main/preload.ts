@@ -64,6 +64,13 @@ contextBridge.exposeInMainWorld('mcpServersAPI', {
   approveAuthored: (id: string) => ipcRenderer.invoke('mcpServers:approveAuthored', id),
 });
 
+contextBridge.exposeInMainWorld('modelsAPI', {
+  // One call, no arguments: main owns the roster, the merge and the cache.
+  // The reply is always immediately usable — it falls back to the built-in
+  // list when discovery has not answered — so the picker never blocks on it.
+  list: () => ipcRenderer.invoke('models:list'),
+});
+
 contextBridge.exposeInMainWorld('apisAPI', {
   list: () => ipcRenderer.invoke('apis:list'),
   // `clearSecret` is explicit because a blank secret already means "keep the

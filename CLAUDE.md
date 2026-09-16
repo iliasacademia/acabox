@@ -177,6 +177,57 @@ to `PATH`.
 
 ## Status (last updated 2026-09-16)
 
+**Models: one roster, discovered live — and the real blocker turned out to be
+the bundled CLI, not our list (2026-09-16).** Asked as "the picker shows Fable
+5, but Fable 5.1 exists — can new models appear as soon as they ship?"
+- **The premise was half right, and the missing half is the important part.**
+  The roster WAS three hardcoded copies that drift (that is fixed). But adding
+  `claude-fable-5-1` to the picker and sending a real turn returns
+  `400 invalid_request_error — "Claude Code 2.1.121 does not support this
+  model; version 2.1.251 or newer is required"`, while `claude-fable-5` on the
+  same build replies normally. **The gate is the CLI version the Agent SDK
+  bundles**, not the account's roster: `GET /v1/models` cheerfully lists
+  5.1. So discovery can tell us a model EXISTS and never that we can run it —
+  and a brand-new model is exactly the case an old CLI rejects.
+  **Fable 5.1 is therefore deliberately NOT offered**, recorded in
+  `UNSUPPORTED_MODEL_IDS` with the measurement, and unblocking it means
+  upgrading `@anthropic-ai/claude-agent-sdk` **0.2.121 → 0.3.273** — a
+  major-line jump that also moves the exactly-pinned
+  `@modelcontextprotocol/sdk`, so it is its own piece of work, not a bump.
+- **The gate applies to CHAT only.** Mini-apps call the Anthropic API directly
+  through the proxy with no CLI in the path, which is why the mini-app
+  allowlist trusts discovery outright while the picker cannot.
+- New `shared/models.ts` is the single source of truth for all three former
+  copies; `main/modelCatalog.ts` reads `GET /v1/models` (main-owned, because
+  the key never leaves main), cached 6h, single-flight, best-effort — a failure
+  returns the roster you already had, so the picker can never go empty.
+- **`UNSUPPORTED_MODEL_IDS` must stay inside `KNOWN_MODEL_IDS`, and that is a
+  live bug if forgotten:** "known" is what stops `mergeModels` reading an id as
+  a new release, and 5.1 is newer than everything else on the roster — so an
+  unknown 5.1 would be auto-added on the next discovery and 400 for whoever
+  picked it. Pinned by a test.
+- **The merge rule, and why it is two conditions:** a discovered model is shown
+  only when its id is unknown **and** it is newer than every id we do know,
+  with the cutoff computed from the API's own `created_at` (no hardcoded date
+  to go stale). Each half alone fails a real case — validated on live data:
+  the account returns 11 models including `claude-opus-4-5-20251101` and
+  `claude-sonnet-4-5-20250929`, both unknown to this build and both correctly
+  suppressed as old rather than announced as new.
+- The default model stays **pinned** to `claude-opus-5`. Auto-jumping to
+  whatever is newest would change every new chat's cost because Anthropic
+  shipped something, with nobody choosing it.
+- Verified: tsc clean; **1611/1611 across 107 suites** (+25, 2 new suites — the
+  fetch layer driven against a real loopback server, `@jest-environment node`
+  because jsdom's fetch never reaches it). Then live over CDP: discovery
+  returned 11 models with no error, the picker rendered exactly the curated
+  five, and real turns confirmed Fable 5 works and Fable 5.1 400s.
+- **A false positive worth recording:** the first live turn "passed" because
+  the probe typed into the Settings *custom instructions* textarea — the first
+  visible `textarea` on the page — and then matched its own text in
+  `document.body.innerText`. Assert on the DB row and the `Session created:
+  model=` log line, not on page text, and scope DOM writes to a real class
+  (`.cdComposerInput`). Nothing was saved; the field was cleared.
+
 **Released v0.1.14 (2026-09-16).** Find in page, sharing, and the API proxy
 banner fix below, plus the two prior sessions' uncommitted work, which had been
 sitting in the tree. Verified after publishing rather than from the release
@@ -2133,6 +2184,16 @@ always boots straight into the Command Desk shell.
   packaged build remain to be exercised.
 
 ## Known hazards (design constraints, not bugs)
+
+- **New Claude models need an Agent SDK upgrade, not just a list edit.** The
+  bundled Claude Code CLI gates which models it will run: a model newer than
+  the CLI returns `400 … does not support this model; version X or newer is
+  required`, no matter what `GET /v1/models` says the account can reach.
+  Discovery (`main/modelCatalog.ts`) keeps the roster current by itself, but
+  the picker can only offer what the CLI accepts — so `shared/models.ts` keeps
+  an `UNSUPPORTED_MODEL_IDS` list, currently holding `claude-fable-5-1`.
+  Measured 2026-09-16 on SDK 0.2.121 (== Claude Code 2.1.121); 5.1 wants
+  2.1.251+. Keeping models current means keeping the SDK current.
 
 - **Read-only directories are advisory only.** The agent is told via
   `workspaceDirectoriesGuidance` text, but `Write`/`Edit` still hit the

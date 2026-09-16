@@ -1262,6 +1262,14 @@ declare global {
     jupyterAPI: JupyterAPI;
     authAPI: AuthAPI;
     connectorsAPI: ConnectorsAPI;
+    modelsAPI: {
+      list(): Promise<{
+        models: { id: string; label: string; description: string; discovered?: boolean }[];
+        defaultModel: string;
+        discoveredCount: number;
+        error: string | null;
+      }>;
+    };
     apisAPI: ApisAPI;
     skillsAPI: SkillsAPI;
     knowledgeAPI: KnowledgeAPI;

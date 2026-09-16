@@ -2,14 +2,38 @@ import React, { useState, useEffect } from 'react';
 import { useAssistantRuntime } from '@assistant-ui/react';
 import { DropdownMenu } from 'radix-ui';
 import { MSymbol } from './command-desk/MSymbol';
+import { CURATED_MODELS, DEFAULT_MODEL as SHARED_DEFAULT_MODEL, type PickerModel } from '../../shared/models';
 
-const MODELS = [
-  { id: 'claude-fable-5', label: 'Fable 5', description: 'Highest intelligence, premium cost' },
-  { id: 'claude-opus-5', label: 'Opus 5', description: 'Most capable for ambitious work' },
-  { id: 'claude-opus-4-8', label: 'Opus 4.8', description: 'Previous-generation Opus' },
-  { id: 'claude-sonnet-5', label: 'Sonnet 5', description: 'Most efficient for everyday tasks' },
-  { id: 'claude-haiku-4-5', label: 'Haiku 4.5', description: 'Fastest for quick answers' },
-] as const;
+/**
+ * The roster this module renders.
+ *
+ * Starts as the built-in curated list and is REPLACED by the merged one
+ * (built-in + anything `GET /v1/models` reports that we have never heard of)
+ * as soon as main answers — see `shared/models.ts`. A module-level mutable
+ * copy rather than component state because the synchronous label helpers
+ * below are called from outside React (`useSessionMeta`, the chat adapter),
+ * and they must name a newly discovered model correctly too.
+ */
+let MODELS: PickerModel[] = [...CURATED_MODELS];
+
+/** Notifies mounted pickers that the roster changed under them. */
+const ROSTER_EVENT = 'cd:models-changed';
+
+/**
+ * Ask main for the merged roster. Safe to call repeatedly — main caches and
+ * single-flights the network side. Failure is a no-op: `MODELS` keeps the
+ * built-in list, which is why no caller has to handle a missing roster.
+ */
+export async function refreshModelRoster(): Promise<void> {
+  try {
+    const res = await window.modelsAPI?.list();
+    if (!res || !Array.isArray(res.models) || res.models.length === 0) return;
+    MODELS = res.models;
+    window.dispatchEvent(new CustomEvent(ROSTER_EVENT));
+  } catch {
+    /* Built-in list stands. */
+  }
+}
 
 // Thinking-level dial. Values are the Claude Agent SDK `effort` levels
 // (query() option); labels mirror the Claude Desktop app ("Extra" == 'xhigh').
@@ -27,11 +51,16 @@ const EFFORTS: { id: EffortId; label: string; note?: string }[] = [
 
 const MODEL_KEY = 'selectedModel';
 const EFFORT_KEY = 'selectedEffort';
-const DEFAULT_MODEL = 'claude-opus-5';
+const DEFAULT_MODEL = SHARED_DEFAULT_MODEL;
 const DEFAULT_EFFORT: EffortId = 'high';
 
 function readModel(): string {
   // Stored value may reference a model removed from the list; fall back.
+  //
+  // Checked against the CURRENT roster, which is why discovery only ever adds:
+  // were a discovered model to drop out of a later response, a user pinned to
+  // it would silently fall back to the default rather than keep sending an id
+  // the account can no longer use.
   const stored = localStorage.getItem(MODEL_KEY);
   return stored && MODELS.some((m) => m.id === stored) ? stored : DEFAULT_MODEL;
 }
@@ -80,7 +109,17 @@ export function getSelectedEffortLabel(): string {
 export const ModelSelector: React.FC = () => {
   const [model, setModel] = useState(readModel);
   const [effort, setEffort] = useState<EffortId>(readEffort);
+  // Bumped when the roster is replaced, purely to force a re-render — MODELS
+  // is module state, so React cannot see it change on its own.
+  const [, setRosterTick] = useState(0);
   const runtime = useAssistantRuntime();
+
+  useEffect(() => {
+    const onRoster = () => setRosterTick((n) => n + 1);
+    window.addEventListener(ROSTER_EVENT, onRoster);
+    void refreshModelRoster();
+    return () => window.removeEventListener(ROSTER_EVENT, onRoster);
+  }, []);
 
   // Model rides to the agent via the assistant-ui model context (read as
   // context.config.modelName in chatAdapter). Effort is read from localStorage
@@ -106,7 +145,11 @@ export const ModelSelector: React.FC = () => {
     window.dispatchEvent(new CustomEvent('cd:effort-changed'));
   };
 
-  const currentModel = MODELS.find((m) => m.id === model) ?? MODELS[1];
+  // Fall back by ID, never by array index: the old `MODELS[1]` meant "Opus 5"
+  // only because of where it sat in a fixed array, and discovery prepends.
+  const currentModel = MODELS.find((m) => m.id === model)
+    ?? MODELS.find((m) => m.id === DEFAULT_MODEL)
+    ?? MODELS[0];
   const currentEffort = EFFORTS.find((e) => e.id === effort) ?? EFFORTS[2];
 
   return (

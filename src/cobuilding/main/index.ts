@@ -105,6 +105,8 @@ import {
   getApiCounters,
 } from './apiStore';
 import { apiProxy, callerWithGrants, performApiRequest, setToolGrantResolver } from './apiProxy';
+import { allowedModelIds, DEFAULT_MODEL, mergeModels } from '../shared/models';
+import { discoveredModels, discoveryError, refreshModels } from './modelCatalog';
 import { API_CATALOG, type ApiConfig } from '../shared/apis';
 import { decryptSecret, encryptSecret, isEncrypted, isEncryptionAvailable } from './secretStore';
 import { processCpuMonitor } from '../../utils/processCpuMonitor';
@@ -916,6 +918,12 @@ app.whenReady().then(async () => {
       ? `[Auth] Loaded Anthropic API key from ${process.env.ANTHROPIC_API_KEY ? 'env' : 'settings'}`
       : '[Auth] No Anthropic API key configured — user must add one in Settings',
   );
+
+  // Refresh the model roster in the background. Deliberately not awaited: the
+  // curated list in `shared/models.ts` is already a correct answer, so a slow
+  // or unreachable models endpoint must not add latency to boot. Callers read
+  // whatever has landed by the time they ask.
+  void refreshModels(bootCreds);
 
   // Only in packaged builds: under `npm start` the process runs as the stock
   // Electron dev binary (bundle id com.github.Electron), so this write would
@@ -2377,17 +2385,18 @@ ipcMain.handle('edit-state:get-all', () => {
 // Only these models may be requested. Unrecognised values silently fall back
 // to haiku rather than erroring, so agent-written code that omits the field
 // always gets a sensible default without breaking.
-const ANTHROPIC_ALLOWED_MODELS = new Set([
-  'claude-haiku-4-5-20251001',
-  'claude-haiku-4-5',
-  'claude-sonnet-4-6',
-  'claude-sonnet-5',
-  'claude-opus-4-6',
-  'claude-opus-4-7',
-  'claude-opus-4-8',
-  'claude-opus-5',
-  'claude-fable-5',
-]);
+/**
+ * Ids a mini-app may pass to the Claude bridge.
+ *
+ * Derived, not hardcoded: the built-in roster in `shared/models.ts` plus
+ * whatever `GET /v1/models` reports for this account. Read through a function
+ * rather than captured in a const because discovery lands asynchronously
+ * after boot — a snapshot taken at module load would permanently miss every
+ * model the API adds, which is the exact staleness this replaced.
+ */
+function anthropicAllowedModels(): Set<string> {
+  return allowedModelIds(discoveredModels());
+}
 
 // Hard limits applied regardless of what the caller sends. The token cap
 // prevents a runaway mini-app from exhausting the user's quota in one call.
@@ -2549,9 +2558,9 @@ async function validateAnthropicParams(params: unknown, allowedDirs: string[]): 
 
   // Silently clamp model to the allowlist so agent code that specifies a model
   // always works, even if the model name is slightly wrong or has been removed.
-  const model = typeof p.model === 'string' && ANTHROPIC_ALLOWED_MODELS.has(p.model)
+  const model = typeof p.model === 'string' && anthropicAllowedModels().has(p.model)
     ? p.model
-    : 'claude-haiku-4-5-20251001';
+    : 'claude-haiku-4-5';
 
   // Clamp rather than reject so the call still succeeds with a safe value.
   const max_tokens = typeof p.max_tokens === 'number' && p.max_tokens > 0
@@ -2696,6 +2705,10 @@ ipcMain.handle('auth:setApiKey', async (_event, key: string, baseURL?: string) =
   const pushed = await refreshAndPushCredentials({ force: true })
     .catch((err) => { log.warn('[Auth] push new key to agent failed:', err); return false; });
   log.info(`[Auth] Anthropic API key updated from Settings (pushed to agent: ${pushed})`);
+  // Force past the TTL: if discovery previously failed on a bad or missing
+  // key, the cached answer is an auth failure, and the whole point of this
+  // save is that the key changed.
+  void refreshModels({ apiKey: trimmed, baseURL: url }, true);
   // A failed push is not a failed save — the key is on disk and every future
   // session reads it — but it IS the case where a restart is genuinely needed,
   // so say so instead of reporting a clean success the next turn contradicts.
@@ -2810,6 +2823,23 @@ ipcMain.handle('connectors:removeUnmanaged', () => {
 // *announced* to the next chat while `mcp__apis__list_apis` reads live state.
 //
 // `listApis()` is the masked accessor — secrets never cross this boundary.
+
+// ─── Models IPC ───────────────────────────────────────────────────────
+//
+// The merge happens HERE rather than in the renderer so that the picker, the
+// mini-app allowlist and anything else asking "what models are there" all read
+// one answer computed one way. `refresh` is fire-and-forget on purpose: the
+// reply is whatever is already known, so opening the picker never waits on the
+// network, and the next open shows anything the refresh turned up.
+ipcMain.handle('models:list', () => {
+  void refreshModels(resolveApiKey());
+  return {
+    models: mergeModels(discoveredModels()),
+    defaultModel: DEFAULT_MODEL,
+    discoveredCount: discoveredModels().length,
+    error: discoveryError(),
+  };
+});
 
 ipcMain.handle('apis:list', () => ({
   apis: listApis(),

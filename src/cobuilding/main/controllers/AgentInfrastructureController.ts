@@ -19,6 +19,7 @@ import { ensurePythonVenv } from '../pythonSetup';
 import { listConnectorsWithSecrets } from '../connectorsStore';
 import { listApis } from '../apiStore';
 import { apiProxy } from '../apiProxy';
+import { DEFAULT_MODEL } from '../../shared/models';
 import {
   API_BASE_ENV,
   API_PROXY_TOKEN_HEADER,
@@ -478,7 +479,7 @@ export class AgentInfrastructureController {
       hostedServers: hostedInventory,
       anthropicApiKey: agentApiKey ?? '',
       ...(agentBaseURL ? { anthropicBaseURL: agentBaseURL } : {}),
-      model: 'claude-opus-5',
+      model: DEFAULT_MODEL,
       // Default thinking level; per-turn overrides come from the chat UI via
       // the session-create override (see mergeSessionConfig).
       effort: 'high',
