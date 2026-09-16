@@ -1045,6 +1045,15 @@ app.whenReady().then(async () => {
       }
     });
 
+    // Installer output. Unlike the other two feeds this is not a snapshot —
+    // each line is an event, and dropping one leaves a gap in a log the user
+    // is reading, so it is forwarded as it arrives rather than coalesced.
+    mcpHost.onInstallLog((id, line) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('mcpServers:installLog', { id, line });
+      }
+    });
+
     mcpHost.onInventoryChanged(() => {
       mcpHost.list()
         .then((all) => {
@@ -1538,6 +1547,34 @@ ipcMain.handle('mcpServers:listAuthored', async () => {
 ipcMain.handle('mcpServers:approveAuthored', async (_event, id: unknown) => {
   if (typeof id !== 'string' || !id) return { ok: false, error: 'Bad id.' };
   return mcpHost.approveAuthoredServer(id);
+});
+
+/**
+ * Increment 6 — install a server from npm or GitHub.
+ *
+ * Long-running by nature (a network fetch plus an npm resolve), so progress
+ * is a LIVE LOG rather than a percentage: codeload sends no `content-length`,
+ * so any bar would be fabricated — the rule `ImportSkillPanel` already
+ * follows. The lines arrive on `mcpServers:installLog`; this handler resolves
+ * only when the install is over.
+ */
+ipcMain.handle('mcpServers:install', async (_event, req: unknown) => {
+  const r = req as { id?: unknown; label?: unknown; source?: unknown; env?: unknown } | null;
+  if (!r || typeof r.id !== 'string' || !r.id) return { ok: false, error: 'Bad id.' };
+  const source = r.source as { kind?: unknown; pkg?: unknown; version?: unknown; url?: unknown; subpath?: unknown } | null;
+  if (!source || (source.kind !== 'npm' && source.kind !== 'github')) {
+    return { ok: false, error: 'Pick npm or GitHub.' };
+  }
+  const parsed = source.kind === 'npm'
+    ? { kind: 'npm' as const, pkg: String(source.pkg ?? ''), version: source.version ? String(source.version) : undefined }
+    : { kind: 'github' as const, url: String(source.url ?? ''), subpath: source.subpath ? String(source.subpath) : undefined };
+
+  return mcpHost.installServer({
+    id: r.id,
+    label: typeof r.label === 'string' ? r.label : undefined,
+    source: parsed,
+    env: (r.env && typeof r.env === 'object') ? (r.env as Record<string, string>) : undefined,
+  });
 });
 
 ipcMain.handle('jobs:cancel', (_event, id: string) => {

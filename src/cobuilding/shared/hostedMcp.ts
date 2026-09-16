@@ -172,7 +172,56 @@ export interface HostedMcpRecord {
    */
   lastPid?: number;
   lastPidSignature?: string;
+  /**
+   * R3 (`docs/design/mcp-hosting.md`): WHOSE Node runs this server.
+   *
+   * Increment 6.4 claims `NODE_MODULE_VERSION` is "a constant we control".
+   * That is true only for servers Acabox installed and launches itself. For a
+   * command the user typed behind Advanced — `npx …`, `python`, `deno`, a
+   * shell script — the ABI, the interpreter and the download behaviour are
+   * all theirs, and `npx` in particular re-fetches code from the network on
+   * every start. Leaving that distinction implicit in the install kind is how
+   * the claim quietly became false for half the servers.
+   *
+   * `undefined` is not a migration gap — `hostedRuntime()` below derives it
+   * from `install.kind`, which has always carried the answer. Stored
+   * explicitly on new records so a future install kind has to state its
+   * intent rather than inherit one.
+   */
+  runtime?: HostedRuntime;
   createdAt: string;
+}
+
+/**
+ * - `acabox-node` — Acabox installed the code and launches it with
+ *   `process.execPath` + `ELECTRON_RUN_AS_NODE=1`. One Node, one ABI, no
+ *   dependency on the user having Node at all.
+ * - `system` — the user's own command, resolved against `getLoginShellPath()`
+ *   at every start (Homebrew upgrades move binaries) and run by whatever
+ *   interpreter that resolves to. This is the "works in Terminal, 127 from
+ *   the Dock" generator, so the UI must say which world it looked in.
+ */
+export type HostedRuntime = 'acabox-node' | 'system';
+
+/**
+ * Which Node runs a record, including for records written before the field
+ * existed. The derivation is not a guess: `install.kind` has always implied
+ * the answer, because what Acabox installs is exactly what Acabox launches.
+ */
+export function hostedRuntime(record: Pick<HostedMcpRecord, 'runtime' | 'install'>): HostedRuntime {
+  if (record.runtime) return record.runtime;
+  switch (record.install.kind) {
+    case 'authored':
+    case 'npm':
+    case 'github':
+    case 'catalog':
+      return 'acabox-node';
+    case 'custom':
+    default:
+      // A typed command. Anything we cannot prove we installed is `system`,
+      // which is the conservative direction: it claims less.
+      return 'system';
+  }
 }
 
 /**

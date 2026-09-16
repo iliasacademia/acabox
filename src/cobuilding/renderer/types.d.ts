@@ -241,6 +241,19 @@ interface McpServersAPI {
    */
   rescanAuthored(): Promise<AuthoredScanResultT>;
   /**
+   * Increment 6 — install from npm or GitHub. Resolves only when the install
+   * is over; progress arrives on `onInstallLog` meanwhile, because codeload
+   * sends no `content-length` and a percentage would be fabricated.
+   */
+  install(req: {
+    id: string;
+    label?: string;
+    source: { kind: 'npm'; pkg: string; version?: string } | { kind: 'github'; url: string; subpath?: string };
+    env?: Record<string, string>;
+  }): Promise<{ ok: true; id: string; toolCount: number; toolNames: string[] } | { ok: false; error: string }>;
+  /** One line of installer output. Returns its own unsubscribe. */
+  onInstallLog(cb: (evt: { id: string; line: string }) => void): () => void;
+  /**
    * The manifest description + file-drift count for every agent-authored
    * server, on top of what `list()` already returns. A separate call, not
    * folded into `list()`/`onChanged()`: computing drift hashes a directory,

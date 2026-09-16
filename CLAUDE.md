@@ -175,7 +175,71 @@ to `PATH`.
 - To kill stray dev instances:
   `pkill -9 -f "Acabox/node_modules/electron"`.
 
-## Status (last updated 2026-09-09)
+## Status (last updated 2026-09-16)
+
+**Increment 6 shipped: you can install an MCP server from npm or GitHub, and
+`docs/design/mcp-hosting.md` is now complete — every increment 0-9 built and
+green.** New `main/mcpHost/npmProject.ts` + `installer.ts` +
+`renderer/components/servers/InstallServerPanel.tsx`.
+- **npm first, GitHub second** (the review's R2). Almost every MCP server is
+  distributed on npm and documented as `npx -y <pkg>`, so building the
+  arbitrary-repo path first would have skipped the case that covers most real
+  servers. **Verified by installing real ones, not by reading:**
+  `@modelcontextprotocol/server-memory` resolved `latest` → the exact
+  `2026.8.31`, 95 packages in 2s, probed to **9 real tools**, registered off;
+  turned on it reached `ready`, and a real chat turn had the model call
+  `create_entities` and `read_graph` and report the graph back.
+- **We install with npm and launch the resolved file ourselves — never `npx`**,
+  for three measured reasons: `npx` appears nowhere in `main/` and is not on a
+  GUI launch's PATH without `getLoginShellPath()`; it execs the USER's Node, so
+  `NODE_MODULE_VERSION` stops being ours; and it silently re-downloads code
+  from the network on **every start**, which no disclosure copy mentions.
+- **`--ignore-scripts` is not negotiable, and its cost is accepted rather than
+  worked around.** Lifecycle scripts are arbitrary code running at INSTALL
+  time — before the user has seen anything and before the per-tool gate can
+  refuse anything. The consequence is real: **a GitHub install only works for a
+  repo that ships runnable JS.** Measured against
+  `modelcontextprotocol/servers@d73f99ef` `src/memory` — SHA pinned, 14 files
+  fetched, 2 deps installed, then correctly refused because its `bin` points
+  into a `dist/` only a build produces. `resolveEntryFile` now says exactly
+  that and points at npm, instead of the true-but-useless "dist/index.js is not
+  in the installed package".
+- **R3's `runtime` field is in.** `acabox-node` (we installed it, we launch it
+  with `process.execPath` + `ELECTRON_RUN_AS_NODE=1`, the ABI is ours to
+  promise) vs `system` (the user's typed command — their interpreter, their
+  ABI). **No migration:** `hostedRuntime()` derives it from `install.kind`,
+  which always implied the answer, and derives `system` for `custom` because
+  that is the direction that claims less.
+- **`fetchSubtreeRaw` extracted from `skillImporter.fetchSubtree`** so an MCP
+  server, which has no `SKILL.md`, gets the identical SHA-pinned fetch.
+  `downloadTarball`/`extractSubpath` stay unexported and both callers go
+  through the one function — their sequencing is the safety property. The 43
+  skill-importer tests still pass unchanged.
+- **A pre-existing bug this surfaced: "Turn on" was a dead end for every server
+  except an agent-authored one.** `start()` refused a disabled record with
+  `"<id>" is off. Turn it on first.` while **nothing in the app could set
+  `enabled: true`** except `approveAuthoredServer` — zero `enabled: true` sites
+  existed in `mcpHost/index.ts`. So the button told you to do the thing it was
+  supposed to do, and a server added through the Advanced form could never run
+  at all. Unreachable until installing became normal. `start()` is now the true
+  inverse of `pause()`; the test that asserted the old refusal is updated with
+  a comment saying why a shipped assertion was reversed.
+- **The install panel adopted `.connectorForm`** rather than inventing its own
+  container — caught by a screenshot, again: it first rendered edge-to-edge
+  while the Advanced form beside it sat in a bordered card, so the two ways to
+  add a server looked like two products.
+- **Dev gotcha, cost ~20 minutes here.** A git worktree with `node_modules`
+  symlinked to the main checkout runs Electron from the SYMLINK-RESOLVED path,
+  so `pkill -f "<worktree>/node_modules/electron"` matches nothing and you end
+  up testing a stale app while the new bundle sits on disk. Kill with
+  `pkill -9 -f "Electron.app/Contents/MacOS/Electron"`.
+- Verified 2026-09-16: tsc clean; **1199/1199 across 77 suites** (+51);
+  `npm start -- -- --smoke-test` exits 0; plus the real installs above.
+- **NOT done, deliberately: no update path.** An install is pinned (exact
+  version / 40-char SHA); re-installing is how you move it, which keeps "what
+  is running" answerable from the record alone.
+
+## Earlier status (last updated 2026-09-09)
 
 **Select any text, quote it into the composer (2026-09-09).** Asked for after
 seeing it in Devin: select text in a reply, a floating toolbar appears, clicking

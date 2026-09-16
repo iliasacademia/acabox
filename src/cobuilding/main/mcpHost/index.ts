@@ -2,6 +2,7 @@ import log from 'electron-log';
 import * as fs from 'fs';
 import * as supervisor from './supervisor';
 import * as authored from './authored';
+import * as installer from './installer';
 import {
   listHostedServers,
   getHostedServer,
@@ -222,12 +223,36 @@ async function startAllInner(): Promise<void> {
 // Per-server actions
 // ---------------------------------------------------------------------------
 
+/**
+ * Turn a server on: make it enabled, then spawn it. The exact inverse of
+ * `pause`, and the action the detail panel's "Turn on" performs.
+ *
+ * This used to refuse a disabled record with `"<id>" is off. Turn it on
+ * first.` — self-contradictory advice, because NOTHING in the app could set
+ * `enabled: true` except `approveAuthoredServer`. A server added through the
+ * Advanced form, which `registerHostedServer` writes `enabled: false` as a
+ * non-negotiable literal, was therefore permanently off: the button that
+ * should have turned it on told the user to turn it on. Pre-existing (zero
+ * `enabled: true` sites here before Increment 6), and reachable for the first
+ * time now that installing a server is a normal thing to do.
+ *
+ * Enabling is still never implicit: it happens only on this explicit,
+ * user-gestured call. Nothing about install, adoption or boot flips it.
+ */
 export async function start(id: string): Promise<McpHostActionResult> {
   if (!isEncryptionAvailable()) return { ok: false, error: NO_ENCRYPTION_MESSAGE };
   const record = await getHostedServer(id);
   if (!record) return { ok: false, error: `No hosted server named "${id}".` };
-  if (!record.enabled) return { ok: false, error: `"${id}" is off. Turn it on first.` };
-  supervisor.startServer(record);
+  if (!record.enabled) {
+    const ok = await updateHostedServer(id, { enabled: true });
+    if (!ok) return { ok: false, error: `"${id}" was removed by someone else already.` };
+  }
+  // Re-read so the supervisor spawns from the record as it now stands, not
+  // the pre-enable snapshot.
+  const fresh = await getHostedServer(id);
+  if (!fresh) return { ok: false, error: `"${id}" was removed by someone else already.` };
+  supervisor.startServer(fresh);
+  emitRecordChange(id);
   return { ok: true };
 }
 
@@ -664,6 +689,48 @@ export async function shutdown(opts: { graceMs?: number } = {}): Promise<void> {
  * restart. Idempotent either way: `authored.ts`'s known-ids ledger makes a
  * repeat call over the same directory a no-op.
  */
+// ---------------------------------------------------------------------------
+// Increment 6 — install from npm / GitHub (`installer.ts`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Install a server and register it DISABLED, streaming progress lines to
+ * every subscriber of `onInstallLog`.
+ *
+ * Fans the log out here rather than taking a callback through IPC, for the
+ * same reason the Servers page does not poll: the renderer cannot be handed a
+ * function, and an install is long enough that showing nothing until it ends
+ * would be indistinguishable from a hang. Announces the new record through
+ * `emitRecordChange` on success, because a freshly installed server has never
+ * been started and so produces no supervisor status event — exactly the
+ * silence that made an adopted server invisible until a restart.
+ */
+export async function installServer(req: installer.InstallRequest): Promise<installer.InstallResult> {
+  const result = await installer.installHostedServer({
+    ...req,
+    onLog: (line) => {
+      req.onLog?.(line);
+      emitInstallLog(req.id, line);
+    },
+  });
+  if (result.ok) emitRecordChange(result.id);
+  return result;
+}
+
+const installLogListeners = new Set<(id: string, line: string) => void>();
+
+/** Subscribe to installer output. Returns its own unsubscribe. */
+export function onInstallLog(cb: (id: string, line: string) => void): () => void {
+  installLogListeners.add(cb);
+  return () => { installLogListeners.delete(cb); };
+}
+
+function emitInstallLog(id: string, line: string): void {
+  for (const cb of [...installLogListeners]) {
+    try { cb(id, line); } catch (err) { log.warn(`[McpHost] install-log listener threw: ${(err as Error).message}`); }
+  }
+}
+
 export async function scanAuthoredServers(): Promise<authored.AuthoredScanResult> {
   const result = await authored.scanAndAdoptAuthoredServers();
   // Adoption creates a record with no process, so nothing else would announce

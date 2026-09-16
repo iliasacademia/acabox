@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useComposerRuntime } from '@assistant-ui/react';
 import { KnowledgeRow, type RowAction } from '../knowledge/KnowledgeRow';
 import { ServerDetail } from './ServerDetail';
+import { InstallServerPanel } from './InstallServerPanel';
 import { ServerConfigForm, type ServerFormInitial } from './ServerConfigForm';
 import {
   builtinServerLabel,
@@ -129,6 +130,7 @@ export function ServersPage({
   const [error, setError] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<'add' | 'edit' | null>(null);
+  const [installing, setInstalling] = useState(false);
   const [formInitial, setFormInitial] = useState<ServerFormInitial | undefined>(undefined);
   const [showBuiltins, setShowBuiltins] = useState(false);
 
@@ -193,6 +195,15 @@ export function ServersPage({
     composerRuntime.setText(
       "I'd like a small local MCP server for something I do here. Ask me what I need before writing anything.",
     );
+    composerRuntime.send();
+  }, [composerRuntime, onSwitchToChat]);
+
+  /** Compose an arbitrary turn — the installer's "Ask Claude to fix this"
+   *  hands over the log tail, which is what makes that button more than a
+   *  shortcut to a blank composer. */
+  const composeTurn = useCallback((prompt: string) => {
+    onSwitchToChat();
+    composerRuntime.setText(prompt);
     composerRuntime.send();
   }, [composerRuntime, onSwitchToChat]);
 
@@ -303,7 +314,10 @@ export function ServersPage({
                 <span className="toolsSection__count">{hostedRows.length}</span>
               </h2>
               {hostedRows.length > 0 && (
-                <button type="button" className="connectorLink" onClick={openAddForm}>+ Add a server</button>
+                <div className="serversSection__actions">
+                  <button type="button" className="connectorLink" onClick={() => setInstalling(true)}>+ Install a server</button>
+                  <button type="button" className="connectorLink" onClick={openAddForm}>+ Add a server</button>
+                </div>
               )}
             </div>
 
@@ -333,6 +347,9 @@ export function ServersPage({
                       onClick={() => void handleRescanAuthored()}
                     >
                       {rescanBusy ? 'Checking…' : 'Claude just built one? Check now'}
+                    </button>
+                    <button type="button" className="connectorLink" onClick={() => setInstalling(true)}>
+                      Install one from npm or GitHub
                     </button>
                     <button type="button" className="connectorLink" onClick={openAddForm}>
                       Advanced: add a server yourself
@@ -500,6 +517,17 @@ export function ServersPage({
           </button>
         </div>
       </div>
+
+      {installing && (
+        <div className="serversFormOverlay">
+          <InstallServerPanel
+            existingIds={allHostedRows.map((r) => r.id)}
+            onInstalled={() => { void refreshAuthoredInfo(); }}
+            onCancel={() => setInstalling(false)}
+            onAskClaude={(prompt) => { setInstalling(false); composeTurn(prompt); }}
+          />
+        </div>
+      )}
 
       {formMode && (
         <div className="serversFormOverlay">

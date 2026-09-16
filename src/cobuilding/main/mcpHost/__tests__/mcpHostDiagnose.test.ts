@@ -14,7 +14,7 @@
 import * as path from 'path';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { diagnose } from '../diagnose';
+import { diagnose, diagnoseInstall } from '../diagnose';
 import { buildHostedEnv } from '../hostedEnv';
 
 const fixture = path.join(__dirname, '..', '..', '__tests__', 'fixtures', 'echoMcpServer.mjs');
@@ -170,5 +170,62 @@ describe('diagnose — a non-zero exit with no other evidence', () => {
     const msg = diagnose({ command: 'mystery-server', error: new Error('boom') });
     expect(msg).toContain('mystery-server');
     expect(msg).toContain('boom');
+  });
+});
+
+/**
+ * Increment 6's install-time half. A different moment from `diagnose`:
+ * nothing here has a pid, a command or an exit code — an install fails with
+ * npm's or GitHub's own words, and the job is to say what to do next.
+ *
+ * The pass-through case is as load-bearing as the matches. npm's last lines
+ * are usually the most useful thing anyone will see, so an unmatched failure
+ * must keep them rather than be flattened into "install failed".
+ */
+describe('diagnoseInstall', () => {
+  it('names the fix when npm is missing, from the TYPED error not the text', () => {
+    const err = new Error('npm is not installed on this system.');
+    err.name = 'NpmUnavailableError';
+    expect(diagnoseInstall(err)).toMatch(/nodejs\.org/);
+  });
+
+  it('distinguishes "no such package" from "no such version"', () => {
+    const notFound = diagnoseInstall(new Error('npm ERR! code E404\nnpm ERR! 404 Not Found - GET https://registry.npmjs.org/nope'));
+    const noVersion = diagnoseInstall(new Error('npm ERR! code ETARGET\nnpm ERR! notarget No matching version found for pkg@9.9.9'));
+    expect(notFound).toMatch(/no package by that name/i);
+    expect(noVersion).toMatch(/not at that version/i);
+    expect(notFound).not.toBe(noVersion);
+  });
+
+  it('tells a scoped-package typo apart from a missing scope', () => {
+    expect(diagnoseInstall(new Error('npm ERR! code E404'))).toMatch(/@scope\//);
+  });
+
+  it('turns a network failure into one sentence', () => {
+    for (const code of ['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ETIMEDOUT']) {
+      expect(diagnoseInstall(new Error(`request to registry failed, reason: ${code}`))).toMatch(/network/i);
+    }
+  });
+
+  it('handles a GitHub rate limit and a private/absent repo differently', () => {
+    expect(diagnoseInstall(new Error('GitHub API rate limit exceeded'))).toMatch(/rate-limiting/i);
+    expect(diagnoseInstall(new Error('github: 404 Not Found'))).toMatch(/private/i);
+  });
+
+  it('passes our own already-plain refusals through unchanged', () => {
+    const ours = 'That path holds 9001 files, past the 4000-file limit. Point at one server’s directory rather than a whole repository.';
+    expect(diagnoseInstall(new Error(ours))).toBe(ours);
+  });
+
+  it('keeps npm’s own words when it does not recognise the failure', () => {
+    // The alternative — a generic apology — throws away the only evidence.
+    const tail = 'npm ERR! something nobody has seen before';
+    expect(diagnoseInstall(new Error(tail))).toBe(tail);
+  });
+
+  it('never returns an empty string', () => {
+    expect(diagnoseInstall(new Error(''))).toBeTruthy();
+    expect(diagnoseInstall(undefined)).toBeTruthy();
+    expect(diagnoseInstall(null)).toBeTruthy();
   });
 });

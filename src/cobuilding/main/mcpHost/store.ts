@@ -10,6 +10,7 @@ import {
   type HostedInstallSource,
   type HostedMcpEntry,
   type HostedToolDescriptor,
+  type HostedRuntime,
   validateHostedServer,
 } from '../../shared/hostedMcp';
 
@@ -274,6 +275,12 @@ export interface HostedServerRegistration {
    * a second write immediately after.
    */
   enabledTools?: string[];
+  /**
+   * R3: whose Node runs this. Absent is safe — `hostedRuntime()` derives it
+   * from `install.kind` — but every caller that KNOWS should say so, because
+   * the derivation is a fallback for old records, not a design.
+   */
+  runtime?: HostedRuntime;
 }
 
 export type RegisterHostedServerResult =
@@ -308,6 +315,7 @@ export async function registerHostedServer(
       enabled: false, // not negotiable — see the function comment
       autostart: reg.autostart ?? false,
       install: reg.install,
+      runtime: reg.runtime,
       entry: reg.entry,
       env: reg.env ?? {},
       concurrency: reg.concurrency ?? 1,

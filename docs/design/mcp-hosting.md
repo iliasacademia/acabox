@@ -1,9 +1,9 @@
 # Local MCP servers: host, manage, and author them in Acabox
 
-> **Status: Increments 0–5 and 7–9 are built and green. Only 6 (installer) is not.**
-> Written 2026-08-05 as a proposal; brought in line with the code 2026-08-31.
+> **Status: every increment (0–9) is built and green.**
+> Written 2026-08-05 as a proposal; brought in line with the code 2026-09-16.
 > Measured on that date, not recalled: `npx tsc --noEmit` clean,
-> `npm test` **1082/1082 across 69 suites**, `npm start -- -- --smoke-test` exits 0.
+> `npm test` **1199/1199 across 77 suites**, `npm start -- -- --smoke-test` exits 0.
 >
 > | Increment | State |
 > |---|---|
@@ -13,19 +13,27 @@
 > | 3 Servers page | Done — `renderer/components/servers/`, `mcpServerStore.ts` |
 > | 4 Agent reach | Done — `agent-server/dynamicMcp.ts`, `jsonSchemaToZod.ts` |
 > | 5 Claude authors | Done — `mcpHost/authored.ts`, `skills/manage-mcp-server` |
-> | 6 Install from GitHub/npm | **Not started** |
+> | 6 Install from npm/GitHub | Done — `mcpHost/installer.ts`, `mcpHost/npmProject.ts`; R2's split and R3's `runtime` both taken |
 > | 7 Write gate | Done, reshaped — per-tool `enabledTools`, not a boolean (2026-08-13 decision) |
 > | 8 Scheduler on Activity | Done — `renderer/components/schedule/`, section on Activity |
 > | 9 Hardening | Done — log rotation verified as already-bounded (see CLAUDE.md); disk reclaim on remove (R13) shipped |
 >
-> **Unverified, and the first one is the one that matters.** The Increment 5 user
-> journey has never been driven end to end by a human — chat turn → Claude writes a
-> server → *Authored by Claude* row → enable → promote → agent calls it → quit →
-> reopen. Its parts are tested; the funnel is not, and cutting the catalog (see the
-> 2026-08-05 decision) made it the only acquisition path there is. Also unverified:
-> the "Published by your tools" section with a mini-app actually mounted, and R3's
-> `runtime` field, which was never added — so "we control `NODE_MODULE_VERSION`"
-> remains narrower than stated for the Advanced typed-command path.
+> **Both acquisition paths have now been driven end to end against real
+> servers.** Increment 5's funnel (2026-09-01): a chat turn, Claude writes
+> `.mcp-servers/dna-toolkit/`, the row appears, enable promotes the copy, the
+> agent calls it, quit leaves no orphan, reopen brings it back. Increment 6
+> (2026-09-16): a real `@modelcontextprotocol/server-memory` installed from
+> npm, 9 tools, called from a real chat turn. R3's `runtime` field is in, so
+> "we control `NODE_MODULE_VERSION`" is now scoped to the records where it is
+> actually true.
+>
+> **Still unverified:** the "Published by your tools" section with a mini-app
+> actually mounted — blocked on a pre-existing, unrelated build failure in the
+> only mini-app in this dev workspace (`lucide-react` missing from the
+> npm-site; see CLAUDE.md 2026-09-09). A GitHub install of a repo that ships
+> runnable JS: the path is exercised end to end, but the repo tested
+> (`modelcontextprotocol/servers`) ships TypeScript, so the *success* branch of
+> 6b has only been proven via the npm path that shares it.
 >
 > Effort figures in the increment headings are the original estimates, left as
 > written. See R18 for the revision.
@@ -1337,6 +1345,50 @@ lines — the agent has Bash in the workspace and can actually go fix it.
 > listed as "in passing" — a `system` runtime is precisely the "works in Terminal, 127
 > from the Dock" generator, and now the page can say which of the two worlds it looked
 > in.
+
+---
+
+### SHIPPED (2026-09-16)
+
+Built as **6a npm first, then 6b GitHub** (R2's reordering), with R3's
+`runtime` field. New: `mcpHost/npmProject.ts`, `mcpHost/installer.ts`,
+`renderer/components/servers/InstallServerPanel.tsx`. `fetchSubtreeRaw` was
+extracted from `skillImporter.fetchSubtree` exactly as point 1 prescribes —
+`downloadTarball`/`extractSubpath` stay unexported, and both callers now go
+through the one function, so the sequencing lives in a single place.
+
+**Verified by installing real servers, not by reading.**
+`@modelcontextprotocol/server-memory` installed from npm: resolved `latest` →
+the exact version `2026.8.31`, 95 packages in 2s, probed to **9 real tools**,
+registered `enabled: false`. Turned on, it reached `ready`, and a real chat
+turn had the model call `memory-test/create_entities` and
+`memory-test/read_graph` and report the graph back. Removing it reclaimed the
+promoted copy and left no orphan process.
+
+**The GitHub path works, and its most likely failure is now explained rather
+than merely reported.** Against `modelcontextprotocol/servers@d73f99ef`
+`src/memory`: resolved to the 40-char SHA before fetching, downloaded 14 files
+/ 88 KB, installed the 2 declared dependencies — then correctly refused,
+because that repo ships TypeScript and its `bin` points into a `dist/` that
+only exists after a build. **`--ignore-scripts` means Acabox will never
+produce it**, so `resolveEntryFile` now says so and points at npm, where the
+published package carries the built files. That is a real, deliberate limit of
+6b: *a GitHub install only works for a repo that ships runnable JS.*
+
+**A pre-existing bug this surfaced, and fixed.** `start()` refused any
+disabled record with `"<id>" is off. Turn it on first.` — while **nothing in
+the app could set `enabled: true`** except `approveAuthoredServer`. So the
+detail panel's "Turn on" button told the user to turn on the server they were
+turning on, and a server added through the Advanced form could never run at
+all. Zero `enabled: true` sites existed in `mcpHost/index.ts` before this
+increment, so this was never reachable-and-broken, only unreachable — until
+installing a server became a normal thing to do. `start()` is now the true
+inverse of `pause()`. The test that asserted the old refusal is updated, with
+a comment saying why an assertion was reversed.
+
+**Not built, deliberately:** no update path. An install is pinned (exact
+version / 40-char SHA) and re-installing is how you move it, which keeps "what
+is running" answerable from the record alone.
 
 ---
 

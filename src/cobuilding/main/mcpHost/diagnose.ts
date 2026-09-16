@@ -143,3 +143,60 @@ export function diagnose(input: DiagnoseInput): string {
   }
   return `"${cmd}" did not start correctly, and left no further information.`;
 }
+
+/**
+ * The install-time counterpart to `diagnose`, for Increment 6.
+ *
+ * A separate function rather than more branches in `diagnose`, because these
+ * are a different kind of failure at a different moment: `diagnose` explains
+ * why a server that EXISTS will not start, and every one of its cases assumes
+ * a spawn was attempted. Nothing here has a pid, a command or an exit code —
+ * an install fails with npm's or GitHub's own words, and the job is to turn
+ * those into a sentence that says what to do next.
+ *
+ * Ordered most-specific first, same as `diagnose`. Anything unmatched falls
+ * through to the original text rather than a generic apology: npm's last four
+ * lines are usually the most useful thing anyone will see, and replacing them
+ * with "install failed" would be strictly worse than saying nothing.
+ */
+export function diagnoseInstall(error: unknown): string {
+  const msg = messageOf(error);
+  const name = (error as { name?: string })?.name;
+
+  // `ensureNpmAvailable` throws this typed error, so match the type before
+  // the text — the message is one sentence with no code in it.
+  if (name === 'NpmUnavailableError' || /npm is not installed on this system/i.test(msg)) {
+    return 'npm is not installed on this machine, and Acabox needs it to install a server. Install Node.js (which includes npm) from nodejs.org, then try again.';
+  }
+
+  if (/\bE404\b/.test(msg) || /404 Not Found.*npm/i.test(msg)) {
+    return 'npm has no package by that name. Check the spelling — a scoped package needs its leading "@scope/".';
+  }
+
+  if (/\bETARGET\b/.test(msg) || /No matching version found/i.test(msg)) {
+    return 'That package exists but not at that version. Leave the version blank to take the latest published one.';
+  }
+
+  if (/\bEACCES\b/.test(msg) || /\bEPERM\b/.test(msg)) {
+    return 'Acabox was not allowed to write the files for this server. Check the permissions on Acabox’s application-support folder.';
+  }
+
+  if (/ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ETIMEDOUT|network/i.test(msg)) {
+    return 'Could not reach the network to download the server. Check your connection, then try again.';
+  }
+
+  // GitHub's own words, via skillImporter's `describeApiFailure`.
+  if (/rate limit/i.test(msg)) {
+    return 'GitHub is rate-limiting this machine. Wait a few minutes and try again.';
+  }
+  if (/not a GitHub repository URL/i.test(msg)) {
+    return msg; // already a plain sentence naming what was pasted
+  }
+  if (/\b404\b/.test(msg) && /github/i.test(msg)) {
+    return 'GitHub has no such repository, branch or path — or it is private and Acabox cannot see it.';
+  }
+
+  // Our own refusals from `installer.ts` and `npmProject.ts` are already
+  // written as sentences; so is npm's tail. Pass them through.
+  return msg || 'The install failed, and gave no reason.';
+}

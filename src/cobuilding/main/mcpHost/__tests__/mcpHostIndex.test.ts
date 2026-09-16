@@ -183,14 +183,26 @@ describe('per-server actions, driven against the real fixture', () => {
     expect(entry).toBeUndefined();
   }, 20000);
 
-  it('start() refuses a server that is off, and refuses an unknown id, without touching anything', async () => {
+  /**
+   * CHANGED 2026-09-16, deliberately. This used to assert that `start()`
+   * REFUSES a disabled server with /off/, which faithfully described the
+   * code — and the code was wrong: nothing in the app could set
+   * `enabled: true` except `approveAuthoredServer`, so the detail panel's
+   * "Turn on" button answered "it is off, turn it on first" and a server
+   * added through the Advanced form could never run at all. The old
+   * assertion was pinning a dead end. `start()` is now the inverse of
+   * `pause()`; the unknown-id half is unchanged and still asserted.
+   */
+  it('start() turns a disabled server on, and still refuses an unknown id', async () => {
     const id = 'off-a';
     await registerHostedServer(echoRegistration(id)).then((r) => { if (!r.ok) throw new Error(r.error); });
-    // Deliberately left disabled (the store's own default).
+    // Registered disabled — the store's own non-negotiable default.
+    expect((await mcpHost.list()).find((e) => e.id === id)?.enabled).toBe(false);
 
     const result = await mcpHost.start(id);
-    expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/off/);
+    expect(result.ok).toBe(true);
+    expect((await mcpHost.list()).find((e) => e.id === id)?.enabled).toBe(true);
+    await mcpHost.pause(id, { graceMs: 100 }).catch(() => undefined);
 
     const unknown = await mcpHost.start('does-not-exist-xyz');
     expect(unknown.ok).toBe(false);
@@ -345,4 +357,66 @@ describe('test() — the probe, reached through the façade with a stored-env me
     expect(entry?.enabled).toBe(false);
     expect(entry?.state).not.toBe('ready');
   }, 15000);
+});
+
+/**
+ * Regression: "Turn on" was a dead end for every server except an
+ * agent-authored one.
+ *
+ * `registerHostedServer` writes `enabled: false` as a non-negotiable literal,
+ * and before Increment 6 NOTHING in `mcpHost` set it back to true except
+ * `approveAuthoredServer`. So `start()` — which the detail panel's "Turn on"
+ * button calls — refused with `"<id>" is off. Turn it on first.`, advising
+ * the user to do the thing the button they just pressed was supposed to do.
+ * Pre-existing for the Advanced form; Increment 6 made it reachable by
+ * anyone installing a server.
+ */
+describe('start() turns a server on (funnel regression)', () => {
+  it('enables a disabled record rather than refusing it', async () => {
+    const mcpHost = await import('../index');
+    const store = await import('../store');
+
+    const reg = await store.registerHostedServer({
+      id: 'turn-on-me',
+      label: 'Turn on me',
+      install: { kind: 'custom' },
+      entry: { command: '/bin/sh', args: ['-c', 'sleep 30'] },
+    });
+    expect(reg.ok).toBe(true);
+    // The literal that made this bug possible — asserted so a change there
+    // is a deliberate one.
+    expect((await store.getHostedServer('turn-on-me'))?.enabled).toBe(false);
+
+    const result = await mcpHost.start('turn-on-me');
+    expect(result.ok).toBe(true);
+    expect((await store.getHostedServer('turn-on-me'))?.enabled).toBe(true);
+
+    await mcpHost.pause('turn-on-me', { graceMs: 100 }).catch(() => undefined);
+  });
+
+  it('pause is its inverse, so the pair round-trips', async () => {
+    const mcpHost = await import('../index');
+    const store = await import('../store');
+    await store.registerHostedServer({
+      id: 'round-trip',
+      label: 'Round trip',
+      install: { kind: 'custom' },
+      entry: { command: '/bin/sh', args: ['-c', 'sleep 30'] },
+    });
+
+    await mcpHost.start('round-trip');
+    expect((await store.getHostedServer('round-trip'))?.enabled).toBe(true);
+    await mcpHost.pause('round-trip', { graceMs: 100 });
+    expect((await store.getHostedServer('round-trip'))?.enabled).toBe(false);
+    // And on again — a server turned off must not be off for good.
+    await mcpHost.start('round-trip');
+    expect((await store.getHostedServer('round-trip'))?.enabled).toBe(true);
+    await mcpHost.pause('round-trip', { graceMs: 100 }).catch(() => undefined);
+  });
+
+  it('still refuses an id that does not exist', async () => {
+    const mcpHost = await import('../index');
+    const result = await mcpHost.start('no-such-server');
+    expect(result.ok).toBe(false);
+  });
 });

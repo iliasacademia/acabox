@@ -4,7 +4,7 @@
  * up as `mcp__<id>__<tool>`), so the two validators are checked here against
  * each other's fixtures rather than just against their own.
  */
-import { validateHostedServer, isToolSelected, type HostedMcpRecord } from '../hostedMcp';
+import { validateHostedServer, isToolSelected, hostedRuntime, type HostedMcpRecord, type HostedInstallSource } from '../hostedMcp';
 import { validateConnector, RESERVED_CONNECTOR_IDS, CONNECTOR_ID_PATTERN } from '../connectors';
 
 function record(overrides: Partial<Pick<HostedMcpRecord, 'id' | 'entry' | 'concurrency'>> = {}) {
@@ -126,5 +126,53 @@ describe('isToolSelected', () => {
     expect(isToolSelected(['echo'], 'slow')).toBe(false);
     expect(isToolSelected(['echo', 'slow'], 'slow')).toBe(true);
     expect(isToolSelected(['echo', 'slow'], 'crash')).toBe(false);
+  });
+});
+
+/**
+ * R3 (`docs/design/mcp-hosting.md`): Increment 6.4 claims
+ * `NODE_MODULE_VERSION` is "a constant we control". That is true only for
+ * servers Acabox installed and launches itself — for a typed `npx …`,
+ * `python` or `deno` command the interpreter, the ABI and the
+ * download-on-every-start behaviour are all the user's.
+ *
+ * The derivation matters as much as the field: records written before the
+ * field existed must not all silently become `acabox-node`, which would make
+ * the app claim an ABI guarantee it does not have.
+ */
+describe('hostedRuntime', () => {
+  const rec = (install: HostedInstallSource, runtime?: 'acabox-node' | 'system') =>
+    ({ install, runtime }) as Pick<HostedMcpRecord, 'runtime' | 'install'>;
+
+  it('returns the stored value when there is one', () => {
+    expect(hostedRuntime(rec({ kind: 'custom' }, 'acabox-node'))).toBe('acabox-node');
+    expect(hostedRuntime(rec({ kind: 'npm', pkg: 'p', version: '1.0.0' }, 'system'))).toBe('system');
+  });
+
+  it('derives acabox-node for everything Acabox installs and launches', () => {
+    expect(hostedRuntime(rec({ kind: 'authored' }))).toBe('acabox-node');
+    expect(hostedRuntime(rec({ kind: 'npm', pkg: 'p', version: '1.0.0' }))).toBe('acabox-node');
+    expect(hostedRuntime(rec({ kind: 'github', repo: 'o/r', ref: 'a'.repeat(40) }))).toBe('acabox-node');
+    expect(hostedRuntime(rec({ kind: 'catalog', catalogId: 'c' }))).toBe('acabox-node');
+  });
+
+  it('derives system for a command the user typed — the conservative direction', () => {
+    // A typed command is the "works in Terminal, 127 from the Dock"
+    // generator. Claiming `acabox-node` here would assert an ABI guarantee
+    // that is simply not ours to make.
+    expect(hostedRuntime(rec({ kind: 'custom' }))).toBe('system');
+  });
+
+  it('never returns undefined, for any install kind', () => {
+    const kinds: HostedInstallSource[] = [
+      { kind: 'custom' },
+      { kind: 'catalog', catalogId: 'c' },
+      { kind: 'npm', pkg: 'p', version: '1.0.0' },
+      { kind: 'github', repo: 'o/r', ref: 'b'.repeat(40) },
+      { kind: 'authored' },
+    ];
+    for (const k of kinds) {
+      expect(['acabox-node', 'system']).toContain(hostedRuntime(rec(k)));
+    }
   });
 });

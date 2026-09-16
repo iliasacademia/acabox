@@ -59,6 +59,14 @@ contextBridge.exposeInMainWorld('mcpServersAPI', {
   stderrTail: (id: string) => ipcRenderer.invoke('mcpServers:stderrTail', id),
   // Increment 5 (docs/design/mcp-hosting.md) — agent-authored servers.
   rescanAuthored: () => ipcRenderer.invoke('mcpServers:rescanAuthored'),
+  // Increment 6. Resolves when the install finishes; progress arrives on
+  // `onInstallLog` in the meantime.
+  install: (req: unknown) => ipcRenderer.invoke('mcpServers:install', req),
+  onInstallLog: (callback: (evt: { id: string; line: string }) => void) => {
+    const handler = (_e: unknown, evt: { id: string; line: string }) => callback(evt);
+    ipcRenderer.on('mcpServers:installLog', handler);
+    return () => ipcRenderer.removeListener('mcpServers:installLog', handler);
+  },
   listAuthored: () => ipcRenderer.invoke('mcpServers:listAuthored'),
   approveAuthored: (id: string) => ipcRenderer.invoke('mcpServers:approveAuthored', id),
 });

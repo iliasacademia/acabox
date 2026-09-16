@@ -730,11 +730,30 @@ function githubTreeUrl(req: GithubSubdirRequest): string {
  * never leaves half a skill behind for the store's reconciler to adopt. The
  * caller does the atomic move into the store.
  */
-export async function fetchSubtree(
+/**
+ * Get a SHA-pinned subtree onto disk at `destDir`, and nothing more.
+ *
+ * This is the download-then-extract sequencing, which is the part that must
+ * never be reassembled by hand: the SHA is re-checked here rather than
+ * trusted from the caller, the tarball lands in a temp dir that is always
+ * cleaned up, and `extractSubpath` applies `/usr/bin/tar`'s four `--no-*`
+ * flags. `downloadTarball` and `extractSubpath` stay unexported precisely so
+ * that ordering cannot be got wrong somewhere else.
+ *
+ * Extracted from `fetchSubtree` for Increment 6b of
+ * `docs/design/mcp-hosting.md`: an MCP server is not a skill, has no
+ * `SKILL.md`, and must not be forced to pretend otherwise — but it needs the
+ * identical fetch. Callers own the safety pass afterwards
+ * (`stripSymlinks` FIRST, then `scanTree`); this function deliberately does
+ * neither, so that a caller cannot accidentally get a half-done one.
+ *
+ * Returns the normalized subpath, which the caller needs for provenance.
+ */
+export async function fetchSubtreeRaw(
   req: GithubSubdirRequest,
   destDir: string,
   opts: FetchOptions = {},
-): Promise<FetchedSkill> {
+): Promise<{ subpath: string }> {
   if (!/^[0-9a-f]{40}$/i.test(req.sha)) {
     throw new Error(`"${req.sha}" is not a resolved 40-character commit SHA.`);
   }
@@ -745,6 +764,22 @@ export async function fetchSubtree(
   try {
     await downloadTarball(req.owner, req.repo, req.sha, tarPath, opts);
     await extractSubpath(tarPath, req.repo, req.sha, subpath, destDir);
+    return { subpath };
+  } catch (err) {
+    await fsp.rm(destDir, { recursive: true, force: true }).catch(() => undefined);
+    throw err;
+  } finally {
+    await fsp.rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+export async function fetchSubtree(
+  req: GithubSubdirRequest,
+  destDir: string,
+  opts: FetchOptions = {},
+): Promise<FetchedSkill> {
+  const { subpath } = await fetchSubtreeRaw(req, destDir, opts);
+  try {
     return await describeExtractedSkill(
       destDir,
       {
@@ -760,10 +795,10 @@ export async function fetchSubtree(
       subpath ? (subpath.split('/').pop() as string) : req.repo,
     );
   } catch (err) {
+    // Unchanged from when this was one function: a tree that fetched cleanly
+    // but is not a skill leaves nothing behind.
     await fsp.rm(destDir, { recursive: true, force: true }).catch(() => undefined);
     throw err;
-  } finally {
-    await fsp.rm(workDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
