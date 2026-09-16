@@ -253,10 +253,34 @@ const anthropicAPI: BridgeAnthropicAPI = {
 };
 
 let _workspacePath = "";
+// True when this app is running inside a published, read-only snapshot
+// rather than inside Acabox. The share viewer's shim sets it in `init`; the
+// real host never sends the field, so it stays false there.
+//
+// An app should consult this BEFORE attempting to persist anything. The shim
+// refuses every write — correctly, a snapshot has nowhere to put them — so a
+// hopeful write is not a harmless no-op: it surfaces to the viewer as a
+// console error, and it is indistinguishable at the shim from a write the
+// user actually asked for.
+let _readOnly = false;
 window.addEventListener("message", (event) => {
-  if (event.data?.type === "init" && event.data.workspacePath) {
+  if (event.data?.type !== "init") return;
+  if (event.data.workspacePath) {
     _workspacePath = event.data.workspacePath;
+  }
+  if (event.data.readOnly === true) {
+    _readOnly = true;
   }
 });
 
-Object.assign(window, { filesAPI, kernel, hostAPI, containerAPI, errorAPI, academiaAPI, anthropicAPI, getWorkspacePath: () => _workspacePath });
+Object.assign(window, {
+  filesAPI,
+  kernel,
+  hostAPI,
+  containerAPI,
+  errorAPI,
+  academiaAPI,
+  anthropicAPI,
+  getWorkspacePath: () => _workspacePath,
+  isReadOnly: () => _readOnly,
+});

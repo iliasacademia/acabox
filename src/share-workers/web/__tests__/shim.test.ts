@@ -272,10 +272,21 @@ describe('viewer shim, driven through the real bridge', () => {
     expect(refusals).toEqual(['executeCommand']);
   });
 
-  it('an arbitrary unhandled call (writeFile) is refused and reported', async () => {
+  it('an arbitrary unhandled call (deleteFile) is refused and reported', async () => {
+    const { window, refusals } = setup();
+    await expect(window.filesAPI.deleteFile('a.txt')).rejects.toThrow(SHARE_REFUSAL_MESSAGE);
+    expect(refusals).toEqual(['deleteFile']);
+  });
+
+  it('writeFile is refused but NOT reported, so it cannot raise the hint', async () => {
+    // `useAppState` debounce-saves the notebook whenever state changes after
+    // hydration, which means it writes on load with nobody touching the page.
+    // Reporting that would put "This tool tried to run something" in front of
+    // every visitor to every scaffolded tool, before they clicked anything.
+    // The refusal itself stays — answering ok would let an app claim it saved.
     const { window, refusals } = setup();
     await expect(window.filesAPI.writeFile('a.txt', 'x')).rejects.toThrow(SHARE_REFUSAL_MESSAGE);
-    expect(refusals).toEqual(['writeFile']);
+    expect(refusals).toEqual([]);
   });
 
   it('anthropicAPI.stream is refused via the anthropic:error path, not onRefused', async () => {
@@ -346,7 +357,7 @@ describe('viewer shim, driven through the real bridge', () => {
     expect(seen.some((m) => m.type === 'response' && m.id === 'raw-after-uninstall')).toBe(false);
   });
 
-  it('sendInit posts the init message with an empty workspacePath', async () => {
+  it('sendInit posts an empty workspacePath and marks the snapshot read-only', async () => {
     const { window } = setup();
     const received = await new Promise((resolve) => {
       window.addEventListener('message', function handler(event: any) {
@@ -357,9 +368,22 @@ describe('viewer shim, driven through the real bridge', () => {
       });
       sendInit(window as unknown as Window);
     });
-    expect(received).toEqual({ type: 'init', workspacePath: '' });
+    expect(received).toEqual({ type: 'init', workspacePath: '', readOnly: true });
     // And the bridge itself picks it up, per its own `init` listener.
     await waitTicks(0);
     expect(window.getWorkspacePath()).toBe('');
+    expect(window.isReadOnly()).toBe(true);
+  });
+
+  it('the bridge reports NOT read-only until an init says so', async () => {
+    // The live host never sends `readOnly`, so the same bundled bridge must
+    // default to false — otherwise shipping this flag would silently disable
+    // saving inside Acabox itself.
+    const { window } = setup();
+    expect(window.isReadOnly()).toBe(false);
+    window.postMessage({ type: 'init', workspacePath: '/Users/x/workspace' }, '*');
+    await waitTicks(0);
+    expect(window.getWorkspacePath()).toBe('/Users/x/workspace');
+    expect(window.isReadOnly()).toBe(false);
   });
 });

@@ -206,6 +206,24 @@ export function installShim(opts: ShimOptions): () => void {
     return { ok: true };
   }
 
+  /**
+   * Calls that are still REFUSED, but must not raise the viewer's hint.
+   *
+   * The hint reads "This tool tried to run something", and for these it would
+   * be false. `useAppState` — which most scaffolded tools use — debounce-saves
+   * the notebook whenever state changes after hydration, so it writes on load
+   * without anyone touching the page. Firing the hint there tells every
+   * visitor of every such tool that it tried to run, before they have clicked
+   * anything.
+   *
+   * These are refused rather than faked: answering `{ok:true}` would let an
+   * app report "Saved" for a write that went nowhere. The banner already
+   * states, permanently, that this is a read-only snapshot, so suppressing the
+   * hint loses the viewer nothing — while a user-initiated write still fails
+   * visibly through the app's own error handling.
+   */
+  const SILENT_REFUSALS = new Set(['writeFile']);
+
   async function dispatch(msg: BridgeRequestMessage): Promise<DispatchOutcome> {
     switch (msg.type) {
       case 'readFile':
@@ -225,7 +243,7 @@ export function installShim(opts: ShimOptions): () => void {
       case 'mcp:listServers':
         return { result: [] };
       default:
-        onRefused?.(msg.type);
+        if (!SILENT_REFUSALS.has(msg.type)) onRefused?.(msg.type);
         return { error: SHARE_REFUSAL_MESSAGE };
     }
   }
@@ -279,5 +297,10 @@ export function installShim(opts: ShimOptions): () => void {
  * needs this value to be non-empty.
  */
 export function sendInit(frameWindow: Window): void {
-  frameWindow.postMessage({ type: 'init', workspacePath: '' }, '*');
+  // `readOnly: true` is what lets a well-behaved app skip persistence it can
+  // never complete. The live host does not send this field, so an app that
+  // checks it behaves normally in Acabox and quietly stops trying to save
+  // here. Apps bundled before this field existed simply ignore it and still
+  // get a refusal — see SILENT_REFUSALS.
+  frameWindow.postMessage({ type: 'init', workspacePath: '', readOnly: true }, '*');
 }

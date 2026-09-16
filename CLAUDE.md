@@ -177,6 +177,60 @@ to `PATH`.
 
 ## Status (last updated 2026-09-16)
 
+**Sharing is deployed and a real app has been shared (2026-09-16).** Increment
+0 — the manual Cloudflare setup that had never been run, ticket X1 — is done.
+Both Workers are live on `share-api.acabox.us` (bearer token) and
+`share.acabox.us` (Cloudflare Access, Google, `@academia.edu`), and a real
+mini-app has been published and opened by a signed-in user.
+- **Two of the README's manual steps were unnecessary and would have been
+  redone blindly.** The account has run Zero Trust since June 2026 for
+  paper-monitor, so a team domain (`proud-butterfly-1eb0.cloudflareaccess.com`)
+  and a working **Google identity provider** already existed — the Google Cloud
+  Console detour was skipped entirely. Check `access/identity_providers` before
+  creating one; the README now says so and records the live values.
+- **`allowed_idps` is pinned to that one Google provider, deliberately.** Empty
+  means *all* providers and one-time PIN is enabled account-wide here, so an
+  empty list would let any email address on earth request a code and pass the
+  gate. The sibling apps (paper-monitor, reader) do exactly that, with
+  `include: everyone` — a shape not to copy.
+- **The wrangler OAuth token cannot configure Access**, and reads through it
+  are actively misleading: `access/apps` and `access/identity_providers`
+  returned `success: true` with **empty lists** while six apps and two IdPs
+  existed. Writes are `auth.forbidden`. A scoped API token is needed; probe
+  write access by POSTing an invalid body and reading validation-vs-auth.
+- **R2 enablement is the one thing no token can do** — dashboard only, payment
+  method required even on the free tier; `/subscriptions` 403s as well.
+- **A published app tried to save on load, and the viewer blamed the app.**
+  `useAppState` debounce-saves the notebook off state changes, so it fires
+  during hydration with nobody touching the page; the shim refuses every write,
+  which produced two console errors AND raised the viewer's hint — whose text,
+  *"This tool tried to run something"*, was simply false. Fixed at both ends:
+  `init` now carries `readOnly: true`, the bridge exposes `isReadOnly()`, and
+  `useAppState` skips persistence instead of attempting it. `writeFile` is
+  still **refused** rather than faked — answering ok would let an app report
+  "Saved" for a write that went nowhere — but no longer raises the hint.
+- **The guard's own test found the write site the fix missed.** Counting
+  `.writeFile(` call sites caught `markRunComplete`, where the write sits
+  *before* `setLastRunHash`/`setLastRunAt` — so a refusal skipped both state
+  updates and rejected to the caller. Asserted against the shipped source,
+  because that file is not in the tsc project and is bundled per-app.
+- **Split responsibility, and it matters for what a republish fixes:** the shim
+  and viewer are served by the Worker, so the false hint is gone for snapshots
+  already published. The bridge and `useAppState` are bundled INTO each
+  snapshot, so the console errors persist in an already-published app until it
+  is rebuilt and republished.
+- **`wrangler r2 object get` reads the LOCAL simulated store unless given
+  `--remote`**, and against a key that really exists it reports "The specified
+  key does not exist" — indistinguishable from a failed upload. It briefly
+  produced evidence that a successful publish had failed.
+- Verified: tsc clean; **1617/1617 across 108 suites** (+6, 1 new suite), the
+  two shim cases proven non-vacuous by reverting each change independently.
+  Live: `/v1/health` 200 with the token and 401 without; `share.acabox.us/` and
+  `/viewer.js` both 302 to Access with the redirect's `kid` matching the AUD;
+  and a real file published, fetched back out of R2 **byte-for-byte with a
+  matching sha256**, then deleted — which also proved delete reclaims the
+  object, not just the index row.
+
 **Models: one roster, discovered live — and the real blocker turned out to be
 the bundled CLI, not our list (2026-09-16).** Asked as "the picker shows Fable
 5, but Fable 5.1 exists — can new models appear as soon as they ship?"

@@ -33,7 +33,20 @@ declare const window: Window & {
     deleteFile(path: string): Promise<unknown>;
   };
   getWorkspacePath(): string;
+  /** Present only on bridges built after shared snapshots gained the flag. */
+  isReadOnly?(): boolean;
 };
+
+/**
+ * True when this app is a published, read-only snapshot in the share viewer.
+ *
+ * Read through an optional call rather than a stored constant: the flag
+ * arrives in the viewer's `init` message, which lands after module evaluation,
+ * so a value captured at import time would always be false.
+ */
+function isSharedSnapshot(): boolean {
+  return typeof window.isReadOnly === "function" && window.isReadOnly();
+}
 
 /**
  * Whether the persisted "last run" matches the current params.
@@ -344,10 +357,15 @@ export function useAppState<
             },
           ],
         };
-        try {
-          await window.filesAPI.writeFile(notebookPath, serializeNotebook(nb));
-        } catch (writeErr) {
-          console.error("useAppState: failed to create notebook", writeErr);
+        // In a shared snapshot the in-memory notebook is enough for the app
+        // to render; there is nowhere to write it and the attempt would only
+        // surface as an error to a viewer who did nothing.
+        if (!isSharedSnapshot()) {
+          try {
+            await window.filesAPI.writeFile(notebookPath, serializeNotebook(nb));
+          } catch (writeErr) {
+            console.error("useAppState: failed to create notebook", writeErr);
+          }
         }
       }
 
@@ -390,6 +408,12 @@ export function useAppState<
     nb.metadata.cobuild = { ...(nb.metadata.cobuild ?? { version: 1 }) };
     nb.metadata.cobuild.outputs = outputsRef.current as unknown[];
     nb.metadata.cobuild.runResult = runResultRef.current;
+    // A shared snapshot has no filesystem. The notebook above is still
+    // updated in memory so the running app stays consistent, but persisting
+    // it is skipped rather than attempted-and-failed: this save is debounced
+    // off state changes, so it fires on load, and the failure would reach the
+    // viewer as a console error for something they never did.
+    if (isSharedSnapshot()) return;
     // Fire-and-forget: this runs on unmount where we can't await, and
     // for normal saves the user doesn't need to wait for the write.
     window.filesAPI
@@ -533,7 +557,14 @@ export function useAppState<
     nb.metadata.cobuild.lastRun = { completedAt, paramsHash: hash };
     nb.metadata.cobuild.outputs = outputsRef.current as unknown[];
     nb.metadata.cobuild.runResult = runResultRef.current;
-    await window.filesAPI.writeFile(notebookPath, serializeNotebook(nb));
+    // Guarded for the same reason as the other two write sites, and for one
+    // more: the state updates below sit AFTER this await, so a refusal would
+    // skip them and reject to the caller. A snapshot cannot normally reach
+    // here — running is refused upstream — but if it ever does, the app
+    // should record the run in memory rather than half-apply it.
+    if (!isSharedSnapshot()) {
+      await window.filesAPI.writeFile(notebookPath, serializeNotebook(nb));
+    }
     setLastRunHash(hash);
     setLastRunAt(completedAt);
     setLastRunAt(nb.metadata.cobuild.lastRun.completedAt);
