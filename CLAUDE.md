@@ -175,6 +175,56 @@ to `PATH`.
 - To kill stray dev instances:
   `pkill -9 -f "Acabox/node_modules/electron"`.
 
+## Status (last updated 2026-09-17)
+
+**Agent SDK 0.2.121 → 0.3.273, and Fable 5.1 now runs (2026-09-17).** The
+upgrade the model work below identified as the only route to 5.1.
+- **It went far more cleanly than budgeted, for a measurable reason: our SDK
+  surface is tiny.** Three values (`query`, `createSdkMcpServer`, `tool`), six
+  types, and exactly one method on the `Query` object (`close()`). `tsc
+  --noEmit` came back with **zero errors** across a major-line jump.
+- **npm surfaced the real blocker, which was a SECOND upgrade.** 0.3.273 has a
+  peer of `@anthropic-ai/sdk >= 0.93.0` and we were on 0.82, so the install
+  refused (`ERESOLVE`). Resolved by upgrading that too — **0.82 → 0.126**, safe
+  because our whole use of it is `new Anthropic()`, `messages.create` and
+  `messages.stream`. **Do not reach for `--force` here**: it would leave the
+  peer genuinely unsatisfied at runtime rather than fixing anything.
+- **`@modelcontextprotocol/sdk` held at exactly 1.29.0**, which is the thing
+  this file warned a bump could silently move. Checked after installing, not
+  assumed.
+- **Four breaking changes in the 0.2→0.3 range; three were free.** The v2
+  session API was removed (we use `query()` + `resume`), `'Skill'` in
+  `allowedTools` was removed (we already use the `skills` option), and
+  `options.env` replacing rather than overlaying `process.env` landed back in
+  0.2.113 (we already spread `...process.env`).
+- **The fourth, TodoWrite → Task tools, is NOT what the changelog implies, and
+  only running it showed that.** 0.3.142 says SDK sessions use
+  `TaskCreate`/`TaskUpdate`/`TaskGet`/`TaskList` instead of `TodoWrite`; 0.3.233
+  then made todo/task tools non-default on newer models. Measured on 0.3.273
+  with Fable 5.1, a real tracked-task turn emitted **`TodoWrite` four times** —
+  so the existing renderer and allowlist entry are fine and nothing regressed.
+  Because which name appears clearly varies by model and SDK build, **both
+  spellings** are now auto-approved and labelled, plus `ToolSearch`, which
+  showed up in the same turn and is new in the 0.3 line.
+- **Fable 5.1 is in the picker and Fable 5 steps down to superseded**, which is
+  the choice made when this started. `UNSUPPORTED_MODEL_IDS` is now empty but
+  kept, with the mechanism written down — it is where the next
+  too-new-for-our-CLI model goes, and its test still proves such an id cannot
+  be auto-re-added by discovery.
+- Verified: tsc clean; **1617/1617 across 108 suites**; `npm start --
+  --smoke-test` exits 0 and `--smoke-test-mcp` **PASSes** (the echo fixture
+  spawns, reaches ready and round-trips, so the 0.3 background-MCP-connection
+  change did not break hosted servers). The rebuilt `dist/agent-server.js`
+  boots standalone under Electron's own Node and serves `/health`. Then live
+  over CDP: a real turn on **Opus 5** as a regression check, and a real turn on
+  **`claude-fable-5-1`** replying normally where the same turn returned a 400
+  yesterday.
+- **NOT verified on the new SDK:** the connector "pending" status (0.3.142
+  makes MCP servers connect in the background and report `status: "pending"`
+  in `init`; the dev channel has no connector configured, so the Connectors UI
+  was never exercised against it — **production has Hex, so check that row
+  after updating**), mini-app bridge calls, notebooks, and the packaged build.
+
 ## Status (last updated 2026-09-16)
 
 **Sharing is deployed and a real app has been shared (2026-09-16).** Increment
@@ -2245,9 +2295,13 @@ always boots straight into the Command Desk shell.
   required`, no matter what `GET /v1/models` says the account can reach.
   Discovery (`main/modelCatalog.ts`) keeps the roster current by itself, but
   the picker can only offer what the CLI accepts — so `shared/models.ts` keeps
-  an `UNSUPPORTED_MODEL_IDS` list, currently holding `claude-fable-5-1`.
-  Measured 2026-09-16 on SDK 0.2.121 (== Claude Code 2.1.121); 5.1 wants
-  2.1.251+. Keeping models current means keeping the SDK current.
+  an `UNSUPPORTED_MODEL_IDS` list for anything held out on those grounds.
+  Measured 2026-09-16 on SDK 0.2.121 (== Claude Code 2.1.121): Fable 5.1 was
+  refused and wanted 2.1.251+. **Cleared 2026-09-17 by upgrading to 0.3.273**,
+  so the list is empty today — but the constraint is permanent, and the next
+  model Anthropic ships will hit it again. Keeping models current means
+  keeping the SDK current. Note the gate is CHAT-only: mini-apps call the API
+  directly through the proxy with no CLI in the path.
 
 - **Read-only directories are advisory only.** The agent is told via
   `workspaceDirectoriesGuidance` text, but `Write`/`Edit` still hit the

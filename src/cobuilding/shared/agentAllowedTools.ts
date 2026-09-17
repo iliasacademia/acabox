@@ -45,7 +45,20 @@ export const BASE_AGENT_ALLOWED_TOOLS: readonly string[] = [
   // WebSearch finds pages; WebFetch reads them. Several skills
   // (database-lookup, reaction) instruct the agent to call WebFetch
   // directly, so it has to be auto-approved here.
-  'WebSearch', 'WebFetch', 'TodoWrite',
+  'WebSearch', 'WebFetch',
+  // Task tracking, BOTH spellings on purpose. SDK 0.3.142 announced that
+  // headless/SDK sessions use the Task tools instead of `TodoWrite`, but
+  // 0.3.233 then made todo/task tools non-default on newer models — and
+  // measured on 0.3.273 with Fable 5.1, what the agent actually emits here is
+  // still `TodoWrite` (4 calls in a real tracked-task turn). Which name shows
+  // up therefore varies by model and SDK build, so both are auto-approved
+  // rather than betting on one; an entry for a tool the session does not have
+  // costs nothing.
+  'TodoWrite',
+  'TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList',
+  // Also new in the 0.3 line and observed in the same turn: the CLI's own
+  // tool-search tool.
+  'ToolSearch',
   'EnterPlanMode', 'ExitPlanMode',
   'mcp__activity__query_activity',
   KNOWLEDGE_RECORD_FINDING_TOOL,
