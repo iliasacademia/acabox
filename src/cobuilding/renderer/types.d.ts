@@ -287,8 +287,18 @@ interface ApisAPI {
   remove(id: string): Promise<ApiMutationResultT>;
   setEnabled(id: string, enabled: boolean): Promise<ApiMutationResultT>;
   setAllowWrites(id: string, allowWrites: boolean): Promise<ApiMutationResultT>;
-  /** One real GET at the base URL, through the same engine the agent uses. */
-  test(id: string): Promise<{ status: number; ok: boolean; error: string | null }>;
+  /**
+   * Up to two real GETs through the same engine the agent uses — one with the
+   * credential, one without — at a curated auth-gated endpoint where the
+   * catalog has one. `verdict` is the interpreted answer and `detail` the
+   * sentence to show; the raw `status` is kept for logs, not for deciding.
+   */
+  test(id: string): Promise<{
+    status: number;
+    ok: boolean;
+    verdict?: 'ok' | 'unauthorized' | 'unconfirmed' | 'unreachable';
+    detail?: string;
+  }>;
   /**
    * Phase 2: a mini-app's call. `dirName` names the calling tool; the grant is
    * read from that tool's manifest in main, never taken from the renderer.

@@ -36,8 +36,21 @@
   color: var(--cd-error, #b60000);
 }
 
+/* Three states, because "reached it but cannot confirm the key" is neither a
+   pass nor a failure and rendering it as either is what made this button
+   misleading. Default (above) stays the error colour so an unstyled verdict
+   can never read as success. */
 .apiTestResult--ok {
   color: var(--cd-success, #05b01c);
+}
+
+.apiTestResult--unconfirmed {
+  color: var(--cd-text-muted, #91919e);
+}
+
+.apiTestResult--unreachable,
+.apiTestResult--unauthorized {
+  color: var(--cd-error, #b60000);
 }
 
 /* The notes field is the highest-leverage input on the form, so it gets room

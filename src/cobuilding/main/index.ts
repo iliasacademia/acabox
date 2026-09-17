@@ -107,7 +107,7 @@ import {
 import { apiProxy, callerWithGrants, performApiRequest, setToolGrantResolver } from './apiProxy';
 import { allowedModelIds, DEFAULT_MODEL, mergeModels } from '../shared/models';
 import { discoveredModels, discoveryError, refreshModels } from './modelCatalog';
-import { API_CATALOG, type ApiConfig } from '../shared/apis';
+import { API_CATALOG, interpretApiTest, type ApiConfig } from '../shared/apis';
 import { decryptSecret, encryptSecret, isEncrypted, isEncryptionAvailable } from './secretStore';
 import { processCpuMonitor } from '../../utils/processCpuMonitor';
 import { convertReferenceFile } from './directoryScanner/agents/fileTagging';
@@ -2960,24 +2960,82 @@ ipcMain.handle('apis:request', async (_event, dirName: string, req: {
  * The response body is discarded, but it must be CANCELLED rather than ignored
  * or the socket stays open until GC.
  */
+/**
+ * "Test" — does this API actually work, and is the KEY actually good?
+ *
+ * Two GETs, never a write. The second one deliberately withholds the
+ * credential, because a single authenticated status cannot answer the
+ * question: measured on the real catalog, `api.github.com/` and
+ * `api.osf.io/v2/` return 200 with no credential at all, while Hex, Zenodo
+ * and Figshare return 404 at their root even with a good one. Comparing the
+ * two answers is what makes the verdict honest — see `interpretApiTest`.
+ *
+ * The unauthenticated probe is skipped when the first answer is already
+ * decisive (401/403 is an auth failure however the anonymous request would
+ * have gone), so the common failure costs one request, not two.
+ */
 ipcMain.handle('apis:test', async (_event, id: string) => {
-  try {
+  const probe = async (omitCredential: boolean) => {
     const outcome = await performApiRequest({
       apiId: id,
       method: 'GET',
-      path: '',
+      // A curated auth-gated endpoint where we have one; the base URL
+      // otherwise. `testPathFor` explains why the base URL is a poor test.
+      path: testPathFor(id),
       caller: { kind: 'chat' },
+      ...(omitCredential ? { omitCredential: true } : {}),
     });
+    // Nothing reads the body — cancel it rather than leaving the socket open.
     void outcome.body?.cancel().catch(() => { /* already closed */ });
-    return {
-      status: outcome.status,
-      ok: outcome.status >= 200 && outcome.status < 400,
-      error: outcome.error ?? null,
-    };
+    return outcome;
+  };
+
+  try {
+    const authed = await probe(false);
+    // A proxy refusal (bad id, disabled, write gate) is our own message and is
+    // already the most useful thing we can say — do not second-guess it.
+    if (authed.error) {
+      return { status: authed.status, ok: false, verdict: 'unauthorized', detail: authed.error };
+    }
+
+    const api = listApis().find((a) => a.id === id);
+    const hasSecret = api?.hasSecret === true;
+    const decisive = authed.status === 401 || authed.status === 403;
+    const unauthed = (!decisive && hasSecret) ? await probe(true).catch(() => null) : null;
+
+    const { verdict, detail } = interpretApiTest({
+      authedStatus: authed.status,
+      ...(unauthed ? { unauthedStatus: unauthed.status } : {}),
+      hasSecret,
+      secretOptional: API_CATALOG.find((c) => c.id === id)?.secretOptional,
+    });
+    return { status: authed.status, ok: verdict === 'ok', verdict, detail };
   } catch (err) {
-    return { status: 0, ok: false, error: err instanceof Error ? err.message : String(err) };
+    return {
+      status: 0,
+      ok: false,
+      verdict: 'unreachable' as const,
+      detail: err instanceof Error ? err.message : String(err),
+    };
   }
 });
+
+/**
+ * The path "Test" should hit for an API.
+ *
+ * The bare base URL is a bad test and the catalog measurements say why: most
+ * of these APIs have no resource at their root, so it 404s for a correctly
+ * configured key, and two of them answer 200 to anyone at all. A curated
+ * `testPath` is an endpoint verified to return 401/403 unauthenticated, which
+ * is what lets a 2xx mean something. Custom APIs have no curation, so they
+ * fall back to the base URL and lean on the unauthenticated comparison
+ * instead.
+ */
+function testPathFor(id: string): string {
+  const stored = listApis().find((a) => a.id === id);
+  const entry = API_CATALOG.find((c) => c.id === id || c.catalogId === stored?.catalogId);
+  return entry?.testPath ?? '';
+}
 
 // ─── Skills IPC ───────────────────────────────────────────────────
 //

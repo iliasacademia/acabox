@@ -177,6 +177,56 @@ to `PATH`.
 
 ## Status (last updated 2026-09-17)
 
+**"Test" now tests the KEY, not just reachability (2026-09-17).** Reported as
+"all my APIs are giving 404". They were not: the proxy was relaying real
+upstream 404s, and the button was asking a question that could not be answered.
+- **The old button was wrong in BOTH directions, and the catalog proves it.**
+  Measured unauthenticated on 2026-09-17: `api.github.com/` and
+  `api.osf.io/v2/` answer **200 with no credential at all**, so a green Test
+  meant nothing — an API with a garbage key, or none, tested fine. Hex, Zenodo,
+  Figshare and protocols.io answer **404** at their root with or without a good
+  key, so a red Test meant nothing either. It GET the bare base URL and
+  forwarded the raw status.
+- **Two fixes, because the base URL and the interpretation were both wrong.**
+  (1) A curated `testPath` per catalog entry — `hex projects?limit=1`,
+  `zenodo deposit/depositions`, `figshare account`, `osf users/me/`,
+  `github user` — each **curled unauthenticated and verified to return
+  401/403**, which is the property that makes a later 2xx mean something. A
+  path that answers 200 or 404 to everyone is not a test.
+  (2) `interpretApiTest` in `shared/apis.ts`, pure and unit-tested, turning the
+  status into one of four verdicts instead of pass/fail.
+- **The load-bearing idea is a COMPARISON, not a better status list.** Test now
+  sends the same GET twice, once with the credential and once without
+  (`omitCredential`, settable only from main — the loopback door builds
+  `ApiRequestInput` field by field, so neither the agent nor a mini-app can
+  set it). If the server treats the two differently the key is demonstrably
+  doing work, and that holds for a **custom** API nobody curated, which is the
+  case the user actually hit. If it treats them the same, the UI says so
+  rather than inventing a verdict. The second probe is skipped on 401/403,
+  which is decisive on its own, so the common failure still costs one request.
+- **`unconfirmed` is a first-class outcome and the reason the old button
+  lied.** "Reached it but cannot confirm the key" is neither pass nor fail, and
+  collapsing it into either is what produced both false readings. Rendered in
+  muted grey; the default style stays the error colour so an unstyled verdict
+  can never read as success.
+- Verified: tsc clean; **1627/1627 across 109 suites** (+10); smoke exits 0.
+  Then driven live over CDP against a real `npm start`, all three reachable
+  verdicts observed end to end: **Hex with a deliberately wrong key → 401 →
+  "The server rejected the credential"** (which also proves the curated
+  `testPath` is in use — the bare base URL returns 404, not 401); **UniProt,
+  which ignores the credential → 200 both ways → "the same request works
+  without your key"**, the exact false positive this removes; and Crossref
+  rate-limited → a named 429 rather than a bare status. The UI was checked in
+  the DOM, not just over IPC (`apiTestResult--ok`, green, honest text).
+- **NOT verified live: the `ok`-with-a-real-working-key path**, because the dev
+  channel holds no valid credential. It is unit-tested against the measured
+  status pairs, and production has Hex with a real key plus a curated
+  `testPath`, so pressing Test there is the acceptance check.
+- Unrelated but found in the same log and still open: `api.devin.ai` redirects
+  to a plain `http://` URL and the proxy refuses it (`REFUSED devin → 403`),
+  correctly, since following it would send the token unencrypted. Devin is
+  therefore unusable until that is looked at separately.
+
 **Agent SDK 0.2.121 → 0.3.273, and Fable 5.1 now runs (2026-09-17).** The
 upgrade the model work below identified as the only route to 5.1.
 - **It went far more cleanly than budgeted, for a measurable reason: our SDK

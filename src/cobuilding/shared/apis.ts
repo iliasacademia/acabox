@@ -504,6 +504,23 @@ export interface ApiCatalogEntry {
   docsUrl?: string;
   /** Suggested default for `allowWrites` when the user adds this entry. */
   suggestWrites?: boolean;
+  /**
+   * A read-only endpoint the "Test" button should call INSTEAD of the bare
+   * base URL, chosen because it is auth-gated.
+   *
+   * Why this field exists at all: the base URL is useless as a test. Measured
+   * 2026-09-17 with no credential attached — `api.github.com/` and
+   * `api.osf.io/v2/` return **200**, so a green Test proved nothing; while
+   * Hex, Zenodo, Figshare and protocols.io return **404** at their root even
+   * with a perfectly good key, so a red Test meant nothing either. The button
+   * was wrong in both directions.
+   *
+   * Every path here was curled unauthenticated and returns 401/403, which is
+   * exactly the property that makes it discriminating: reach it WITH a key and
+   * a 2xx can only mean the key was accepted. Verify the same way before
+   * adding one — a path that answers 200 or 404 to everyone is not a test.
+   */
+  testPath?: string;
 }
 
 /**
@@ -522,6 +539,7 @@ export const API_CATALOG: ApiCatalogEntry[] = [
   {
     catalogId: 'hex',
     id: 'hex',
+    testPath: 'projects?limit=1',
     label: 'Hex',
     description: 'The Hex REST API — projects, runs, and semantic models.',
     baseUrl: 'https://app.hex.tech/api/v1/',
@@ -669,6 +687,7 @@ export const API_CATALOG: ApiCatalogEntry[] = [
   {
     catalogId: 'zenodo',
     id: 'zenodo',
+    testPath: 'deposit/depositions',
     label: 'Zenodo',
     description: 'Deposit and fetch research datasets.',
     baseUrl: 'https://zenodo.org/api/',
@@ -682,6 +701,7 @@ export const API_CATALOG: ApiCatalogEntry[] = [
   {
     catalogId: 'figshare',
     id: 'figshare',
+    testPath: 'account',
     label: 'Figshare',
     description: 'Publish and fetch figures, datasets and filesets.',
     baseUrl: 'https://api.figshare.com/v2/',
@@ -695,6 +715,7 @@ export const API_CATALOG: ApiCatalogEntry[] = [
   {
     catalogId: 'osf',
     id: 'osf',
+    testPath: 'users/me/',
     label: 'OSF',
     description: 'Open Science Framework projects, files and registrations.',
     baseUrl: 'https://api.osf.io/v2/',
@@ -719,6 +740,7 @@ export const API_CATALOG: ApiCatalogEntry[] = [
   {
     catalogId: 'github',
     id: 'github',
+    testPath: 'user',
     label: 'GitHub',
     description: 'Repositories, issues, releases and raw file contents.',
     baseUrl: 'https://api.github.com/',
@@ -751,5 +773,132 @@ export function apiFromCatalog(entry: ApiCatalogEntry): ApiConfig {
     notes: entry.notes,
     catalogId: entry.catalogId,
     docsUrl: entry.docsUrl,
+  };
+}
+
+/** What a Test told us, in the only four shapes worth distinguishing. */
+export type ApiTestVerdict =
+  /** The API answered and, where a credential is involved, accepted it. */
+  | 'ok'
+  /** The credential was rejected or missing. The one actionable failure. */
+  | 'unauthorized'
+  /** We reached it but genuinely cannot tell whether the key is good. */
+  | 'unconfirmed'
+  /** Never got an answer at all. */
+  | 'unreachable';
+
+export interface ApiTestReading {
+  /** Status with the credential attached. 0 means the request never landed. */
+  authedStatus: number;
+  /**
+   * Status for the SAME request with the credential withheld, when that probe
+   * ran. Undefined means we did not ask.
+   */
+  unauthedStatus?: number;
+  /** Whether a secret is stored for this API at all. */
+  hasSecret: boolean;
+  /** Whether this API can be used with no credential (the key only adds quota). */
+  secretOptional?: boolean;
+}
+
+/**
+ * Turn one or two HTTP statuses into an honest verdict.
+ *
+ * THE PROBLEM THIS SOLVES. A single authenticated status cannot answer "is my
+ * key working", and the catalog proves it in both directions (measured
+ * 2026-09-17, no credential attached): `api.github.com/` and `api.osf.io/v2/`
+ * answer **200**, so success says nothing about the key; Hex, Zenodo, Figshare
+ * and protocols.io answer **404** at their root with or without one, so
+ * failure says nothing either. The old Test forwarded the raw status and was
+ * therefore capable of greenlighting an unconfigured API and condemning a
+ * working one.
+ *
+ * THE FIX IS A COMPARISON, not a better status list. Ask twice — once with the
+ * credential, once without — and let the DIFFERENCE carry the meaning. If the
+ * server treats the two differently, the key is demonstrably doing work, and
+ * that holds for an API nobody curated. If it treats them the same, we say so
+ * rather than inventing a verdict.
+ *
+ * Pure so it can be tested against real observed status pairs.
+ */
+export function interpretApiTest(r: ApiTestReading): { verdict: ApiTestVerdict; detail: string } {
+  const { authedStatus: a, unauthedStatus: u, hasSecret, secretOptional } = r;
+
+  if (a === 0) return { verdict: 'unreachable', detail: 'No response — check the base URL and your connection.' };
+
+  // Checked FIRST, and before any 2xx reasoning: this is the one answer that
+  // is unambiguous and actionable no matter what the unauthenticated probe
+  // said. 403 can also mean "authenticated but not permitted", which is why
+  // the wording does not promise which of the two it is.
+  if (a === 401 || a === 403) {
+    return {
+      verdict: 'unauthorized',
+      detail: hasSecret
+        ? `The server rejected the credential (HTTP ${a}). Check the key and the auth style.`
+        : `This API needs a credential (HTTP ${a}). Add one.`,
+    };
+  }
+
+  // Rate limiting is its own answer and a common one on keyless public APIs
+  // (Crossref, Semantic Scholar). It says the request was well-formed and
+  // reached the service, so reporting a bare "HTTP 429" invites the user to
+  // go hunting for a configuration fault that is not there.
+  if (a === 429) {
+    return {
+      verdict: 'unconfirmed',
+      detail: 'Reached it, but the service is rate-limiting right now (HTTP 429). Try again shortly.',
+    };
+  }
+
+  const ok2xx = a >= 200 && a < 300;
+
+  // No credential in play — there is nothing to confirm, so reachability is
+  // the whole question and we must not imply we validated a key.
+  if (!hasSecret) {
+    if (ok2xx) {
+      return {
+        verdict: 'ok',
+        detail: secretOptional
+          ? 'Reachable, and this API works without a key.'
+          : 'Reachable. No credential is configured, so none was tested.',
+      };
+    }
+    return { verdict: 'unconfirmed', detail: `Reached it — HTTP ${a}. No credential is configured.` };
+  }
+
+  // A credential IS stored. The unauthenticated probe is what decides whether
+  // it did anything.
+  const gatedWithoutKey = u === 401 || u === 403;
+
+  if (gatedWithoutKey) {
+    // The endpoint refuses anonymous callers and did NOT refuse us. That is
+    // proof the key was accepted — including when the authenticated answer is
+    // a 404, which then means "authenticated, but no such resource" rather
+    // than "no". This is the case the old button read as failure.
+    return {
+      verdict: 'ok',
+      detail: ok2xx
+        ? 'Working — the server accepted your credential.'
+        : `Your credential was accepted (the server authenticated you, then answered HTTP ${a}).`,
+    };
+  }
+
+  if (u !== undefined && u === a) {
+    // Identical with and without the key: this endpoint cannot tell us
+    // anything, so neither can we.
+    return {
+      verdict: 'unconfirmed',
+      detail: `Reached it — HTTP ${a}, but the same request works without your key, `
+        + 'so this endpoint cannot confirm the credential.',
+    };
+  }
+
+  if (ok2xx) {
+    return { verdict: 'ok', detail: 'Working — the server answered successfully.' };
+  }
+
+  return {
+    verdict: 'unconfirmed',
+    detail: `Reached it — HTTP ${a}. Not an auth failure, but this endpoint cannot confirm the credential.`,
   };
 }

@@ -11,6 +11,7 @@ import {
   type ApiConfig,
   type ApiConfigForUi,
   type ApiCounters,
+  type ApiTestVerdict,
 } from '../../shared/apis';
 import './ApiSettings.css';
 
@@ -167,7 +168,11 @@ export const ApiSettings: React.FC<ApiSettingsProps> = ({ active = true }) => {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; text: string }>>({});
+  // Three outcomes, not two. "Reached it but cannot confirm the key" is a real
+  // and common answer (an endpoint that behaves the same with and without a
+  // credential), and collapsing it into pass/fail is what made the old button
+  // lie in both directions — see `interpretApiTest`.
+  const [testResults, setTestResults] = useState<Record<string, { verdict: ApiTestVerdict; text: string }>>({});
 
   const load = useCallback(async () => {
     const data = await window.apisAPI.list();
@@ -229,10 +234,10 @@ export const ApiSettings: React.FC<ApiSettingsProps> = ({ active = true }) => {
       const r = await window.apisAPI.test(id);
       setTestResults((prev) => ({
         ...prev,
-        [id]: {
-          ok: r.ok,
-          text: r.error ?? (r.ok ? `Reached it — HTTP ${r.status}.` : `HTTP ${r.status}.`),
-        },
+        // `detail` is written by `interpretApiTest`, which is the only place
+        // that decides what a status pair means. The UI renders it verbatim
+        // rather than re-deriving a message from the raw status.
+        [id]: { verdict: r.verdict ?? (r.ok ? 'ok' : 'unconfirmed'), text: r.detail ?? `HTTP ${r.status}.` },
       }));
       void load();   // pick up the counter this call just incremented
     } finally { setTesting(null); }
@@ -298,7 +303,7 @@ export const ApiSettings: React.FC<ApiSettingsProps> = ({ active = true }) => {
                     {counterText && ` · ${counterText}`}
                   </div>
                   {test && (
-                    <div className={`apiTestResult${test.ok ? ' apiTestResult--ok' : ''}`}>
+                    <div className={`apiTestResult apiTestResult--${test.verdict}`}>
                       {test.text}
                     </div>
                   )}

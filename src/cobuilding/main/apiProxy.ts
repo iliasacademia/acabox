@@ -171,6 +171,23 @@ export interface ApiRequestInput {
   body?: ApiRequestBody | null;
   /** Set by the door, NEVER by the caller. */
   caller: ApiCaller;
+  /**
+   * Send the request WITHOUT attaching the stored credential.
+   *
+   * Only the Settings "Test" probe sets this, and only to ask a question that
+   * cannot be answered any other way: does this endpoint behave differently
+   * when the key is absent? Measured on the real catalog, `api.github.com/`
+   * and `api.osf.io/v2/` answer **200 with no credential at all**, so a
+   * single authenticated 200 proves nothing about the key — an API with a
+   * garbage key would test green. Comparing the two answers is what makes the
+   * verdict honest.
+   *
+   * Safe to exist, and deliberately not reachable from outside main: the
+   * loopback door builds `ApiRequestInput` field by field (see `handle`), so
+   * neither the agent nor a mini-app can set it. Dropping your own credential
+   * cannot leak it in any case — the risk runs the other way.
+   */
+  omitCredential?: boolean;
 }
 
 export interface ApiRequestOutcome {
@@ -216,9 +233,10 @@ function injectAuth(
   api: ApiConfig,
   url: URL,
   headers: Record<string, string>,
+  omitCredential = false,
 ): { url: URL; headers: Record<string, string> } {
   const secret = api.auth.secret;
-  if (!secret) return { url, headers };
+  if (!secret || omitCredential) return { url, headers };
 
   const out = { ...headers };
   const outUrl = new URL(url.toString());
@@ -328,7 +346,7 @@ export async function performApiRequest(input: ApiRequestInput): Promise<ApiRequ
     // mechanisms. Forwarding the token there breaks the download AND leaks it.
     const attachAuth = sameOrigin(currentUrl, new URL(api.baseUrl));
     const prepared = attachAuth
-      ? injectAuth(api, currentUrl, callerHeaders)
+      ? injectAuth(api, currentUrl, callerHeaders, input.omitCredential)
       : { url: currentUrl, headers: callerHeaders };
 
     // One deadline for the whole chain, not one per hop: five hops each given a
