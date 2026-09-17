@@ -72,7 +72,17 @@ export function getToolLabel(
       return skill ? `Running skill: ${skill}` : 'Running skill';
     }
     case 'TodoWrite':
+    // The Task tools are `TodoWrite`'s replacement in the SDK 0.3 line. Which
+    // one a session emits varies by model and SDK build (measured on 0.3.273:
+    // still TodoWrite), so both are labelled — an unlabelled tool falls back
+    // to its raw name in the card, which reads like a bug.
+    case 'TaskCreate':
+    case 'TaskUpdate':
+    case 'TaskList':
+    case 'TaskGet':
       return 'Updating tasks';
+    case 'ToolSearch':
+      return 'Finding tools';
     case 'EnterPlanMode':
       return 'Creating plan';
     case 'ExitPlanMode':

@@ -68,7 +68,15 @@ export function getToolCardDisplay(
     case 'Skill':
       return { icon: 'bolt', name: 'skill', args: str(a.skill) };
     case 'TodoWrite':
+    // Task* are the SDK 0.3 replacements; see tool-labels.ts for why both
+    // spellings are carried rather than one.
+    case 'TaskCreate':
+    case 'TaskUpdate':
+    case 'TaskList':
+    case 'TaskGet':
       return { icon: 'checklist', name: 'todo', args: '' };
+    case 'ToolSearch':
+      return { icon: 'search', name: 'tool search', args: str(a.query) };
     case 'EnterPlanMode':
     case 'ExitPlanMode':
       return { icon: 'map', name: 'plan', args: '' };

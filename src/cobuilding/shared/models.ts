@@ -46,9 +46,7 @@ export interface DiscoveredModel {
  * this is hand-maintained rather than sorted from the API.
  */
 export const CURATED_MODELS: readonly PickerModel[] = [
-  // Fable 5, not 5.1 — and that is a MEASUREMENT, not an oversight. See
-  // UNSUPPORTED_MODEL_IDS below.
-  { id: 'claude-fable-5', label: 'Fable 5', description: 'Highest intelligence, premium cost' },
+  { id: 'claude-fable-5-1', label: 'Fable 5.1', description: 'Highest intelligence, premium cost' },
   { id: 'claude-opus-5', label: 'Opus 5', description: 'Most capable for ambitious work' },
   { id: 'claude-opus-4-8', label: 'Opus 4.8', description: 'Previous-generation Opus' },
   { id: 'claude-sonnet-5', label: 'Sonnet 5', description: 'Most efficient for everyday tasks' },
@@ -64,6 +62,7 @@ export const CURATED_MODELS: readonly PickerModel[] = [
  * picker as if it were a new release.
  */
 export const SUPERSEDED_MODEL_IDS: readonly string[] = [
+  'claude-fable-5',
   'claude-opus-4-7',
   'claude-opus-4-6',
   'claude-sonnet-4-6',
@@ -71,35 +70,34 @@ export const SUPERSEDED_MODEL_IDS: readonly string[] = [
 ] as const;
 
 /**
- * Models this account CAN see but Acabox cannot currently run — the bundled
- * Claude Code CLI refuses them.
+ * Models this account CAN see but Acabox cannot run, because the Claude Code
+ * CLI bundled with the Agent SDK refuses them.
  *
- * THE CONSTRAINT THAT ACTUALLY GOVERNS THIS FILE, measured 2026-09-16 by
- * sending a real turn on each: selecting `claude-fable-5-1` returns
+ * EMPTY TODAY, and the reason it exists anyway is the constraint it records.
+ * On SDK 0.2.121 (== Claude Code 2.1.121) a real turn on `claude-fable-5-1`
+ * returned
  *
  *     API Error: 400 invalid_request_error
  *     "Claude Code 2.1.121 does not support this model;
  *      version 2.1.251 or newer is required"
  *
- * while `claude-fable-5` on the same build replies normally. The gate is the
- * CLI version the Agent SDK bundles (`@anthropic-ai/claude-agent-sdk`,
- * pinned at 0.2.121 == Claude Code 2.1.121), NOT the account's roster and NOT
- * this list. `GET /v1/models` cheerfully reports `claude-fable-5-1`; chat
- * still 400s.
+ * while `claude-fable-5` replied normally on the same build. Upgrading the
+ * SDK to 0.3.273 (Claude Code 2.1.273) cleared it, verified by re-running the
+ * same turn — which is why Fable 5.1 is now in CURATED_MODELS above.
  *
- * So the honest limit of discovery: it can tell us a model EXISTS, never that
- * we can run it, and a brand-new model is precisely the case an older CLI
- * rejects. Note this gate applies to CHAT only — mini-apps call the Anthropic
- * API directly through the proxy with no CLI in the path, which is why
- * `allowedModelIds` below is free to trust discovery outright.
+ * The general rule this leaves behind: the account roster and the CLI are two
+ * different gates. `GET /v1/models` can only tell us a model EXISTS; whether
+ * we can RUN it depends on the bundled CLI version, and a brand-new model is
+ * exactly the case an older CLI rejects. When Anthropic ships a model this
+ * build's CLI is too old for, put its id here (it must also stay reachable
+ * from KNOWN_MODEL_IDS, or discovery will auto-add it straight back) and
+ * bump the SDK to clear it.
  *
- * TO UNBLOCK: upgrade the Agent SDK (0.2.121 -> 0.3.273 at the time of
- * writing — a major-line jump with its own breaking changes, and it moves the
- * exactly-pinned `@modelcontextprotocol/sdk`), then move the id up into
- * CURATED_MODELS and re-run the real-turn check.
+ * The gate is CHAT-only — mini-apps call the Anthropic API directly through
+ * the proxy with no CLI in the path, which is why `allowedModelIds` below is
+ * free to trust discovery outright.
  */
 export const UNSUPPORTED_MODEL_IDS: readonly string[] = [
-  'claude-fable-5-1',
 ] as const;
 
 /**

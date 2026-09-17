@@ -20,7 +20,7 @@ import {
 
 /** A plausible roster: the models this build knows, with real-ish dates. */
 const KNOWN_ROSTER: DiscoveredModel[] = [
-  { id: 'claude-fable-5', display_name: 'Claude Fable 5', created_at: '2026-05-01T00:00:00Z' },
+  { id: 'claude-fable-5-1', display_name: 'Claude Fable 5.1', created_at: '2026-08-31T00:00:00Z' },
   { id: 'claude-opus-5', display_name: 'Claude Opus 5', created_at: '2026-04-01T00:00:00Z' },
   { id: 'claude-sonnet-5', display_name: 'Claude Sonnet 5', created_at: '2026-03-01T00:00:00Z' },
   { id: 'claude-haiku-4-5', display_name: 'Claude Haiku 4.5', created_at: '2025-10-01T00:00:00Z' },
@@ -29,29 +29,29 @@ const KNOWN_ROSTER: DiscoveredModel[] = [
 const ids = (list: { id: string }[]) => list.map((m) => m.id);
 
 describe('the curated table', () => {
-  test('offers Fable 5, and does NOT offer Fable 5.1', () => {
-    // Counter-intuitive and load-bearing, so it is pinned. Fable 5.1 is newer
-    // and the account can see it, but a real turn on it returns
-    // "Claude Code 2.1.121 does not support this model; version 2.1.251 or
-    // newer is required", while Fable 5 replies normally on the same build.
-    // Offering it would ship a guaranteed 400. Flip this test when the Agent
-    // SDK is upgraded AND a real turn has been re-run — not before.
-    expect(ids([...CURATED_MODELS])).toContain('claude-fable-5');
-    expect(ids([...CURATED_MODELS])).not.toContain('claude-fable-5-1');
-    expect(UNSUPPORTED_MODEL_IDS).toContain('claude-fable-5-1');
+  test('offers Fable 5.1, having superseded Fable 5', () => {
+    // 5.1 was held out until the Agent SDK could run it: on SDK 0.2.121 a real
+    // turn returned "Claude Code 2.1.121 does not support this model; version
+    // 2.1.251 or newer is required". SDK 0.3.273 cleared it, re-verified with
+    // a real turn, so it is offered and Fable 5 steps down to superseded.
+    expect(ids([...CURATED_MODELS])).toContain('claude-fable-5-1');
+    expect(ids([...CURATED_MODELS])).not.toContain('claude-fable-5');
+    expect(SUPERSEDED_MODEL_IDS).toContain('claude-fable-5');
   });
 
-  test('an unsupported model is KNOWN, so discovery cannot re-add it', () => {
-    // The trap this guards: Fable 5.1 is newer than everything else on the
-    // roster, so if it were not in KNOWN_MODEL_IDS the merge would classify
-    // it as a fresh release and put it straight back in the picker.
+  test('anything held out for CLI support stays KNOWN, so discovery cannot re-add it', () => {
+    // Empty today, and the assertion still earns its place: the next model
+    // this build's CLI is too old for goes in UNSUPPORTED_MODEL_IDS, and if
+    // it is not also reachable from KNOWN_MODEL_IDS the merge reads it as a
+    // fresh release and puts it straight back in the picker — where it 400s.
     for (const id of UNSUPPORTED_MODEL_IDS) expect(KNOWN_MODEL_IDS).toContain(id);
 
+    // Proven with a stand-in rather than skipped while the list is empty.
     const merged = mergeModels([
       ...KNOWN_ROSTER,
-      { id: 'claude-fable-5-1', display_name: 'Claude Fable 5.1', created_at: '2026-08-31T00:00:00Z' },
+      { id: 'claude-fable-5', display_name: 'Claude Fable 5', created_at: '2027-01-01T00:00:00Z' },
     ]);
-    expect(ids(merged)).not.toContain('claude-fable-5-1');
+    expect(ids(merged)).not.toContain('claude-fable-5');
   });
 
   test('the pinned default is a model we actually offer', () => {
@@ -171,7 +171,7 @@ describe('allowedModelIds', () => {
   test('still allows the built-in roster when discovery returns nothing', () => {
     const allowed = allowedModelIds([]);
     expect(allowed.has(DEFAULT_MODEL)).toBe(true);
-    expect(allowed.has('claude-fable-5')).toBe(true);
+    expect(allowed.has('claude-fable-5-1')).toBe(true);
   });
 
   test('does not allow an id nobody reported', () => {
