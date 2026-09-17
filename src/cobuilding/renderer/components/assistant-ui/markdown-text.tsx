@@ -16,6 +16,8 @@ import { CheckIcon, CopyIcon } from 'lucide-react';
 import { TooltipIconButton } from './tooltip-icon-button';
 import { ApprovalParagraph, ApprovalList } from './approval-buttons';
 import { AnchorWithDoi, parseAgentHtml } from './doi-link';
+import { ChatRefLink } from '../command-desk/ChatReferences';
+import { splitOnChatRefs } from '../../../shared/chatRefs';
 
 /** Detect if content is HTML (starts with a tag like <article>, <div>, <p>, etc.) */
 function looksLikeHtml(text: string): boolean {
@@ -53,8 +55,32 @@ function autolinkDoiText(text: string, keyPrefix: string): React.ReactNode {
   return out;
 }
 
+/**
+ * Turn `[[chat:<id>]]` into a chip that opens that conversation.
+ *
+ * Folded into the DOI autolinker's pass rather than given its own, because
+ * they are the same job on the same text nodes and the DOI pass already
+ * establishes the rules that matter: never rewrite inside a link, `code` or
+ * `pre`. A second independent traversal would have to rediscover all three,
+ * and the first time it missed one a reference inside a code block would
+ * silently become a button.
+ */
+function linkifyText(text: string, keyPrefix: string): React.ReactNode {
+  const segments = splitOnChatRefs(text);
+  if (segments.length === 1 && segments[0].kind === 'text') {
+    return autolinkDoiText(text, keyPrefix);
+  }
+  return segments.map((segment, i) => (segment.kind === 'ref'
+    ? <ChatRefLink key={`${keyPrefix}-chat-${i}`} written={segment.written} />
+    : (
+      <React.Fragment key={`${keyPrefix}-txt-${i}`}>
+        {autolinkDoiText(segment.text, `${keyPrefix}-txt-${i}`)}
+      </React.Fragment>
+    )));
+}
+
 function autolinkChildren(node: React.ReactNode, keyPrefix: string): React.ReactNode {
-  if (typeof node === 'string') return autolinkDoiText(node, keyPrefix);
+  if (typeof node === 'string') return linkifyText(node, keyPrefix);
   if (Array.isArray(node)) return node.map((c, i) => autolinkChildren(c, `${keyPrefix}-${i}`));
   if (React.isValidElement(node)) {
     if (node.type === 'a' || node.type === 'code' || node.type === 'pre') return node;

@@ -4,6 +4,7 @@ import { MSymbol } from '../command-desk/MSymbol';
 import { DictationButton } from '../command-desk/DictationButton';
 import { composerAttachmentComponents } from './composer-attachments';
 import { ComposerQuoteChip } from './message-quote';
+import { ChatReferenceBar, ChatReferenceButton } from '../command-desk/ChatReferences';
 import { useSetupState } from '../../setupStore';
 
 /**
@@ -29,6 +30,7 @@ export const ChatComposer: FC<{ placeholder?: string }> = ({
   return (
     <ComposerPrimitive.Root className="cdPanelComposer">
       <ComposerQuoteChip />
+      <ChatReferenceBar />
       <ComposerPrimitive.Attachments components={composerAttachmentComponents} />
       <div className="cdPanelComposer__field">
         <span className="cdPanelComposer__glyph">▸</span>
@@ -38,6 +40,7 @@ export const ChatComposer: FC<{ placeholder?: string }> = ({
           rows={1}
           aria-label="Message input"
         />
+        <ChatReferenceButton />
         <DictationButton size={16} />
         <AuiIf condition={(s: any) => !s.thread.isRunning}>
           <ComposerPrimitive.Send asChild>

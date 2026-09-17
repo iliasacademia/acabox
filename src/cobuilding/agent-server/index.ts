@@ -357,6 +357,32 @@ function createMcpRelayServers(state: SessionState) {
       ],
     }),
 
+    // Cross-chat references. The user can point this conversation at another
+    // one, and this is how it gets read — on demand, never spliced into the
+    // message. See shared/chatRefs.ts for why announcing beats inlining.
+    chats: createSdkMcpServer({
+      name: 'chats',
+      tools: [
+        tool('search_chats',
+          'Find one of the user\'s OTHER conversations in Acabox. Use this whenever they refer to a past discussion without giving you an id — "the chat where we debugged the Hex 403", "like I told you yesterday", "we already worked this out somewhere". Matches chat titles and the words spoken on both sides, including the commands and queries that were run. Omit `query` to list the most recent chats. Returns ids you then pass to read_chat; it never returns the conversations themselves, so it is cheap to call speculatively. Your own conversation is excluded — you already have it.',
+          {
+            query: z.string().optional().describe('Words to look for in titles and messages. Short and distinctive works best ("pk_content", "Redshift schema"); a long sentence usually matches nothing. Omit to list recent chats.'),
+            limit: z.number().optional().describe('Maximum chats to return, 1-25. Defaults to 10.'),
+          },
+          relay('chats', 'search_chats'),
+        ),
+        tool('read_chat',
+          'Read another conversation of the user\'s, as prose. Call this when their message carries a "Referenced chat" line or a [[chat:<id>]] token AND that other conversation actually bears on what they are asking — a reference means "this might be relevant", not "read this first", so do not spend a retrieval on a message like "thanks" or one you can already answer. Also call it after search_chats finds a likely thread. What you get back is the conversation: what the user said, what you replied, and one line per tool call. Tool OUTPUT is omitted by default because it is roughly 99% of what is stored and almost never what makes the thread worth reading.',
+          {
+            chat_id: z.string().describe('The chat id, from a [[chat:<id>]] reference in the user\'s message or from search_chats. Not guessable — never invent one.'),
+            max_chars: z.number().optional().describe('Ceiling on the returned transcript, up to 120000. Defaults to 60000, which fits a typical whole conversation. Long turns are trimmed before whole turns are dropped, and anything omitted is marked inline.'),
+            include_tool_output: z.boolean().optional().describe('Include a short excerpt of what each tool returned. Off by default. Turn it on only when the other thread\'s VALUE is in a result you cannot reproduce — it competes with the conversation for the same character budget.'),
+          },
+          relay('chats', 'read_chat'),
+        ),
+      ],
+    }),
+
     // Live detail about Settings → APIs. The session guidance block lists only
     // ids and one line each so it stays a few hundred tokens; this is where the
     // base URL, allowed hosts, write setting and usage actually live. It also

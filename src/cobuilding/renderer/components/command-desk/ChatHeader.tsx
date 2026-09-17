@@ -2,12 +2,14 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAssistantRuntime, useAuiState } from '@assistant-ui/react';
 import { MSymbol } from './MSymbol';
 import { formatSessionModelMeta, useSessionMeta } from './useSessionMeta';
+import { formatChatRef } from '../../../shared/chatRefs';
 import type { FC } from 'react';
 
 /**
  * Chat view header (56px, Phase B spec): back to the chat list, title,
  * mono meta, GENERATING chip while a turn runs, and per-chat actions —
- * "Open tool" (when the chat belongs to a mini-app), rename, delete.
+ * "Open tool" (when the chat belongs to a mini-app), copy a reference to
+ * this chat, rename, delete.
  */
 
 export interface ChatHeaderProps {
@@ -57,6 +59,29 @@ export const ChatHeader: FC<ChatHeaderProps> = ({ onBack, onOpenTool }) => {
       console.error('[ChatHeader] rename failed:', err);
     }
   }, [draftTitle, remoteId, title, runtime]);
+
+  // "Copy reference" puts a `[[chat:<id>]]` token on the clipboard — the same
+  // token the composer's picker inserts, so a reference pasted into another
+  // chat, a note, or a skill file behaves identically to one picked from the
+  // list. This is the closest thing a desktop app has to Devin's shareable
+  // thread URL, and the reason the reference format is a plain inert token
+  // rather than a link: it survives being pasted anywhere.
+  // 'idle' | 'copied' | 'failed'. The confirmation waits on the promise
+  // rather than being set optimistically: `writeText` rejects when the
+  // document is not focused, and a button that says "Reference copied" over a
+  // clipboard that still holds something else sends the user to paste nothing.
+  // Same shape as the code-block copy button in markdown-text.tsx.
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const handleCopyReference = useCallback(() => {
+    if (!remoteId) return;
+    navigator.clipboard.writeText(formatChatRef(remoteId)).then(
+      () => setCopyState('copied'),
+      (err) => {
+        console.error('[ChatHeader] copy reference failed:', err);
+        setCopyState('failed');
+      },
+    ).finally(() => setTimeout(() => setCopyState('idle'), 1600));
+  }, [remoteId]);
 
   const handleDelete = useCallback(() => {
     if (!remoteId) { onBack(); return; }
@@ -112,6 +137,24 @@ export const ChatHeader: FC<ChatHeaderProps> = ({ onBack, onOpenTool }) => {
         <button type="button" className="cdBtnXs cdBtnXs--sm" onClick={() => onOpenTool(toolDirName)}>
           <MSymbol name="deployed_code" size={15} />
           Open tool
+        </button>
+      )}
+      {!isNewChat && remoteId && (
+        <button
+          type="button"
+          className="cdIconBtn"
+          title={
+            copyState === 'copied' ? 'Reference copied'
+              : copyState === 'failed' ? 'Could not reach the clipboard'
+                : 'Copy a reference to this chat'
+          }
+          aria-label="Copy a reference to this chat"
+          onClick={handleCopyReference}
+        >
+          <MSymbol
+            name={copyState === 'copied' ? 'check' : copyState === 'failed' ? 'error' : 'link'}
+            size={17}
+          />
         </button>
       )}
       {!isNewChat && remoteId && (

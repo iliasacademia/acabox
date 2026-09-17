@@ -13,7 +13,24 @@ import { getScannedFilesByType, getScannedFiles } from '../db/scannedFilesReposi
 import { getLatestReport } from '../db/reportRepository';
 import { AGENT_MEMORY_SUBDIR, REFERENCES_SUBDIR, REFERENCES_INDEX } from '../../shared/paths';
 import { queryActivity } from '../activityQuery';
-import { createSession as createDbSession, insertMessage as insertDbMessage, updateSessionTitle } from '../db/chatRepository';
+import {
+  createSession as createDbSession,
+  insertMessage as insertDbMessage,
+  updateSessionTitle,
+  listChatsForReference,
+  findMatchingMessages,
+  firstProseMessages,
+  getMessages,
+  getSession,
+} from '../db/chatRepository';
+import {
+  renderChatTranscript,
+  excerptAround,
+  rowPlainText,
+  DEFAULT_READ_CHARS,
+  MAX_READ_CHARS,
+} from '../chatTranscript';
+import type { McpRelayHandler } from '../../shared/mcpRelay';
 import { buildMiniApp } from '../miniAppBuilder';
 import { ensurePythonVenv } from '../pythonSetup';
 import { listConnectorsWithSecrets } from '../connectorsStore';
@@ -120,12 +137,16 @@ export class AgentInfrastructureController {
   private registerHostMcpServers(workspace: { id: string }, agentDir: string, userDirectoryPaths: string[]): void {
     const ok = (text: string) => ({ content: [{ type: 'text' as const, text }] });
     const fail = (text: string) => ({ content: [{ type: 'text' as const, text }], isError: true });
+    // Stored stamps are ISO with milliseconds. A model reading a chat list
+    // needs the day and roughly the time; the milliseconds are noise that
+    // costs a token on every row.
+    const shortStamp = (iso: string | null | undefined) => (iso ? iso.slice(0, 16).replace('T', ' ') : 'unknown');
 
     const onNotificationClick = this.deps.onNotificationClick;
     const activeNotificationsSet = this._activeNotifications;
     const { containerService } = this.deps;
 
-    const handlers: Record<string, Record<string, (args: any) => Promise<any>>> = {
+    const handlers: Record<string, Record<string, McpRelayHandler>> = {
       activity: {
         query_activity: async (args: any) => {
           const result = queryActivity(args);
@@ -324,6 +345,118 @@ export class AgentInfrastructureController {
             return ok(JSON.stringify({ about_you: aboutYou, working_on: workingOn, status: report.status }));
           } catch (err: any) {
             return fail(`Failed to get research profile: ${err.message}`);
+          }
+        },
+      },
+
+      // Cross-chat references (docs/design/chat-references.md). The user
+      // points one conversation at another with a `[[chat:<id>]]` reference,
+      // or just describes it; these two tools are how the agent then acts on
+      // that. Reading is ALWAYS on demand — a reference announces that a
+      // thread exists and nothing more, so an irrelevant reference on a
+      // follow-up message costs forty characters instead of a retrieval.
+      chats: {
+        search_chats: async (args: any, ctx?: { callerSessionId?: string }) => {
+          try {
+            const rawQuery = typeof args?.query === 'string' ? args.query.trim() : '';
+            const limit = Math.max(1, Math.min(25, Number(args?.limit) || 10));
+            // One extra row, because the caller's own chat may be among them
+            // and is removed below; without the slack a search from the most
+            // recently active chat would silently return one result short.
+            const rows = listChatsForReference(workspace.id, rawQuery || undefined, limit + 1)
+              .filter((row) => row.id !== ctx?.callerSessionId)
+              .slice(0, limit);
+
+            const chats = rows.map((row) => {
+              const matches = rawQuery
+                ? findMatchingMessages(row.id, rawQuery, 3)
+                : firstProseMessages(row.id, 2);
+              let snippet: string | null = null;
+              for (const message of matches) {
+                const plain = rowPlainText(message);
+                if (!plain.trim()) continue;
+                snippet = rawQuery
+                  ? excerptAround(plain, rawQuery)
+                  : plain.replace(/\s+/g, ' ').trim().slice(0, 220);
+                if (snippet) break;
+              }
+              return {
+                id: row.id,
+                title: row.title,
+                started: shortStamp(row.created_at),
+                last_active: shortStamp(row.last_message_at),
+                messages: row.message_count,
+                ...(row.app_dir_name ? { belongs_to_tool: row.app_dir_name } : {}),
+                // A title match with the term nowhere in the body is a real
+                // result, not a broken one — saying so beats a null the model
+                // has to interpret.
+                match: snippet ?? (rawQuery ? '(matched on the title)' : null),
+              };
+            });
+
+            return ok(JSON.stringify({
+              query: rawQuery || null,
+              count: chats.length,
+              chats,
+              how_to_read: chats.length
+                ? 'Call read_chat with one of these ids to read that conversation.'
+                : 'No chats matched. Try a shorter or more distinctive term, or omit query to list recent chats.',
+            }, null, 2));
+          } catch (err: any) {
+            return fail(`Failed to search chats: ${err.message}`);
+          }
+        },
+
+        read_chat: async (args: any, ctx?: { callerSessionId?: string }) => {
+          try {
+            const id = typeof args?.chat_id === 'string' ? args.chat_id.trim() : '';
+            if (!id) return fail('chat_id is required. Use search_chats to find one.');
+            if (id === ctx?.callerSessionId) {
+              return fail(
+                'That id is this conversation — you are already in it, and its history is '
+                + 'already in your context. Use search_chats to find a different chat.',
+              );
+            }
+
+            const session = getSession(id);
+            if (!session) {
+              return fail(
+                `No chat has the id "${id}". Ids come from search_chats or from a `
+                + '[[chat:<id>]] reference in the user\'s message; they are not guessable.',
+              );
+            }
+            if (session.workspace_id !== workspace.id) {
+              return fail(`Chat "${id}" belongs to a different workspace and cannot be read from here.`);
+            }
+
+            const maxChars = Math.max(
+              2_000,
+              Math.min(MAX_READ_CHARS, Number(args?.max_chars) || DEFAULT_READ_CHARS),
+            );
+            const rows = getMessages(id);
+            const rendered = renderChatTranscript(rows, {
+              maxChars,
+              includeToolOutput: args?.include_tool_output === true,
+            });
+
+            const header = [
+              `# ${session.title}`,
+              `Chat ${id} · started ${shortStamp(session.created_at)} `
+                + `· last active ${shortStamp(session.updated_at)} · ${rows.length} stored rows`
+                + (session.app_dir_name ? ` · belongs to the "${session.app_dir_name}" tool` : ''),
+              args?.include_tool_output === true
+                ? '(Tool output is included, excerpted.)'
+                : '(Tool CALLS are shown as single lines; their OUTPUT is omitted. '
+                  + 'Pass include_tool_output: true if you need excerpts of what they returned.)',
+            ].join('\n');
+
+            log.info(
+              `[Chats] read_chat ${id} → ${rendered.text.length} chars, `
+              + `${rendered.totalBlocks} turns, ${rendered.elidedBlocks} elided`,
+            );
+            return ok(`${header}\n\n${rendered.text}`);
+          } catch (err: any) {
+            return fail(`Failed to read that chat: ${err.message}`);
           }
         },
       },

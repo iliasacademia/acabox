@@ -8,6 +8,7 @@ import {
 } from '@assistant-ui/react';
 import { composerAttachmentComponents } from './assistant-ui/composer-attachments';
 import { ComposerQuoteChip } from './assistant-ui/message-quote';
+import { ChatReferenceBar, ChatReferenceButton } from './command-desk/ChatReferences';
 import { ModelSelector } from './ModelSelector';
 import { MSymbol } from './command-desk/MSymbol';
 import { DictationButton } from './command-desk/DictationButton';
@@ -64,6 +65,7 @@ const ComposerBody: FC = () => {
   return (
     <ComposerPrimitive.Root className="cdComposerRoot">
       <ComposerQuoteChip />
+      <ChatReferenceBar />
       <ComposerPrimitive.Attachments components={composerAttachmentComponents} />
       <div className="cdComposerField">
         <span className="cdComposerGlyph">▸</span>
@@ -83,6 +85,7 @@ const ComposerBody: FC = () => {
             <MSymbol name="attach_file" size={19} />
           </button>
         </ComposerPrimitive.AddAttachment>
+        <ChatReferenceButton />
         <DictationButton />
         <ModelSelector />
         <AuiIf condition={(s: any) => !s.thread.isRunning}>

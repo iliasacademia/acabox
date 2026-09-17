@@ -227,6 +227,91 @@ upstream 404s, and the button was asking a question that could not be answered.
   correctly, since following it would send the token unencrypted. Devin is
   therefore unusable until that is looked at separately.
 
+**One chat can now reference another, and Claude reads it on demand
+(2026-09-17).** Asked for as "Devin lets me link a thread so a different agent
+can read it — a desktop app has no URLs, so what's the equivalent?". Design and
+every measurement in `docs/design/chat-references.md`. A chat is referenced by
+a short `[[chat:177d891b]]` token — picked from a composer menu, typed after
+`@`, or copied from the chat header — and the agent reads that conversation
+through `mcp__chats__read_chat`, or finds one the user only described through
+`mcp__chats__search_chats`.
+- **The measurement decided the whole design.** Against the real production DB
+  (13 chats): the record is 12 MB, of which `tool_result` rows are 7.7 MB
+  (64%) and the words anyone actually spoke are **under 1%**. The largest chat
+  is 7.4 MB over 1,211 rows and **54 KB of conversation**; the largest
+  conversation anywhere is ~67 KB ≈ 17k tokens. So strip the tool plumbing and
+  every chat fits in context whole — no summarisation pipeline, no embedding
+  index, no chunking. Tool CALLS are kept as one line each (`[Read: /path]`,
+  ~60 chars and most of the value); tool OUTPUT is dropped unless asked for.
+- **On demand, not injected — the user's call, and the right one.** Splicing
+  the other thread into the message is deterministic but re-sends it on EVERY
+  later turn, because each turn resumes the same transcript. That is exactly
+  how one inlined 39,335-row CSV produced a 5.5 MB transcript and left a chat
+  permanently answering "Prompt is too long" to a bare "Hi". An id costs ~40
+  characters per turn forever.
+- **The announcement's wording is load-bearing and is pinned by tests.** It
+  names the tool (a model that knows a thread exists but not how to open it
+  will guess at a tool name), says "if it bears on this message" (a reference
+  is "this might be relevant", not "read this first" — "thanks" must not
+  trigger a 15,000-token retrieval), and states the content is NOT included
+  (otherwise it confabulates from the title).
+- **The reference lives in the MESSAGE TEXT, not a parallel field**, which is
+  what kept this small. Picking, pasting a copied token, and the agent writing
+  one itself are then one mechanism. The stored row carries it for free — no
+  new column, no IPC change, no history-converter change — and the user can
+  edit or delete it like any other text. The chips above the composer are a
+  *view* of the text, derived every render.
+- **Budget: trim long turns, do not drop turns.** The first version dropped
+  whole turns and, measured against the real "Hex HTTP 403" chat, discarded
+  **26 of 50 exchanges to save 7 KB** — turn sizes are wildly uneven, and a
+  reader handed half a conversation cannot tell the other half existed. Now a
+  single water-filled per-turn cap: both real chats render with **zero turns
+  dropped**. Dropping survives only for a chat so long that even a
+  400-character share does not go round, and the count is then stated inline.
+- **Search matches `user`/`assistant` rows only, and that is correctness.**
+  Tool results hold every file the agent ever read, so matching them makes any
+  common word hit nearly every chat and the result set stops discriminating.
+  Tool *inputs* live in assistant rows, so searching a command still works.
+- New `shared/mcpRelay.ts` threads a `McpRelayContext` (the calling chat's id)
+  through `handleMcpRelay`, so `search_chats` can exclude the conversation
+  doing the asking. Optional everywhere — the scanner and title generation
+  call relays with no `sessions` row behind them.
+- **Two shipped tests caught real defects**, both worth remembering for the
+  next relay: `mcpServers.test.ts` failed because `chats` was missing from
+  `RESERVED_CONNECTOR_IDS` (a user connector of that name would shadow the
+  relay, and a shadowed relay here means a chat the user explicitly referenced
+  silently cannot be opened); `chat-composer.test.tsx` failed because
+  `useSyncExternalStore` had no server snapshot — that suite renders the
+  composer with `renderToStaticMarkup`.
+- **The `@` rule is in its own module (`atMention.ts`) with no assistant-ui
+  import**, for the same reason `dynamicMcp.ts` and `sessionConfig.ts` were
+  carved out: importing `@assistant-ui/react` under Jest throws before a
+  single case runs, so the component that uses the rule cannot be tested at
+  all. The rule can.
+- Verified: tsc clean; **1678/1678 across 112 suites** (+51); smoke exits 0.
+  Then driven live over CDP: the `@` trigger's three rules on the real
+  composer (`@`→8 chats, `@dna`→exactly the two DNA chats, `meet @ 5pm` and
+  `ilias@academia` both closed); a real turn whose SDK transcript holds the
+  announcement with the short id resolved to the full one and the title read
+  live, after which the agent called `read_chat` (`5120 chars, 6 turns, 0
+  elided` from a 63-row chat) and answered correctly; **discovery with no id
+  at all**, where it called `search_chats` twice then `read_chat` and returned
+  both the tool name and the full id; and the sent message rendering a chip
+  (no `[[chat:` anywhere on the page) that navigated when clicked.
+- **A screenshot-class bug caught by looking, not by asserting:** the user's
+  own bubble showed the raw `[[chat:…]]` token. User messages are deliberately
+  not markdown, so they never passed through `markdown-text.tsx`; every
+  assertion was about what the AGENT received, where the token was correct.
+  Fixed with a `Text` part renderer for user messages.
+- **NOT verified, and not verifiable headlessly: the clipboard write.**
+  `navigator.clipboard.writeText` throws `Document is not focused` for any
+  caller in an automated window — proven with a control probe, so it is the
+  environment, not this button, and the same holds for the six copy buttons
+  already shipped. The button was found to report success unconditionally and
+  now awaits the promise; it correctly rendered "Could not reach the
+  clipboard". **Acceptance test: click the link icon in a chat header with the
+  window focused and paste `[[chat:<8 chars>]]` into another composer.**
+
 **Agent SDK 0.2.121 → 0.3.273, and Fable 5.1 now runs (2026-09-17).** The
 upgrade the model work below identified as the only route to 5.1.
 - **It went far more cleanly than budgeted, for a measurable reason: our SDK
@@ -275,7 +360,7 @@ upgrade the model work below identified as the only route to 5.1.
   was never exercised against it — **production has Hex, so check that row
   after updating**), mini-app bridge calls, notebooks, and the packaged build.
 
-## Status (last updated 2026-09-16)
+## Earlier status (last updated 2026-09-16)
 
 **Sharing is deployed and a real app has been shared (2026-09-16).** Increment
 0 — the manual Cloudflare setup that had never been run, ticket X1 — is done.

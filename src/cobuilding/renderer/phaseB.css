@@ -1455,3 +1455,165 @@
   white-space: pre-wrap;
   overflow-wrap: break-word;
 }
+
+/* ── Chat references: the picker, and the chips naming what is referenced ──
+ *
+ * Both composers mount these, and the docked one is 760px wide while the tool
+ * side panel can be 320px, so everything here is fluid and the picker is
+ * width-constrained by its container rather than by a fixed size.
+ *
+ * The picker opens UPWARD. Both composers are anchored to the bottom of their
+ * column, so a downward menu would open off-screen.
+ */
+.cdChatRefBar {
+  position: relative;
+}
+.cdChatPicker {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  max-height: 264px;
+  overflow-y: auto;
+  padding: 4px;
+  background: #ffffff;
+  border: 1px solid var(--cd-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(20, 20, 19, 0.12);
+}
+.cdChatPicker__head,
+.cdChatPicker__empty {
+  padding: 7px 9px;
+  font-family: var(--cd-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cd-text3);
+}
+.cdChatPicker__empty {
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: var(--cd-sans);
+  font-size: 13px;
+  color: var(--cd-text2);
+}
+.cdChatPicker__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  background: none;
+  border: 0;
+  border-radius: 7px;
+  font-family: var(--cd-sans);
+  font-size: 13px;
+  color: var(--cd-ink);
+  text-align: left;
+  cursor: pointer;
+}
+.cdChatPicker__row.is-active {
+  background: var(--cd-pale);
+}
+.cdChatPicker__title {
+  flex: 1 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* The id is DATA, so it must not be uppercased the way mono meta text is
+ * elsewhere in this design system — `177d891b` and `177D891B` are the same
+ * id, but showing one while the token says the other invites a "why don't
+ * these match" that has no answer. */
+.cdChatPicker__id {
+  flex: none;
+  font-family: var(--cd-mono);
+  font-size: 11px;
+  text-transform: none;
+  color: var(--cd-text3);
+}
+.cdChatRefChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.cdChatRefChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 3px 4px 3px 8px;
+  background: var(--cd-pale);
+  border: 1px solid var(--cd-border-soft);
+  border-radius: 999px;
+  font-family: var(--cd-sans);
+  font-size: 12px;
+  color: var(--cd-blue);
+}
+.cdChatRefChip--unknown {
+  background: var(--cd-error-bg);
+  border-color: var(--cd-error);
+  color: var(--cd-error);
+}
+.cdChatRefChip__label {
+  overflow: hidden;
+  max-width: 220px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cdChatRefChip__x {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px;
+  background: none;
+  border: 0;
+  border-radius: 999px;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.6;
+}
+.cdChatRefChip__x:hover {
+  opacity: 1;
+  background: rgba(6, 69, 177, 0.1);
+}
+.cdChatRefBtnWrap {
+  position: relative;
+  display: inline-flex;
+}
+/* The button sits inside the input row, which is `align-items: flex-end`, so
+ * its popover must be anchored to a box wide enough to read in. Pinned to the
+ * composer's own width rather than the button's. */
+.cdChatRefBtnWrap .cdChatPicker {
+  right: 0;
+  left: auto;
+  width: 340px;
+  bottom: calc(100% + 10px);
+}
+
+/* A reference rendered inside a message: clickable, and visibly a link to
+ * somewhere in this app rather than the raw `[[chat:…]]` token. */
+.cdChatRefLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px 1px 5px;
+  background: var(--cd-pale);
+  border: 1px solid var(--cd-border-soft);
+  border-radius: 999px;
+  font-size: 0.92em;
+  color: var(--cd-blue);
+  cursor: pointer;
+  vertical-align: baseline;
+}
+.cdChatRefLink:hover {
+  background: #e8effb;
+  border-color: var(--cd-blue);
+}
+.cdChatRefLink--unknown {
+  background: var(--cd-error-bg);
+  border-color: var(--cd-border-soft);
+  color: var(--cd-error);
+  cursor: default;
+}

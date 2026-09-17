@@ -7,6 +7,7 @@ import { EnterPlanMode } from './enter-plan-mode';
 import { Reasoning } from './thinking-indicator';
 import { ChatComposer } from './chat-composer';
 import { MessageQuoteBlock } from './message-quote';
+import { UserTextWithChatRefs } from '../command-desk/ChatReferences';
 import { useProcessingLabel, RECONNECTING_LABEL } from '../../progressStore';
 import { useSetupState } from '../../setupStore';
 import { MSymbol } from '../command-desk/MSymbol';
@@ -275,7 +276,9 @@ const UserMessage: FC = () => {
             metadata.custom.quote — set by the composer on send, and restored
             by historyMessageConverter on reload, so this one registration
             covers both. */}
-        <MessagePrimitive.Parts components={{ Quote: MessageQuoteBlock }} />
+        <MessagePrimitive.Parts
+          components={{ Quote: MessageQuoteBlock, Text: UserTextWithChatRefs }}
+        />
         {hasAttachments && (
           <div className="cdUser__files">
             <MessagePrimitive.Attachments components={userAttachmentComponents} />

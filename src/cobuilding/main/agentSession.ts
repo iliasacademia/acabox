@@ -1,13 +1,15 @@
 
 import { type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatStreamMessage, IPCAttachment, Workspace, NotificationNavigationAction } from '../shared/types';
-import { createSession, setSdkSessionId, clearSdkSessionId, setSessionModelInfo, insertMessage, cleanupOrphanTurnRows, getSession } from './db/chatRepository';
+import { createSession, setSdkSessionId, clearSdkSessionId, setSessionModelInfo, insertMessage, cleanupOrphanTurnRows, getSession, resolveChatRefs } from './db/chatRepository';
 import { listWorkspaceDirectories } from './db/workspaceRepository';
 import * as fs from 'fs';
 import path from 'path';
 import log from 'electron-log';
 import { captureError } from '../shared/telemetry';
 import { composeQuotedText, type AcaboxQuote } from '../shared/quotes';
+import { composeChatRefText, parseChatRefs } from '../shared/chatRefs';
+import type { McpRelayContext } from '../shared/mcpRelay';
 import { containerService } from './containerService';
 import * as mcpHost from './mcpHost';
 import { commandLogger, parseAppDirFromArgs } from './commandLogger';
@@ -146,11 +148,16 @@ function hostedResultToRelayResult(result: unknown): ToolResult {
   };
 }
 
-export async function handleMcpRelay(serverName: string, toolName: string, args: Record<string, unknown>): Promise<ToolResult> {
+export async function handleMcpRelay(
+  serverName: string,
+  toolName: string,
+  args: Record<string, unknown>,
+  ctx?: McpRelayContext,
+): Promise<ToolResult> {
   const mcpServers = (globalThis as any).__hostMcpServers as Record<string, any> | undefined;
   if (mcpServers?.[serverName]?.[toolName]) {
     try {
-      return await mcpServers[serverName][toolName](args);
+      return await mcpServers[serverName][toolName](args, ctx);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return { content: [{ type: 'text', text: `MCP call failed: ${msg}` }], isError: true };
@@ -683,7 +690,22 @@ export function createAgentSession(
       // Compose the quote in exactly one place, on the way out. `composeQuotedText`
       // is a no-op when there is no quote, so the ordinary path is unchanged.
       const quotedText = composeQuotedText(quote, userMessage);
-      const processedText = messagePreprocessor ? messagePreprocessor(quotedText) : quotedText;
+      // Chat references are read out of the text the user typed rather than
+      // arriving as their own field, and that is deliberate: the composer's
+      // picker, a token pasted from "Copy reference", and one the agent
+      // itself wrote in an earlier reply are then the same thing, handled
+      // once. It also means the stored row carries the reference with no
+      // extra column, so a reloaded bubble still shows what was pointed at.
+      //
+      // The announcement announces ONLY — the referenced conversation is not
+      // spliced in. Inlining it would re-send that whole thread on every
+      // later turn, since each turn resumes this transcript; the agent reads
+      // it through mcp__chats__read_chat if and when it needs to.
+      const referencedText = composeChatRefText(
+        resolveChatRefs(workspace.id, parseChatRefs(userMessage)),
+        quotedText,
+      );
+      const processedText = messagePreprocessor ? messagePreprocessor(referencedText) : referencedText;
 
       // Rewrite file attachment paths so the agent sees them relative to the
       // workspace cwd. User-shared directories are symlinked into the
@@ -1070,7 +1092,9 @@ async function connectSSE(
               log.debug(`[AgentSession] MCP relay: ${serverName}/${toolName} (callId=${callId})`);
 
               const resultUrl = `${agentBaseUrl}/sessions/${agentSessionId}/mcp-result`;
-              handleMcpRelay(serverName, toolName, args).then((result) => {
+              // The caller's chat id travels with the call so a handler can
+              // reason about which conversation is asking — see McpRelayContext.
+              handleMcpRelay(serverName, toolName, args, { callerSessionId: sessionId }).then((result) => {
                 postMcpResultWithRetry(resultUrl, JSON.stringify({ callId, result }), callId);
               }).catch((err) => {
                 const errorMsg = err instanceof Error ? err.message : String(err);

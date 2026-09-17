@@ -66,6 +66,12 @@ export const BASE_AGENT_ALLOWED_TOOLS: readonly string[] = [
   // this tool is how the agent reads live detail about what is configured,
   // which the session guidance block deliberately keeps short.
   'mcp__apis__list_apis',
+  // Cross-chat references. Both entries are required, not cosmetic:
+  // filterMcpServers drops a relay server with no matching mcp__<name>__*
+  // entry, so omitting one silently removes the ability to read a chat the
+  // user explicitly referenced, with no error anywhere.
+  'mcp__chats__search_chats',
+  'mcp__chats__read_chat',
   'mcp__mini-apps__open_mini_application',
   'mcp__mini-apps__build_and_open_mini_application',
   'mcp__mini-apps__list_published_servers',

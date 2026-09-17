@@ -168,6 +168,10 @@ export const RESERVED_CONNECTOR_IDS = [
   'knowledge',
   // The API-proxy relay (`mcp__apis__list_apis`). Same shadowing argument.
   'apis',
+  // The cross-chat reference relay (`mcp__chats__read_chat`). Same shadowing
+  // argument, and the consequence is worse than usual: a shadowed relay here
+  // means a chat the user explicitly referenced silently cannot be opened.
+  'chats',
 ];
 
 export interface ValidationResult {

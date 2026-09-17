@@ -151,7 +151,22 @@ function NotificationNavigator({
       }
     };
     window.electronAPI.on('notification:navigate', handler);
-    return () => window.electronAPI.removeListener('notification:navigate', handler);
+
+    // Clicking a [[chat:<id>]] reference inside a message lands here too.
+    // Deliberately the SAME handler, not a parallel one: opening a chat means
+    // switching the sidebar tab, the view mode, the active tabs AND the
+    // runtime thread, and a second implementation that forgot one of those
+    // would leave the app in a half-navigated state that is hard to spot.
+    const onOpenChat = (event: Event) => {
+      const threadId = (event as CustomEvent<{ threadId?: string }>).detail?.threadId;
+      if (threadId) void handler(null, { type: 'thread', threadId });
+    };
+    window.addEventListener('cd:open-chat', onOpenChat);
+
+    return () => {
+      window.electronAPI.removeListener('notification:navigate', handler);
+      window.removeEventListener('cd:open-chat', onOpenChat);
+    };
   }, [runtime, setSidebarTab, setChatViewMode, setToolsViewMode, deactivateAllTabs]);
 
   return null;

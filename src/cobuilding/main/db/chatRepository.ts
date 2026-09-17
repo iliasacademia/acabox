@@ -1,10 +1,16 @@
 import { getDatabase } from './database';
 
 /** Placeholder title a session row is created with (matches the schema default). */
+import type { AcaboxChatRef } from '../../shared/chatRefs';
+
 export const DEFAULT_SESSION_TITLE = 'New Chat';
 
 export interface Session {
   id: string;
+  /** Owning workspace. Every `SELECT *` has always returned it; it was simply
+   *  missing from this type, which matters now that a reader has to check a
+   *  chat belongs to the workspace asking for it. */
+  workspace_id: string;
   sdk_session_id: string | null;
   title: string;
   source: string | null;
@@ -309,4 +315,136 @@ export function findSessionForApp(workspaceId: string, dirName: string): string 
   `).get(workspaceId, `%${dirName}%`, `%${marker}%`) as { session_id: string; message_id: number } | undefined;
 
   return row?.session_id;
+}
+
+/* ------------------------------------------------------------------ *
+ * Cross-chat references (shared/chatRefs.ts, main/chatTranscript.ts)  *
+ * ------------------------------------------------------------------ */
+
+export interface ChatSummaryRow {
+  id: string;
+  title: string;
+  created_at: string;
+  last_message_at: string;
+  message_count: number;
+  app_dir_name: string | null;
+}
+
+/**
+ * Escape a user-supplied string for a SQL LIKE pattern.
+ *
+ * Without this a query containing `%` matches everything and one containing
+ * `_` matches one character of anything — a search for `pk_content` would
+ * quietly also match `pkXcontent`, and a search for `100%` would match every
+ * chat in the database and look like the feature is broken.
+ */
+function likePattern(value: string): string {
+  return `%${value.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
+
+/**
+ * Chats in this workspace, optionally filtered by a substring, most recently
+ * active first.
+ *
+ * MATCHING IS RESTRICTED TO `user` AND `assistant` ROWS, and that is a
+ * correctness decision rather than an optimisation. Measured on the real
+ * database: `tool_result` rows are 7.7 MB of the 12 MB total and hold the
+ * contents of every file the agent ever read, so matching them makes a search
+ * for any common word hit nearly every chat — the result set stops
+ * discriminating and the feature becomes useless. Tool *inputs* live in
+ * `assistant` rows, so searching for a command or a query string still works,
+ * which is the case that actually matters.
+ *
+ * `source IS NULL` keeps system-generated sessions (scheduled reactions and
+ * the like) out of a list the user is meant to recognise. Chats owned by a
+ * mini-app are deliberately included — the thread where a tool was built is
+ * often exactly the one worth referencing.
+ */
+export function listChatsForReference(
+  workspaceId: string,
+  query: string | undefined,
+  limit: number,
+): ChatSummaryRow[] {
+  const hasQuery = typeof query === 'string' && query.trim().length > 0;
+  const pattern = hasQuery ? likePattern(query!.trim()) : '';
+
+  const filter = hasQuery
+    ? `AND (s.title LIKE @pattern ESCAPE '\\' OR EXISTS (
+         SELECT 1 FROM messages m WHERE m.session_id = s.id
+           AND m.type IN ('user','assistant') AND m.content LIKE @pattern ESCAPE '\\'
+       ))`
+    : '';
+  const order = hasQuery
+    ? `ORDER BY (s.title LIKE @pattern ESCAPE '\\') DESC, last_message_at DESC`
+    : 'ORDER BY last_message_at DESC';
+
+  return getDatabase().prepare(`
+    SELECT s.id, s.title, s.created_at, s.app_dir_name,
+      (SELECT COUNT(*) FROM messages m2 WHERE m2.session_id = s.id) AS message_count,
+      COALESCE((SELECT MAX(m3.created_at) FROM messages m3 WHERE m3.session_id = s.id), s.created_at)
+        AS last_message_at
+    FROM sessions s
+    WHERE s.workspace_id = @workspaceId AND s.source IS NULL
+      -- A chat with no messages is a row the user opened and abandoned.
+      -- It can never answer anything, so it must not occupy a result slot.
+      AND EXISTS (SELECT 1 FROM messages m4 WHERE m4.session_id = s.id)
+      ${filter}
+    ${order}
+    LIMIT @limit
+  `).all({ workspaceId, pattern, limit }) as ChatSummaryRow[];
+}
+
+/**
+ * The first few prose rows of a chat that contain `query`, for a search
+ * snippet. Same row-type restriction and the same reason as above.
+ */
+export function findMatchingMessages(sessionId: string, query: string, limit: number): Message[] {
+  return getDatabase().prepare(`
+    SELECT * FROM messages
+    WHERE session_id = ? AND type IN ('user','assistant') AND content LIKE ? ESCAPE '\\'
+    ORDER BY id LIMIT ?
+  `).all(sessionId, likePattern(query), limit) as Message[];
+}
+
+/** The first prose rows of a chat, for a preview when no query was given. */
+export function firstProseMessages(sessionId: string, limit: number): Message[] {
+  return getDatabase().prepare(`
+    SELECT * FROM messages WHERE session_id = ? AND type IN ('user','assistant')
+    ORDER BY id LIMIT ?
+  `).all(sessionId, limit) as Message[];
+}
+
+/**
+ * Resolve written `[[chat:<id>]]` references against this workspace.
+ *
+ * References are written short (see CHAT_REF_ID_CHARS), so each one is a
+ * PREFIX match and can legitimately hit zero or several rows. All three
+ * outcomes are returned rather than filtered, because the announcement the
+ * agent receives has to distinguish them: a deleted chat and an ambiguous
+ * prefix call for different behaviour, and both are better than silence.
+ *
+ * `id LIKE 'prefix%'` uses the primary-key index. The prefix is escaped
+ * because the reference alphabet includes `_`, which is a LIKE wildcard — an
+ * unescaped `a_c` would match `abc` and resolve to a chat the user never
+ * referenced.
+ */
+export function resolveChatRefs(workspaceId: string, written: string[]): AcaboxChatRef[] {
+  if (!written.length) return [];
+  const stmt = getDatabase().prepare(
+    "SELECT id, title FROM sessions WHERE workspace_id = ? AND id LIKE ? ESCAPE '\\'",
+  );
+  return written.map((ref): AcaboxChatRef => {
+    const escaped = ref.replace(/[\\%_]/g, (c) => `\\${c}`);
+    const matches = stmt.all(workspaceId, `${escaped}%`) as { id: string; title: string }[];
+    if (matches.length === 0) return { sessionId: ref, title: '', unresolved: 'not_found' };
+    if (matches.length > 1) {
+      return {
+        sessionId: ref,
+        title: '',
+        unresolved: 'ambiguous',
+        candidates: matches.map((m) => m.id),
+      };
+    }
+    return { sessionId: matches[0].id, title: matches[0].title };
+  });
 }
