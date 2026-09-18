@@ -173,7 +173,84 @@ to `PATH`.
 - Logs: `~/Library/Application Support/acabox/development/cobuilding.log`,
   plus the in-app Debug tab (command log + system log streams).
 - To kill stray dev instances:
-  `pkill -9 -f "Acabox/node_modules/electron"`.
+  `pkill -9 -f "Acabox/node_modules/electron"`. **Never while `npm test` is
+  running** — jest runs inside that same Electron binary, so the pkill
+  SIGKILLs the suite mid-run and the tail prints `[exited with code 0]`
+  from the pipe, which reads as a pass. Measured 2026-09-18.
+
+## Status (last updated 2026-09-18)
+
+**A tool opened mid-write no longer strands the chat that is writing it
+(2026-09-18).** Reported as "the Co-Scientist Spend Explorer chat is empty and
+the app isn't built". Nothing was lost; three defects lined up.
+- **What actually happened, from the production DB and log.** The chat
+  scaffolded the tool at 00:28:58, then spent 4m18s generating a 75 KB
+  `App.tsx` in ONE Write. The user clicked the new card at 00:33:22. The viewer
+  ran esbuild → `Could not resolve "./App"` → BUILD FAILED, recorded in
+  `tool-build-health.json`. `sessions:findForApp` found no linked chat, created
+  an EMPTY one titled after the tool and pinned it into `manifest.chatSessionId`
+  — after which `backfillAppChatLinks` skips the scan forever. The real
+  conversation sat in the Chats list under its auto-title.
+- **Root cause A — the link was never made at the moment it could be.**
+  `findSessionForApp` needs an *assistant* row carrying the dir name, but the
+  scaffold command only carries `--name "<display name>"`; the dir name exists
+  only in the tool_result JSON. Fixed deterministically in
+  `agentSession.ts`: `processQueryMessage` now fires `onAppLink` when a Bash
+  `manage_mini_app.mjs` result names a `dir_name` or an MCP open/build call
+  names one, and the session calls `setSessionAppDirName` (NULL-fill only, so
+  a chat is still never re-homed). Pure extractors in `main/appChatLink.ts`.
+  The legacy scan also gained a `tool_result` clause for existing databases.
+- **Root cause B — an unwritten tool read as a broken one.** `buildMiniApp`
+  now returns `reason: 'source-missing'` when `src/index.tsx` exists but no
+  `src/App.{tsx,ts,jsx,js}` does — esbuild never runs and nothing is recorded
+  as a failure (the agent-facing message says to write the file first). The
+  viewer renders **BEING WRITTEN** / "Claude is still writing this tool"
+  instead of BUILD FAILED, never mounts the iframe, polls for `src/App.tsx`
+  every 2 s and builds on its own when it lands. Shared bits live in
+  `renderer/components/miniAppBuildState.tsx` because `MiniAppViewer.tsx`
+  cannot be imported under jest (`@assistant-ui/react` → ESM-only
+  `assistant-stream`).
+- **Root cause C — the reload signal rode the chat renderer.** The agent's
+  successful `build_and_open` reached the viewer only via the tool-call card in
+  the *visible* thread, so with a different chat on screen the viewer kept its
+  BUILD FAILED latch until relaunch. Main now broadcasts `miniApps:built` from
+  the build-succeeded hook; `ChatView` bumps the open tab's reload nonce. That
+  broadcast is the ONLY remount path now — `BuildAndOpenMiniAppToolUI` no
+  longer passes `forceReload`, and the Rebuild button no longer bumps its own
+  key (both would have remounted the iframe twice). `open_mini_application`
+  (no build) still force-reloads itself.
+- **Production data repaired by hand:** the building chat
+  (`14027f7d…`, "Cost Breakdown Visualization and Analysis Tool") was linked to
+  `coScientistSpendExplorer` and the manifest's `chatSessionId` re-pointed at
+  it. The bug-created empty chat `2cf62d69…` ("Co-Scientist Spend Explorer",
+  0 messages) was left for the user to delete or reuse. The renderer caches
+  dirName→chat per app run, so the side panel shows the change after picking
+  the chat from its dropdown or restarting.
+- **Prevention beyond the code:** `manage-mini-application/SKILL.md` Step 2 now
+  tells the agent to write `App.tsx` as the very next action after scaffolding
+  and to split a large app rather than compose one giant file — the card is
+  visible from the scaffold onward.
+- Verified: tsc clean; **1668/1668 across 112 suites** (+41, 3 new suites;
+  the two DB/builder regression cases proven to fail against the old code);
+  smoke exits 0. Then live over CDP against `npm start` on the dev channel: a
+  real scaffold with no `App.tsx` opened to chip **BEING WRITTEN**, the waiting
+  copy, no iframe, no BUILD FAILED, build-health file untouched, and the
+  builder's info line in the log; writing `App.tsx` flipped it to **IDLE** with
+  the iframe mounted within the 9 s window and still no health row; a build
+  fired through `miniAppsAPI.build` (not the button, not a chat) remounted the
+  iframe (a marker set on the element was gone). Then a **real turn** running
+  only the scaffold command: `[AppChatLinks] Linked chat … to linkProbeTool
+  (via scaffold)` 4 ms after the command result, `sessions.app_dir_name` set,
+  manifest carrying no `chatSessionId`.
+- **NOT verified:** the packaged build; the exact incident path with the real
+  agent build tool while a different chat is visible (the broadcast leg was
+  exercised via IPC instead); and a long-lived awaiting screen surviving a
+  tab switch. **Cosmetic, unchanged:** the first build of any tool still logs
+  one `[local-file] … dist/bundle.js … ERR_FILE_NOT_FOUND` because
+  `MiniAppContent` mounts while the build runs. **Seen, not chased:** setting
+  `localStorage.selectedModel` to Haiku and reloading still produced an
+  Opus 5 session — the mounted picker's context provider, not the storage
+  fallback, decides the model.
 
 ## Status (last updated 2026-09-17)
 

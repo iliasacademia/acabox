@@ -172,6 +172,11 @@ contextBridge.exposeInMainWorld('miniAppsAPI', {
   delete: (dirName: string) => ipcRenderer.invoke('miniApps:delete', dirName),
   build: (dirName: string): Promise<{ ok: boolean; outfile?: string; error?: string; exitCode: number }> =>
     ipcRenderer.invoke('miniApps:build', dirName),
+  onBuilt: (callback: (evt: { dirName: string }) => void) => {
+    const handler = (_e: unknown, evt: { dirName: string }) => callback(evt);
+    ipcRenderer.on('miniApps:built', handler);
+    return () => ipcRenderer.removeListener('miniApps:built', handler);
+  },
 });
 
 contextBridge.exposeInMainWorld('toolDataAPI', {

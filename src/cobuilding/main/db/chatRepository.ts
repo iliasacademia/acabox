@@ -49,13 +49,18 @@ export function createSession(
 
 /**
  * Link an existing session to a mini-app. Only fills a NULL `app_dir_name`, so
- * a chat can't be silently re-homed to a different tool — used to backfill the
- * link for chats created before `app_dir_name` was populated.
+ * a chat can't be silently re-homed to a different tool — used both to link a
+ * chat the moment it scaffolds/opens a tool, and to backfill the link for
+ * chats created before `app_dir_name` was populated.
+ *
+ * Returns whether this call actually wrote the column (false when the row
+ * already carried a different app_dir_name, or didn't exist).
  */
-export function setSessionAppDirName(id: string, appDirName: string): void {
-  getDatabase()
+export function setSessionAppDirName(id: string, appDirName: string): boolean {
+  const info = getDatabase()
     .prepare('UPDATE sessions SET app_dir_name = ? WHERE id = ? AND app_dir_name IS NULL')
     .run(appDirName, id);
+  return info.changes > 0;
 }
 
 /**
@@ -279,9 +284,19 @@ export function getMessages(sessionId: string): Message[] {
 
 /**
  * Find the most recent session associated with a mini app by searching for:
- * 1. Assistant messages with open_mini_application tool calls containing the dir_name
+ * 1. Assistant messages with open_mini_application/manage_mini_app.mjs tool
+ *    calls containing the dir_name
  * 2. User messages with the synthetic context message for the app
+ * 3. tool_result rows carrying the scaffold script's own JSON output
+ *    (`{"dir_name":"<dirName>", ...}`) — the scaffold command line only ever
+ *    carries the tool's *display* name, so a chat that ran
+ *    `manage_mini_app.mjs --name "..."` and nothing else matches neither (1)
+ *    nor (2); the dir name only ever appears in the script's printed result.
  * Returns the session ID or undefined if not found.
+ *
+ * This is the fallback path for databases predating `appChatLink.ts`'s
+ * deterministic, at-the-moment linking in `agentSession.ts` — new chats are
+ * linked directly via `setSessionAppDirName` and never need this scan.
  */
 export function findSessionForApp(workspaceId: string, dirName: string): string | undefined {
   const db = getDatabase();
@@ -289,6 +304,11 @@ export function findSessionForApp(workspaceId: string, dirName: string): string 
   // The marker text is stored inside JSON.stringify output, so quotes around
   // the dirName are escaped as \" in the stored content. Match accordingly.
   const marker = `connected to the application \\"${dirName}\\"`;
+  // Same escaping applies to the scaffold script's tool_result JSON: the
+  // stored content is JSON.stringify(contentArray), and the inner `content`
+  // string is itself JSON, so the literal bytes on disk are
+  // \"dir_name\":\"<dirName>\".
+  const dirNameJsonMarker = `%\\"dir_name\\":\\"${dirName}\\"%`;
   // Matching `manage_mini_app.mjs` in addition to `open_mini_application` lets
   // us recover the creating thread for a tool whose agent hasn't yet called
   // open_mini_application — needed for tool.created attribution at the
@@ -303,10 +323,11 @@ export function findSessionForApp(workspaceId: string, dirName: string): string 
           AND (m.content LIKE '%open_mini_application%' OR m.content LIKE '%manage_mini_app.mjs%')
           AND m.content LIKE ?)
         OR (m.type = 'user' AND m.content LIKE ?)
+        OR (m.type = 'tool_result' AND m.content LIKE ?)
       )
     ORDER BY m.id DESC
     LIMIT 1
-  `).get(workspaceId, `%${dirName}%`, `%${marker}%`) as { session_id: string; message_id: number } | undefined;
+  `).get(workspaceId, `%${dirName}%`, `%${marker}%`, dirNameJsonMarker) as { session_id: string; message_id: number } | undefined;
 
   return row?.session_id;
 }

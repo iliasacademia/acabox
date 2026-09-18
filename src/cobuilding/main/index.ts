@@ -1018,6 +1018,15 @@ app.whenReady().then(async () => {
     // from, same as a finished run above — recompute "behind" at that write.
     setBuildSucceededHandler((dirName) => {
       void recomputeAndBroadcastApp(dirName);
+      // The reload signal must not ride the chat renderer: the agent's build
+      // tool card only reaches whichever chat is on screen, so a build that
+      // finishes while a different chat is showing in an already-open tool's
+      // side panel left that tool's viewer stuck on the stale bundle (T4,
+      // 2026-09-18 incident). Broadcast to every window instead so any open
+      // tab for this tool reloads regardless of which chat triggered it.
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('miniApps:built', { dirName });
+      }
     });
     // Kernel and Claude work can only be interrupted by the renderer driving
     // it, so a cancel is relayed to the window that reported the job.

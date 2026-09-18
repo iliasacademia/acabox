@@ -21,6 +21,15 @@ export interface MiniAppBuildResult {
   /** esbuild stderr (or stdout) when the build fails. */
   error?: string;
   exitCode: number;
+  /**
+   * Set only for a build that was never attempted because its source isn't
+   * there yet (T2) — e.g. the scaffold wrote `src/index.tsx` but Claude
+   * hasn't written `src/App.tsx` yet. Distinguishes "not written yet" from a
+   * real compile failure: esbuild never ran, and `recordBuildResult` was
+   * never called, so this must not light up BUILD FAILED. Absent on every
+   * other result, including genuine failures.
+   */
+  reason?: 'source-missing';
 }
 
 let buildSucceededHandler: ((dirName: string) => void) | null = null;
@@ -76,6 +85,29 @@ export async function buildMiniApp(workspacePath: string, dirName: string): Prom
   const entry = path.join(appDir, 'src', 'index.tsx');
   const outfile = path.join(appDir, 'dist', 'bundle.js');
   const reusableAlias = path.join(workspacePath, '.applications', '_reusable');
+
+  // T2: `src/index.tsx` (written at scaffold time) does `import App from
+  // "./App"`, but Claude writes `src/App.tsx` in a later, sometimes slow,
+  // tool call. If the entry exists but none of the extensions esbuild would
+  // resolve "./App" to exist yet, the tool simply hasn't been written yet —
+  // that is not a build failure, so skip esbuild entirely and don't record
+  // it in tool-build-health.json. Only checked when index.tsx itself is
+  // present; a missing index.tsx is a genuinely broken tool and falls
+  // through to esbuild's own (real) error below.
+  if (fs.existsSync(entry)) {
+    const appCandidates = ['App.tsx', 'App.ts', 'App.jsx', 'App.js']
+      .map((name) => path.join(appDir, 'src', name));
+    const appExists = appCandidates.some((candidate) => fs.existsSync(candidate));
+    if (!appExists) {
+      log.info(`[MiniAppBuilder] ${dirName}: no src/App.tsx yet — not built, not recorded as a failure`);
+      return {
+        ok: false,
+        reason: 'source-missing',
+        exitCode: 1,
+        error: 'src/App.tsx has not been written yet. If Claude is building this tool, it is still writing the source — the tool will build once the file exists.',
+      };
+    }
+  }
 
   const resolved = resolveEsbuildBin();
   if ('error' in resolved) {

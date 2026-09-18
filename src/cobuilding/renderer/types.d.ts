@@ -957,7 +957,9 @@ declare global {
     setApis(dirName: string, apis: string[]): Promise<{ ok: boolean; error?: string; apis?: string[] }>;
     /** Delete a tool's code, preserving its input/output under tool-data. */
     delete(dirName: string): Promise<{ ok: boolean; error?: string }>;
-    build(dirName: string): Promise<{ ok: boolean; outfile?: string; error?: string; exitCode: number }>;
+    build(dirName: string): Promise<{ ok: boolean; outfile?: string; error?: string; exitCode: number; reason?: 'source-missing' }>;
+    /** Fires when a build of this tool succeeded, whoever triggered it (Rebuild button or the agent's build tool). */
+    onBuilt(callback: (evt: { dirName: string }) => void): () => void;
   }
 
   interface ToolDataEntry {

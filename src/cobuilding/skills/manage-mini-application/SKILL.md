@@ -115,7 +115,7 @@ Each template also ships with a colocated `template.md` describing its parameter
 
 ### Step 2: Write `src/App.tsx`
 
-Write the React component to `<dir>/src/App.tsx`.
+Write the React component to `<dir>/src/App.tsx`, **as your very next action after Step 1**. The tool card is visible to the user from the moment the scaffold runs; until this file exists the viewer shows "Claude is still writing this tool" and builds it automatically once the file lands. Do not run other exploration between the two steps, and do not spend minutes composing one giant file when the app can be written as `App.tsx` plus a small `data.ts`/`types.ts` — the first file on disk is what turns the waiting screen into a running tool.
 
 Available packages (already installed — import them directly, no wrapper call needed):
 - `react`, `react-dom`

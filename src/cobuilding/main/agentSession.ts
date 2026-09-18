@@ -1,7 +1,7 @@
 
 import { type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatStreamMessage, IPCAttachment, Workspace, NotificationNavigationAction } from '../shared/types';
-import { createSession, setSdkSessionId, clearSdkSessionId, setSessionModelInfo, insertMessage, cleanupOrphanTurnRows, getSession } from './db/chatRepository';
+import { createSession, setSdkSessionId, clearSdkSessionId, setSessionModelInfo, setSessionAppDirName, insertMessage, cleanupOrphanTurnRows, getSession } from './db/chatRepository';
 import { listWorkspaceDirectories } from './db/workspaceRepository';
 import * as fs from 'fs';
 import path from 'path';
@@ -21,6 +21,7 @@ import { listApisWithSecrets } from './apiStore';
 import { apiProxy } from './apiProxy';
 import { noteFindingsFileRead } from './knowledge/findingsLedger';
 import { noteTurn } from './knowledge/omissionWatch';
+import { extractScaffoldedDirName, extractOpenedDirName } from './appChatLink';
 
 class AuthRetryError extends Error {
   constructor(public originalError: string) {
@@ -369,7 +370,21 @@ export function createAgentSession(
   // as a backstop, then Word fallback.
   const { hostApp: sessionHostApp, matched: hostAppMatched } = resolveSessionHostApp(documentPath);
 
-  const state: MessageProcessingState = { currentToolCallId: null, currentBlockIsThinking: false, pendingBashCalls: new Map() };
+  const state: MessageProcessingState = {
+    currentToolCallId: null,
+    currentBlockIsThinking: false,
+    pendingBashCalls: new Map(),
+    onAppLink: (dirName, via) => {
+      try {
+        const linked = setSessionAppDirName(sessionId, dirName);
+        if (linked) {
+          log.info(`[AppChatLinks] Linked chat ${sessionId} to ${dirName} (via ${via})`);
+        }
+      } catch (err) {
+        log.warn(`[AppChatLinks] Failed to link chat ${sessionId} to ${dirName}: ${(err as Error).message}`);
+      }
+    },
+  };
 
   // ─── Agent Server Communication ───────────────────────────────
 
@@ -1120,13 +1135,17 @@ async function connectSSE(
 
 // ─── Message Processing ───────────────────────────────────────────
 
-interface MessageProcessingState {
+export interface MessageProcessingState {
   currentToolCallId: string | null;
   currentBlockIsThinking: boolean;
   pendingBashCalls: Map<string, { command: string }>;
+  /** Fired the moment a scaffold command or an open-tool call names a mini-app
+   *  dir, so the owning chat can be linked deterministically — see
+   *  `appChatLink.ts` for why the after-the-fact message scan misses this. */
+  onAppLink?: (dirName: string, via: 'scaffold' | 'open') => void;
 }
 
-function processQueryMessage(
+export function processQueryMessage(
   message: SDKMessage,
   state: MessageProcessingState,
   onEvent: (msg: ChatStreamMessage) => void,
@@ -1228,6 +1247,14 @@ function processQueryMessage(
             state.pendingBashCalls.set(block.id, { command: input.command });
           }
         }
+        const openedDirName = extractOpenedDirName(block);
+        if (openedDirName) {
+          try {
+            state.onAppLink?.(openedDirName, 'open');
+          } catch (err) {
+            log.warn(`[AppChatLinks] onAppLink (open) failed for ${openedDirName}: ${(err as Error).message}`);
+          }
+        }
       }
     }
   }
@@ -1255,6 +1282,14 @@ function processQueryMessage(
               appDirName: parseAppDirFromArgs(['bash', '-c', pending.command]),
               source: 'agent',
             });
+            const scaffoldedDirName = extractScaffoldedDirName(pending.command, resultText);
+            if (scaffoldedDirName) {
+              try {
+                state.onAppLink?.(scaffoldedDirName, 'scaffold');
+              } catch (err) {
+                log.warn(`[AppChatLinks] onAppLink (scaffold) failed for ${scaffoldedDirName}: ${(err as Error).message}`);
+              }
+            }
           }
         }
       }

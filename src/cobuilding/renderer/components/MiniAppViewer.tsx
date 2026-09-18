@@ -14,6 +14,7 @@ import { resolveToolIcon } from './command-desk/toolIcon';
 import { setToolLifecycle, clearToolStatus, useToolStatus, beginToolActivity } from '../toolStatusStore';
 import { toolStatusLabel, toolStatusDetail } from './command-desk/toolStatusDisplay';
 import { ToolShareChip, ToolShareHeaderControls } from './share/ToolShareHeaderControls';
+import { classifyBuildResult, APP_SOURCE_RELATIVE_PATH, AWAITING_SOURCE_POLL_MS, AwaitingSourceView } from './miniAppBuildState';
 
 interface RequestFixError {
   kind: string;
@@ -64,7 +65,8 @@ function buildFixPrompt(appName: string, err: RequestFixError): string {
 type RebuildState =
   | { kind: 'idle' }
   | { kind: 'building' }
-  | { kind: 'error'; message: string; at: number };
+  | { kind: 'error'; message: string; at: number }
+  | { kind: 'awaiting-source'; since: number };
 
 interface MiniAppViewerProps {
   dirName: string;
@@ -83,7 +85,6 @@ interface MiniAppViewerProps {
 
 export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, reloadNonce, preBuilt, appName, appIcon, chatOpen, onToggleChat, onBack }) => {
   const [viewingSource, setViewingSource] = useState(false);
-  const [rebuildKey, setRebuildKey] = useState(0);
   const [rebuildState, setRebuildState] = useState<RebuildState>({ kind: 'idle' });
   const appDir = `${workspacePath}/.applications/${dirName}`;
   const composerRuntime = useComposerRuntime();
@@ -101,13 +102,18 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
   // the tab, or navigating away) — and the fix-it-in-chat flow keeps you
   // inside the tool's side panel, so it never unmounts on its own.
   //
-  // No-op on mount (state is already idle) and only touches 'error', so an
-  // in-flight build can't be stomped.
+  // No-op on mount (state is already idle) and only touches 'error' /
+  // 'awaiting-source', so an in-flight build can't be stomped. An external
+  // actor asserting a fresh bundle is on disk should clear the waiting
+  // screen too — it means the source has landed and a build already ran.
   useEffect(() => {
-    setRebuildState((s) => (s.kind === 'error' ? { kind: 'idle' } : s));
+    setRebuildState((s) => (s.kind === 'error' || s.kind === 'awaiting-source' ? { kind: 'idle' } : s));
   }, [reloadNonce]);
 
   // Surface build state to the shared tool-status store (tab dots, etc.).
+  // 'awaiting-source' reads as idle here deliberately: an idle tool shows no
+  // chip on the home grid, which is correct while Claude is still writing
+  // it — the chat that is writing it is the thing carrying the activity.
   useEffect(() => {
     if (rebuildState.kind === 'building') {
       setToolLifecycle(dirName, { kind: 'building' });
@@ -168,12 +174,15 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
     }
     try {
       const result = await window.miniAppsAPI.build(dirName);
-      if (!result.ok) {
-        // buildMiniApp always supplies `error` (spawn failures included), so
-        // this fallback should be unreachable — keep it honest rather than
-        // re-inventing the old "esbuild exited with code N" phrasing, which
-        // reads as a compiler error even when esbuild never ran.
-        const errorMsg = (result.error || `Build failed (exit ${result.exitCode}) with no output.`).trim();
+      const outcome = classifyBuildResult(result);
+      if (outcome.kind === 'awaiting-source') {
+        // Not a failure — the source simply hasn't been written yet. No
+        // analytics, no captureError: those are for genuine build problems.
+        setRebuildState({ kind: 'awaiting-source', since: Date.now() });
+        return;
+      }
+      if (outcome.kind === 'error') {
+        const errorMsg = outcome.message;
         if (toolIdForBuild) {
           trackAnalytics({
             name: 'tool.build_failed',
@@ -208,7 +217,10 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
         });
       }
       setRebuildState({ kind: 'idle' });
-      setRebuildKey((k) => k + 1);
+      // No local remount here: main broadcasts `miniApps:built` on every
+      // successful build (whoever triggered it), and ChatView answers by
+      // bumping this tab's `reloadNonce`, which is the iframe's key below.
+      // Bumping a second key as well remounted the iframe twice per click.
       setViewingSource(false);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -244,6 +256,25 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
     }).catch(() => handleRebuild());
   }, [appDir, handleRebuild, preBuilt]);
 
+  // While waiting for Claude to finish writing the app, poll for its source
+  // file rather than making the user come back and click "Check again"
+  // themselves. Guarded with `cancelled` like the other effects in this file
+  // so a state change or unmount mid-check can't apply a stale result.
+  useEffect(() => {
+    if (rebuildState.kind !== 'awaiting-source') return;
+    let cancelled = false;
+    const interval = setInterval(() => {
+      window.filesAPI.fileExists(`${appDir}/${APP_SOURCE_RELATIVE_PATH}`).then((exists) => {
+        if (cancelled || !exists) return;
+        handleRebuild();
+      }).catch(() => { /* keep polling */ });
+    }, AWAITING_SOURCE_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [rebuildState.kind, appDir, handleRebuild]);
+
   const handleShowInFinder = useCallback(async () => {
     await window.filesAPI.showInFinder(appDir);
   }, [appDir]);
@@ -260,6 +291,7 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
   }, [rebuildState, chatOpen, onToggleChat, composerRuntime, dirName]);
 
   const showBuildError = rebuildState.kind === 'error' && !viewingSource;
+  const showAwaitingSource = rebuildState.kind === 'awaiting-source' && !viewingSource;
 
   return (
     <div className="miniAppViewer">
@@ -286,6 +318,12 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
             onRebuild={handleRebuild}
             onSendToChat={handleSendErrorToChat}
           />
+        ) : showAwaitingSource ? (
+          <AwaitingSourceView
+            since={rebuildState.kind === 'awaiting-source' ? rebuildState.since : Date.now()}
+            onRebuild={handleRebuild}
+            onOpenChat={chatOpen ? undefined : onToggleChat}
+          />
         ) : preBuilt && nativeToolUrl ? (
           <MiniAppContent
             key={`prebuilt-${reloadNonce ?? 0}`}
@@ -307,7 +345,7 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
               />
             ) : (
               <MiniAppContent
-                key={`${rebuildKey}-${reloadNonce ?? 0}`}
+                key={`bundle-${reloadNonce ?? 0}`}
                 dirName={dirName}
                 workspacePath={workspacePath}
                 appName={appName}
@@ -380,6 +418,7 @@ const MiniAppHeader: FC<{
   // store is one effect behind.
   const isBuilding = rebuildState.kind === 'building';
   const failed = rebuildState.kind === 'error';
+  const awaiting = rebuildState.kind === 'awaiting-source';
   const installing = status.kind === 'installing';
   const working = status.kind === 'working';
   const interrupted = status.kind === 'interrupted' ? status : null;
@@ -402,6 +441,11 @@ const MiniAppHeader: FC<{
         <span className="cdStatusChip cdStatusChip--error">
           <span className="cdDot cdDot--error" />
           BUILD FAILED
+        </span>
+      ) : awaiting ? (
+        <span className="cdStatusChip">
+          <span className="cdDot cdDot--busy cdDot--pulse" />
+          BEING WRITTEN
         </span>
       ) : isBuilding ? (
         <span className="cdStatusChip">

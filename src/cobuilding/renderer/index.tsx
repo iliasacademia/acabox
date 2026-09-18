@@ -540,16 +540,22 @@ function OpenMiniAppToolUI({
 
 /**
  * Variant for `build_and_open_mini_application`: the host runs esbuild during
- * the tool call, so we must NOT reload the iframe until the build has succeeded
- * — otherwise the iframe loads the pre-build (stale) bundle and never picks up
- * the rebuild. Fires onOpen only on a successful complete transition.
+ * the tool call, so we must NOT open/switch to the tool until the build has
+ * succeeded — otherwise the user lands on the pre-build (stale) view. Fires
+ * onOpen only on a successful complete transition.
  *
  * `isError` is load-bearing, not belt-and-braces: a FAILED build does not
  * arrive as `incomplete`. assistant-ui's toMessagePartStatus marks any
  * tool-call part with a truthy result as complete and never inspects isError,
  * and the host's fail() always returns non-empty content — so without this
- * check a failed build passes the guard below and remounts the iframe onto
- * exactly the stale bundle this component exists to avoid.
+ * check a failed build passes the guard below and opens the tool onto exactly
+ * the stale bundle this component exists to avoid.
+ *
+ * No `forceReload` here: a successful build now also broadcasts
+ * `miniApps:built` (main/index.ts) to every window, which bumps the reload
+ * nonce for an already-open tab regardless of which chat is on screen (T4,
+ * 2026-09-18) — `handleSelectApp` still bumps it itself when the tab isn't
+ * open yet. Passing forceReload too would just double-bump the nonce here.
  */
 function BuildAndOpenMiniAppToolUI({
   args,
@@ -581,7 +587,7 @@ function BuildAndOpenMiniAppToolUI({
       dirName !== openedRef.current
     ) {
       openedRef.current = dirName;
-      onOpen(dirName, { forceReload: true });
+      onOpen(dirName);
     }
   }, [args?.dir_name, status.type, isError, onOpen]);
 
@@ -662,6 +668,22 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
   // mutation (it would otherwise re-render sidebar components on each close/open).
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
+
+  // A build's success reaches every window over IPC (main/index.ts), not just
+  // whichever chat's tool-call card happens to be on screen — see
+  // BuildAndOpenMiniAppToolUI's comment for the incident this fixes. If the
+  // built tool already has a tab open, bump its reload nonce so the iframe
+  // remounts onto the fresh bundle. Never opens a tab, switches sidebar tab,
+  // or navigates — that stays chat-driven (open_mini_application / handleSelectApp).
+  useEffect(() => {
+    const unsubscribe = window.miniAppsAPI.onBuilt(({ dirName }) => {
+      const tabId = `miniapp::${dirName}`;
+      if (tabsRef.current.some((t) => t.id === tabId)) {
+        setMiniAppReloadNonces((prev) => ({ ...prev, [dirName]: (prev[dirName] ?? 0) + 1 }));
+      }
+    });
+    return unsubscribe;
+  }, []);
 
   // Clear kernel registry when the workspace directory changes — the Jupyter
   // gateway container is restarted on workspace switch, so any cached kernels
