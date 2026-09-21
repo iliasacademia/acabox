@@ -179,6 +179,82 @@ to `PATH`.
   from the pipe, which reads as a pass. Measured 2026-09-18.
 
 ## Status (last updated 2026-09-21)
+**The first message after a gap no longer vanishes (2026-09-21).** Reported as
+"I send a message, it shows thinking, then that disappears and I have to
+re-prompt". Found in the production DB **eight times** between 09-17 and 09-21,
+the same shape every time — including one real request swallowed and not
+re-sent for 34 minutes.
+- **What it was, read from the SDK transcripts, not inferred.** The previous
+  turn had started a background Bash command (the Devin pollers). Acabox tears
+  the CLI down after every turn, which orphans it; on the next resume the CLI
+  queues ITSELF a `<task-notification>` about it and dequeues that as a turn's
+  prompt **9–18 ms before the user's text reaches the queue**. That turn makes
+  no API call (zero `assistant` lines in every one of the eight) and ends
+  `{"subtype":"success","result":"","is_error":false}`. The host read that as
+  turn-complete, the renderer hid the indicator, and the registry destroyed
+  the session 28 ms later.
+- **The load-bearing finding came from the fix's first live run, not from the
+  diagnosis.** The CLI does NOT drop the user's text: it dequeues it and starts
+  a turn for it on its own, with `init` ~10 ms after the empty result — visible
+  in production too, as the `system, system` pair between the result and
+  `destroying`. The host was killing that turn. The first version of the fix
+  re-sent the message the moment the empty result landed, and the transcript
+  then showed **two** user turns and **two** model calls — the CLI's own answer
+  arrived before the redelivery had even been dequeued. So redelivery is the
+  FALLBACK, not the fix.
+- **The fix is a ladder in `agentSession.ts`: wait → redeliver → surface.**
+  `isSwallowedResumeTurn` fingerprints the result: empty success, zero
+  assistant messages, zero stream events, and a `stopped` `task_notification`
+  seen this turn. **All three required** — `/compact` also ends in an empty
+  success and IS an API call. On a match the host absorbs the result (no result
+  row, no turn-complete, `turnInProgress` stays set, `currentMessageId` kept so
+  the real answer correlates) and arms a 15 s watchdog. The CLI's follow-up
+  cancels it by producing anything — a streamed delta counts, since
+  `includePartialMessages` is on and `message_start` lands as soon as the API
+  answers. Only 15 s of silence, or a second empty result, re-sends the message
+  once; a third empty ends the turn with a host-authored line instead of
+  nothing. `swallowedResultAction` is the pure rule; each rung fires at most
+  once per message.
+- **Cost decided the design, at the user's explicit request.** The eaten turn
+  was free (no model call) and the manual retype cost one turn, so the common
+  path now costs exactly what it did — minus the retype and the wait. Keeping
+  sessions alive so pollers actually run was rejected: unattended model turns
+  on a timer are the one option with an open-ended bill, and it would not have
+  closed the trap anyway (idle eviction and quit orphan tasks the same way).
+- **The SSE debug line now carries `subtype=`.** Without it an eaten turn reads
+  as `system, system, result` and cannot be diagnosed from the log; the
+  production case needed the raw SDK transcript.
+- **Part 2: the agent is told background commands do not outlive the turn**
+  (`src/cobuilding/CLAUDE.md`, "Background commands"): no pollers, watchers or
+  heartbeats; check now and tell the user to ask again. Those pollers never ran
+  — Claude itself once wrote "The previous poller died when the app session
+  ended". It reaches existing workspaces through the three-way reconcile
+  (production's copy was byte-identical to shipped, so it fast-forwards; the
+  dev copy did on the next boot). Probed once, live: asked casually to "keep an
+  eye on the tool-data folder", the agent started **no** background task, ran
+  two foreground `ls`/`find`s, and replied "I can't actually watch it — that's
+  a real limitation, not a shortcut. Acabox stops my process as soon as I
+  reply", then took a baseline snapshot for a later comparison.
+- Verified: tsc clean; **1734/1734 across 117 suites** (+15, 1 new suite; the three
+  positive fingerprint cases proven non-vacuous by neutering the predicate —
+  exactly those three go red). Incidentally hardened `processTree.test.ts`,
+  whose fixed 500 ms wait for the fixture's grandchild flaked 1-in-2 under load
+  (now polled up to 5 s); smoke exits 0. ****; the bug **reproduced live** over CDP
+  against `npm start` — a turn that leaves `sleep 900` running, session
+  destroyed, second message → `task_notification`, `init`, empty `result`
+  291 ms in with zero assistant output, the production shape exactly. With the
+  ladder: "keeping the turn open" → the CLI's own `init` 17 ms later → answer →
+  **one** turn-complete carrying the original messageId, 3.6 s end to end. DB:
+  `user → assistant → result`, no empty result row, one user row. SDK
+  transcript: one user turn, one answer (the redeliver-first version had two of
+  each). DOM: one bubble, one reply, composer back to Send, no stuck indicator.
+- **NOT verified live: the redeliver and surface rungs.** The CLI ran its
+  follow-up on every attempt, so nothing exercised them beyond their unit
+  tests and the redeliver-first run — which did prove that a second message
+  POSTed into a live agent session is answered (the first time that path has
+  ever run outside a test; production's log held 116 sessions and 116 first
+  messages). The packaged build is also unverified.
+
 
 **Chat links: paste `acabox://chat/<id>` and the agent can read that chat
 (2026-09-21).** Asked for as "Devin style — paste a link to another chat and it
@@ -2491,6 +2567,14 @@ always boots straight into the Command Desk shell.
   keeping the SDK current. Note the gate is CHAT-only: mini-apps call the API
   directly through the proxy with no CLI in the path.
 
+- **Background Bash commands die with the turn.** One CLI subprocess per turn
+  — the registry destroys the session when its last subscriber detaches — so a
+  `run_in_background` command the agent starts is SIGTERMed with it, and the
+  CLI files a `stopped` task notification that it replays as a turn on the next
+  resume. That replay is what swallowed first messages (Status, 2026-09-21);
+  the host now absorbs it, and the agent is told not to start pollers. Keeping
+  sessions alive to make pollers real was deliberately NOT done — see the cost
+  bullet in that entry.
 - **Read-only directories are advisory only.** The agent is told via
   `workspaceDirectoriesGuidance` text, but `Write`/`Edit` still hit the
   filesystem. Real enforcement would need a PreToolUse hook that checks the

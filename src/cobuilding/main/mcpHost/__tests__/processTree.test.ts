@@ -94,10 +94,14 @@ describe('killTree', () => {
     children.push(child);
     const pid = child.pid!;
     // Let it install the SIGTERM handler and spawn its own grandchild before
-    // we touch it.
-    await new Promise((r) => setTimeout(r, 500));
-
-    const grandchildren = descendantsOf(pid);
+    // we touch it. Polled, not a fixed sleep: the fixture is Electron-as-Node
+    // and under load (a parallel jest worker, a build) takes longer than
+    // 500 ms to reach its spawn — measured 2026-09-21 as a 1-in-2 flake.
+    let grandchildren: number[] = [];
+    for (let waited = 0; waited < 5000 && grandchildren.length === 0; waited += 100) {
+      await new Promise((r) => setTimeout(r, 100));
+      grandchildren = descendantsOf(pid);
+    }
     expect(grandchildren.length).toBe(1); // the fixture's own `sleep 60`
 
     const start = Date.now();

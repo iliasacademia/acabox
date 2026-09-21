@@ -79,12 +79,124 @@ interface TurnState {
   /** Paths passed to Read this turn. The omission rule is unfalsifiable
    *  without them — every connector turn would raise a row. Reset per turn. */
   readPaths: string[];
+  /** Evidence for `isSwallowedResumeTurn`, reset per turn: how many
+   *  `assistant` messages and streamed deltas the stream carried (zero of both
+   *  means the model was never consulted) and how many background tasks the
+   *  CLI reported `stopped`. */
+  assistantMessages: number;
+  streamEvents: number;
+  stoppedTaskNotifications: number;
+  /** The swallowed-result ladder (`swallowedResultAction`): set when the host
+   *  first kept the turn open past an empty result, and when it then re-sent
+   *  the message. Each step happens at most once per turn; sendMessage resets
+   *  both, because a new message is a new chance. */
+  waitedForFollowUp: boolean;
+  redelivered: boolean;
+  /** Armed while waiting for the CLI's follow-up turn; see armFollowUpWatchdog. */
+  swallowWatchdog: NodeJS.Timeout | null;
 }
 
 const CONTEXT_OVERFLOW_MESSAGE =
   "This conversation is too long for the model's context window, so the request was " +
   'rejected before the model saw it. Its history has been reset — the next message will ' +
   'start from a clean context, without the earlier turns in this chat.';
+
+/**
+ * A result that is NOT the end of the user's turn — the one case this file
+ * declines to complete a turn on `result`.
+ *
+ * Observed eight times in production between 2026-09-17 and 09-21, always the
+ * first message after a gap, in a chat whose previous turn had started a
+ * background shell command. Acabox tears the CLI subprocess down between
+ * turns, which orphans the command; on the next resume the CLI queues ITSELF a
+ * `<task-notification>` about it and dequeues that as a turn's prompt, 9–18 ms
+ * before the user's text reaches the queue. That turn makes no API call and
+ * ends
+ *
+ *     {"subtype":"success","result":"","is_error":false}
+ *
+ * The CLI then dequeues the user's text and starts a turn for it on its own —
+ * measured on dev and production alike, that turn's `init` arrives ~10 ms
+ * after the empty result. The host was treating the empty result as
+ * turn-complete, and the registry then destroyed the session (`/stop` →
+ * `query.close()` → SIGTERM) 28 ms into the user's real turn. The renderer,
+ * correctly, hid the thinking indicator with nothing under it. Retyping
+ * started a fresh session and worked every time; the fix is to recognise this
+ * result and simply not end the turn on it.
+ *
+ * All three conditions are load-bearing. An empty success alone is legitimate
+ * — `/compact` ends that way, and it is a real API call that must not be
+ * repeated. No assistant message and no streamed delta is what proves the
+ * model was never called. And the `stopped` notification is the cause, not a
+ * coincidence: without it this predicate stays out of the way of anything
+ * else that can end a turn empty.
+ */
+export function isSwallowedResumeTurn(
+  message: SDKMessage,
+  turn: Pick<TurnState, 'assistantMessages' | 'streamEvents' | 'stoppedTaskNotifications'>,
+): boolean {
+  const msg = message as any;
+  if (msg?.type !== 'result' || msg.subtype !== 'success' || msg.is_error) return false;
+  if (typeof msg.result === 'string' && msg.result.trim() !== '') return false;
+  if (turn.assistantMessages > 0 || turn.streamEvents > 0) return false;
+  return turn.stoppedTaskNotifications > 0;
+}
+
+/**
+ * Accumulate the two signals `isSwallowedResumeTurn` reads. Runs for every
+ * message on the stream and is deliberately blind to everything else. Only a
+ * `stopped` task counts: one that `completed` or `failed` on its own is the
+ * ordinary background-task lifecycle and says nothing about a swallowed turn.
+ */
+export function noteSwallowSignals(
+  message: SDKMessage,
+  turn: Pick<TurnState, 'assistantMessages' | 'streamEvents' | 'stoppedTaskNotifications'>,
+): void {
+  const msg = message as any;
+  if (msg?.type === 'assistant') {
+    turn.assistantMessages++;
+  } else if (msg?.type === 'stream_event') {
+    turn.streamEvents++;
+  } else if (msg?.type === 'system' && msg.subtype === 'task_notification' && msg.status === 'stopped') {
+    turn.stoppedTaskNotifications++;
+  }
+}
+
+/**
+ * What to do with a result `isSwallowedResumeTurn` matched. Pure, so the
+ * three-step ladder is testable without a session.
+ *
+ *   wait      — first time: keep the turn open. The CLI is about to run the
+ *               user's text itself, so this costs nothing.
+ *   redeliver — the follow-up never showed a sign of life, or ended empty as
+ *               well: re-send the message once (one extra API call).
+ *   surface   — the redelivery ended empty too: tell the user, complete.
+ */
+export type SwallowedResultAction = 'wait' | 'redeliver' | 'surface';
+export function swallowedResultAction(
+  turn: Pick<TurnState, 'waitedForFollowUp' | 'redelivered'>,
+): SwallowedResultAction {
+  if (!turn.waitedForFollowUp) return 'wait';
+  if (!turn.redelivered) return 'redeliver';
+  return 'surface';
+}
+
+/**
+ * How long the host gives the CLI's follow-up turn to show a first sign of
+ * life before falling back to redelivery. Its `init` arrives in ~10 ms and,
+ * with `includePartialMessages` on, the first streamed event as soon as the
+ * API answers — so 15 s of silence means it is not coming, not that it is slow.
+ */
+const SWALLOW_FOLLOW_UP_WAIT_MS = 15_000;
+
+/**
+ * Shown when the redelivery ALSO came back empty — the last path on which
+ * silence would otherwise be the whole answer. Same voice as the overflow
+ * message: host-authored, third person, says what happened and what to do.
+ */
+const SWALLOWED_TURN_MESSAGE =
+  'The agent did not answer that message. Its turn was spent on a background command left ' +
+  'over from the previous session, and a second attempt came back empty as well. Send it again.';
 
 export function resolveSessionHostApp(_documentPath: string | null | undefined): { hostApp: HostApp | null; matched: boolean } {
   return { hostApp: null, matched: false };
@@ -317,6 +429,12 @@ export function createAgentSession(
     resumeDisabled: false,
     toolNames: [],
     readPaths: [],
+    assistantMessages: 0,
+    streamEvents: 0,
+    stoppedTaskNotifications: 0,
+    waitedForFollowUp: false,
+    redelivered: false,
+    swallowWatchdog: null,
   };
   // Cursor into the agent-server's per-session event sequence. Updated as we
   // parse `id:` lines from the SSE stream. On reconnect we send this as the
@@ -481,6 +599,111 @@ export function createAgentSession(
   // sendMessage observes the null and re-runs the loop with resume.
   let loopPromise: Promise<void> | null = null;
 
+  /**
+   * Finish a turn from the host side with a host-authored line. Used only when
+   * a redelivery could not even be sent; the ordinary completion lives in the
+   * SSE reader's result branch. The result row is required, not decorative:
+   * `cleanupOrphanTurnRows` sweeps assistant rows that sit after the last
+   * result at boot, so without it the explanation would vanish on relaunch.
+   */
+  const completeTurnFromHost = (text: string) => {
+    const messageId = turnState.currentMessageId ?? undefined;
+    insertMessage(sessionId, 'assistant', JSON.stringify([{ type: 'text', text }]), messageId);
+    emitEvent({ type: 'text', text });
+    insertMessage(sessionId, 'result', JSON.stringify({ subtype: 'success', result: '', is_error: false }), messageId);
+    turnState.turnInProgress = false;
+    emitEvent({ type: 'turn-complete', messageId } as ChatStreamMessage);
+    turnState.currentMessageId = null;
+  };
+
+  /**
+   * Re-send the in-flight message into the live agent session, once.
+   *
+   * Same session, same CLI process, same text and messageId — so the assistant
+   * rows and the eventual turn-complete correlate to the bubble the user is
+   * already looking at. Nothing is inserted or emitted for the user side: the
+   * row and the user-message event went out on the first attempt, and a second
+   * bubble would misreport what the user did. Fire-and-forget like the
+   * pending-message flush, because the SSE reader must not block on it.
+   *
+   * `stoppedTaskNotifications` is deliberately NOT reset here: it is what lets
+   * an empty result from the redelivery still read as swallowed, so the ladder
+   * can reach 'surface' instead of ending the turn silently.
+   *
+   * Returns false when there is nothing to re-send or this turn has had its
+   * retry, and the caller then completes the turn as it normally would.
+   */
+  const redeliverSwallowedTurn = (): boolean => {
+    const message = inflightMessage;
+    if (!message || !agentSessionId || sessionState.stopped || turnState.redelivered) return false;
+    turnState.redelivered = true;
+    turnState.assistantMessages = 0;
+    turnState.streamEvents = 0;
+    log.info(
+      `[AgentSession] Redelivering messageId=${message.messageId ?? '(none)'} to ${agentSessionId} ` +
+      '— the CLI did not run the swallowed message itself',
+    );
+    httpPostWithStatus(
+      `${agentBaseUrl}/sessions/${agentSessionId}/messages`,
+      JSON.stringify({ text: message.text, attachments: message.attachments, messageId: message.messageId }),
+    ).then(({ status, body }) => {
+      if (status >= 400) throw new Error(`HTTP ${status} ${body}`);
+    }).catch((err) => {
+      // The retry never left. Say so and end the turn, or the indicator spins
+      // against a message the agent will never receive.
+      log.error('[AgentSession] Redelivery POST failed; completing the turn from the host:', err);
+      if (turnState.turnInProgress) completeTurnFromHost(SWALLOWED_TURN_MESSAGE);
+    });
+    return true;
+  };
+
+  const clearFollowUpWatchdog = () => {
+    if (turnState.swallowWatchdog) {
+      clearTimeout(turnState.swallowWatchdog);
+      turnState.swallowWatchdog = null;
+    }
+  };
+
+  /**
+   * If the CLI's follow-up turn has shown no sign of life by the deadline —
+   * no streamed delta, no assistant message — fall back to re-sending. Deltas
+   * count because `includePartialMessages` is on: `message_start` lands as
+   * soon as the API answers, long before a thinking-heavy first block would.
+   */
+  const armFollowUpWatchdog = () => {
+    clearFollowUpWatchdog();
+    turnState.swallowWatchdog = setTimeout(() => {
+      turnState.swallowWatchdog = null;
+      if (!turnState.turnInProgress || sessionState.stopped) return;
+      if (turnState.assistantMessages > 0 || turnState.streamEvents > 0) return;
+      log.warn(`[AgentSession] No follow-up from the CLI ${SWALLOW_FOLLOW_UP_WAIT_MS}ms after the swallowed result — redelivering`);
+      if (!redeliverSwallowedTurn()) completeTurnFromHost(SWALLOWED_TURN_MESSAGE);
+    }, SWALLOW_FOLLOW_UP_WAIT_MS);
+  };
+
+  /**
+   * The SSE reader saw a result `isSwallowedResumeTurn` matched. Apply the
+   * ladder (`swallowedResultAction` is the rule; this is the plumbing) and
+   * return true when the result has been absorbed and the turn must stay open.
+   * False means complete the turn — after the caller has surfaced the fallback
+   * text, if this was the 'surface' step.
+   */
+  const handleSwallowedResult = (): boolean => {
+    const action = swallowedResultAction(turnState);
+    if (action === 'wait') {
+      turnState.waitedForFollowUp = true;
+      log.info(
+        `[AgentSession] Empty result after the CLI's own task notification — keeping the turn open ` +
+        `for its follow-up (messageId=${turnState.currentMessageId ?? '(none)'})`,
+      );
+      armFollowUpWatchdog();
+      return true;
+    }
+    clearFollowUpWatchdog();
+    if (action === 'redeliver') return redeliverSwallowedTurn();
+    return false;
+  };
+
   function startLoop(): Promise<void> {
     if (loopPromise) return loopPromise;
     if (sessionState.stopped) return Promise.resolve();
@@ -567,7 +790,7 @@ export function createAgentSession(
           try {
             await connectSSE(eventUrl, state, sessionId, emitEvent, emitDone, emitError, sessionState, (req) => {
               sseRequest = req;
-            }, agentBaseUrl, agentSessionId!, turnState, sseCursor, !!refreshAndPushCredentials && !authRetried);
+            }, agentBaseUrl, agentSessionId!, turnState, sseCursor, !!refreshAndPushCredentials && !authRetried, handleSwallowedResult);
             break; // clean terminal event — done with this turn
           } catch (err) {
             if (err instanceof AuthRetryError && !authRetried && refreshAndPushCredentials) {
@@ -690,6 +913,17 @@ export function createAgentSession(
       // here rather than at session create.
       turnState.toolNames = [];
       turnState.readPaths = [];
+      // Swallowed-turn evidence is per turn too, and a fresh message gets a
+      // fresh run at the ladder.
+      turnState.assistantMessages = 0;
+      turnState.streamEvents = 0;
+      turnState.stoppedTaskNotifications = 0;
+      turnState.waitedForFollowUp = false;
+      turnState.redelivered = false;
+      if (turnState.swallowWatchdog) {
+        clearTimeout(turnState.swallowWatchdog);
+        turnState.swallowWatchdog = null;
+      }
       // Broadcast the user message to every surface subscribed to this
       // session. Without this, a message typed in the overlay would land
       // in SQLite but the desktop chat (subscribing via IPC fanout) would
@@ -767,6 +1001,10 @@ export function createAgentSession(
     destroy() {
       sessionState.stopped = true;
       clearInterval(heartbeatTimer);
+      if (turnState.swallowWatchdog) {
+        clearTimeout(turnState.swallowWatchdog);
+        turnState.swallowWatchdog = null;
+      }
       if (sseRequest) {
         sseRequest.destroy();
         sseRequest = null;
@@ -928,6 +1166,7 @@ async function connectSSE(
   turnState: TurnState,
   sseCursor: { lastEventId: number | null },
   canRetryAuth?: boolean,
+  onSwallowedResult?: () => boolean,
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const parsed = new URL(url);
@@ -981,9 +1220,13 @@ async function connectSSE(
             try {
               const message = JSON.parse(data) as SDKMessage;
               if (message.type !== 'stream_event') {
-                log.debug(`[AgentSession:SSE] message type=${message.type}`);
+                // Subtype too: an eaten turn is only diagnosable from the log
+                // if the `task_notification` that ate it is named in it.
+                const subtype = (message as any).subtype;
+                log.debug(`[AgentSession:SSE] message type=${message.type}${subtype ? ` subtype=${subtype}` : ''}`);
               }
               processQueryMessage(message, state, emitEvent);
+              noteSwallowSignals(message, turnState);
 
               if (message.type === 'system') {
                 setSdkSessionId(sessionId, (message as any).session_id);
@@ -1024,6 +1267,31 @@ async function connectSSE(
               }
               if (message.type === 'result') {
                 const completedMessageId = turnState.currentMessageId;
+                // The model never saw this message (isSwallowedResumeTurn):
+                // this result is NOT the end of the turn. Absorb it — no result
+                // row, no turn-complete, turnInProgress stays set and
+                // currentMessageId stays for the real answer to correlate to —
+                // and let the session decide between waiting for the CLI's own
+                // follow-up and re-sending. Only when the ladder is exhausted
+                // does the turn complete, and then with text, not silence.
+                if (isSwallowedResumeTurn(message, turnState)) {
+                  if (onSwallowedResult?.()) continue;
+                  if (turnState.redelivered) {
+                    log.warn(`[AgentSession] Redelivered turn came back empty as well (sessionId=${sessionId}); surfacing it`);
+                    insertMessage(
+                      sessionId,
+                      'assistant',
+                      JSON.stringify([{ type: 'text', text: SWALLOWED_TURN_MESSAGE }]),
+                      completedMessageId ?? undefined,
+                    );
+                    emitEvent({ type: 'text', text: SWALLOWED_TURN_MESSAGE });
+                  }
+                }
+                // A real result ends the wait, whichever turn produced it.
+                if (turnState.swallowWatchdog) {
+                  clearTimeout(turnState.swallowWatchdog);
+                  turnState.swallowWatchdog = null;
+                }
                 log.info(`[AgentSession:SSE] RESULT received, emitting turn-complete messageId=${completedMessageId ?? '(none)'}`);
                 // An overflow is fatal to the transcript, not to the thread.
                 // Every later turn resumes the same oversized history and is
