@@ -178,6 +178,67 @@ to `PATH`.
   SIGKILLs the suite mid-run and the tail prints `[exited with code 0]`
   from the pipe, which reads as a pass. Measured 2026-09-18.
 
+## Status (last updated 2026-09-21)
+
+**Chat links: paste `acabox://chat/<id>` and the agent can read that chat
+(2026-09-21).** Asked for as "Devin style — paste a link to another chat and it
+receives context from it". Nothing of the kind existed: the agent had no tool
+over other sessions and the UI had no way to name a chat.
+- **The link IS the reference; nothing is stored beside the message.** The
+  user copies `acabox://chat/<id>` from the chat header's link button and
+  pastes it into any message. The bubble (optimistic and rehydrated alike),
+  the agent's view, and the click target all derive from that one string in
+  the typed text — titles are looked up live, so a renamed chat shows its new
+  name. Contract in `shared/chatLinks.ts` (`parseChatLinks`, `extractChatId`,
+  `splitTextByChatLinks`, `composeChatRefsText`, `describeChatRef`).
+- **The transcript is PULLED and PAGINATED, never inlined.** A chat here is
+  routinely a megabyte, and inlining one would recreate the 5.5 MB-transcript
+  failure. At send time `agentSession.ts` resolves each linked id
+  (`main/chatRefResolver.ts`, workspace-scoped, capped at 8, own chat dropped)
+  and appends a short "Referenced chats" block — title · N messages · tool ·
+  last active — telling the agent to load it with `read_chat`. The stored user
+  row keeps the typed text only. New relay `chats` with `list_chats(query,
+  limit)` and `read_chat(chat, detail, from_message_id, max_chars,
+  include_tool_results)`, rendered host-side by `main/chatReference.ts`:
+  `conversation` = what the user said plus each turn's `result` row (a turn with
+  no result row still shows its last assistant text); `full` adds every
+  assistant block and one line per tool call; budget default 30k chars, clamp
+  2k..120k, footer names the `from_message_id` to continue from. A cross-
+  workspace id reads as nonexistent, never as "exists elsewhere". Reserved
+  `chats` in `RESERVED_CONNECTOR_IDS` so a connector cannot shadow the relay;
+  `filterMcpServers` would silently drop the relay without the two
+  `mcp__chats__*` allowlist entries, and the relay-name test now pins it.
+- **UI:** `ChatLinkChip` (`assistant-ui/chat-link-chip.tsx`, imports nothing
+  from `@assistant-ui/react` so it renders under jest) replaces the URL in user
+  bubbles via a `Text` part that mirrors the library default's
+  `<p style="white-space:pre-line">` wrapper, and in agent replies via
+  `AnchorWithDoi`. Click dispatches `cd:open-chat`; `index.tsx` switches
+  threads. Missing chat → "Deleted chat", struck through. The user bubble is
+  `--cd-pale`, the same as the chip's default fill, so the chip goes white
+  inside a bubble (same fix `.cdUser__file` already carries).
+- **Two bugs caught by the tickets' own tests, not by reading:** a Python
+  heredoc collapsed `\\` in the repository's LIKE-escaper so it emitted the
+  literal text `${c}` (a title search containing `_` or `%` matched nothing);
+  and the relay-name reservation above was missing until the connectors test
+  failed. Both fixed; the escaper case now asserts the exact match.
+- Verified: tsc clean; **1719/1719 across 116 suites** (+51, 4 new suites);
+  smoke exits 0. Then live over CDP on the dev channel: a real turn containing
+  a pasted link showed **one chip with the target's title and no raw URL** in
+  the bubble; main logged `[ChatLinks] 1 referenced chat(s)`; the SDK
+  transcript carried the exact reference block after the typed text; the agent
+  called `list_chats` (2 matches) and `read_chat` with the pasted link, got the
+  compact rendering (`[user 08:06] …` / `[assistant 08:06] DONE`) and replied
+  `LAST: DONE`; the stored row holds the typed text with no block (0 rows
+  contain "Referenced chats"); clicking the chip switched the header to the
+  target chat.
+- **NOT verified live: the Copy-link clipboard write.** Under CDP the document
+  is unfocused and Chromium refuses `navigator.clipboard`, so the button's
+  "Copied" flip could not be observed — a real click has focus. Also not built,
+  deliberately: a composer-side chip while drafting (the URL sits in the
+  textarea until send), an OS-level `acabox://` protocol handler
+  (`forge.config.js` still declares no scheme), and any write access to other
+  chats.
+
 ## Status (last updated 2026-09-18)
 
 **A tool opened mid-write no longer strands the chat that is writing it

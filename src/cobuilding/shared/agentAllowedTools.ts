@@ -74,6 +74,10 @@ export const BASE_AGENT_ALLOWED_TOOLS: readonly string[] = [
   'mcp__reaction__create_reaction_thread',
   'mcp__workspace__get_scanned_files',
   'mcp__workspace__get_research_profile',
+  // Read-only access to the user's other chats (a pasted acabox://chat/<id>
+  // link, or a chat found by title via list_chats). See main/chatReference.ts.
+  'mcp__chats__list_chats',
+  'mcp__chats__read_chat',
 ];
 
 /**

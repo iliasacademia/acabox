@@ -372,6 +372,37 @@ function createMcpRelayServers(state: SessionState) {
         ),
       ],
     }),
+
+    // The user's other conversations in this workspace — read-only, never
+    // this session's own secrets. A pasted `acabox://chat/<id>` link
+    // (shared/chatLinks.ts) names one directly; list_chats resolves a chat
+    // the user named by topic instead of a link. Rendering (pulled and
+    // paginated, never a full transcript dump — see main/chatReference.ts)
+    // happens host-side, so these tool bodies are just the schema + relay.
+    chats: createSdkMcpServer({
+      name: 'chats',
+      tools: [
+        tool('list_chats',
+          'List the user\'s other conversations in this workspace, most recent first. Use this when the user names a chat by topic ("the chat where we built the spend explorer") instead of pasting a link — search titles with "query", then pass the matching chat\'s link to read_chat.',
+          {
+            query: z.string().optional().describe('Case-insensitive substring of the chat title.'),
+            limit: z.number().int().optional().describe('Max rows, default 20, max 50.'),
+          },
+          relay('chats', 'list_chats'),
+        ),
+        tool('read_chat',
+          'Read another conversation in this workspace — the one the user pasted a link to (a bare acabox://chat/<id> in their message is a reference to it, not a URL to fetch), or one found via list_chats. Read-only and never includes this session\'s own secrets. Start with detail "conversation" (what the user said and each turn\'s final reply); use "full" only when you need the intermediate steps or tool calls too. If the result says it was truncated, call again with the given from_message_id to continue. Never claim to have read a chat you did not actually load with this tool.',
+          {
+            chat: z.string().describe('A chat link acabox://chat/<id> exactly as the user pasted it, or the bare id.'),
+            detail: z.enum(['conversation', 'full']).optional().describe('"conversation" (default): what the user said and each turn\'s final reply. "full": also every intermediate assistant message and one line per tool call.'),
+            from_message_id: z.number().int().optional().describe('Continue from this row id when a previous call reported truncation.'),
+            max_chars: z.number().int().optional().describe('Character budget, default 30000, max 120000.'),
+            include_tool_results: z.boolean().optional().describe('With detail "full", also include tool outputs (cut to 500 chars each). Off by default — they are large.'),
+          },
+          relay('chats', 'read_chat'),
+        ),
+      ],
+    }),
   };
 }
 

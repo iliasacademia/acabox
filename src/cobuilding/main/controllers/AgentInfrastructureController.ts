@@ -14,6 +14,7 @@ import { getLatestReport } from '../db/reportRepository';
 import { AGENT_MEMORY_SUBDIR, REFERENCES_SUBDIR, REFERENCES_INDEX } from '../../shared/paths';
 import { queryActivity } from '../activityQuery';
 import { createSession as createDbSession, insertMessage as insertDbMessage, updateSessionTitle } from '../db/chatRepository';
+import { readChatForAgent, listChatsForAgent } from '../chatReference';
 import { buildMiniApp } from '../miniAppBuilder';
 import { ensurePythonVenv } from '../pythonSetup';
 import { listConnectorsWithSecrets } from '../connectorsStore';
@@ -364,6 +365,32 @@ export class AgentInfrastructureController {
             }));
           } catch (err: any) {
             return fail(`Failed to list APIs: ${err.message}`);
+          }
+        },
+      },
+
+      // Read-only access to the user's OTHER chats in this workspace — the
+      // Devin-style "paste a link to another conversation" flow. Rendering
+      // logic lives in `main/chatReference.ts`; these two handlers are just
+      // the workspace-scoping boundary (a chat id resolved to a session in a
+      // DIFFERENT workspace must read as nonexistent, never leak).
+      chats: {
+        list_chats: async (args: any) => {
+          try {
+            // Never fails (no chat named by the caller to be wrong about) —
+            // unlike read_chat there is no error branch to type against.
+            const result = listChatsForAgent(workspace.id, args);
+            return ok(result.text);
+          } catch (err: any) {
+            return fail(`Failed to list chats: ${err.message}`);
+          }
+        },
+        read_chat: async (args: any) => {
+          try {
+            const result = readChatForAgent(workspace.id, args);
+            return result.ok ? ok(result.text) : fail(result.error);
+          } catch (err: any) {
+            return fail(`Failed to read chat: ${err.message}`);
           }
         },
       },

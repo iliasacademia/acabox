@@ -43,6 +43,7 @@ import DirectoryPermissions from './components/DirectoryPermissions';
 import { ChatHeader } from './components/command-desk/ChatHeader';
 import { ToolWorkspace } from './components/command-desk/ToolWorkspace';
 import { ToolFallback } from './components/assistant-ui/tool-fallback';
+import { OPEN_CHAT_EVENT } from './components/assistant-ui/chat-link-chip';
 import { SetupBanner } from './components/SetupBanner';
 import { GlobalComposer } from './components/GlobalComposer';
 import { QuoteToolbar } from './components/command-desk/QuoteToolbar';
@@ -930,6 +931,20 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
       console.error('[CommandDesk] switchToThread failed:', err);
     }
   }, [runtime, deactivateAllTabs]);
+
+  // A chat-link chip (pasted into a message, or an agent reply naming a
+  // chat) dispatches this on click rather than calling `openChatById`
+  // directly — `chat-link-chip.tsx` deliberately imports nothing from
+  // `@assistant-ui/react` so it can render under jest, which rules out
+  // reaching this runtime-bound callback any other way.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const sessionId = (e as CustomEvent<{ sessionId: string }>).detail?.sessionId;
+      if (sessionId) openChatById(sessionId);
+    };
+    window.addEventListener(OPEN_CHAT_EVENT, handler);
+    return () => window.removeEventListener(OPEN_CHAT_EVENT, handler);
+  }, [openChatById]);
 
   const handleRailNavigate = useCallback((tab: RailTab) => {
     switch (tab) {

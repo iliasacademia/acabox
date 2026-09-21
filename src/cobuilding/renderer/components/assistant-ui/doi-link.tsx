@@ -5,7 +5,11 @@
  *   - extractDoiFromHref — pull a DOI out of a doi.org URL (kept so callers
  *     that decorate DOI-style links can still detect them).
  *   - AnchorWithDoi — <a> wrapper that opens external URLs through the
- *     Electron shell IPC instead of letting the renderer navigate away.
+ *     Electron shell IPC instead of letting the renderer navigate away, EXCEPT
+ *     for an `acabox://chat/<id>` link, which renders as a `ChatLinkChip`
+ *     instead of an anchor — the agent can hand one back in a reply (e.g.
+ *     after reading another chat via `read_chat`), and it should open that
+ *     chat in-app, not attempt an external navigation.
  *   - parseAgentHtml — DOMPurify-sanitize an HTML response and parse it
  *     into React elements via html-react-parser, replacing <a> nodes
  *     with AnchorWithDoi so links still open externally.
@@ -15,6 +19,8 @@ import React, { type FC } from 'react';
 import DOMPurify from 'dompurify';
 import parse, { domToReact, type DOMNode, type HTMLReactParserOptions } from 'html-react-parser';
 import { IPC_CHANNELS } from '../../../../shared/types';
+import { ChatLinkChip } from './chat-link-chip';
+import { extractChatId, isChatLink } from '../../../shared/chatLinks';
 
 function openExternal(url: string): void {
   try {
@@ -32,18 +38,24 @@ export const AnchorWithDoi: FC<{ href?: string; children?: React.ReactNode } & R
   href,
   children,
   ...props
-}) => (
-  <a
-    {...props}
-    href={href}
-    onClick={(e) => {
-      e.preventDefault();
-      if (href) openExternal(href);
-    }}
-  >
-    {children}
-  </a>
-);
+}) => {
+  if (href && isChatLink(href)) {
+    const sessionId = extractChatId(href);
+    if (sessionId) return <ChatLinkChip sessionId={sessionId} />;
+  }
+  return (
+    <a
+      {...props}
+      href={href}
+      onClick={(e) => {
+        e.preventDefault();
+        if (href) openExternal(href);
+      }}
+    >
+      {children}
+    </a>
+  );
+};
 
 /**
  * Parse a Writing Agent HTML response into React elements so component-level

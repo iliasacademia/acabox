@@ -1456,3 +1456,53 @@
   white-space: pre-wrap;
   overflow-wrap: break-word;
 }
+
+/* ── Chat link chip (T7): a pasted acabox://chat/<id> link, or one in an
+   agent reply, rendered as a small pill instead of a raw URL. ── */
+
+.cdChatLinkChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--cd-border);
+  background: var(--cd-pale);
+  color: var(--cd-blue);
+  font: inherit;
+  font-size: 0.92em;
+  line-height: 1.4;
+  cursor: pointer;
+  vertical-align: baseline;
+  max-width: 100%;
+}
+.cdChatLinkChip:hover { border-color: var(--cd-blue); }
+.cdChatLinkChip .msi { color: var(--cd-blue); flex: none; }
+.cdChatLinkChip__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
+.cdChatLinkChip--missing {
+  color: var(--cd-text2);
+  text-decoration: line-through;
+  cursor: default;
+}
+.cdChatLinkChip--missing:hover { border-color: var(--cd-border); }
+.cdChatLinkChip--missing .msi { color: var(--cd-text2); }
+
+/* `.cdUser__bubble`'s own background IS `--cd-pale` (see above), so the
+   chip's default pale-on-pale styling has no contrast there — the same
+   problem `.cdUser__file` already solves for attachment chips in the same
+   bubble. Match that: white fill, ink text, the chip's blue reserved for the
+   icon so a link still reads as a link. */
+.cdUser__bubble .cdChatLinkChip {
+  background: #ffffff;
+  border-color: var(--cd-border);
+  color: var(--cd-ink);
+}
+.cdUser__bubble .cdChatLinkChip:hover { border-color: var(--cd-blue); }
+.cdUser__bubble .cdChatLinkChip--missing {
+  color: var(--cd-text2);
+}

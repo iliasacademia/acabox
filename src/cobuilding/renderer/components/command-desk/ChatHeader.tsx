@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAssistantRuntime, useAuiState } from '@assistant-ui/react';
 import { MSymbol } from './MSymbol';
 import { formatSessionModelMeta, useSessionMeta } from './useSessionMeta';
+import { buildChatLink } from '../../../shared/chatLinks';
 import type { FC } from 'react';
 
 /**
@@ -46,6 +47,22 @@ export const ChatHeader: FC<ChatHeaderProps> = ({ onBack, onOpenTool }) => {
   useEffect(() => {
     if (renaming) renameInputRef.current?.select();
   }, [renaming]);
+
+  const [copied, setCopied] = useState(false);
+  const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => {
+    if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current);
+  }, []);
+  const handleCopyLink = useCallback(() => {
+    if (!remoteId) return;
+    navigator.clipboard.writeText(buildChatLink(remoteId)).then(() => {
+      setCopied(true);
+      if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current);
+      copiedTimeoutRef.current = setTimeout(() => setCopied(false), 1500);
+    }).catch((err) => {
+      console.error('[ChatHeader] copy link failed:', err);
+    });
+  }, [remoteId]);
 
   const commitRename = useCallback(() => {
     const next = draftTitle.trim();
@@ -122,6 +139,17 @@ export const ChatHeader: FC<ChatHeaderProps> = ({ onBack, onOpenTool }) => {
           onClick={() => { setDraftTitle(title ?? ''); setRenaming(true); }}
         >
           <MSymbol name="edit" size={17} />
+        </button>
+      )}
+      {typeof remoteId === 'string' && (
+        <button
+          type="button"
+          className="cdIconBtn"
+          title={copied ? 'Copied' : 'Copy link to this chat'}
+          aria-label="Copy link to this chat"
+          onClick={handleCopyLink}
+        >
+          <MSymbol name={copied ? 'check' : 'link'} size={17} />
         </button>
       )}
       {remoteId && (

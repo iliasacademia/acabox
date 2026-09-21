@@ -1,13 +1,15 @@
 
 import { type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatStreamMessage, IPCAttachment, Workspace, NotificationNavigationAction } from '../shared/types';
-import { createSession, setSdkSessionId, clearSdkSessionId, setSessionModelInfo, setSessionAppDirName, insertMessage, cleanupOrphanTurnRows, getSession } from './db/chatRepository';
+import { createSession, setSdkSessionId, clearSdkSessionId, setSessionModelInfo, setSessionAppDirName, insertMessage, cleanupOrphanTurnRows, getSession, getSessionActivity } from './db/chatRepository';
 import { listWorkspaceDirectories } from './db/workspaceRepository';
 import * as fs from 'fs';
 import path from 'path';
 import log from 'electron-log';
 import { captureError } from '../shared/telemetry';
 import { composeQuotedText, type AcaboxQuote } from '../shared/quotes';
+import { composeChatRefsText } from '../shared/chatLinks';
+import { resolveChatRefs } from './chatRefResolver';
 import { containerService } from './containerService';
 import * as mcpHost from './mcpHost';
 import { commandLogger, parseAppDirFromArgs } from './commandLogger';
@@ -698,7 +700,17 @@ export function createAgentSession(
       // Compose the quote in exactly one place, on the way out. `composeQuotedText`
       // is a no-op when there is no quote, so the ordinary path is unchanged.
       const quotedText = composeQuotedText(quote, userMessage);
-      const processedText = messagePreprocessor ? messagePreprocessor(quotedText) : quotedText;
+
+      // Any acabox://chat/<id> links in what the user typed get resolved into
+      // a short reference block — title, activity, owning tool — appended for
+      // the agent. The transcript itself never travels here; the agent pulls
+      // what it needs via the `read_chat` tool. See shared/chatLinks.ts.
+      const chatRefs = resolveChatRefs(userMessage, sessionId, workspace.id, { getSession, getActivity: getSessionActivity });
+      if (chatRefs.length > 0) {
+        log.info(`[ChatLinks] ${chatRefs.length} referenced chat(s) in messageId=${messageId ?? '(none)'}: ${chatRefs.map((r) => `${r.sessionId.slice(0, 8)}${r.exists ? '' : '(missing)'}`).join(', ')}`);
+      }
+      const withRefs = composeChatRefsText(quotedText, chatRefs);
+      const processedText = messagePreprocessor ? messagePreprocessor(withRefs) : withRefs;
 
       // Rewrite file attachment paths so the agent sees them relative to the
       // workspace cwd. User-shared directories are symlinked into the

@@ -56,7 +56,7 @@ describe('buildAgentAllowedTools', () => {
   it('has one entry per relay server the agent server registers', () => {
     // filterMcpServers attaches a relay only if some `mcp__<name>__*` entry is
     // present. A relay with no entry is dropped with no error anywhere.
-    for (const relay of ['activity', 'notification', 'reaction', 'mini-apps', 'workspace', 'knowledge']) {
+    for (const relay of ['activity', 'notification', 'reaction', 'mini-apps', 'workspace', 'knowledge', 'chats']) {
       expect(BASE_AGENT_ALLOWED_TOOLS.some((t) => t.startsWith(`mcp__${relay}__`))).toBe(true);
     }
   });

@@ -7,6 +7,7 @@ import { EnterPlanMode } from './enter-plan-mode';
 import { Reasoning } from './thinking-indicator';
 import { ChatComposer } from './chat-composer';
 import { MessageQuoteBlock } from './message-quote';
+import { TextWithChatLinks } from './chat-link-chip';
 import { useProcessingLabel, RECONNECTING_LABEL } from '../../progressStore';
 import { useSetupState } from '../../setupStore';
 import { MSymbol } from '../command-desk/MSymbol';
@@ -265,6 +266,26 @@ const userAttachmentComponents = {
   Attachment: UserAttachment,
 };
 
+/**
+ * The library's own default `Text` part component (`webDefaultComponents.Text`
+ * in `@assistant-ui/react`'s `MessageParts.tsx`) renders
+ * `<p style={{ whiteSpace: 'pre-line' }}><MessagePartPrimitive.Text />…</p>`
+ * with no class name. This mirrors that exact wrapper — same element, same
+ * inline style, so spacing does not shift — but reads the part's text
+ * directly (rather than through `MessagePartPrimitive.Text`'s smooth-
+ * streaming machinery, which user messages never need) so it can run it
+ * through `TextWithChatLinks` and render any `acabox://chat/<id>` link as a
+ * chip in place.
+ */
+const UserText: FC = () => {
+  const text = useAuiState((s: any) => (s.part?.text ?? '') as string);
+  return (
+    <p style={{ whiteSpace: 'pre-line' }}>
+      <TextWithChatLinks text={text} />
+    </p>
+  );
+};
+
 const UserMessage: FC = () => {
   const createdAt = useAuiState((s: any) => s.message.createdAt) as Date | undefined;
   const hasAttachments = useAuiState((s: any) => (s.message.attachments?.length ?? 0) > 0);
@@ -274,8 +295,10 @@ const UserMessage: FC = () => {
         {/* `Quote` renders above the parts whenever the message carries
             metadata.custom.quote — set by the composer on send, and restored
             by historyMessageConverter on reload, so this one registration
-            covers both. */}
-        <MessagePrimitive.Parts components={{ Quote: MessageQuoteBlock }} />
+            covers both. `Text` renders any pasted chat link as a chip; see
+            `UserText` above for why it must match the library default's
+            wrapper by hand rather than delegating to it. */}
+        <MessagePrimitive.Parts components={{ Quote: MessageQuoteBlock, Text: UserText }} />
         {hasAttachments && (
           <div className="cdUser__files">
             <MessagePrimitive.Attachments components={userAttachmentComponents} />

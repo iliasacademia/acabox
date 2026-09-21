@@ -5,6 +5,8 @@ export const DEFAULT_SESSION_TITLE = 'New Chat';
 
 export interface Session {
   id: string;
+  /** Owning workspace; every reader that resolves an id typed by a user or an agent must check it. */
+  workspace_id: string;
   sdk_session_id: string | null;
   title: string;
   source: string | null;
@@ -157,6 +159,52 @@ export function listSessionsForApp(workspaceId: string, appDirName: string): Ses
       ORDER BY COALESCE(MAX(m.created_at), s.created_at) DESC
     `)
     .all(workspaceId, appDirName) as SessionWithActivity[];
+}
+
+/** Message count plus the newest message's timestamp, for one session. */
+export interface SessionActivity {
+  messageCount: number;
+  lastMessageAt: string | null;
+}
+
+export function getSessionActivity(sessionId: string): SessionActivity {
+  const row = getDatabase()
+    .prepare('SELECT COUNT(id) AS n, MAX(created_at) AS last FROM messages WHERE session_id = ?')
+    .get(sessionId) as { n: number; last: string | null } | undefined;
+  return { messageCount: row?.n ?? 0, lastMessageAt: row?.last ?? null };
+}
+
+export interface SessionWithCounts extends SessionWithActivity {
+  message_count: number;
+}
+
+/**
+ * Ordinary chats (`source IS NULL`, the same set the Chats list shows) in a
+ * workspace, most recently active first, optionally filtered by a
+ * case-insensitive title substring. Backs the agent's `list_chats` tool
+ * (`main/chatReference.ts`), so `limit` is clamped here rather than trusted.
+ */
+export function listSessionsWithActivity(
+  workspaceId: string,
+  opts: { query?: string; limit?: number } = {},
+): SessionWithCounts[] {
+  const limit = Math.max(1, Math.min(Math.floor(opts.limit ?? 20), 50));
+  const query = opts.query?.trim();
+  // `_` and `%` are LIKE wildcards; escape them so a literal title search is literal.
+  const like = query ? `%${query.replace(/[%_\\]/g, (c) => `\\${c}`)}%` : null;
+  const sql = `
+      SELECT s.*, MAX(m.created_at) AS last_message_at, COUNT(m.id) AS message_count
+      FROM sessions s
+      LEFT JOIN messages m ON m.session_id = s.id
+      WHERE s.workspace_id = ? AND s.source IS NULL${like ? " AND s.title LIKE ? ESCAPE '\\'" : ''}
+      GROUP BY s.id
+      ORDER BY COALESCE(MAX(m.created_at), s.created_at) DESC
+      LIMIT ?
+    `;
+  const params: unknown[] = [workspaceId];
+  if (like) params.push(like);
+  params.push(limit);
+  return getDatabase().prepare(sql).all(...params) as SessionWithCounts[];
 }
 
 /** Number of persisted messages in a session. 0 means the chat has never run a turn. */

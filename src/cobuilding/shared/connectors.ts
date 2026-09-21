@@ -168,6 +168,8 @@ export const RESERVED_CONNECTOR_IDS = [
   'knowledge',
   // The API-proxy relay (`mcp__apis__list_apis`). Same shadowing argument.
   'apis',
+  // The other-chats relay (`mcp__chats__list_chats` / `read_chat`). Same again.
+  'chats',
 ];
 
 export interface ValidationResult {
