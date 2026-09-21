@@ -239,7 +239,7 @@ re-sent for 34 minutes.
   positive fingerprint cases proven non-vacuous by neutering the predicate —
   exactly those three go red). Incidentally hardened `processTree.test.ts`,
   whose fixed 500 ms wait for the fixture's grandchild flaked 1-in-2 under load
-  (now polled up to 5 s); smoke exits 0. ****; the bug **reproduced live** over CDP
+  (now polled up to 5 s); smoke exits 0. Then the bug **reproduced live** over CDP
   against `npm start` — a turn that leaves `sleep 900` running, session
   destroyed, second message → `task_notification`, `init`, empty `result`
   291 ms in with zero assistant output, the production shape exactly. With the
