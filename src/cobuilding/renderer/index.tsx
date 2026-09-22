@@ -36,6 +36,7 @@ import { useElectronChatAdapter } from './chatAdapter';
 import { sessionListAdapter } from './sessionListAdapter';
 import { useThreadHistoryAdapter } from './threadHistoryAdapter';
 import { createAttachmentAdapter } from './attachmentAdapter';
+import { installScreenshotGrab } from './screenshotGrab';
 import { createHostDictationAdapter } from './hostDictationAdapter';
 import { useSessionSubscription } from './useSessionSubscription';
 import { reloadThreadHistory } from './reloadThreadHistory';
@@ -69,6 +70,8 @@ initSentryRenderer();
 // and subscribes to auth-state changes. Fire-and-forget; track() calls
 // before init resolves are no-ops, which is correct (we're pre-login anyway).
 initCoScientistAnalytics();
+// Main calls this for screenshots taken outside Acabox (see screenshotGrab.ts).
+installScreenshotGrab();
 
 /** Listens for quick-chat:inject IPC and creates a new thread with the message + context. */
 function QuickChatInjector({ onSwitchToChat }: { onSwitchToChat: () => void }) {

@@ -279,6 +279,14 @@ module.exports = {
                 js: './src/cobuilding/main/findBarPreload.ts',
               },
             },
+            {
+              html: './src/cobuilding/renderer/screenshot-overlay.html',
+              js: './src/cobuilding/renderer/screenshot-overlay-entry.ts',
+              name: 'screenshot_overlay_window',
+              preload: {
+                js: './src/cobuilding/main/screenshotOverlayPreload.ts',
+              },
+            },
           ],
         },
       },

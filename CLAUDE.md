@@ -180,6 +180,68 @@ to `PATH`.
 
 ## Status (last updated 2026-09-22)
 
+**Screenshot button in both composers: one click inside Acabox, a picker click
+outside it, no permission (2026-09-22).** Asked for as "a button that takes a
+screenshot and appends it as context — ideally anything on my desktop". The
+design was the user's pick after three rounds: no Screen Recording grant.
+- **The gesture.** The button lays a clear sheet over every display
+  (crosshair, faint tint, the Acabox window outlined "ACABOX · INSTANT"). Drag
+  or click inside Acabox -> our own `capturePage`, instant. Drag or click
+  anywhere else -> the macOS system picker; "Share Entire Screen" and the box is
+  cropped out of the frame, or pick a window and get the whole window. Esc or
+  right-click cancels. The image lands as an ordinary composer attachment;
+  nothing sends by itself. Pure rules in `shared/screenshot.ts`, glue in
+  `main/screenshotHost.ts` + `renderer/screenshotGrab.ts`, sheet page
+  `renderer/screenshot-overlay-*` (its own forge entry).
+- **Why no permission.** Direct capture of other apps needs Screen Recording,
+  which TCC keys to our ad-hoc signature, so it would lapse at every update.
+  `setDisplayMediaRequestHandler(…, {useSystemPicker: true})` uses
+  ScreenCaptureKit's picker, where the click IS the consent. **Measured with a
+  fresh bundle id launched through LaunchServices** (launching from a terminal
+  makes the terminal the responsible process, and ours already had the grant):
+  `getMediaAccessStatus('screen')` read `denied` before and after, and a full
+  3456x2234 frame of real screen content came back. macOS 15+ only; below that
+  our fallback handler runs and the user is told so.
+- **`getDisplayMedia` is called from MAIN via `executeJavaScript(…, true)`**
+  — it needs transient activation, and the button click's has expired by the
+  time a box is drawn. Chromium abandons the picker after ~10 s
+  ("Timeout starting video source"), surfaced as "try again".
+- **Four macOS surprises, all measured, all now in code comments:**
+  (1) `setVisibleOnAllWorkspaces({visibleOnFullScreen})` deactivates the app
+  unless given `skipTransformProcessType: true` — Esc then went to whatever
+  app was behind. (2) Windows at the menu-bar level or higher
+  (`screen-saver` included) were kept OFF SCREEN (CGWindowList
+  `onscreen=false`, even as the front app) partway through the session, having
+  worked earlier; the sheet uses `modal-panel`, which rendered throughout, and
+  so sits under the menu bar and Dock. (3) The window server placed windows
+  lower than requested (sheet asked y=33, drawn at 80; the main window reported
+  53, drawn at ~79) while Electron AND Accessibility both reported the
+  requested frame — so NO coordinate is trusted: the sheet calibrates its
+  origin on the first pointer event against `screen.getCursorScreenPoint()`,
+  and the button press does the same for the main window (a keyboard press
+  falls back to `getContentBounds()`). (4) A destroyed sheet does not return
+  key status, so every second capture needed two clicks; main now refocuses
+  the window after the sheet and after the picker. The picker's first frames
+  are 556 px thumbnails; `screenshotGrab` waits for a full-size frame + 250 ms.
+- **Cost: zero extra model calls.** Captures are capped at 3.5 MP
+  (`MAX_SCREENSHOT_PIXELS`), about what the API downscales to anyway, which
+  also keeps a Retina full-screen grab under the image adapter's 7 MB inline
+  ceiling (otherwise it would become a file path the agent must Read).
+- Verified: tsc clean; **1778/1778 across 119 suites** (+20, 1 new suite, one
+  of which caught a real bug: at 1% tolerance a 1400x900 window read as the
+  laptop screen); smoke exits 0. Live on `npm start`, real mouse events: a drag
+  around a tool card cropped to it within 1 pt of its DOM rect (after the
+  calibration fix; before it, 28 pt off); click-inside gave the whole window at
+  2366x1479 (fitted from 2880x1800); drag over another app + "Share Entire
+  Screen" gave exactly that 126x370 pt region at 2x; a window picked in the
+  picker; Esc cancelled with nothing attached; picker timeout message shown;
+  and a real turn with two screenshots — the agent described both correctly.
+- **NOT verified:** the packaged build; Acabox itself in native full screen;
+  a display arranged side by side where "Share Entire Screen" may pick the
+  other display (the crop then refuses and attaches the whole frame, by
+  design). In the measured condition a 47 pt strip under the menu bar is not
+  covered by the sheet, so a drag starting there reaches the app beneath.
+
 **A turn's steps now collapse; a finished turn folds to one line (2026-09-22).**
 Asked for as "every step has its own box and it takes up a lot of vertical
 space — I want to know what it's doing right now, and the rest only when I go

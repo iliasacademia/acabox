@@ -2,14 +2,16 @@ import React, { type FC } from 'react';
 import { ComposerPrimitive, AuiIf } from '@assistant-ui/react';
 import { MSymbol } from '../command-desk/MSymbol';
 import { DictationButton } from '../command-desk/DictationButton';
+import { ScreenshotButton } from '../command-desk/ScreenshotButton';
 import { composerAttachmentComponents } from './composer-attachments';
 import { ComposerQuoteChip } from './message-quote';
 import { useSetupState } from '../../setupStore';
 
 /**
- * The narrow side-panel composer (Phase B spec): `▸` glyph + input + send/stop
- * only. The panel is a companion surface — attach & model picker stay in the
- * full view's docked GlobalComposer.
+ * The narrow side-panel composer (Phase B spec): `▸` glyph + input + send/stop.
+ * The panel is a companion surface — attach & model picker stay in the full
+ * view's docked GlobalComposer. Screenshot is the exception: this panel sits
+ * beside an open tool, which is the thing most worth capturing.
  */
 export const ChatComposer: FC<{ placeholder?: string }> = ({
   placeholder = 'Reply — or ask for the next change',
@@ -38,6 +40,7 @@ export const ChatComposer: FC<{ placeholder?: string }> = ({
           rows={1}
           aria-label="Message input"
         />
+        <ScreenshotButton size={16} />
         <DictationButton size={16} />
         <AuiIf condition={(s: any) => !s.thread.isRunning}>
           <ComposerPrimitive.Send asChild>

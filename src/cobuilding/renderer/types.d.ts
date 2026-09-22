@@ -1297,6 +1297,7 @@ declare global {
     jobsAPI: JobsAPI;
     shareAPI: ShareAPI;
     dictationAPI: DictationAPI;
+    screenshotAPI?: { capture(press?: { x: number; y: number }): Promise<import('../shared/screenshot').ScreenshotResult> };
     buildHealthAPI: BuildHealthAPI;
     miniAppMcpAPI: MiniAppMcpAPI;
     mcpServersAPI: McpServersAPI;

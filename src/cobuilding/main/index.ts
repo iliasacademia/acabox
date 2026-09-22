@@ -174,6 +174,7 @@ import { getDeviceId } from '../../utils/deviceId';
 import { destroyTokenManager, getCredentials, setCredentials } from './cobuildingTokenManager';
 import { createQuickChatWindow, showQuickChat, updateMainWindowRef } from './quickChat';
 import { installFindInPage } from './findInPageHost';
+import { installScreenshot } from './screenshotHost';
 import { registerCalendarHandlers } from './ipc/calendar';
 import { registerDebugHandlers } from './ipc/debug';
 import { registerReactionsHandlers, getReactionsEnabled, ensureReactionsTask } from './ipc/reactions';
@@ -213,6 +214,8 @@ declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 declare const FIND_BAR_WINDOW_WEBPACK_ENTRY: string;
 declare const FIND_BAR_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
+declare const SCREENSHOT_OVERLAY_WINDOW_WEBPACK_ENTRY: string;
+declare const SCREENSHOT_OVERLAY_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
 function getSettingsPath(): string {
   return path.join(app.getPath('userData'), 'cobuilding-settings.json');
@@ -1211,6 +1214,11 @@ app.whenReady().then(async () => {
       getMainWindow: () => mainWindow,
       barEntryUrl: FIND_BAR_WINDOW_WEBPACK_ENTRY,
       barPreloadPath: FIND_BAR_WINDOW_PRELOAD_WEBPACK_ENTRY,
+    });
+    installScreenshot({
+      getMainWindow: () => mainWindow,
+      overlayEntryUrl: SCREENSHOT_OVERLAY_WINDOW_WEBPACK_ENTRY,
+      overlayPreloadPath: SCREENSHOT_OVERLAY_WINDOW_PRELOAD_WEBPACK_ENTRY,
     });
     // Alt+Shift+A rather than the original app's Alt+Shift+Space, so the two
     // apps don't fight over one OS-wide exclusive hotkey when both are running.

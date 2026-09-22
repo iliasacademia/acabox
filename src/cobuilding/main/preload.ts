@@ -291,6 +291,11 @@ contextBridge.exposeInMainWorld('systemStatsAPI', {
   get: () => ipcRenderer.invoke('stats:get'),
 });
 
+contextBridge.exposeInMainWorld('screenshotAPI', {
+  /** Runs the whole capture gesture; resolves with the image or a reason. */
+  capture: (press?: { x: number; y: number }) => ipcRenderer.invoke('screenshot:capture', press),
+});
+
 contextBridge.exposeInMainWorld('dictationAPI', {
   /** Prompt-free capability check — safe to call on mount. */
   probe: (locale?: string) => ipcRenderer.invoke('dictation:probe', locale),

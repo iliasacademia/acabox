@@ -11,6 +11,7 @@ import { ComposerQuoteChip } from './assistant-ui/message-quote';
 import { ModelSelector } from './ModelSelector';
 import { MSymbol } from './command-desk/MSymbol';
 import { DictationButton } from './command-desk/DictationButton';
+import { ScreenshotButton } from './command-desk/ScreenshotButton';
 import type { FC } from 'react';
 
 /**
@@ -83,6 +84,7 @@ const ComposerBody: FC = () => {
             <MSymbol name="attach_file" size={19} />
           </button>
         </ComposerPrimitive.AddAttachment>
+        <ScreenshotButton />
         <DictationButton />
         <ModelSelector />
         <AuiIf condition={(s: any) => !s.thread.isRunning}>
