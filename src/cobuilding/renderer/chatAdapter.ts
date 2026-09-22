@@ -270,6 +270,14 @@ export function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefO
                 tool_call_count: toolCallCount,
               },
             });
+            // The measured length of the turn, for the "Worked for 4m 12s"
+            // line the thread folds a finished turn behind. Measured here, not
+            // estimated: this generator saw the turn start and end. A reload
+            // recomputes it from row timestamps (historyMessageConverter).
+            yield {
+              content: response.getContent(),
+              metadata: { custom: { workedMs: Date.now() - turnStartMs } },
+            };
             break;
           }
           response.onMessage(msg);

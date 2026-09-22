@@ -288,3 +288,39 @@ describe('quoted user messages', () => {
     expect(message.metadata.custom.quote).toEqual(fileQuote);
   });
 });
+
+describe('turn duration (the "Worked for" line)', () => {
+  // Timestamps in the exact form SQLite stores them: no zone suffix. Only the
+  // DIFFERENCE is used, so how `Date.parse` places them in time cancels out.
+  const turn: HistoryDbMessage[] = [
+    { type: 'user', content: { text: 'go' }, createdAt: '2026-09-22T10:00:00.000' },
+    { type: 'assistant', content: [{ type: 'text', text: 'working' }], createdAt: '2026-09-22T10:00:05.000' },
+    { type: 'assistant', content: [{ type: 'text', text: 'done' }], createdAt: '2026-09-22T10:04:10.000' },
+    { type: 'result', content: { subtype: 'success' }, createdAt: '2026-09-22T10:04:12.000' },
+  ];
+
+  it('runs from the user row to the last row of the turn, result row included', () => {
+    const [, assistant] = convertHistoryMessages(turn) as any[];
+    expect(assistant.metadata.custom.workedMs).toBe(252_000); // 4m 12s
+  });
+
+  it('measures each turn from its own user message', () => {
+    const rows: HistoryDbMessage[] = [
+      ...turn,
+      { type: 'user', content: { text: 'again' }, createdAt: '2026-09-22T11:00:00.000' },
+      { type: 'assistant', content: [{ type: 'text', text: 'ok' }], createdAt: '2026-09-22T11:00:30.000' },
+    ];
+    const messages = convertHistoryMessages(rows) as any[];
+    expect(messages[1].metadata.custom.workedMs).toBe(252_000);
+    expect(messages[3].metadata.custom.workedMs).toBe(30_000);
+  });
+
+  it('leaves the duration out rather than guessing when a timestamp is missing', () => {
+    const rows: HistoryDbMessage[] = [
+      { type: 'user', content: { text: 'go' } },
+      { type: 'assistant', content: [{ type: 'text', text: 'hi' }], createdAt: '2026-09-22T10:00:05.000' },
+    ];
+    const [, assistant] = convertHistoryMessages(rows) as any[];
+    expect(assistant.metadata).toBeUndefined();
+  });
+});

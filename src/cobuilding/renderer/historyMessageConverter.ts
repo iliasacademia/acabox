@@ -76,13 +76,23 @@ export function convertHistoryMessages(dbMessages: readonly HistoryDbMessage[]):
   const messages: ThreadMessageLike[] = [];
   let pendingAssistantContent: ReturnType<typeof convertAssistantBlocks> | null = null;
   let pendingAssistantCreatedAt: string | undefined;
+  // How long the turn took, for the thread's "Worked for …" line: from the
+  // user row that started it to the last row it produced (usually its
+  // `result` row). Both are real timestamps; with either missing the duration
+  // is left out rather than guessed.
+  let turnStartAt: string | undefined;
+  let turnEndAt: string | undefined;
 
   const flushAssistant = () => {
     if (pendingAssistantContent && pendingAssistantContent.length > 0) {
+      const workedMs = turnStartAt && turnEndAt
+        ? Date.parse(turnEndAt) - Date.parse(turnStartAt)
+        : NaN;
       messages.push({
         role: 'assistant',
         content: pendingAssistantContent,
         ...(pendingAssistantCreatedAt ? { createdAt: new Date(pendingAssistantCreatedAt) } : {}),
+        ...(Number.isFinite(workedMs) && workedMs > 0 ? { metadata: { custom: { workedMs } } } : {}),
       });
     }
     pendingAssistantContent = null;
@@ -92,8 +102,13 @@ export function convertHistoryMessages(dbMessages: readonly HistoryDbMessage[]):
   for (const msg of dbMessages) {
     if (msg.type === 'user') {
       flushAssistant();
+      turnStartAt = msg.createdAt;
+      turnEndAt = undefined;
       messages.push(convertUserMessage(msg.content, msg.createdAt));
-    } else if (msg.type === 'assistant') {
+      continue;
+    }
+    if (msg.createdAt) turnEndAt = msg.createdAt;
+    if (msg.type === 'assistant') {
       const blocks = asAnthropicContentBlocks(msg.content);
       const converted = convertAssistantBlocks(blocks, toolResults);
       if (pendingAssistantContent) {

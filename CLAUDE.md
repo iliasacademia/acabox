@@ -180,6 +180,57 @@ to `PATH`.
 
 ## Status (last updated 2026-09-22)
 
+**A turn's steps now collapse; a finished turn folds to one line (2026-09-22).**
+Asked for as "every step has its own box and it takes up a lot of vertical
+space — I want to know what it's doing right now, and the rest only when I go
+looking". Option C of three proposed, the user's pick.
+- **The layout.** While a turn runs, Claude's narration stays visible and every
+  run of consecutive tool calls between two pieces of prose is ONE line:
+  `Ran 3 commands, wrote 2 files` — or, while a step is in flight, that step's
+  name, target and a ticking clock. When the turn ends, everything before the
+  final answer folds behind `Worked for 4m 12s · 26 steps`; opening it restores
+  the running layout, and opening a step line shows its steps as flat rows
+  (no borders — boxing each one was exactly the weight being removed).
+- **Two things never fold.** Results — the mini-app open/build cards, plan
+  prompts, and the LAST task checklist (earlier ones are superseded snapshots,
+  so they fold with the steps) — stay in view. Failures are counted in red on
+  whichever line hides them, and a step group with a failure opens itself.
+- **`assistant-ui` was already grouping tool calls and we were throwing it
+  away**: our `ToolGroup` slot was `<>{children}</>`. It is deleted rather
+  than filled in, because the fold has to split a message AT AN INDEX (work
+  before the answer, answer after) and the library's grouping has no notion of
+  that. `turn-steps.tsx` renders parts one by one through
+  `MessagePrimitive.PartByIndex`; every decision it makes lives in pure
+  `turnSteps.ts` (segmenting, outcome rules, failure rule, final-answer start,
+  summary phrasing), because the React half cannot be imported under jest.
+- **The selector copies no `text` or `args`.** It runs on every streamed token
+  for every mounted message and a Write's args can be a 75 KB file, so it
+  passes precomputed `blank`/`install` flags, and returns a JSON string so
+  `useSyncExternalStore` sees a stable primitive (a fresh array would loop).
+  Only the one running step reads its own arguments.
+- **"Worked for" is measured, never estimated.** Live: `chatAdapter` yields
+  `metadata.custom.workedMs` at turn-complete from the start time it already
+  held. Reload: `historyMessageConverter` computes user row -> last row of the
+  turn (the `result` row, which it previously skipped). Either timestamp missing
+  -> the label reads `Worked · N steps`, no guessed number. Differences only, so
+  SQLite's zone-less timestamps cancel out. The message meta line dropped its
+  `N TOOL CALLS` segment, now said by the fold.
+- Verified: tsc clean; **1758/1758 across 118 suites** (+24: 21 layout cases,
+  3 duration cases); smoke exits 0. Live over CDP on `npm start`: a 16-step
+  history chat folded to `Worked for 3m 24s · 16 steps` with `3 FAILED` in red
+  and only its last checklist in view; opened, it showed 11 one-line groups
+  between the narration with the three failing groups already open as red flat
+  rows. A real live turn sampled every 900 ms: `bash sleep 6` with the clock
+  ticking 0S -> 5S, collapsing to `Ran 1 command · 1 STEP` when it finished,
+  **zero** boxed cards at any sample, then `Worked for 18s · 4 steps` above
+  `DONE` the moment the turn ended.
+- **Cosmetic, left:** for the instant a call's arguments are still streaming the
+  running line reads `bash 0S` with no target. The tool-card fallback for
+  `TodoWrite` in history rows still shows an empty `todo` row — pre-existing,
+  unchanged here.
+
+## Status (earlier on 2026-09-22)
+
 **Opus 5.5: discovery found it, the CLI refused it, SDK 0.3.273 -> 0.3.280 fixed
 it (2026-09-22).** Asked as "do we need to update Acabox to get Opus 5.5, and
 can we avoid that in future?"

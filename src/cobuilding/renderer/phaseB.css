@@ -1506,3 +1506,80 @@
 .cdUser__bubble .cdChatLinkChip--missing {
   color: var(--cd-text2);
 }
+
+/* ── Collapsed steps (turn-steps.tsx) ─────────────────────────────
+ * A run of tool calls between two pieces of prose renders as ONE line;
+ * a finished turn folds all its work behind a "Worked for …" line.
+ * Deliberately borderless: these are an index into the work, not cards,
+ * and boxing each one is exactly the vertical weight being removed. */
+.cdSteps, .cdTurnFold { min-width: 0; }
+.cdSteps__row, .cdTurnFold__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px 0 4px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--cd-text2);
+  transition: background 150ms ease-out;
+}
+.cdSteps__row:hover, .cdTurnFold__row:hover { background: var(--cd-pale); }
+.cdSteps__chevron { color: var(--cd-text3); flex: none; }
+.cdSteps__icon { color: var(--cd-text2); flex: none; }
+.cdSteps__summary {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cdSteps__name {
+  flex: none;
+  font-family: var(--cd-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--cd-ink);
+}
+.cdSteps__args {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--cd-mono);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cdSteps__meta {
+  flex: none;
+  font-family: var(--cd-mono);
+  font-size: 10px;
+  color: var(--cd-text3);
+  text-transform: uppercase;
+}
+.cdSteps__meta--error, .cdTurnFold__failed { color: var(--cd-error); }
+.cdTurnFold__label { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; }
+.cdTurnFold__failed { flex: none; font-family: var(--cd-mono); font-size: 10px; text-transform: uppercase; }
+
+/* Expanded bodies hang off a thin rule, so nesting reads at a glance. */
+.cdSteps__body, .cdTurnFold__body {
+  margin: 4px 0 0 11px;
+  padding-left: 12px;
+  border-left: 1px solid var(--cd-border-soft);
+  min-width: 0;
+}
+.cdTurnFold__body > * + * { margin-top: 12px; }
+.cdSteps__body > * + * { margin-top: 2px; }
+
+/* Steps inside an open group are flat rows, not bordered cards. Chained
+ * selectors so this cannot lose a specificity tie to import order. */
+.cdSteps__body .cdTool.cdTool { border: none; background: transparent; }
+.cdSteps__body .cdTool.cdTool--error { background: var(--cd-error-bg); }
+.cdSteps__body .cdTool .cdTool__row { height: 28px; padding: 0 8px; }
+.cdSteps__body .cdTool--open .cdTool__out { border: 1px solid var(--cd-border-soft); border-radius: 6px; margin: 2px 0 6px; }

@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { MarkdownText } from './markdown-text';
 import { ToolFallback } from './tool-fallback';
-import { ToolGroup } from './tool-group';
+import { AssistantParts } from './turn-steps';
 import { TodoWrite } from './todo-write';
 import { EnterPlanMode } from './enter-plan-mode';
 import { Reasoning } from './thinking-indicator';
@@ -353,21 +353,31 @@ const MessageError: FC = () => {
   );
 };
 
-/** Mono meta line closing a completed assistant message: `3 TOOL CALLS · 09:14`. */
+/**
+ * Mono meta line closing a completed assistant message: its time. The step
+ * count used to live here too (`3 TOOL CALLS · 09:14`); it now heads the
+ * "Worked for …" fold line above, and saying it twice was noise.
+ */
 const AssistantMeta: FC = () => {
   const meta = useAuiState((s: any) => {
     if (s.message.status?.type === 'running') return null;
-    const parts = s.message.parts ?? [];
-    const toolCalls = parts.filter((p: any) => p.type === 'tool-call').length;
     const createdAt = s.message.createdAt as Date | undefined;
-    const segments: string[] = [];
-    if (toolCalls > 0) segments.push(`${toolCalls} TOOL CALL${toolCalls === 1 ? '' : 'S'}`);
-    if (createdAt) segments.push(formatMsgTime(new Date(createdAt)));
-    return segments.length > 0 ? segments.join(' · ') : null;
+    return createdAt ? formatMsgTime(new Date(createdAt)) : null;
   }) as string | null;
 
   if (!meta) return null;
   return <span className="cdAsst__meta">{meta}</span>;
+};
+
+/**
+ * Stable (module-level) so every part rendered by index shares one components
+ * object; tool UIs registered by name (the mini-app cards) are found through
+ * the runtime's registry on the same path.
+ */
+const ASSISTANT_PART_COMPONENTS = {
+  Text: MarkdownText,
+  Reasoning,
+  tools: { Fallback: ToolFallback, TodoWrite, EnterPlanMode },
 };
 
 const AssistantMessage: FC = () => {
@@ -387,14 +397,7 @@ const AssistantMessage: FC = () => {
       data-role="assistant"
     >
       <div className="cdAsst__parts">
-        <MessagePrimitive.Parts
-          components={{
-            Text: MarkdownText,
-            Reasoning,
-            tools: { Fallback: ToolFallback, TodoWrite, EnterPlanMode },
-            ToolGroup,
-          }}
-        />
+        <AssistantParts components={ASSISTANT_PART_COMPONENTS} />
         <WorkingIndicator />
         <MessageError />
       </div>
