@@ -47,8 +47,9 @@ export interface DiscoveredModel {
  */
 export const CURATED_MODELS: readonly PickerModel[] = [
   { id: 'claude-fable-5-1', label: 'Fable 5.1', description: 'Highest intelligence, premium cost' },
-  { id: 'claude-opus-5', label: 'Opus 5', description: 'Most capable for ambitious work' },
-  { id: 'claude-opus-4-8', label: 'Opus 4.8', description: 'Previous-generation Opus' },
+  { id: 'claude-opus-5-5', label: 'Opus 5.5', description: 'Newest Opus, most capable for ambitious work' },
+  { id: 'claude-opus-5', label: 'Opus 5', description: 'Previous-generation Opus' },
+  { id: 'claude-opus-4-8', label: 'Opus 4.8', description: 'Older Opus' },
   { id: 'claude-sonnet-5', label: 'Sonnet 5', description: 'Most efficient for everyday tasks' },
   { id: 'claude-haiku-4-5', label: 'Haiku 4.5', description: 'Fastest for quick answers' },
 ] as const;
@@ -101,6 +102,21 @@ export const UNSUPPORTED_MODEL_IDS: readonly string[] = [
 ] as const;
 
 /**
+ * Measured again on 2026-09-22, when `claude-opus-5-5` appeared in discovery
+ * and the picker offered it (correctly — that is what discovery is for) while
+ * the shipped CLI refused it:
+ *
+ *     API Error: 400 Claude Code 2.1.273 does not support this model;
+ *     version 2.1.280 or newer is required.
+ *
+ * `claude-opus-5` answered normally on the same build, so the gate is the CLI
+ * version and nothing else. Cleared by SDK 0.3.273 -> 0.3.280 (the SDK's minor
+ * tracks the CLI's patch: 0.3.N bundles Claude Code 2.1.N), re-probed, and
+ * Opus 5.5 is curated above. The list stays empty and stays here — the next
+ * model Anthropic ships will land in exactly this state again.
+ */
+
+/**
  * Every id this build was written against, shown or not.
  *
  * `UNSUPPORTED_MODEL_IDS` belongs here and leaving it out would be a live bug:
@@ -118,6 +134,11 @@ export const KNOWN_MODEL_IDS: readonly string[] = [
 /**
  * Pinned, and pinned on purpose — see the header. Changing it is a decision,
  * so it is a code edit.
+ *
+ * Deliberately NOT moved to `claude-opus-5-5` when that shipped (2026-09-22).
+ * The default is what every new chat costs, and nobody chose it; moving it
+ * because Anthropic released something is exactly the auto-jump the header
+ * rules out. Opus 5.5 is one click away in the picker.
  */
 export const DEFAULT_MODEL = 'claude-opus-5';
 

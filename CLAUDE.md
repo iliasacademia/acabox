@@ -178,6 +178,54 @@ to `PATH`.
   SIGKILLs the suite mid-run and the tail prints `[exited with code 0]`
   from the pipe, which reads as a pass. Measured 2026-09-18.
 
+## Status (last updated 2026-09-22)
+
+**Opus 5.5: discovery found it, the CLI refused it, SDK 0.3.273 -> 0.3.280 fixed
+it (2026-09-22).** Asked as "do we need to update Acabox to get Opus 5.5, and
+can we avoid that in future?"
+- **The auto-discovery built on 09-16 worked exactly as designed, and that is
+  what exposed the gap.** `claude-opus-5-5` appeared in `GET /v1/models` at
+  10:00 and `mergeModels` put it at the top of the picker with no code change,
+  labelled "New from Anthropic — may need an Acabox update". The user selected
+  it. **That label turned out to be literally true**, which is the whole
+  finding: discovery proves a model EXISTS, never that this build can RUN it.
+- **Measured, not assumed, with a two-model control.** A direct `query()` against
+  the shipped SDK: `claude-opus-5` -> `PONG`; `claude-opus-5-5` ->
+  `400 Claude Code 2.1.273 does not support this model; version 2.1.280 or
+  newer is required`. Same build, same key, same prompt — so the gate is the
+  CLI version and nothing else, exactly as the Known hazard predicted.
+- **The SDK's minor tracks the CLI's patch: 0.3.N bundles Claude Code 2.1.N.**
+  Confirmed by reading `manifest.json` out of the 0.3.280 tarball before
+  installing (`version: 2.1.280`, built 2026-09-21) rather than inferring it
+  from the numbering. That mapping is how to pick the target version next time:
+  the 400 names the CLI version it wants, so ask for that same N.
+- **A patch bump, and all three peers already satisfied it** (`@anthropic-ai/sdk
+  >=0.93.0` vs our 0.126.0, `@modelcontextprotocol/sdk ^1.29.0` vs our exact
+  1.29.0, `zod ^4.0.0` vs our 4.3.6) — checked BEFORE installing, which is why
+  this took one command where 0.2 -> 0.3 took an afternoon. **`@modelcontextprotocol/sdk`
+  verified still exactly 1.29.0 afterwards**, the thing this file warns a bump
+  can move silently.
+- **The default model deliberately did NOT move to Opus 5.5.** The default is
+  what every new chat costs and nobody chose it; auto-jumping on release is the
+  exact behaviour `shared/models.ts` rules out. Recorded at the `DEFAULT_MODEL`
+  declaration so the next person does not "fix" it.
+- **The answer to "without an update" is no, and the reason is worth keeping.**
+  The refusal is server-side, keyed on the version string the CLI sends, so
+  there is no client flag to set. The only real alternative is shipping a newer
+  CLI without shipping the app — the SDK does expose
+  `pathToClaudeCodeExecutable`, so Acabox could fetch one into userData — but
+  that is a ~212 MB signed binary that runs with the user's API key and full
+  Bash, and its protocol is only tested against its own SDK build. Acabox
+  already auto-updates, and the app download is the same order of magnitude, so
+  a second update channel buys turnaround time and duplicates the risk.
+  **The gate is CHAT-only** — mini-apps reach Opus 5.5 today, no update, because
+  they call the API through the proxy with no CLI in the path.
+- Verified: tsc clean; **1734/1734 across 117 suites**; `--smoke-test` exits 0
+  and `--smoke-test-mcp` **PASSes**; the rebuilt `dist/agent-server.js` boots
+  standalone under Electron's own Node and serves `/health`. Real turns on the
+  new CLI: **`claude-opus-5-5` -> PONG**, plus `claude-opus-5` and
+  `claude-fable-5-1` as regressions, all three `is_error=false`.
+
 ## Status (last updated 2026-09-21)
 **The first message after a gap no longer vanishes (2026-09-21).** Reported as
 "I send a message, it shows thinking, then that disappears and I have to
