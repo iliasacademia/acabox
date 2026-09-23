@@ -35,6 +35,20 @@ contextBridge.exposeInMainWorld('connectorsAPI', {
   },
 });
 
+// Settings → Claude Design. See main/claudeDesignLogin.ts.
+contextBridge.exposeInMainWorld('claudeDesignAPI', {
+  getStatus: () => ipcRenderer.invoke('claudeDesign:getStatus'),
+  signIn: () => ipcRenderer.invoke('claudeDesign:signIn'),
+  submitCode: (code: string) => ipcRenderer.invoke('claudeDesign:submitCode', code),
+  reopenPage: () => ipcRenderer.invoke('claudeDesign:reopenPage'),
+  cancel: () => ipcRenderer.invoke('claudeDesign:cancel'),
+  onEvent: (callback: (event: unknown) => void) => {
+    const handler = (_e: unknown, event: unknown) => callback(event);
+    ipcRenderer.on('claudeDesign:event', handler);
+    return () => ipcRenderer.removeListener('claudeDesign:event', handler);
+  },
+});
+
 contextBridge.exposeInMainWorld('mcpServersAPI', {
   list: () => ipcRenderer.invoke('mcpServers:list'),
   onChanged: (callback: (servers: unknown[]) => void) => {

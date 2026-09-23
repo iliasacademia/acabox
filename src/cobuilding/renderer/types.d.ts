@@ -121,6 +121,19 @@ interface AuthAPI {
   setEndpoint(endpoint: string): Promise<{ success: boolean; endpoint: string }>;
 }
 
+/** Settings → Claude Design. Shapes come from `shared/claudeDesign.ts`. */
+type DesignLoginStatusT = import('../shared/claudeDesign').DesignLoginStatus;
+type DesignLoginEventT = import('../shared/claudeDesign').DesignLoginEvent;
+
+interface ClaudeDesignAPI {
+  getStatus(): Promise<DesignLoginStatusT>;
+  signIn(): Promise<{ ok: true } | { ok: false; error: string }>;
+  submitCode(code: string): Promise<{ ok: true } | { ok: false; error: string }>;
+  reopenPage(): Promise<{ ok: boolean }>;
+  cancel(): Promise<void>;
+  onEvent(callback: (event: DesignLoginEventT) => void): () => void;
+}
+
 /**
  * Settings → Connectors. Shapes come from `shared/connectors.ts`; imported as
  * types only so this ambient file stays declaration-only.
@@ -1278,6 +1291,7 @@ declare global {
     jupyterAPI: JupyterAPI;
     authAPI: AuthAPI;
     connectorsAPI: ConnectorsAPI;
+    claudeDesignAPI: ClaudeDesignAPI;
     modelsAPI: {
       list(): Promise<{
         models: { id: string; label: string; description: string; discovered?: boolean }[];

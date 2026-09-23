@@ -180,6 +180,50 @@ to `PATH`.
 
 ## Status (last updated 2026-09-23)
 
+**Settings → Claude Design: a sign-in so chats can reach claude.ai/design
+(2026-09-23).** Built by the in-app agent on branch `claude-design-sign-in`
+(chat `d844d9ff…`), reviewed and fixed here. The SDK already ships a
+`DesignSync` tool; it answered "needs design-system authorization" forever,
+because the credential comes from `/design-login`, a slash command headless
+sessions cannot type.
+- **Mechanism: the CLI's hidden `claude design-login --json [--status]`**,
+  built for the VS Code extension. Read out of the 2.1.280 binary, not
+  guessed: `--status` prints `{available, signed_in, can_sign_in_here}`; the
+  flow prints `{"event":"pages",url,manual_url,manual_first}` then
+  `{"event":"done",ok}`, and takes a pasted `{"code":"<code>#<state>"}` on
+  stdin. The credential lands in secure storage keyed by `CLAUDE_CONFIG_DIR`,
+  so it is spawned with `getClaudeConfigDir()` — the exact string the agent
+  server passes as `COSCIENTIST_CLAUDE_CONFIG_DIR`; any other value mints a
+  credential no chat sees. The CLI refuses when `CLAUDECODE` /
+  `CLAUDE_CODE_CHILD_SESSION` are set (an Acabox started from a Claude Code
+  terminal inherits both), hence `DESIGN_LOGIN_ENV_STRIP`. Pure protocol in
+  `shared/claudeDesign.ts`, spawn/relay in `main/claudeDesignLogin.ts`.
+- **Three review fixes.** (1) It added a second `will-quit` listener;
+  `handleWillQuit` is the sole one by design, so cancel is now an
+  `appTeardown` step. (2) The status was read at mount — Settings mounts at
+  boot behind `display:none`, so every launch spawned the CLI and read the
+  keychain, then showed that snapshot forever (the API-proxy-banner bug). Now
+  read on arrival via `active`, pinned by a render test proven red on the old
+  code. (3) Inline styles on nonexistent tokens (`--border-color`,
+  `--error-color`, `#555`) replaced with `connectorField__input` /
+  `wsSettings__dirError`.
+- **`DesignSync` is NOT in the auto-approved tools.** Reads should work
+  without it; writes publish into the org's shared design projects and the
+  tool asks for approval, which Acabox has no prompt to answer — so writes may
+  be refused. One line in `agentAllowedTools.ts` if that is wanted.
+- **Cost: zero model calls.** The status check is a 0.45 s CLI spawn.
+- Verified: tsc clean; **1833/1833 across 126 suites** (+18, 2 new suites);
+  smoke exits 0. Live on `npm start`: before Settings was visited the section
+  read "Checking…" (no spawn); on arrival it showed "Not signed in" with an
+  enabled Sign in, from the real binary via the real main process. The
+  in-app agent had started a real flow against a throwaway config dir and
+  seen the https sign-in page event.
+- **NOT verified: a completed sign-in, and a chat then reading a project** —
+  needs the user's browser and claude.ai account. Also unknown: whether a live
+  session picks up a fresh credential or needs a new chat. **Acceptance test:
+  Settings → Claude Design → Sign in, approve in the browser, open a NEW chat,
+  ask it to list your Claude Design projects.**
+
 **Chats show when they are working and when they have news you haven't seen
 (2026-09-23).** Asked for from a screenshot of a tool's chat switcher: "some are
 actively streaming — we need an unread indicator, a simple way to track what

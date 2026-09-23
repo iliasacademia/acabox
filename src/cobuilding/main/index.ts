@@ -178,6 +178,7 @@ import { installFindInPage } from './findInPageHost';
 import { installScreenshot } from './screenshotHost';
 import { registerCalendarHandlers } from './ipc/calendar';
 import { registerDebugHandlers } from './ipc/debug';
+import { cancelDesignLogin, registerClaudeDesignHandlers } from './claudeDesignLogin';
 import { registerReactionsHandlers, getReactionsEnabled, ensureReactionsTask } from './ipc/reactions';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
 import { validateExternalUrl } from '../../utils/urlValidation';
@@ -1168,6 +1169,7 @@ app.whenReady().then(async () => {
     initSessionFiles(() => workspaceController.workspacePath);
     registerCalendarHandlers(() => mainWindow);
     registerDebugHandlers();
+    registerClaudeDesignHandlers(() => mainWindow);
 
     // Mini-app MCP publishing
     ipcMain.handle('miniAppMcp:register', (event, payload: {
@@ -3568,6 +3570,8 @@ const appTeardown = createTeardown([
   ['globalShortcut.unregisterAll', () => globalShortcut.unregisterAll()],
   ['stopFileMonitor', stopFileMonitor],
   ['stopDictation', stopDictation],
+  // Never leave a CLI child holding a Claude Design browser flow open.
+  ['cancelDesignLogin', cancelDesignLogin],
   ['stopScheduledTasks', stopScheduledTasks],
   ['backgroundBuilder.dispose', () => backgroundBuilder.dispose()],
   ['destroyTokenManager', destroyTokenManager],
