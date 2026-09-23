@@ -506,6 +506,16 @@ const migrations = [
       ALTER TABLE sessions ADD COLUMN effort TEXT DEFAULT NULL;
     `,
   },
+  {
+    // "A turn finished while you weren't looking at this chat." One flag, not
+    // a read cursor: the question the chat lists answer is whether something
+    // happened since you last had the chat on screen, and a per-message
+    // position would need a scroll-read notion the thread does not have. Set
+    // and cleared only by `main/chatActivity.ts`; 0 on every existing row, so
+    // nothing reads as unread the first time this runs.
+    version: 32,
+    sql: `ALTER TABLE sessions ADD COLUMN unread INTEGER NOT NULL DEFAULT 0;`,
+  },
 ];
 
 function runMigrations(database: Database.Database, userDataPath: string) {

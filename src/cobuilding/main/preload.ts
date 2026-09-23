@@ -532,7 +532,6 @@ contextBridge.exposeInMainWorld('scannerAPI', {
 
 contextBridge.exposeInMainWorld('sessionsAPI', {
   list: (source?: string) => ipcRenderer.invoke('sessions:list', source),
-  getRunningIds: () => ipcRenderer.invoke('sessions:runningIds') as Promise<string[]>,
   get: (id: string) => ipcRenderer.invoke('sessions:get', id),
   setDocumentPath: (id: string, documentPath: string) =>
     ipcRenderer.invoke('sessions:setDocumentPath', id, documentPath),
@@ -554,6 +553,16 @@ contextBridge.exposeInMainWorld('sessionsAPI', {
     ipcRenderer.on('sessions:changed', handler);
     return () => { ipcRenderer.removeListener('sessions:changed', handler); };
   },
+  /** Which chats are working and which have unseen news; see main/chatActivity.ts. */
+  getActivity: () =>
+    ipcRenderer.invoke('chats:getActivity') as Promise<{ activeIds: string[]; unreadIds: string[] }>,
+  onActivityChanged: (callback: (snapshot: { activeIds: string[]; unreadIds: string[] }) => void) => {
+    const handler = (_e: unknown, snapshot: { activeIds: string[]; unreadIds: string[] }) => callback(snapshot);
+    ipcRenderer.on('chats:activity', handler);
+    return () => { ipcRenderer.removeListener('chats:activity', handler); };
+  },
+  /** The conversation now on screen, or null. Clears its unread mark while the window is focused. */
+  setViewing: (sessionId: string | null) => ipcRenderer.send('chats:setViewing', sessionId),
   /**
    * Fires after a turn completes for `sessionId` in any surface (desktop
    * or overlay). Emitted by the main process's SSE fanout (`ensureSseFanout`'s

@@ -532,20 +532,16 @@ body.cobuild-resizing webview {
   position: relative;
 }
 
-.chatListItemRunningDot {
+/* Working / unread mark on the row's icon (ChatMarkDot). Colour and pulse come
+   from the shared .cdDot vocabulary, so this list cannot drift from the rest;
+   only the placement is local. */
+.chatListItemIcon .chatListItemMark {
   position: absolute;
   top: 0;
   right: -2px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #05b01c;
-  animation: chatListPulse 1.5s ease-in-out infinite;
-}
-
-@keyframes chatListPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 0 0 1.5px #ffffff;
 }
 
 .chatListItem:last-child {

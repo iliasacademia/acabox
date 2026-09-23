@@ -5,6 +5,8 @@ import { resolveToolIcon } from './toolIcon';
 import { useToolStatuses } from '../../toolStatusStore';
 import { toolStatusDotClass } from './toolStatusDisplay';
 import { useServerCounts } from '../../mcpServerStore';
+import { useHasUnreadChats } from '../../chatActivityStore';
+import { ChatMarkDot } from './ChatMarkDot';
 
 export type RailTab = 'home' | 'chats' | 'tools' | 'knowledge' | 'servers' | 'files' | 'activity' | 'debug' | 'settings';
 
@@ -62,6 +64,10 @@ export function Rail({
   // (design: docs/design/mcp-hosting.md, Increment 3). Called directly here,
   // the same way `useToolStatuses()` already is, so `Rail` stays prop-free.
   const serverCounts = useServerCounts();
+  // Unread chats get a dot beside the total, never a second number and never a
+  // replacement for it: the count keeps meaning "how many chats you have" in
+  // every state, and the dot is what catches the eye anyway (the user's pick).
+  const hasUnreadChats = useHasUnreadChats();
 
   const toggle = () => {
     setOpen((prev) => {
@@ -87,6 +93,9 @@ export function Rail({
             onClick={() => onNavigate(item.tab)}
           >
             <MSymbol name={item.icon} size={20} />
+            {item.tab === 'chats' && hasUnreadChats && (
+              <span className="cdRail__badgeDot cdRail__badgeDot--unread" role="img" aria-label="Unread chats" />
+            )}
             {item.tab === 'servers' && serverCounts.down > 0 && <span className="cdRail__badgeDot" />}
           </button>
         ))}
@@ -124,6 +133,14 @@ export function Rail({
             <MSymbol name={item.icon} size={18} />
             {item.label}
             <span className="cdRail__spacer" />
+            {item.tab === 'chats' && hasUnreadChats && (
+              <span
+                className="cdDot cdDot--unread cdRail__unreadDot"
+                role="img"
+                aria-label="Unread chats"
+                title="Some chats have replies you haven't seen"
+              />
+            )}
             {item.tab === 'chats' && chatCount > 0 && (
               <span className="cdRail__navCount">{chatCount}</span>
             )}
@@ -143,6 +160,7 @@ export function Rail({
               <button key={chat.id} className="cdRail__row" onClick={() => onOpenChat(chat.id)}>
                 <MSymbol name="chat_bubble" size={16} />
                 <span className="cdRail__rowTitle">{chat.title}</span>
+                <ChatMarkDot sessionId={chat.id} className="cdRail__rowMark" />
               </button>
             ))}
             <button className="cdRail__row cdRail__row--more" onClick={() => onNavigate('chats')}>

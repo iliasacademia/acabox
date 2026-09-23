@@ -23,6 +23,7 @@ import { listApisWithSecrets } from './apiStore';
 import { apiProxy } from './apiProxy';
 import { noteFindingsFileRead } from './knowledge/findingsLedger';
 import { noteTurn } from './knowledge/omissionWatch';
+import { noteTurnEnded, noteTurnStarted } from './chatActivity';
 import { extractScaffoldedDirName, extractOpenedDirName } from './appChatLink';
 
 class AuthRetryError extends Error {
@@ -470,6 +471,10 @@ export function createAgentSession(
   function emitError(error: string) {
     running = false;
     clearInterval(heartbeatTimer);
+    // An error ends the turn as far as anyone watching is concerned, though
+    // `turnInProgress` is left alone (the registry's deferred-destroy logic
+    // reads it). Without this the chat would pulse "working" until destroyed.
+    noteTurnEnded(sessionId);
     for (const listener of [...listeners]) {
       listener.onError?.(error);
     }
@@ -612,6 +617,7 @@ export function createAgentSession(
     emitEvent({ type: 'text', text });
     insertMessage(sessionId, 'result', JSON.stringify({ subtype: 'success', result: '', is_error: false }), messageId);
     turnState.turnInProgress = false;
+    noteTurnEnded(sessionId);
     emitEvent({ type: 'turn-complete', messageId } as ChatStreamMessage);
     turnState.currentMessageId = null;
   };
@@ -908,6 +914,7 @@ export function createAgentSession(
       // 'result' message. The registry uses this to decide whether a
       // navigation-away triggers destroy-now or defer-until-turn-end.
       turnState.turnInProgress = true;
+      noteTurnStarted(sessionId);
       // The omission rule is per-TURN ("this turn queried the warehouse and
       // read no findings file"), not per-session, so the accumulators reset
       // here rather than at session create.
@@ -1001,6 +1008,9 @@ export function createAgentSession(
     destroy() {
       sessionState.stopped = true;
       clearInterval(heartbeatTimer);
+      // A session torn down mid-turn (quit, crash-restart, eviction) never
+      // reaches its result row. No-op when no turn was running.
+      noteTurnEnded(sessionId);
       if (turnState.swallowWatchdog) {
         clearTimeout(turnState.swallowWatchdog);
         turnState.swallowWatchdog = null;
@@ -1349,6 +1359,7 @@ async function connectSSE(
                 // listener that reacts to the event (e.g. registry's
                 // deferred-destroy hook) sees the up-to-date state.
                 turnState.turnInProgress = false;
+                noteTurnEnded(sessionId);
                 emitEvent({ type: 'turn-complete', messageId: completedMessageId ?? undefined } as ChatStreamMessage);
                 // Turn over — clear so a subsequent send's messageId isn't
                 // inherited if the SSE stream emits stray events.

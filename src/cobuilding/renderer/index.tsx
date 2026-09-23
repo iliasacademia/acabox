@@ -43,6 +43,7 @@ import { reloadThreadHistory } from './reloadThreadHistory';
 import DirectoryPermissions from './components/DirectoryPermissions';
 import { ChatHeader } from './components/command-desk/ChatHeader';
 import { ToolWorkspace } from './components/command-desk/ToolWorkspace';
+import { ChatViewingReporter } from './components/command-desk/ChatViewingReporter';
 import { ToolFallback } from './components/assistant-ui/tool-fallback';
 import { OPEN_CHAT_EVENT } from './components/assistant-ui/chat-link-chip';
 import { SetupBanner } from './components/SetupBanner';
@@ -1191,6 +1192,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
             <div style={{ display: sidebarTab === 'tools' ? 'flex' : 'none', flex: 1, flexDirection: 'column' }}>
               {toolsViewMode === 'detail' && activeTab?.kind === 'miniapp' ? (
                 <ToolWorkspace
+                  active={sidebarTab === 'tools'}
                   tabs={tabs}
                   activeTabId={activeTabId}
                   apps={apps}
@@ -1343,6 +1345,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
             <div style={{ display: sidebarTab === 'chats' ? 'flex' : 'none', flex: 1, flexDirection: 'column' }}>
               {chatViewMode === 'detail' ? (
                 <>
+                  <ChatViewingReporter surface="chats" visible={sidebarTab === 'chats'} />
                   <ChatHeader
                     onBack={() => { setChatViewMode('list'); }}
                     onOpenTool={handleSelectApp}

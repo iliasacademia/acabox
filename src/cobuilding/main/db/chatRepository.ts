@@ -17,6 +17,8 @@ export interface Session {
   model: string | null;
   /** Reasoning-effort level sent on the first turn; null for pre-existing rows. */
   effort: string | null;
+  /** 1 when a turn finished while nobody was looking at this chat. See `main/chatActivity.ts`. */
+  unread: number;
   created_at: string;
   updated_at: string;
 }
@@ -81,6 +83,34 @@ export function setSessionModelInfo(
   if (info.effort) {
     db.prepare('UPDATE sessions SET effort = ? WHERE id = ? AND effort IS NULL').run(info.effort, id);
   }
+}
+
+/**
+ * Flag a chat as having news its owner has not seen. Returns whether anything
+ * changed, so the caller broadcasts only on a real transition.
+ *
+ * Limited to `source IS NULL` — the set the Chats list shows — on purpose: an
+ * unread flag on a row no list renders would still light the sidebar's
+ * "something is unread" dot, pointing at a chat nobody can find.
+ */
+export function markSessionUnread(id: string): boolean {
+  return getDatabase()
+    .prepare('UPDATE sessions SET unread = 1 WHERE id = ? AND source IS NULL AND unread = 0')
+    .run(id).changes > 0;
+}
+
+/** Clear a chat's unread flag. Returns whether it was set. */
+export function clearSessionUnread(id: string): boolean {
+  return getDatabase()
+    .prepare('UPDATE sessions SET unread = 0 WHERE id = ? AND unread = 1')
+    .run(id).changes > 0;
+}
+
+/** Every chat the Chats list would show that carries unread news. */
+export function listUnreadSessionIds(): string[] {
+  return (getDatabase()
+    .prepare('SELECT id FROM sessions WHERE unread = 1 AND source IS NULL')
+    .all() as { id: string }[]).map((r) => r.id);
 }
 
 /**

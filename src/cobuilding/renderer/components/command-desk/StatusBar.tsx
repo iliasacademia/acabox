@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useToolStatuses } from '../../toolStatusStore';
 import { useServerCounts } from '../../mcpServerStore';
+import { useActiveChatCount } from '../../chatActivityStore';
 
 const POLL_MS = 5_000;
 
@@ -37,7 +38,11 @@ function formatUptime(sec: number): string {
  */
 export function StatusBar() {
   const [stats, setStats] = useState<SystemStats | null>(null);
-  const [agentCount, setAgentCount] = useState<number | null>(null);
+  // Chats with a turn in flight, pushed from main. This used to poll a
+  // predicate that asked whether an agent session OBJECT existed, which stays
+  // true for up to a minute after a turn while the renderer holds its
+  // subscription — so an idle chat counted as a live agent.
+  const agentCount = useActiveChatCount();
   const toolStatuses = useToolStatuses();
   const serverCounts = useServerCounts();
   const workingToolNames = [...toolStatuses.entries()]
@@ -51,10 +56,6 @@ export function StatusBar() {
       window.systemStatsAPI
         .get()
         .then((s) => { if (alive) setStats(s); })
-        .catch(() => {});
-      window.sessionsAPI
-        .getRunningIds()
-        .then((ids) => { if (alive) setAgentCount(ids.length); })
         .catch(() => {});
     };
     poll();

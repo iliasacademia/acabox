@@ -1218,6 +1218,15 @@
 .cdChatMenu__item--active .cdChatMenu__itemTitle {
   font-weight: 600;
 }
+/* A fixed slot for the working / unread dot, present on every row so titles
+   stay aligned whether or not a row carries a mark. */
+.cdChatMenu__itemMark {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 6px;
+}
 .cdChatMenu__itemTitle {
   flex: 1;
   overflow: hidden;
@@ -1270,15 +1279,16 @@
   background: var(--cd-pale);
   color: var(--cd-blue);
 }
-.cdPanelCollapsed__unread {
+/* The collapsed strip's badge (ToolWorkspace's CollapsedChatMark). Colour and
+   pulse come from ChatMarkDot's shared .cdDot classes; only placement is
+   local, so the strip cannot disagree with the chat lists about a chat. */
+.cdPanelCollapsed__btn .cdPanelCollapsed__mark {
   position: absolute;
   top: 5px;
   right: 5px;
   width: 7px;
   height: 7px;
-  border-radius: 50%;
-  background: var(--cd-blue);
-  border: 1.5px solid #ffffff;
+  box-shadow: 0 0 0 1.5px #ffffff;
 }
 .cdPanelCollapsed__spacer { flex: 1; }
 .cdPanelCollapsed__label {

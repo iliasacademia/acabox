@@ -5,6 +5,7 @@ import { relTimeShort, formatSize, headerDate } from './format';
 import { useToolStatuses } from '../../toolStatusStore';
 import { toolStatusDotClass, toolStatusLabel } from './toolStatusDisplay';
 import type { DriveFile } from './useHomeData';
+import { ChatMarkDot } from './ChatMarkDot';
 
 const MAX_TOOL_CARDS = 5; // + the "build a new tool" card = 6 grid cells
 const MAX_RECENT_CHATS = 3;
@@ -166,6 +167,7 @@ export function CommandDesk({
                   <button key={chat.id} className="cdListRow" onClick={() => onOpenChat(chat.id)}>
                     <MSymbol name="chat_bubble" size={16} />
                     <span className="cdListRow__title">{chat.title}</span>
+                    <ChatMarkDot sessionId={chat.id} />
                     <span className="cdListRow__meta">{relTimeShort(chat.updated_at)}</span>
                   </button>
                 ))

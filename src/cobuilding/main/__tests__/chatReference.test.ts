@@ -54,6 +54,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     app_dir_name: null,
     model: null,
     effort: null,
+    unread: 0,
     created_at: '2026-09-18T07:00:00.000',
     updated_at: '2026-09-18T07:00:00.000',
     ...overrides,

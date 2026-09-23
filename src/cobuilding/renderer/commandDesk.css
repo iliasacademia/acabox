@@ -80,6 +80,10 @@
 .cdDot--running { background: var(--cd-success); }
 .cdDot--busy { background: var(--cd-busy); }
 .cdDot--sleeping { background: var(--cd-idle); }
+/* A reply that landed while nobody was looking (ChatMarkDot). Blue, the
+   interactive colour, rather than a status hue: unread is a prompt to go and
+   look, not a health state. */
+.cdDot--unread { background: var(--cd-blue); }
 
 .cdSectionLabel {
   font-family: var(--cd-mono);
@@ -377,6 +381,12 @@
   background: var(--cd-error, #b60000);
 }
 .cdRail__navItem .cdRail__badgeDot { top: 50%; right: 10px; transform: translateY(-50%); }
+.cdRail__badgeDot--unread { background: var(--cd-blue); }
+/* Beside the chat total, not instead of it: "Chats • 44". The nav item's own
+   10px gap already separates it from the count. */
+.cdRail__unreadDot { flex: none; }
+/* Recents rows: the title is flex:1, so the mark sits flush right. */
+.cdRail__rowMark { flex: none; }
 
 /* ═══ Command Desk home screen ═══ */
 

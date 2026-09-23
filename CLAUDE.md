@@ -180,6 +180,75 @@ to `PATH`.
 
 ## Status (last updated 2026-09-23)
 
+**Chats show when they are working and when they have news you haven't seen
+(2026-09-23).** Asked for from a screenshot of a tool's chat switcher: "some are
+actively streaming — we need an unread indicator, a simple way to track what
+has and hasn't been read, and a sign a chat is active". The three design calls
+were the user's: read = on screen AND Acabox focused; the sidebar keeps its
+total and adds a dot (`Chats • 45`); working = the pulsing amber dot.
+- **Two states, never merged.** ACTIVE = a turn in flight, live only (no turn
+  survives the app, so a fresh process correctly shows none). UNREAD = a turn
+  ENDED while nobody was looking, persisted in `sessions.unread` (migration 32)
+  so a reply that landed overnight is still flagged after a restart. Working
+  outranks unread on a row. One flag, not a read cursor: nothing in the thread
+  knows how far someone has scrolled.
+- **`main/chatActivity.ts` is fed from the one place turn state changes** —
+  `agentSession.ts`'s three `turnInProgress` writes, plus `emitError` and
+  `destroy()` (an error or a mid-turn teardown never reaches a result row, and
+  would otherwise pulse "working" forever). `emitError` deliberately does NOT
+  clear `turnInProgress` itself; the registry's deferred-destroy logic reads
+  it. `chatActivityWiring.test.ts` pins every write to its announcement.
+- **"Looking" has two halves and each comes from the only side that knows.**
+  The renderer reports which conversation is on screen (`ChatViewingReporter`,
+  mounted in the Chats page and the tool side panel with a real `visible`
+  prop — every tab stays mounted behind `display:none`, so subscribers cannot
+  answer this). Main observes focus from its own BrowserWindow events. The
+  renderer registry is KEYED by surface: switching surfaces fires one's
+  "hidden" and the other's "shown" in an order React does not promise, and
+  last-writer-wins would sometimes land on null with a chat plainly on screen.
+- **Unread is limited to `source IS NULL`** — the set the Chats list shows. A
+  flag on a row no list renders would still light the sidebar dot, pointing at
+  a chat nobody can find. Scheduled-task runs with no `session_source` DO show
+  in the list, so they get marked, which is the point.
+- **Surfaces, all one `ChatMarkDot` over one store** (`renderer/chatActivityStore.ts`,
+  pushed from main, re-read on `sessions:changed`): the tool chat switcher, the
+  Chats page, Home's "Jump back in", the rail's Recents, the rail's Chats entry,
+  and the tool panel's collapsed strip (replacing its private `UnreadWatcher`
+  state, lost on reload). No bold-for-unread in the switcher: bold already means
+  "the chat you are on" there, and one style with two meanings is exactly what
+  the sidebar count was kept free of.
+- **The old "running" dot was wrong twice and is gone.** `sessions:runningIds`
+  asked `isRunning` (does an agent session OBJECT exist) — true for up to 60 s
+  after a turn while the renderer holds its subscription — and was only sampled
+  when the thread list re-fetched. The status bar's `AGENTS N LIVE` read the
+  same predicate on a 5 s poll; it now reads the store and stays hidden until
+  main has answered once, rather than showing a made-up 0.
+- **Cost: zero model calls.**
+- Verified: tsc clean; **1815/1815 across 124 suites** (+26, 3 new suites; the
+  focus rule and the keyed registry each proven non-vacuous by mutation — two
+  and one cases go red respectively); smoke exits 0. Live over CDP on
+  `npm start`, real Haiku turns: a reply that landed while on Home showed amber
+  on the Home row and rail recents with `AGENTS 1 LIVE`, then blue with DB
+  `unread=1` and `Chats • 45`; opening it cleared the row, the DB and the
+  sidebar dot. Focus rule end to end: the chat on screen with **Finder**
+  frontmost when the reply landed → `unread=1`; bringing Acabox forward cleared
+  it. Tool panel: collapsed mid-turn, the strip went amber then blue; the
+  switcher from the original screenshot showed amber while running, blue once
+  finished, the quiet row empty but aligned. Switcher and rail screenshotted.
+- **A false alarm worth recording.** The tool-panel "expand reads it" step
+  failed once, and temporary logging showed the main window losing key status
+  with Acabox still frontmost. It was the user's PRODUCTION Acabox (pid 17021,
+  named "Acabox" in System Events — the dev build registers as "Electron"),
+  in use during the test. The rule behaved correctly: that window was not
+  focused. A real blur→focus cycle then cleared it. **When verifying focus
+  behaviour, check `frontmost` by PID, not by the name "Acabox".**
+- **NOT verified in one uninterrupted run:** "expanding the tool panel reads
+  the chat". Its renderer half was observed (`setViewing <that id>` on expand)
+  and main's clear-on-focus path was observed in the Finder scenario; they were
+  never seen together because the dev window kept losing focus to the real app.
+  Also unverified: the packaged build, and a production database migrating to
+  32 (the dev channel migrated cleanly).
+
 **A tool's chat can now pick its model, and a pinned chat says so (2026-09-23).**
 Reported as "when chats are attached to an app, even when I start a new chat, I
 can no longer change the model".

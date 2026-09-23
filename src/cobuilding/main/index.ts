@@ -22,6 +22,7 @@ import { createAgentSession } from './agentSession';
 import { createCalendarAgentSession } from './calendarAgentSession';
 import type { CalendarMutationEvent } from './calendarAgentSession';
 import { registerSession, unregisterSession, getRegisteredSession, hasSession, destroyAllSessions, addSubscriber, removeSubscriber, onSessionDestroyed } from './sessionRegistry';
+import { getChatActivity, onChatActivityChanged, setChatWindowFocused, setViewingChat } from './chatActivity';
 import type { IPCAttachment } from '../shared/types';
 import { parseStoredQuote } from '../shared/quotes';
 import { provisionWorkspace } from './skills';
@@ -720,7 +721,13 @@ function createMainWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+    setChatWindowFocused(false);
   });
+  // Half of "is this chat being read": a chat on screen behind another app is
+  // not. Observed here rather than reported by the renderer, whose own
+  // focus/blur events also fire on in-page focus moves.
+  mainWindow.on('focus', () => setChatWindowFocused(true));
+  mainWindow.on('blur', () => setChatWindowFocused(false));
 
   const url = COBUILDING_WINDOW_WEBPACK_ENTRY;
   log.info('[APP] Loading URL:', url);
@@ -1075,6 +1082,15 @@ app.whenReady().then(async () => {
     onScheduledTasksChanged(() => {
       for (const win of BrowserWindow.getAllWindows()) {
         if (!win.isDestroyed()) win.webContents.send('scheduledTasks:changed');
+      }
+    });
+
+    // Which chats are working and which have unseen news. A full snapshot
+    // every time rather than a delta: both sets are small, and a renderer that
+    // missed one message is simply right again on the next.
+    onChatActivityChanged((snapshot) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('chats:activity', snapshot);
       }
     });
 
@@ -1822,16 +1838,12 @@ function notifySessionsChanged() {
 ipcMain.handle('sessions:list', (_event, source?: string) => {
   return listSessions(undefined, source);
 });
-ipcMain.handle('sessions:runningIds', () => {
-  const ids: string[] = [];
-  // sessionRegistry only exposes per-id lookups; iterate known DB sessions
-  // and check which have a running agent session.
-  const allSessions = listSessions();
-  for (const s of allSessions) {
-    const reg = getRegisteredSession(s.id);
-    if (reg?.isRunning) ids.push(s.id);
-  }
-  return ids;
+ipcMain.handle('chats:getActivity', () => getChatActivity());
+// The other half of "is this chat being read": which conversation, if any, the
+// renderer has on screen. Only the renderer knows — every tab stays mounted
+// behind display:none, so nothing main can observe distinguishes them.
+ipcMain.on('chats:setViewing', (_event, sessionId: unknown) => {
+  setViewingChat(typeof sessionId === 'string' && sessionId ? sessionId : null);
 });
 ipcMain.handle('sessions:countForDocument', (_event, documentPath: string): number => {
   const activeWorkspace = workspaceController.activeWorkspace;

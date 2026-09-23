@@ -5,6 +5,8 @@ import { MSymbol } from './MSymbol';
 import { resolveToolIcon } from './toolIcon';
 import { relTimeShort } from './format';
 import { ModelSelector } from '../ModelSelector';
+import { ChatMarkDot } from './ChatMarkDot';
+import { ChatViewingReporter } from './ChatViewingReporter';
 import { MiniAppViewer } from '../MiniAppViewer';
 import { Thread } from '../assistant-ui/thread';
 import { useToolStatuses } from '../../toolStatusStore';
@@ -42,6 +44,8 @@ function loadPanelOpenMap(): Record<string, boolean> {
 
 
 export interface ToolWorkspaceProps {
+  /** Whether the Tools tab is the one on screen. Every tab stays mounted, so this is not implied. */
+  active: boolean;
   tabs: TabDescriptor[];
   activeTabId: string | null;
   apps: MiniAppEntry[];
@@ -59,6 +63,7 @@ export interface ToolWorkspaceProps {
 }
 
 export const ToolWorkspace: FC<ToolWorkspaceProps> = ({
+  active,
   tabs,
   activeTabId,
   apps,
@@ -83,7 +88,6 @@ export const ToolWorkspace: FC<ToolWorkspaceProps> = ({
 
   const [panelWidth, setPanelWidth] = useState(loadPanelWidth);
   const [panelOpenMap, setPanelOpenMap] = useState<Record<string, boolean>>(loadPanelOpenMap);
-  const [unread, setUnread] = useState<Set<string>>(new Set());
 
   const panelOpen = activeDirName ? panelOpenMap[activeDirName] ?? true : true;
 
@@ -93,14 +97,6 @@ export const ToolWorkspace: FC<ToolWorkspaceProps> = ({
       localStorage.setItem(PANEL_OPEN_KEY, JSON.stringify(next));
       return next;
     });
-    if (open) {
-      setUnread((prev) => {
-        if (!prev.has(dirName)) return prev;
-        const next = new Set(prev);
-        next.delete(dirName);
-        return next;
-      });
-    }
   }, []);
 
   const togglePanel = useCallback(() => {
@@ -145,15 +141,6 @@ export const ToolWorkspace: FC<ToolWorkspaceProps> = ({
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   }, [panelWidth]);
-
-  const handleTurnFinishedWhileCollapsed = useCallback(() => {
-    if (!activeDirName) return;
-    setUnread((prev) => {
-      const next = new Set(prev);
-      next.add(activeDirName);
-      return next;
-    });
-  }, [activeDirName]);
 
   return (
     <div className="cdToolWorkspace">
@@ -228,6 +215,7 @@ export const ToolWorkspace: FC<ToolWorkspaceProps> = ({
               <MSymbol name="drag_indicator" size={13} />
             </div>
             <div className="cdSidePanel" style={{ width: panelWidth }}>
+              <ChatViewingReporter surface="tool-panel" visible={active} />
               <SidePanelHeader
                 dirName={activeDirName}
                 onSelectChat={(sessionId) => onSelectAppChat(activeDirName, sessionId)}
@@ -242,7 +230,6 @@ export const ToolWorkspace: FC<ToolWorkspaceProps> = ({
 
         {activeDirName && !panelOpen && (
           <div className="cdPanelCollapsed">
-            <UnreadWatcher collapsed onTurnFinished={handleTurnFinishedWhileCollapsed} />
             <button
               type="button"
               className="cdPanelCollapsed__btn"
@@ -258,7 +245,7 @@ export const ToolWorkspace: FC<ToolWorkspaceProps> = ({
               onClick={() => setPanelOpen(activeDirName, true)}
             >
               <MSymbol name="forum" size={17} />
-              {unread.has(activeDirName) && <span className="cdPanelCollapsed__unread" />}
+              <CollapsedChatMark />
             </button>
             <span className="cdPanelCollapsed__spacer" />
             <span className="cdPanelCollapsed__label">CHAT — {activeName.toUpperCase()}</span>
@@ -318,6 +305,7 @@ const SidePanelHeader: FC<{
                   className={`cdChatMenu__item${chat.id === remoteId ? ' cdChatMenu__item--active' : ''}`}
                   onSelect={() => onSelectChat(chat.id)}
                 >
+                  <ChatMenuMark sessionId={chat.id} />
                   <span className="cdChatMenu__itemTitle">{chat.title || 'New chat'}</span>
                   <span className="cdChatMenu__itemTime">
                     {chat.last_message_at
@@ -360,15 +348,23 @@ const SidePanelHeader: FC<{
 };
 
 /**
- * Flags an unread dot when a turn for the active tool's chat finishes while
- * the panel is collapsed.
+ * The collapsed strip's badge for the chat the panel would show. It reads the
+ * shared activity store, so it agrees with every other chat list: amber while
+ * that chat works, blue once a reply lands unseen. It clears itself when the
+ * panel opens, because an open panel reports the chat as on screen.
  */
-const UnreadWatcher: FC<{ collapsed: boolean; onTurnFinished: () => void }> = ({ collapsed, onTurnFinished }) => {
-  const isRunning = useAuiState((s: any) => s.thread?.isRunning ?? false) as boolean;
-  const prevRef = useRef(isRunning);
-  useEffect(() => {
-    if (prevRef.current && !isRunning && collapsed) onTurnFinished();
-    prevRef.current = isRunning;
-  }, [isRunning, collapsed, onTurnFinished]);
-  return null;
+const CollapsedChatMark: FC = () => {
+  const remoteId = useAuiState((s: any) => s.threadListItem?.remoteId) as string | undefined;
+  return <ChatMarkDot sessionId={remoteId} className="cdPanelCollapsed__mark" />;
 };
+
+/**
+ * Every row reserves the dot's slot, so titles in the switcher stay aligned
+ * whether or not a row carries a mark. The dot is the ONLY unread cue here:
+ * bold already means "the chat you are on" in this menu, and giving one style
+ * two meanings is exactly the ambiguity the sidebar count was kept free of.
+ */
+const ChatMenuMark: FC<{ sessionId: string }> = ({ sessionId }) => (
+  <span className="cdChatMenu__itemMark"><ChatMarkDot sessionId={sessionId} /></span>
+);
+
