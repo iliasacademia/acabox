@@ -178,6 +178,53 @@ to `PATH`.
   SIGKILLs the suite mid-run and the tail prints `[exited with code 0]`
   from the pipe, which reads as a pass. Measured 2026-09-18.
 
+## Status (last updated 2026-09-23)
+
+**A tool's chat can now pick its model, and a pinned chat says so (2026-09-23).**
+Reported as "when chats are attached to an app, even when I start a new chat, I
+can no longer change the model".
+- **It was two different things wearing one symptom, and only one was a
+  missing control.** `ModelSelector` is mounted solely in the docked
+  `GlobalComposer`, which `index.tsx` hides in mini-app detail view — so a chat
+  started from a tool's side panel silently took whatever `getSelectedModel()`
+  last returned, with no picker on screen. The harness never had a problem
+  with it: `chatAdapter.ts` already falls back to the stored selection.
+- **The second half is deliberate and was simply never stated.** Model and
+  effort are pinned to a conversation on its FIRST turn (`setSessionModelInfo`,
+  a write-once `WHERE model IS NULL`) and `chat:send` prefers the pin over the
+  picker. Until now the picker stayed fully interactive in a pinned chat, so
+  choosing a model there changed a global default and did nothing at all to the
+  conversation in front of you — which is what made a settled pin read as a
+  broken control. It now renders as a locked chip naming what the chat runs on:
+  *"This chat runs on Opus 5.5 · High, fixed when it started. Start a new chat
+  to use a different model."*
+- **The picker went in the panel HEADER, not the panel composer.** Row two
+  already carried the static `MODEL · EFFORT` line, so the control replaces the
+  label it duplicated instead of crowding a 320px composer row that already
+  holds screenshot, dictation and send. Styled through
+  `.cdSidePanel__meta .modelSelectorTrigger` — chained, so it cannot lose a
+  specificity tie to `commandDesk.css`'s `.cdComposerField` restyle of the same
+  shared class, whichever order the sheets import in.
+- **A resolved snapshot id is shown verbatim, never renamed to the nearest
+  roster entry.** The pin records what the SDK's `init` event resolved, which
+  can be a dated id the picker has never heard of (`claude-sonnet-5-20260801`);
+  `formatModelLabel` falls through to the raw string so the chip cannot claim a
+  model the chat is not running. Found by a test using a realistic id.
+- Verified: tsc clean; **1789/1789 across 121 suites** (+11, 2 new suites);
+  then live over CDP on `npm start`. In the tool side panel the header row
+  opened the real picker, listed all six models and committed **Haiku 4.5**;
+  a real turn sent from the panel composer stored `model=claude-haiku-4-5,
+  effort=high` (the SDK's own thinking signature carries
+  `claude-haiku-4-5-20251001`, so Haiku is what actually ran) and the agent
+  replied `PANELMODEL OK`. The chip then **locked**; `+ New chat` unlocked it;
+  and an older conversation pinned to Opus 5.5 showed the locked chip in the
+  docked composer with the matching DB row. Both surfaces screenshotted.
+- **Cost: zero extra model calls** — the pin is read from a row the chat
+  surfaces already fetch.
+- **NOT changed:** `ChatHeader`'s own `MODEL · EFFORT` line, which still renders
+  nothing for a pre-pinning chat while the picker beside it shows the live
+  selection that such a chat would actually use.
+
 ## Status (last updated 2026-09-22)
 
 **Screenshot button in both composers: one click inside Acabox, a picker click

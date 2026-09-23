@@ -729,6 +729,16 @@
   transition: background 150ms ease-out;
 }
 .cdComposerField .modelSelectorTrigger:hover { background: var(--cd-pale); }
+/* Pinned chat: the chip states what this conversation runs on and is inert.
+   Browsers grey a disabled button out on their own, which would read as
+   "temporarily unavailable" rather than "settled" — hold the normal colour. */
+.cdComposerField .modelSelectorTrigger--pinned,
+.cdComposerField .modelSelectorTrigger--pinned:hover {
+  background: none;
+  color: var(--cd-text2);
+  opacity: 1;
+  cursor: default;
+}
 
 .cdComposerSend {
   display: flex;

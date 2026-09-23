@@ -1127,6 +1127,56 @@
   text-transform: uppercase;
   color: var(--cd-text3);
   padding-left: 0;
+  display: flex;
+  min-width: 0;
+}
+
+/* The model picker IS this row (ToolWorkspace's SidePanelHeader), so it has to
+   read as the meta line it replaced: flat, mono, uppercase, and only revealing
+   itself as a control on hover — the same restraint `.cdSidePanel__titleBtn`
+   uses one row above. Chained with `.cdSidePanel__meta` so it cannot lose a
+   specificity tie to commandDesk.css's own `.cdComposerField` restyle of the
+   shared trigger, whichever order the two sheets import in. */
+.cdSidePanel__meta .modelSelectorTrigger {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  height: 20px;
+  margin: 0 0 0 -5px;
+  padding: 0 5px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  box-shadow: none;
+  font-family: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: background 150ms ease-out, color 150ms ease-out;
+}
+.cdSidePanel__meta .modelSelectorTrigger:hover {
+  background: var(--cd-pale);
+  color: var(--cd-text2);
+}
+.cdSidePanel__meta .modelSelectorTriggerModel,
+.cdSidePanel__meta .modelSelectorTriggerEffort {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A pinned chat's model cannot be changed, so the row goes back to being pure
+   text — no hover, no pointer — with the lock as the only added mark. */
+.cdSidePanel__meta .modelSelectorTrigger--pinned,
+.cdSidePanel__meta .modelSelectorTrigger--pinned:hover {
+  background: none;
+  color: inherit;
+  cursor: default;
+}
+.modelSelectorTrigger--pinned {
+  opacity: 1;
 }
 
 /* Per-tool chat switcher */

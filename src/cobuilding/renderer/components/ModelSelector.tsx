@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useAssistantRuntime } from '@assistant-ui/react';
+import { useAssistantRuntime, useAuiState } from '@assistant-ui/react';
 import { DropdownMenu } from 'radix-ui';
 import { MSymbol } from './command-desk/MSymbol';
 import { CURATED_MODELS, DEFAULT_MODEL as SHARED_DEFAULT_MODEL, type PickerModel } from '../../shared/models';
@@ -106,6 +106,41 @@ export function getSelectedEffortLabel(): string {
   return EFFORTS.find((e) => e.id === id)?.label ?? 'High';
 }
 
+/**
+ * The model/effort the CURRENT chat is pinned to, or null while it is still
+ * free to choose.
+ *
+ * A conversation is pinned on its first turn — main records the model the SDK
+ * actually resolved and from then on the pin beats whatever this picker says
+ * (`chat:send` in `main/index.ts`). A picker that still looked live in a
+ * pinned chat would therefore be offering a choice that has no effect, which
+ * is what made "I can't change the model" look like a missing control rather
+ * than a deliberate pin.
+ *
+ * Fetched here rather than through `useSessionMeta`, which imports this
+ * module's label formatters — importing it back would close a cycle.
+ */
+function usePinnedSelection(): { model: string; effort: string | null } | null {
+  const remoteId = useAuiState((s: any) => s.threadListItem?.remoteId) as string | undefined;
+  // The pin is written mid-turn, so a finished turn is the moment to re-read.
+  const isRunning = useAuiState((s: any) => s.thread?.isRunning ?? false) as boolean;
+  const [pin, setPin] = useState<{ model: string; effort: string | null } | null>(null);
+
+  useEffect(() => {
+    if (!remoteId) { setPin(null); return; }
+    let cancelled = false;
+    window.sessionsAPI.get(remoteId)
+      .then((session) => {
+        if (cancelled) return;
+        setPin(session?.model ? { model: session.model, effort: session.effort ?? null } : null);
+      })
+      .catch(() => { if (!cancelled) setPin(null); });
+    return () => { cancelled = true; };
+  }, [remoteId, isRunning]);
+
+  return pin;
+}
+
 export const ModelSelector: React.FC = () => {
   const [model, setModel] = useState(readModel);
   const [effort, setEffort] = useState<EffortId>(readEffort);
@@ -132,6 +167,8 @@ export const ModelSelector: React.FC = () => {
     });
   }, [runtime, model]);
 
+  const pinned = usePinnedSelection();
+
   const changeModel = (value: string) => {
     setModel(value);
     localStorage.setItem(MODEL_KEY, value);
@@ -151,6 +188,30 @@ export const ModelSelector: React.FC = () => {
     ?? MODELS.find((m) => m.id === DEFAULT_MODEL)
     ?? MODELS[0];
   const currentEffort = EFFORTS.find((e) => e.id === effort) ?? EFFORTS[2];
+
+  // Pinned chat: show what this conversation actually runs on, and say why it
+  // cannot be changed. Deliberately not hidden — the model a chat is using is
+  // exactly what someone opening the picker came to find out.
+  if (pinned) {
+    const pinnedModel = formatModelLabel(pinned.model);
+    const pinnedEffort = pinned.effort ? formatEffortLabel(pinned.effort) : null;
+    return (
+      <button
+        type="button"
+        className="modelSelectorTrigger modelSelectorTrigger--pinned"
+        disabled
+        aria-label={`Model pinned to this chat: ${pinnedModel}`}
+        title={
+          `This chat runs on ${pinnedModel}${pinnedEffort ? ` \u00b7 ${pinnedEffort}` : ''}, `
+          + 'fixed when it started. Start a new chat to use a different model.'
+        }
+      >
+        <span className="modelSelectorTriggerModel">{pinnedModel}</span>
+        {pinnedEffort && <span className="modelSelectorTriggerEffort">{pinnedEffort}</span>}
+        <MSymbol name="lock" size={14} />
+      </button>
+    );
+  }
 
   return (
     <DropdownMenu.Root>

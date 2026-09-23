@@ -4,7 +4,7 @@ import { DropdownMenu } from 'radix-ui';
 import { MSymbol } from './MSymbol';
 import { resolveToolIcon } from './toolIcon';
 import { relTimeShort } from './format';
-import { formatSessionModelMeta, useSessionMeta } from './useSessionMeta';
+import { ModelSelector } from '../ModelSelector';
 import { MiniAppViewer } from '../MiniAppViewer';
 import { Thread } from '../assistant-ui/thread';
 import { useToolStatuses } from '../../toolStatusStore';
@@ -285,9 +285,6 @@ const SidePanelHeader: FC<{
   const remoteId = useAuiState((s: any) => s.threadListItem?.remoteId) as string | undefined;
   const title = useAuiState((s: any) => s.threadListItem?.title) as string | undefined;
   const isRunning = useAuiState((s: any) => s.thread?.isRunning ?? false) as boolean;
-  const isEmpty = useAuiState((s: any) => s.thread?.isEmpty ?? true) as boolean;
-  const meta = useSessionMeta(remoteId, isRunning);
-  const modelMeta = formatSessionModelMeta(meta, isEmpty);
 
   const [chats, setChats] = useState<AppSessionData[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -353,7 +350,11 @@ const SidePanelHeader: FC<{
           <MSymbol name="keyboard_double_arrow_right" size={16} />
         </button>
       </div>
-      {modelMeta && <div className="cdSidePanel__meta">{modelMeta}</div>}
+      {/* Row two is the model line, and it is the PICKER — this panel hides the
+          docked composer, so without it a tool chat could never choose a
+          model. It locks itself once the chat is pinned, so the row still
+          reads as the truthful "what this chat runs on" line it replaced. */}
+      <div className="cdSidePanel__meta"><ModelSelector /></div>
     </div>
   );
 };
