@@ -4,26 +4,43 @@ import { CsvView } from './fileViewers/CsvView';
 import { PdfView } from './fileViewers/PdfView';
 import { XlsxView } from './fileViewers/XlsxView';
 import { CodeView } from './CodeView';
+import { copyableText } from './fileViewers/CopyFileButton';
 
 type FileContent = Awaited<ReturnType<typeof window.filesAPI.readFile>>;
 
 interface FileViewerProps {
   filePath: string;
+  /**
+   * Told the file's copyable text once it has loaded, and null while loading
+   * or when the file has none — so a Copy button outside the viewer can show
+   * only when there is something to copy. See `copyableText`.
+   */
+  onCopyableText?: (text: string | null) => void;
 }
 
-export const FileViewer: FC<FileViewerProps> = ({ filePath }) => {
+export const FileViewer: FC<FileViewerProps> = ({ filePath, onCopyableText }) => {
   const [fileContent, setFileContent] = useState<FileContent | null>(null);
   const [loading, setLoading] = useState(false);
+  const [readError, setReadError] = useState<string | null>(null);
 
   useEffect(() => {
     let stale = false;
     setLoading(true);
     setFileContent(null);
+    setReadError(null);
+    onCopyableText?.(null);
 
     window.filesAPI.readFile(filePath).then((result) => {
       if (stale) return;
       setFileContent(result);
       setLoading(false);
+      onCopyableText?.(copyableText(result));
+    }).catch((err: Error) => {
+      // A refused read (e.g. a chat link to a path outside the shared
+      // folders) used to leave "Loading..." up forever.
+      if (stale) return;
+      setLoading(false);
+      setReadError(err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
     });
 
     return () => {
@@ -45,6 +62,7 @@ export const FileViewer: FC<FileViewerProps> = ({ filePath }) => {
     <div className="fileViewer" data-quote-source={`file:${filePath}`}>
       <div className={flush ? 'fileViewerBody fileViewerBodyFlush' : 'fileViewerBody'}>
         {loading && <p className="fileViewerMessage">Loading...</p>}
+        {readError && <p className="fileViewerMessage">Couldn’t open this file. {readError}</p>}
         {fileContent && <FileContentView content={fileContent} filePath={filePath} />}
       </div>
     </div>

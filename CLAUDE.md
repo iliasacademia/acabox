@@ -178,7 +178,30 @@ to `PATH`.
   SIGKILLs the suite mid-run and the tail prints `[exited with code 0]`
   from the pipe, which reads as a pass. Measured 2026-09-18.
 
-## Status (last updated 2026-09-23)
+## Status (last updated 2026-09-25)
+
+**Copy button on the file view (2026-09-25).** Asked for as "files can be very
+long — add a Copy button at the top like Claude Code has". It sits at the right
+of the sticky file header, facing Back, so it stays on screen at any scroll
+depth. It copies the file **as it is on disk** — markdown source even in
+Rendered mode, since pasting into a chat or editor wants the markup. Absent for
+images, PDFs, spreadsheets and too-large files (no dead button). The text comes
+from `FileViewer`'s own read via `onCopyableText`, so nothing is read twice;
+the rule is `copyableText` in `fileViewers/CopyFileButton.tsx`.
+- **Found and fixed alongside:** `FileViewer` had no `.catch` on `readFile`,
+  so a refused read (a chat link to a path outside the shared folders) showed
+  "Loading..." forever. It now shows "Couldn't open this file." with the
+  reason. In dev the same rejection raised webpack's full-window error overlay
+  (`#webpack-dev-server-client-overlay`, z-index max), which silently ate every
+  click — **if a CDP click does nothing in dev, hit-test for that iframe first.**
+- Verified: tsc clean; **1840/1840 across 127 suites** (+7, 1 new suite);
+  smoke exits 0. Live on `npm start` with a real mouse click: the clipboard held
+  the file byte-for-byte (15,417 chars vs the file on disk), the label went
+  Copied → Copy after 1.5 s, the button stayed at the top after scrolling to the
+  end, a PNG showed no button, and a refused path showed its error.
+- Cost: zero model calls.
+
+## Status (earlier on 2026-09-23)
 
 **Settings → Claude Design: a sign-in so chats can reach claude.ai/design
 (2026-09-23).** Built by the in-app agent on branch `claude-design-sign-in`

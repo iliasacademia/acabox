@@ -16,6 +16,7 @@ import { ThreadList } from './components/assistant-ui/thread-list';
 import { FilesTab } from './components/FilesTab';
 import { DebugSidebar, DebugContent, type DebugSection } from './components/debug/DebugPanel';
 import { FileViewer } from './components/FileViewer';
+import { CopyFileButton } from './components/fileViewers/CopyFileButton';
 import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
 import { ToolsPage } from './components/ToolsPage';
@@ -637,6 +638,8 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
   const [toolChatOpen, setToolChatOpen] = useState(true);
   const [filesViewMode, setFilesViewMode] = useState<'listing' | 'detail'>('listing');
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
+  // The open file's text for the header's Copy button; null while loading or for files with none.
+  const [activeFileText, setActiveFileText] = useState<string | null>(null);
   const [fileOpenedFrom, setFileOpenedFrom] = useState<'files' | 'chat'>('files');
   const [fileReturnThreadId, setFileReturnThreadId] = useState<string | null>(null);
   const [fileCount, setFileCount] = useState(0);
@@ -1315,9 +1318,10 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                     </button>
                     <span className="fileDetailFileName">{activeFilePath.split('/').pop() ?? activeFilePath}</span>
                     <span className="fileDetailSpacer" />
+                    <CopyFileButton text={activeFileText} />
                   </div>
                   <div className={`fileDetailContent${WIDE_VIEWER_RE.test(activeFilePath) ? ' fileDetailContent--wide' : ''}`} style={{ flex: 1, minHeight: 0 }}>
-                    <FileViewer filePath={activeFilePath} />
+                    <FileViewer filePath={activeFilePath} onCopyableText={setActiveFileText} />
                   </div>
                 </>
               ) : (

@@ -2409,6 +2409,30 @@ body.cobuild-resizing webview {
   flex: 1;
 }
 
+/* Copy the whole open file. Same weight and colour as the back button it
+   faces across the header, so the bar reads as one row of text actions. */
+.fileDetailCopyBtn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: #0645b1;
+  cursor: pointer;
+  padding: 4px 8px;
+  margin-right: -8px;
+  border-radius: 6px;
+  transition: background-color 0.15s ease-out;
+  z-index: 1;
+}
+
+.fileDetailCopyBtn:hover {
+  background: var(--cd-pale);
+}
+
 .fileDetailContent {
   display: flex;
   flex-direction: column;
