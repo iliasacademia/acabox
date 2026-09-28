@@ -38,6 +38,7 @@ const active = new Set<string>();
 let viewingId: string | null = null;
 let windowFocused = false;
 const listeners = new Set<(snapshot: ChatActivitySnapshot) => void>();
+const boundaryListeners = new Set<(sessionId: string) => void>();
 
 function isLooking(sessionId: string): boolean {
   return windowFocused && viewingId === sessionId;
@@ -82,10 +83,34 @@ export function onChatActivityChanged(fn: (snapshot: ChatActivitySnapshot) => vo
   return () => { listeners.delete(fn); };
 }
 
+/**
+ * Every turn start and every turn end, and nothing else. `agentSession.ts`
+ * writes the user row just before a turn starts and the result row just
+ * before it ends, and each stamps `sessions.updated_at` — the sort key of
+ * every most-recent-first chat list. So these are the moments a chat's place
+ * in those lists moves. Kept apart from `onChatActivityChanged`, which also
+ * fires when a chat is merely read, which moves nothing.
+ */
+export function onChatTurnBoundary(fn: (sessionId: string) => void): () => void {
+  boundaryListeners.add(fn);
+  return () => { boundaryListeners.delete(fn); };
+}
+
+function emitBoundary(sessionId: string): void {
+  for (const fn of [...boundaryListeners]) {
+    try {
+      fn(sessionId);
+    } catch (err) {
+      log.error('[ChatActivity] turn-boundary listener threw:', err);
+    }
+  }
+}
+
 export function noteTurnStarted(sessionId: string): void {
   if (active.has(sessionId)) return;
   active.add(sessionId);
   emit();
+  emitBoundary(sessionId);
 }
 
 /**
@@ -99,6 +124,7 @@ export function noteTurnEnded(sessionId: string): void {
     guarded('marking a chat unread', () => markSessionUnread(sessionId), false);
   }
   emit();
+  emitBoundary(sessionId);
 }
 
 function clearIfLooking(): void {
@@ -125,4 +151,5 @@ export function __resetChatActivityForTests(): void {
   viewingId = null;
   windowFocused = false;
   listeners.clear();
+  boundaryListeners.clear();
 }

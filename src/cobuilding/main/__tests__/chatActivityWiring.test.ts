@@ -49,3 +49,26 @@ describe('agentSession announces every turn transition', () => {
     expect(SRC.slice(at, at + 500)).toMatch(/noteTurnEnded\(sessionId\)/);
   });
 });
+
+/**
+ * The chat lists (rail Recents, Home, the Chats page) re-sort only when main
+ * broadcasts `sessions:changed`. Until 2026-09-28 nothing broadcast it when a
+ * turn ran in an existing chat, so the lists froze in the order of the last
+ * chat CREATED.
+ */
+describe('a turn re-sorts the chat lists', () => {
+  const MAIN = fs.readFileSync(path.join(__dirname, '..', 'index.ts'), 'utf8');
+
+  it('main broadcasts sessions:changed at every turn boundary', () => {
+    expect(MAIN).toMatch(/onChatTurnBoundary\(\(\) => notifySessionsChanged\(\)\)/);
+  });
+
+  it('the user row is written before the turn start is announced', () => {
+    // Otherwise the lists re-read before updated_at has moved, and sort stale.
+    const starts = lines.flatMap((l, i) => (/turnState\.turnInProgress = true;/.test(l) ? [i] : []));
+    expect(starts.length).toBeGreaterThanOrEqual(1);
+    for (const i of starts) {
+      expect(lines.slice(Math.max(0, i - 12), i).join('\n')).toMatch(/insertMessage\(\s*sessionId,\s*'user'/);
+    }
+  });
+});

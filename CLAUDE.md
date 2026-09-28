@@ -180,6 +180,47 @@ to `PATH`.
 
 ## Status (last updated 2026-09-28)
 
+**Chat lists re-sort when a turn runs, not only when a chat is created
+(2026-09-28).** Reported as "chats attached to an app don't appear in Recents"
+— the user's latest chat, "Traffic based on knowledge" (a tool chat), was
+missing from the rail.
+- **Not app-specific, and the data showed it.** In the production DB that chat
+  WAS first by `updated_at` (`insertMessage` stamps it on every row). The
+  renderer lists (rail Recents, Home's "Jump back in", the Chats page) re-read
+  only on `sessions:changed`, which fired on create, rename, delete, title and
+  `findForApp`/`createForApp`, never on a turn in an existing chat. The last
+  one that day was the title of a chat created at 18:26 UTC. Every turn after
+  it (Traffic 21:20–21:41, Agent Bug 20:51–21:38) moved the DB and not the
+  screen, and the rail matched the 18:26 order exactly. Tool chats show it
+  most because they are the ones people keep returning to. A new chat always
+  looked right, because its title generation broadcasts.
+- **Fix: `onChatTurnBoundary` in `main/chatActivity.ts`**, fired by
+  `noteTurnStarted`/`noteTurnEnded` and nothing else; main answers with
+  `notifySessionsChanged()`. `agentSession.ts` writes the user row just before
+  a turn starts and the result row just before it ends, so these are exactly
+  the moments the sort key moves. It is kept separate from
+  `onChatActivityChanged`, which also fires when a chat is merely read.
+  `chatActivityWiring.test.ts` pins both the subscription and "user row before
+  announcement" (otherwise the lists would re-read stale).
+- **A mid-turn broadcast is safe for the chat that is streaming**, checked
+  rather than assumed. `sendMessage` claims the preload's `activeStreams` slot
+  synchronously, so `useSessionSubscription`'s re-subscribe on
+  `sessions:changed` defers to it. Title generation already fires this same
+  broadcast mid-first-turn in every new chat.
+- **Cost: zero model calls.** Two broadcasts per turn; each re-reads the
+  sessions list, previews (4 ms), activity, and the thread list (debounced
+  500 ms).
+- Verified: tsc clean; **1890/1890 across 132 suites** (+7; the three positive
+  boundary cases proven non-vacuous by deleting the emits); smoke exits 0.
+  Live over CDP on `npm start`: a real turn sent into an app chat
+  (`linkProbeTool`, last active 09-18, not in the top 5) put it **first in the
+  rail's Recents at the first 250 ms sample**, i.e. at turn start and not at
+  the reply. It stayed first through turn-complete, and the Chats page
+  re-sorted with it. DB: `user → assistant "OK" → result`.
+- **Seen, not changed:** the Chats page sorts by last activity, but each row's
+  date is the chat's `createdAt`, so a chat that just moved to the top can
+  read "1 week ago". Home's "Jump back in" uses `updated_at`.
+
 **Chat search reads message text, and the Chats page stopped copying every
 chat into the renderer (2026-09-28).** Asked for as "we only search titles —
 what if we searched content?". Design + tickets + measurements in

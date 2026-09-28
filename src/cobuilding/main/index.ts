@@ -22,7 +22,7 @@ import { createAgentSession } from './agentSession';
 import { createCalendarAgentSession } from './calendarAgentSession';
 import type { CalendarMutationEvent } from './calendarAgentSession';
 import { registerSession, unregisterSession, getRegisteredSession, hasSession, destroyAllSessions, addSubscriber, removeSubscriber, onSessionDestroyed } from './sessionRegistry';
-import { getChatActivity, onChatActivityChanged, setChatWindowFocused, setViewingChat } from './chatActivity';
+import { getChatActivity, onChatActivityChanged, onChatTurnBoundary, setChatWindowFocused, setViewingChat } from './chatActivity';
 import type { IPCAttachment } from '../shared/types';
 import { parseStoredQuote } from '../shared/quotes';
 import { provisionWorkspace } from './skills';
@@ -1095,6 +1095,14 @@ app.whenReady().then(async () => {
         if (!win.isDestroyed()) win.webContents.send('chats:activity', snapshot);
       }
     });
+
+    // A turn starting or ending moves its chat to the top of every
+    // most-recent-first list: the rail's Recents, Home, the Chats page. They
+    // all re-read on `sessions:changed`, which used to fire only on create,
+    // rename, delete and title, so a chat you kept talking in stayed where it
+    // was when the last NEW chat was made. Tool chats showed it most, being
+    // the ones people return to.
+    onChatTurnBoundary(() => notifySessionsChanged());
 
     mcpHost.onInventoryChanged(() => {
       mcpHost.list()

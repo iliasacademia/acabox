@@ -26,13 +26,14 @@ jest.mock('electron-log', () => ({
 }));
 
 import { initDatabase, closeDatabase, getDatabase } from '../db/database';
-import { createSession, listUnreadSessionIds } from '../db/chatRepository';
+import { createSession, insertMessage, listSessions, listUnreadSessionIds } from '../db/chatRepository';
 import {
   __resetChatActivityForTests,
   getChatActivity,
   noteTurnEnded,
   noteTurnStarted,
   onChatActivityChanged,
+  onChatTurnBoundary,
   setChatWindowFocused,
   setViewingChat,
   type ChatActivitySnapshot,
@@ -173,6 +174,62 @@ describe('unread — the rule the user chose', () => {
     setChatWindowFocused(true);
     setViewingChat(id);
     expect(events).toHaveLength(0);
+  });
+});
+
+describe('turn boundaries — what re-sorts the chat lists', () => {
+  let boundaries: string[];
+
+  beforeEach(() => {
+    boundaries = [];
+    onChatTurnBoundary((id) => boundaries.push(id));
+  });
+
+  it('the row a turn writes moves its chat to the top of the list', () => {
+    // The premise: a turn boundary is where the sort key moves. An older chat
+    // taking a turn must outrank a newer one that did not.
+    const older = chat();
+    const newer = chat();
+    const stamp = getDatabase().prepare('UPDATE sessions SET updated_at = ? WHERE id = ?');
+    stamp.run('2026-01-01T00:00:00.000', older);
+    stamp.run('2026-02-01T00:00:00.000', newer);
+    insertMessage(older, 'user', JSON.stringify({ text: 'hi' }));
+    const order = listSessions(workspaceId).map((s) => s.id);
+    expect(order.indexOf(older)).toBeLessThan(order.indexOf(newer));
+  });
+
+  it('announces a turn starting and a turn ending', () => {
+    const id = chat();
+    noteTurnStarted(id);
+    expect(boundaries).toEqual([id]);
+    noteTurnEnded(id);
+    expect(boundaries).toEqual([id, id]);
+  });
+
+  it('says nothing for a repeat start or for an end with no turn', () => {
+    const id = chat();
+    noteTurnEnded(id); // a session destroyed between turns
+    noteTurnStarted(id);
+    noteTurnStarted(id);
+    expect(boundaries).toEqual([id]);
+  });
+
+  it('says nothing when a chat is merely read', () => {
+    const id = chat();
+    runTurn(id);
+    boundaries = [];
+    setChatWindowFocused(true);
+    setViewingChat(id);
+    expect(listUnreadSessionIds()).not.toContain(id);
+    expect(boundaries).toEqual([]);
+  });
+
+  it('a listener that throws does not break the turn', () => {
+    onChatTurnBoundary(() => { throw new Error('boom'); });
+    const id = chat();
+    expect(() => runTurn(id)).not.toThrow();
+    expect(getChatActivity().activeIds).toEqual([]);
+    expect(boundaries).toEqual([id, id]);
   });
 });
 
