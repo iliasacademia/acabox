@@ -383,9 +383,9 @@ function createMcpRelayServers(state: SessionState) {
       name: 'chats',
       tools: [
         tool('list_chats',
-          'List the user\'s other conversations in this workspace, most recent first. Use this when the user names a chat by topic ("the chat where we built the spend explorer") instead of pasting a link — search titles with "query", then pass the matching chat\'s link to read_chat.',
+          'List the user\'s other conversations in this workspace, most recent first. Use this when the user names a chat by topic ("the chat where we built the spend explorer") instead of pasting a link — search with "query" (matches chat titles and the text of messages), then pass the matching chat\'s link to read_chat.',
           {
-            query: z.string().optional().describe('Case-insensitive substring of the chat title.'),
+            query: z.string().optional().describe('Case-insensitive text to find in chat titles or message text.'),
             limit: z.number().int().optional().describe('Max rows, default 20, max 50.'),
           },
           relay('chats', 'list_chats'),

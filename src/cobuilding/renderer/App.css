@@ -634,6 +634,43 @@ body.cobuild-resizing webview {
   line-height: 1.5;
 }
 
+/* Search mode: up to 3 matching message lines in place of the ordinary
+   preview (see chatSearchRank.ts / useProseSearch.ts). */
+.chatListItemHits {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chatListItemHit {
+  font-size: 13px;
+  color: #91919e;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chatListItemHitWho {
+  color: #6b6b78;
+}
+
+.chatListItemHitMore {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #91919e;
+}
+
+/* No chats matched a message search — same footprint as .chatListRefreshing. */
+.chatListEmpty {
+  padding: 12px 4px;
+  color: #9ca3af;
+  font-size: 13px;
+}
+
 .chatListItemRenameInput {
   flex: 1;
   min-width: 0;

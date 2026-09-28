@@ -554,6 +554,10 @@ contextBridge.exposeInMainWorld('sessionsAPI', {
   rename: (id: string, title: string) => ipcRenderer.invoke('sessions:rename', id, title),
   delete: (id: string) => ipcRenderer.invoke('sessions:delete', id),
   listMessages: (sessionId: string) => ipcRenderer.invoke('messages:list', sessionId),
+  /** First user/assistant line of every chat, in one query; see main/db/chatSearch.ts. */
+  previews: () => ipcRenderer.invoke('sessions:previews'),
+  /** Chats whose message text (prose only, never tool output) matches; see docs/design/chat-search.md. */
+  searchProse: (query: string) => ipcRenderer.invoke('sessions:searchProse', query),
   findForApp: (dirName: string) => ipcRenderer.invoke('sessions:findForApp', dirName) as Promise<string | null>,
   listForApp: (dirName: string) => ipcRenderer.invoke('sessions:listForApp', dirName),
   createForApp: (dirName: string) => ipcRenderer.invoke('sessions:createForApp', dirName) as Promise<string | null>,

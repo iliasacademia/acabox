@@ -75,6 +75,11 @@ interface MessageData {
   created_at: string;
 }
 
+/** Mirrors main/db/chatSearch.ts; contract in docs/design/chat-search.md. */
+interface ChatPreviewData { sessionId: string; userText: string; assistantText: string; }
+interface ProseHitData { messageId: number; role: 'user' | 'assistant'; createdAt: string; snippet: string; }
+interface ChatProseResultData { sessionId: string; total: number; hits: ProseHitData[]; }
+
 interface SessionsAPI {
   list(source?: string): Promise<SessionData[]>;
   get(id: string): Promise<SessionData | undefined>;
@@ -82,6 +87,8 @@ interface SessionsAPI {
   rename(id: string, title: string): Promise<void>;
   delete(id: string): Promise<void>;
   listMessages(sessionId: string): Promise<MessageData[]>;
+  previews(): Promise<ChatPreviewData[]>;
+  searchProse(query: string): Promise<ChatProseResultData[]>;
   findForApp(dirName: string): Promise<string | null>;
   listForApp(dirName: string): Promise<AppSessionData[]>;
   createForApp(dirName: string): Promise<string | null>;
@@ -637,6 +644,11 @@ declare global {
     created_at: string;
   }
 
+  /** Mirrors main/db/chatSearch.ts; contract in docs/design/chat-search.md. */
+  interface ChatPreviewData { sessionId: string; userText: string; assistantText: string; }
+  interface ProseHitData { messageId: number; role: 'user' | 'assistant'; createdAt: string; snippet: string; }
+  interface ChatProseResultData { sessionId: string; total: number; hits: ProseHitData[]; }
+
   interface SessionsAPI {
     list(source?: string): Promise<SessionData[]>;
     get(id: string): Promise<SessionData | undefined>;
@@ -645,6 +657,8 @@ declare global {
     rename(id: string, title: string): Promise<void>;
     delete(id: string): Promise<void>;
     listMessages(sessionId: string): Promise<MessageData[]>;
+    previews(): Promise<ChatPreviewData[]>;
+    searchProse(query: string): Promise<ChatProseResultData[]>;
     findForApp(dirName: string): Promise<string | null>;
     listForApp(dirName: string): Promise<AppSessionData[]>;
     createForApp(dirName: string): Promise<string | null>;

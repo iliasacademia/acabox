@@ -141,6 +141,7 @@ import {
   countMessages,
   DEFAULT_SESSION_TITLE,
 } from './db/chatRepository';
+import { listChatPreviews, searchChatProse } from './db/chatSearch';
 import { listWorkspaceDirectories } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
 import { createTray, createDockIcon, rebuildTrayMenu, setShowWindowCallback } from './tray';
@@ -1876,6 +1877,15 @@ ipcMain.handle('sessions:delete', (_event, id: string) => {
   notifySessionsChanged();
 });
 ipcMain.handle('messages:list', (_event, sessionId: string) => getMessages(sessionId));
+// Chat search over message text (docs/design/chat-search.md). Previews back
+// the Chats-list preview line; searchProse backs the search box. Both read
+// the `message_prose` FTS5 index directly rather than the renderer copying
+// message history to compute a preview itself (the defect this shipped to fix).
+ipcMain.handle('sessions:previews', () => listChatPreviews());
+ipcMain.handle('sessions:searchProse', (_event, query: unknown) => {
+  if (typeof query !== 'string') return [];
+  return searchChatProse(query.slice(0, 200));
+});
 
 /** Rejects path traversal and dotfiles in an agent/renderer-supplied app dir name. */
 function isValidAppDirName(dirName: string): boolean {

@@ -16,6 +16,9 @@ import {
 import { resolveToolIcon } from '../command-desk/toolIcon';
 import { ChatMarkDot } from '../command-desk/ChatMarkDot';
 import { formatRelativeDate as formatRelativeDateFromDate } from '../../../../shared/utils';
+import { useChatPreview, formatPreviewLine } from '../../chatPreviewStore';
+import { useProseSearch, type ProseSearchState } from '../../useProseSearch';
+import { rankSearchRows } from '../../chatSearchRank';
 
 interface ThreadListProps {
   onSelectThread?: () => void;
@@ -23,79 +26,9 @@ interface ThreadListProps {
 
 const SearchQueryContext = createContext('');
 const SelectThreadContext = createContext<(() => void) | undefined>(undefined);
-
-// --- Message preview cache & hook ---
-
-interface PreviewData {
-  userText: string;
-  assistantText: string;
-}
-
-const previewCache = new Map<string, PreviewData>();
-
-function useMessagePreview(sessionId: string | undefined): PreviewData | null {
-  const [preview, setPreview] = useState<PreviewData | null>(() => {
-    if (!sessionId) return null;
-    return previewCache.get(sessionId) ?? null;
-  });
-
-  useEffect(() => {
-    if (!sessionId) return;
-    if (previewCache.has(sessionId)) {
-      setPreview(previewCache.get(sessionId)!);
-      return;
-    }
-
-    let cancelled = false;
-    window.sessionsAPI.listMessages(sessionId).then((messages) => {
-      if (cancelled) return;
-
-      let userText = '';
-      let assistantText = '';
-
-      const firstUser = messages.find((m: any) => m.type === 'user');
-      if (firstUser) {
-        try {
-          const parsed = JSON.parse(firstUser.content);
-          userText = (typeof parsed.text === 'string' ? parsed.text : firstUser.content)
-            .split('\n')[0]
-            .slice(0, 120);
-        } catch {
-          userText = firstUser.content.split('\n')[0].slice(0, 120);
-        }
-      }
-
-      const firstAssistant = messages.find((m: any) => m.type === 'assistant');
-      if (firstAssistant) {
-        try {
-          const blocks = JSON.parse(firstAssistant.content);
-          const textBlock = Array.isArray(blocks)
-            ? blocks.find((b: any) => b.type === 'text')
-            : null;
-          if (textBlock?.text) {
-            assistantText = textBlock.text.split('\n')[0].slice(0, 120);
-          }
-        } catch {
-          assistantText = firstAssistant.content.split('\n')[0].slice(0, 120);
-        }
-      }
-
-      const data = { userText, assistantText };
-      previewCache.set(sessionId, data);
-      setPreview(data);
-    }).catch(() => {
-      if (!cancelled) {
-        const data = { userText: '', assistantText: '' };
-        previewCache.set(sessionId, data);
-        setPreview(data);
-      }
-    });
-
-    return () => { cancelled = true; };
-  }, [sessionId]);
-
-  return preview;
-}
+/** Prose search results for the current query; see `useProseSearch`. Read by
+ * `ThreadListItem` to show hit lines instead of the ordinary preview. */
+const ProseResultsContext = createContext<ReadonlyMap<string, ChatProseResultData>>(new Map());
 
 // --- Owning-tool chip ---
 //
@@ -204,14 +137,53 @@ const StableThreadItems: FC = () => {
   );
 };
 
+// --- Ranked items: search mode ---
+//
+// Browsing renders every item through the runtime's own `Items` primitive.
+// Searching instead renders a caller-picked subset in a caller-picked order —
+// title matches first, then prose-only ones, per `rankSearchRows` — via
+// `ItemByIndex`, which is the one primitive that takes an explicit index
+// rather than iterating for you.
+
+const RankedThreadItems: FC<{ query: string; prose: ProseSearchState }> = ({ query, prose }) => {
+  const threadIds = (useThreadList((s: any) => s.threadIds) as string[] | undefined) ?? [];
+  const threadItems = (useThreadList((s: any) => s.threadItems) as
+    Record<string, { remoteId?: string; title?: string }> | undefined) ?? {};
+  const trimmed = query.trim();
+  const rows = rankSearchRows(threadIds, threadItems, query, prose.results);
+
+  if (rows.length === 0) {
+    // `prose.forQuery` lags the query while a debounced request is in flight —
+    // rendering the empty state before it answers would flash "no chats"
+    // for every query on the way to a real hit.
+    if (prose.forQuery !== trimmed) return null;
+    return <div className="chatListEmpty">No chats mention &ldquo;{trimmed}&rdquo;.</div>;
+  }
+
+  return (
+    <>
+      {rows.map((row) => (
+        <ThreadListPrimitive.ItemByIndex
+          key={row.threadId}
+          index={threadIds.indexOf(row.threadId)}
+          components={{ ThreadListItem }}
+        />
+      ))}
+    </>
+  );
+};
+
 // --- Main ThreadList ---
 
 export const ThreadList: FC<ThreadListProps> = ({ onSelectThread }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const toolsByDirName = useToolsByDirName();
+  const prose = useProseSearch(searchQuery);
+  const isSearching = searchQuery.trim().length > 0;
 
   return (
     <ToolsByDirNameContext.Provider value={toolsByDirName}>
+    <ProseResultsContext.Provider value={prose.results}>
     <SearchQueryContext.Provider value={searchQuery}>
       <SelectThreadContext.Provider value={onSelectThread}>
         <ThreadListPrimitive.Root className="pageShell">
@@ -233,7 +205,7 @@ export const ThreadList: FC<ThreadListProps> = ({ onSelectThread }) => {
                   <SearchIcon className="chatListSearchIcon" />
                   <input
                     className="chatListSearchInput"
-                    placeholder="Search your chats..."
+                    placeholder="Search chat titles and messages…"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
@@ -242,12 +214,13 @@ export const ThreadList: FC<ThreadListProps> = ({ onSelectThread }) => {
 
               {/* Items */}
               <div className="chatListItems">
-                <StableThreadItems />
+                {isSearching ? <RankedThreadItems query={searchQuery} prose={prose} /> : <StableThreadItems />}
               </div>
           </div>
         </ThreadListPrimitive.Root>
       </SelectThreadContext.Provider>
     </SearchQueryContext.Provider>
+    </ProseResultsContext.Provider>
     </ToolsByDirNameContext.Provider>
   );
 };
@@ -258,12 +231,19 @@ const ThreadListItem: FC = () => {
   const runtime = useThreadListItemRuntime();
   const searchQuery = useContext(SearchQueryContext);
   const onSelectThread = useContext(SelectThreadContext);
+  const proseResults = useContext(ProseResultsContext);
 
   const remoteId = runtime.getState().remoteId;
   const title = runtime.getState().title ?? 'New Chat';
   const createdAt = getSessionCreatedAt(remoteId);
   const appDirName = getSessionAppDirName(remoteId);
-  const preview = useMessagePreview(remoteId);
+  const preview = useChatPreview(remoteId);
+  const previewText = formatPreviewLine(preview);
+  // Present only while searching and only for a chat with matching message
+  // text — a title-only match keeps the ordinary preview line below.
+  const proseHit = remoteId ? proseResults.get(remoteId) : undefined;
+  const hits = proseHit?.hits ?? [];
+  const total = proseHit?.total ?? 0;
 
   // --- Rename modal state (must be before any early return) ---
   const [renameOpen, setRenameOpen] = useState(false);
@@ -291,26 +271,14 @@ const ThreadListItem: FC = () => {
     setDeleteOpen(false);
   }, [runtime]);
 
-  // Build preview string: "You: ... · CS: ..."
-  const previewText = preview
-    ? [
-        preview.userText ? `You: ${preview.userText}` : '',
-        preview.assistantText ? `CS: ${preview.assistantText}` : '',
-      ].filter(Boolean).join(' \u00b7 ')
-    : '';
-
   // The runtime always holds one unstarted "new thread" with no remoteId —
   // it has no persisted session to jump back into, so keep it out of the list
   // (the header count already excludes it).
   if (!remoteId) return null;
 
-  // Search filtering (after all hooks)
-  if (searchQuery) {
-    const q = searchQuery.toLowerCase();
-    const titleMatch = title.toLowerCase().includes(q);
-    const previewMatch = previewText.toLowerCase().includes(q);
-    if (!titleMatch && !previewMatch) return null;
-  }
+  // Which rows render at all is now the caller's decision (`rankSearchRows` /
+  // `StableThreadItems`) — this component only decides what to show inside a
+  // row it has already been asked to render.
 
   return (
     <ThreadListItemPrimitive.Root className="chatListItem">
@@ -328,7 +296,17 @@ const ThreadListItem: FC = () => {
           </span>
           {appDirName ? <ChatToolChip dirName={appDirName} /> : null}
         </span>
-        {previewText ? (
+        {hits.length > 0 ? (
+          <span className="chatListItemHits">
+            {hits.map((h) => (
+              <span key={h.messageId} className="chatListItemHit">
+                <span className="chatListItemHitWho">{h.role === 'user' ? 'You:' : 'CS:'}</span>{' '}
+                {highlightMatch(h.snippet, searchQuery)}
+              </span>
+            ))}
+            {total > hits.length && <span className="chatListItemHitMore">+{total - hits.length} more</span>}
+          </span>
+        ) : previewText ? (
           <span className="chatListItemPreview">
             {searchQuery ? highlightMatch(previewText, searchQuery) : previewText}
           </span>

@@ -4,6 +4,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import log from 'electron-log';
 import { WORKSPACE_DATA_DIR, ACADEMIA_DIR, APPLICATIONS_DIR, CLAUDE_DIR, SOUL_MD, FOCUS_MD } from '../../shared/paths';
+import { MESSAGE_PROSE_SQL } from './messageProse';
 
 let db: Database.Database | null = null;
 
@@ -515,6 +516,13 @@ const migrations = [
     // nothing reads as unread the first time this runs.
     version: 32,
     sql: `ALTER TABLE sessions ADD COLUMN unread INTEGER NOT NULL DEFAULT 0;`,
+  },
+  {
+    // Chat search over message text (docs/design/chat-search.md): a prose-only
+    // FTS5 index over `messages`, kept current by triggers rather than by any
+    // caller remembering to. See `./messageProse.ts` for what's indexed and why.
+    version: 33,
+    sql: MESSAGE_PROSE_SQL,
   },
 ];
 

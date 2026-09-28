@@ -178,7 +178,68 @@ to `PATH`.
   SIGKILLs the suite mid-run and the tail prints `[exited with code 0]`
   from the pipe, which reads as a pass. Measured 2026-09-18.
 
-## Status (last updated 2026-09-25)
+## Status (last updated 2026-09-28)
+
+**Chat search reads message text, and the Chats page stopped copying every
+chat into the renderer (2026-09-28).** Asked for as "we only search titles —
+what if we searched content?". Design + tickets + measurements in
+`docs/design/chat-search.md`; the decisions (prose only, up to 3 lines per
+chat, titles ranked first) were the user's.
+- **The preview loader was the bigger defect.** Each Chats row called
+  `listMessages` — the chat's WHOLE history — to keep 120 characters, and the
+  list is not virtualized: **84.8 MB** crossed IPC per app run on the
+  production DB. Now one `sessions:previews` query: 4 ms, 13 KB.
+  `renderer/chatPreviewStore.ts`, re-read on `sessions:changed`.
+- **Prose only, measured, not assumed.** Of the production DB's 77 MB of
+  message text, what people typed plus Claude's written replies is 1.5 MB;
+  tool output is 43 MB and thinking blocks 22 MB (of which 22.15 MB is
+  encrypted signature). `result` rows are NOT indexed: all 248 non-empty ones
+  duplicate an assistant text block, so every answer would match twice.
+- **`message_prose` (FTS5, trigram tokenizer, migration 33) is written ONLY by
+  triggers on `messages`** — insert, delete, update — so chat delete, hard
+  reset, orphan cleanup and the overflow repair cannot forget it. Verified in
+  real SQLite that the delete trigger fires on the `sessions` ON DELETE
+  CASCADE. The extraction SQL exists once (`proseExpr` in
+  `main/db/messageProse.ts`). Trigram = case-insensitive substring, like the
+  old filter; `MATCH` needs 3+ characters, so 1-2 char queries fall back to a
+  `LIKE` scan of the prose (7.6 ms on production).
+- **Search runs in main** (`main/db/chatSearch.ts`, `sessions:searchProse`):
+  up to 3 most recent hits per chat plus a total, snippets cut by
+  `shared/proseSnippet.ts`. The renderer ranks (`chatSearchRank.ts`: title
+  matches first, then list order) and renders via
+  `ThreadListPrimitive.ItemByIndex`. The agent's `list_chats(query)` now
+  matches message text through the same clause.
+- **Found live, not by tests:** a snippet centred on the match still hid it,
+  because a row ellipsizes at ~95 chars while the window was 160 — "…(same as
+  the dat…". Snippets now open ~40 chars before the match.
+  **And: a hidden Electron window stretches a 150 ms timer to ~1.1 s**, which
+  made the debounced search look broken under CDP. Measure UI timing with
+  `--disable-background-timer-throttling --disable-renderer-backgrounding
+  --disable-backgrounding-occluded-windows` (measurement only).
+- **Visible side effect:** 38 of 50 production previews now show a `CS: …`
+  half. The old loader looked only at a chat's first assistant ROW, which is
+  usually thinking or a tool call, so it showed nothing; the new query takes
+  the first assistant row that has prose. That was the preview's evident
+  intent.
+- **Cost: zero model calls.** Production migration: 138 ms, +4.1 MB.
+- Verified: tsc clean; **1883/1883 across 132 suites** (+22, 5 new suites);
+  smoke exits 0; the real migration run on a copy of the production DB; then
+  live over CDP on `npm start`: title-then-prose ranking, 3 hit lines with
+  `+5 MORE`, the "No chats mention" state, a 2-char query, every highlighted
+  match inside the visible part of its line, a hit click opening its chat, and
+  hits on screen 188 ms after the keystroke.
+- **Known gap, stated to the user:** their own example, "KII", returns nothing.
+  In production it appears in no title and no prose, only inside a document
+  Claude read (tool output) and as noise in thinking signatures. Tool output
+  was deliberately excluded (+73 MB, noisy).
+- **Not built: jump-to-message.** The API already returns each hit's
+  `messageId`. What makes it real work: the history converter drops DB row ids
+  and merges a turn into one message; folded narration is unmounted, not
+  hidden (all three live hits in the test chat sat inside a collapsed "Worked
+  for" fold, where ⌘F cannot see them); and the thread scrolls to the bottom
+  on open.
+
+## Status (earlier on 2026-09-25)
 
 **Copy button on the file view (2026-09-25).** Asked for as "files can be very
 long — add a Copy button at the top like Claude Code has". It sits at the right

@@ -1,4 +1,5 @@
 import { getDatabase } from './database';
+import { proseMatchClause } from './chatSearch';
 
 /** Placeholder title a session row is created with (matches the schema default). */
 export const DEFAULT_SESSION_TITLE = 'New Chat';
@@ -211,7 +212,9 @@ export interface SessionWithCounts extends SessionWithActivity {
 /**
  * Ordinary chats (`source IS NULL`, the same set the Chats list shows) in a
  * workspace, most recently active first, optionally filtered by a
- * case-insensitive title substring. Backs the agent's `list_chats` tool
+ * case-insensitive substring of the title OR of the chat's message text
+ * (via the same `message_prose` index and match rule chat search uses — see
+ * `./chatSearch.ts`). Backs the agent's `list_chats` tool
  * (`main/chatReference.ts`), so `limit` is clamped here rather than trusted.
  */
 export function listSessionsWithActivity(
@@ -222,17 +225,21 @@ export function listSessionsWithActivity(
   const query = opts.query?.trim();
   // `_` and `%` are LIKE wildcards; escape them so a literal title search is literal.
   const like = query ? `%${query.replace(/[%_\\]/g, (c) => `\\${c}`)}%` : null;
+  const proseClause = like ? proseMatchClause(query!) : null;
+  const matchFragment = like && proseClause
+    ? ` AND (s.title LIKE ? ESCAPE '\\' OR s.id IN (SELECT m.session_id FROM message_prose p JOIN messages m ON m.id = p.rowid WHERE ${proseClause.sql}))`
+    : '';
   const sql = `
       SELECT s.*, MAX(m.created_at) AS last_message_at, COUNT(m.id) AS message_count
       FROM sessions s
       LEFT JOIN messages m ON m.session_id = s.id
-      WHERE s.workspace_id = ? AND s.source IS NULL${like ? " AND s.title LIKE ? ESCAPE '\\'" : ''}
+      WHERE s.workspace_id = ? AND s.source IS NULL${matchFragment}
       GROUP BY s.id
       ORDER BY COALESCE(MAX(m.created_at), s.created_at) DESC
       LIMIT ?
     `;
   const params: unknown[] = [workspaceId];
-  if (like) params.push(like);
+  if (like && proseClause) params.push(like, proseClause.param);
   params.push(limit);
   return getDatabase().prepare(sql).all(...params) as SessionWithCounts[];
 }
