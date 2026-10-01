@@ -1,13 +1,14 @@
 
 import { type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatStreamMessage, IPCAttachment, Workspace, NotificationNavigationAction } from '../shared/types';
-import { createSession, setSdkSessionId, clearSdkSessionId, setSessionModelInfo, setSessionAppDirName, insertMessage, closeOrphanTurn, getSession, getSessionActivity } from './db/chatRepository';
+import { createSession, setSdkSessionId, clearSdkSessionId, setSessionModelInfo, setSessionAppDirName, insertMessage, closeOrphanTurn, getSession, getSessionActivity, listResultCostRows } from './db/chatRepository';
 import { listWorkspaceDirectories } from './db/workspaceRepository';
 import * as fs from 'fs';
 import path from 'path';
 import log from 'electron-log';
 import { captureError } from '../shared/telemetry';
 import { composeQuotedText, type AcaboxQuote } from '../shared/quotes';
+import { turnCosts } from '../shared/turnCost';
 import { buildReadOnlyDenyRules, mountNames } from '../shared/readOnlyRules';
 import { composeChatRefsText } from '../shared/chatLinks';
 import { resolveChatRefs } from './chatRefResolver';
@@ -1489,6 +1490,14 @@ async function connectSSE(
                   subtype: (message as any).subtype,
                   result: (message as any).subtype === 'success' ? (message as any).result : undefined,
                   is_error: (message as any).is_error,
+                  // What this run has cost so far (cumulative per query()),
+                  // stored as the SDK reports it; `run_id` says which query()
+                  // it counts for, since a new agent session restarts the
+                  // count. See shared/turnCost.ts. Absent fields stay absent.
+                  run_id: agentSessionId,
+                  ...(typeof (message as any).total_cost_usd === 'number' ? { total_cost_usd: (message as any).total_cost_usd } : {}),
+                  ...(typeof (message as any).duration_api_ms === 'number' ? { duration_api_ms: (message as any).duration_api_ms } : {}),
+                  ...((message as any).modelUsage ? { modelUsage: (message as any).modelUsage } : {}),
                   // The CLI's own answer to an interrupt reads as an error
                   // result; tagging it keeps it from rendering as a failure.
                   ...(turnState.stopReason ? { stopped_by: turnState.stopReason } : {}),
@@ -1523,7 +1532,17 @@ async function connectSSE(
                 // deferred-destroy hook) sees the up-to-date state.
                 turnState.turnInProgress = false;
                 noteTurnEnded(sessionId);
-                emitEvent({ type: 'turn-complete', messageId: completedMessageId ?? undefined } as ChatStreamMessage);
+                // This turn's cost, derived from the rows exactly as a reload
+                // derives it, so the live line and the reloaded one agree.
+                let turnCostUsd: number | undefined;
+                try {
+                  const costs = turnCosts(listResultCostRows(sessionId));
+                  const last = costs[costs.length - 1];
+                  if (typeof last === 'number') turnCostUsd = last;
+                } catch (err) {
+                  log.warn(`[AgentSession] cost lookup failed: ${(err as Error).message}`);
+                }
+                emitEvent({ type: 'turn-complete', messageId: completedMessageId ?? undefined, ...(turnCostUsd !== undefined ? { costUsd: turnCostUsd } : {}) } as ChatStreamMessage);
                 // Turn over — clear so a subsequent send's messageId isn't
                 // inherited if the SSE stream emits stray events.
                 turnState.currentMessageId = null;

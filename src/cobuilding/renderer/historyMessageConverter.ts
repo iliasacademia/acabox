@@ -19,6 +19,7 @@
 import type { ThreadMessageLike } from '@assistant-ui/react';
 import type { ReadonlyJSONObject } from 'assistant-stream/utils';
 import { parseStoredQuote } from '../shared/quotes';
+import { parseCostRow, turnCosts } from '../shared/turnCost';
 
 // ─── Wire shapes ────────────────────────────────────────────────────
 
@@ -86,6 +87,11 @@ export function convertHistoryMessages(dbMessages: readonly HistoryDbMessage[]):
   // a crash closed by `closeOrphanTurn`). Its unfinished tool calls then read
   // as stopped rather than running forever.
   let turnStopped = false;
+  // Cost of the turn, from its result row. Unknown (null) renders nothing; a
+  // stopped turn has one only when the CLI's own result carried a cost.
+  const resultCosts = turnCosts(dbMessages.filter((m) => m.type === 'result').map((m) => parseCostRow(m.content)));
+  let resultIndex = 0;
+  let turnCost: number | null = null;
 
   const flushAssistant = () => {
     if (pendingAssistantContent && pendingAssistantContent.length > 0) {
@@ -100,13 +106,14 @@ export function convertHistoryMessages(dbMessages: readonly HistoryDbMessage[]):
         // tool call that has no result; the tool card and `isFailed` already
         // read it as "stopped", not failed.
         ...(turnStopped ? { status: { type: 'incomplete' as const, reason: 'cancelled' as const } } : {}),
-        ...(turnStopped || (Number.isFinite(workedMs) && workedMs > 0)
+        ...(turnStopped || turnCost !== null || (Number.isFinite(workedMs) && workedMs > 0)
           ? {
             metadata: {
               custom: {
                 ...(turnStopped ? { stopped: true } : {}),
                 // No duration for a stopped turn: none is measured.
                 ...(!turnStopped && Number.isFinite(workedMs) && workedMs > 0 ? { workedMs } : {}),
+                ...(turnCost !== null ? { costUsd: turnCost } : {}),
               },
             },
           }
@@ -123,6 +130,7 @@ export function convertHistoryMessages(dbMessages: readonly HistoryDbMessage[]):
       turnStartAt = msg.createdAt;
       turnEndAt = undefined;
       turnStopped = false;
+      turnCost = null;
       messages.push(convertUserMessage(msg.content, msg.createdAt));
       continue;
     }
@@ -137,7 +145,10 @@ export function convertHistoryMessages(dbMessages: readonly HistoryDbMessage[]):
         pendingAssistantCreatedAt = msg.createdAt;
       }
     }
-    if (msg.type === 'result' && isStoppedResult(msg.content)) turnStopped = true;
+    if (msg.type === 'result') {
+      turnCost = resultCosts[resultIndex++] ?? null;
+      if (isStoppedResult(msg.content)) turnStopped = true;
+    }
     // tool_result rows are folded into their tool_use parents via the
     // toolResults map; no top-level message emitted for them.
   }

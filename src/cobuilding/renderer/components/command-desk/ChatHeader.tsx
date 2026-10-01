@@ -3,6 +3,7 @@ import { useAssistantRuntime, useAuiState } from '@assistant-ui/react';
 import { MSymbol } from './MSymbol';
 import { formatSessionModelMeta, useSessionMeta } from './useSessionMeta';
 import { buildChatLink } from '../../../shared/chatLinks';
+import { formatCost } from '../../../shared/turnCost';
 import type { FC } from 'react';
 
 /**
@@ -27,6 +28,19 @@ export const ChatHeader: FC<ChatHeaderProps> = ({ onBack, onOpenTool }) => {
   // and it may also be the turn whose agent created the tool this chat owns.
   const meta = useSessionMeta(remoteId, isRunning);
   const toolDirName = meta.appDirName;
+
+  // The chat's running cost, re-read when a turn ends (the result row that
+  // carries it is written just before). Null -> nothing is rendered.
+  const [totalCost, setTotalCost] = useState<number | null>(null);
+  useEffect(() => {
+    if (!remoteId) { setTotalCost(null); return; }
+    let cancelled = false;
+    window.sessionsAPI.cost(remoteId)
+      .then((c) => { if (!cancelled) setTotalCost(c); })
+      .catch(() => { if (!cancelled) setTotalCost(null); });
+    return () => { cancelled = true; };
+  }, [remoteId, isRunning]);
+  const costLabel = formatCost(totalCost);
 
   // An empty chat has no pin yet and falls back to the picker's selection —
   // re-render so that fallback tracks the picker.
@@ -117,6 +131,11 @@ export const ChatHeader: FC<ChatHeaderProps> = ({ onBack, onOpenTool }) => {
         {[modelMeta, isNewChat ? 'NAMES ITSELF AFTER THE FIRST REPLY' : null]
           .filter(Boolean)
           .join(' · ')}
+        {costLabel && (
+          <span title="Estimated at list price by the Claude Agent SDK.">
+            {modelMeta || isNewChat ? ' · ' : ''}{costLabel} so far
+          </span>
+        )}
       </span>
       {isRunning && (
         <span className="cdStatusChip">

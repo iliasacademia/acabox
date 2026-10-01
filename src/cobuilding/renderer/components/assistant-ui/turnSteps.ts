@@ -21,6 +21,7 @@
  * superseded snapshots and go in with the rest of the steps. Failures are never
  * hidden either — they are counted, in red, on whichever line folds them.
  */
+import { formatCost } from '../../../shared/turnCost';
 
 /** The fields of a message part this module needs. Built from the runtime's part state. */
 export interface PartLite {
@@ -241,10 +242,18 @@ export function formatWorkedFor(ms: number): string {
  * The collapsed line for a finished turn: "Worked for 4m 12s · 26 steps", or
  * "Stopped · 26 steps" when a stop ended it (no duration — none is measured).
  */
-export function turnFoldLabel(stepCount: number, workedMs: number | null, stopped = false): string {
+export function turnFoldLabel(
+  stepCount: number,
+  workedMs: number | null,
+  stopped = false,
+  costUsd: number | null = null,
+): string {
   const steps = plural(stepCount, 'step', 'steps');
-  if (stopped) return `Stopped · ${steps}`;
+  // Estimated cost, appended only when measured - never a `$0.00` placeholder.
+  const cost = formatCost(costUsd);
+  const tail = cost ? ` · ${cost}` : '';
+  if (stopped) return `Stopped · ${steps}${tail}`;
   return workedMs != null && workedMs > 0
-    ? `Worked for ${formatWorkedFor(workedMs)} · ${steps}`
-    : `Worked · ${steps}`;
+    ? `Worked for ${formatWorkedFor(workedMs)} · ${steps}${tail}`
+    : `Worked · ${steps}${tail}`;
 }
