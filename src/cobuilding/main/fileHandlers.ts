@@ -53,6 +53,11 @@ export function assertWithinAllowedDirs(filePath: string, allowedDirs: string[])
   throw new Error('Access denied: path is outside allowed directories.');
 }
 
+/** True when `resolved` IS one of the allowed roots (workspace or a shared folder). */
+export function isAllowedRoot(resolved: string, allowedDirs: string[]): boolean {
+  return allowedDirs.some((dir) => path.resolve(dir) === resolved);
+}
+
 function validateFileName(name: string): string {
   const trimmed = name.trim();
   if (!trimmed || trimmed === '.' || trimmed === '..') {
@@ -321,6 +326,18 @@ export function registerFileHandlers(getAllowedPaths: () => string[], getMainWin
     const allowedPaths = requireAllowedPaths(getAllowedPaths);
     const resolved = assertWithinAllowedDirs(filePath, allowedPaths);
     await fsPromises.rm(resolved, { recursive: true });
+  });
+
+  // The user-facing delete. Unlike files:deleteFile (a silent rm the mini-app
+  // bridge relies on) this is recoverable, and it refuses the roots themselves:
+  // trashing a shared folder's root is not a file operation.
+  ipcMain.handle('files:trashFile', async (_event, filePath: string) => {
+    const allowedPaths = requireAllowedPaths(getAllowedPaths);
+    const resolved = assertWithinAllowedDirs(filePath, allowedPaths);
+    if (isAllowedRoot(resolved, allowedPaths)) {
+      throw new Error('Cannot move a shared folder or the workspace root to the Trash.');
+    }
+    await shell.trashItem(resolved);
   });
 
   ipcMain.handle(
