@@ -171,6 +171,9 @@ export class HostProcessService {
   // it back up. Track recent crash timestamps so an immediate respawn loop
   // gives up rather than spinning forever.
   private agentRestartTimestamps: number[] = [];
+  // Set when the supervisor stops restarting; cleared by the next healthy start.
+  // Surfaced so the chrome can say OFFLINE and waitForAgent can stop polling.
+  private agentGaveUp = false;
   private static readonly MAX_RESTARTS_IN_WINDOW = 3;
   private static readonly RESTART_WINDOW_MS = 60_000;
 
@@ -288,6 +291,7 @@ export class HostProcessService {
     this.killProc('kernelGatewayProc');
     this.killProc('agentServerProc');
     this.startedFlag = false;
+    this.agentGaveUp = false;
     this.currentAgentDir = null;
     this.lastAgentServerConfig = null;
     this.lastAgentServerWorkspacePath = null;
@@ -304,6 +308,17 @@ export class HostProcessService {
 
   isRunning(): boolean {
     return this.startedFlag;
+  }
+
+  /** The agent server process exists and has not exited. */
+  isAgentAlive(): boolean {
+    const proc = this.agentServerProc;
+    return !!proc && proc.exitCode === null && proc.signalCode === null;
+  }
+
+  /** The crash supervisor hit its restart limit and will not try again. */
+  hasAgentGivenUp(): boolean {
+    return this.agentGaveUp;
   }
 
   isOverlayEnabled(): boolean {
@@ -547,6 +562,7 @@ export class HostProcessService {
       );
       if (this.agentRestartTimestamps.length >= HostProcessService.MAX_RESTARTS_IN_WINDOW) {
         log.error(`[AgentServer] Crashed ${this.agentRestartTimestamps.length} times in ${HostProcessService.RESTART_WINDOW_MS / 1000}s — giving up`);
+        this.agentGaveUp = true;
         return;
       }
       this.agentRestartTimestamps.push(now);
@@ -572,6 +588,7 @@ export class HostProcessService {
     while (Date.now() - startTime < 15_000) {
       if (await this.isAgentServerHealthy(2000)) {
         log.info('[HostProcess] Agent server healthy');
+        this.agentGaveUp = false;
         return;
       }
       if (proc.exitCode !== null || proc.signalCode !== null) {

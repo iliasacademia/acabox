@@ -15,12 +15,21 @@ export function dateFromSessionStoredAt(stored: string): Date {
 }
 
 const createdAtByRemoteId = new Map<string, string>();
+// `updated_at` is what the list sorts by and what every message write bumps, so
+// the row date must read it: showing `created_at` beside an activity-sorted list
+// made a chat that just moved to the top read "1 week ago".
+const updatedAtByRemoteId = new Map<string, string>();
 const documentPathByRemoteId = new Map<string, string | null>();
 const appDirNameByRemoteId = new Map<string, string | null>();
 
 export function getSessionCreatedAt(remoteId: string | undefined): string | undefined {
   if (!remoteId) return undefined;
   return createdAtByRemoteId.get(remoteId);
+}
+
+export function getSessionUpdatedAt(remoteId: string | undefined): string | undefined {
+  if (!remoteId) return undefined;
+  return updatedAtByRemoteId.get(remoteId);
 }
 
 export function getSessionDocumentPath(remoteId: string | undefined): string | null | undefined {
@@ -38,15 +47,18 @@ export function replaceSessionTimestampsFromList(
   sessions: readonly {
     id: string;
     created_at: string;
+    updated_at?: string;
     document_path?: string | null;
     app_dir_name?: string | null;
   }[],
 ): void {
   createdAtByRemoteId.clear();
+  updatedAtByRemoteId.clear();
   documentPathByRemoteId.clear();
   appDirNameByRemoteId.clear();
   for (const s of sessions) {
     createdAtByRemoteId.set(s.id, s.created_at);
+    if (s.updated_at) updatedAtByRemoteId.set(s.id, s.updated_at);
     documentPathByRemoteId.set(s.id, s.document_path ?? null);
     appDirNameByRemoteId.set(s.id, s.app_dir_name ?? null);
   }
@@ -58,6 +70,10 @@ export function setSessionAppDirName(remoteId: string, appDirName: string | null
 
 export function setSessionCreatedAt(remoteId: string, createdAt: string): void {
   createdAtByRemoteId.set(remoteId, createdAt);
+}
+
+export function setSessionUpdatedAt(remoteId: string, updatedAt: string): void {
+  updatedAtByRemoteId.set(remoteId, updatedAt);
 }
 
 export function setSessionDocumentPath(remoteId: string, documentPath: string | null): void {

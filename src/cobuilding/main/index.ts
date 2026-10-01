@@ -1398,7 +1398,13 @@ ipcMain.handle('container:stop', async () => {
 });
 
 ipcMain.handle('container:status', () => {
-  return { running: containerService.isRunning() };
+  // `running` keeps its meaning (the service flag; MiniAppViewer reads it).
+  // `agentAlive` / `gaveUp` are what the chrome's health chip needs.
+  return {
+    running: containerService.isRunning(),
+    agentAlive: containerService.isAgentAlive(),
+    gaveUp: containerService.hasAgentGivenUp(),
+  };
 });
 
 ipcMain.handle('container:exec', async (_event, command: string[]) => {
@@ -1920,11 +1926,22 @@ async function backfillAllAppChatLinks(workspaceId: string, workspacePath: strin
   let entries: string[];
   try {
     entries = (await fsPromises.readdir(appsDir, { withFileTypes: true }))
-      .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+      // `_`-prefixed dirs are shared scaffolding (_bridge, _reusable, _vendor),
+      // not tools; they have no manifest and would only log a failed read.
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !e.name.startsWith('_'))
       .map((e) => e.name);
   } catch {
     return; // No .applications yet — nothing to link.
   }
+  // A dir with no manifest.json is not an installed tool (a half-scaffolded
+  // or leftover folder), so there is nothing to link.
+  entries = (
+    await Promise.all(
+      entries.map(async (name) =>
+        fsPromises.access(path.join(appsDir, name, 'manifest.json')).then(() => name, () => null),
+      ),
+    )
+  ).filter((n): n is string => n !== null);
 
   let linked = 0;
   for (const dirName of entries) {

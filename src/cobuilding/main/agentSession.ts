@@ -597,6 +597,11 @@ export function createAgentSession(
       if (Date.now() - startTime > TIMEOUT_MS) {
         throw new Error('Agent failed to start. Check the Debug panel for details.');
       }
+      // The supervisor stopped restarting the agent: nothing will ever answer,
+      // so say so now instead of polling for the full five minutes.
+      if (containerService.hasAgentGivenUp()) {
+        throw new Error('The assistant stopped and could not be restarted. Quit and reopen Acabox.');
+      }
       const isRunning = containerService.isRunning();
       const port = containerService.getAgentPort();
 

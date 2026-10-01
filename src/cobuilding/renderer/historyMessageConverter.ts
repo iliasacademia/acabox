@@ -20,6 +20,7 @@ import type { ThreadMessageLike } from '@assistant-ui/react';
 import type { ReadonlyJSONObject } from 'assistant-stream/utils';
 import { parseStoredQuote } from '../shared/quotes';
 import { parseCostRow, turnCosts } from '../shared/turnCost';
+import { dateFromSessionStoredAt } from './sessionTimestamps';
 
 // ─── Wire shapes ────────────────────────────────────────────────────
 
@@ -101,7 +102,7 @@ export function convertHistoryMessages(dbMessages: readonly HistoryDbMessage[]):
       messages.push({
         role: 'assistant',
         content: pendingAssistantContent,
-        ...(pendingAssistantCreatedAt ? { createdAt: new Date(pendingAssistantCreatedAt) } : {}),
+        ...(pendingAssistantCreatedAt ? { createdAt: dateFromSessionStoredAt(pendingAssistantCreatedAt) } : {}),
         // `incomplete / cancelled` is the status assistant-ui hands to a
         // tool call that has no result; the tool card and `isFailed` already
         // read it as "stopped", not failed.
@@ -221,7 +222,7 @@ function convertUserMessage(content: unknown, createdAt?: string): ThreadMessage
     content: text,
     ...(attachments.length > 0 ? { attachments } : {}),
     ...(quote ? { metadata: { custom: { quote } } } : {}),
-    ...(createdAt ? { createdAt: new Date(createdAt) } : {}),
+    ...(createdAt ? { createdAt: dateFromSessionStoredAt(createdAt) } : {}),
   };
 }
 

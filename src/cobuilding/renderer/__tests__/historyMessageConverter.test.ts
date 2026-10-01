@@ -427,3 +427,15 @@ describe('turn cost', () => {
     expect(assistant.metadata.custom.stopped).toBe(true);
   });
 });
+
+describe('message timestamps', () => {
+  it('reads zone-less SQLite timestamps as UTC, not local time', () => {
+    const rows: HistoryDbMessage[] = [
+      { type: 'user', content: { text: 'hi' }, createdAt: '2026-09-22T10:00:00.000' },
+      { type: 'assistant', content: [{ type: 'text', text: 'yo' }], createdAt: '2026-09-22T10:00:05.000' },
+    ];
+    const messages = convertHistoryMessages(rows) as any[];
+    expect(messages[0].createdAt.toISOString()).toBe('2026-09-22T10:00:00.000Z');
+    expect(messages[1].createdAt.toISOString()).toBe('2026-09-22T10:00:05.000Z');
+  });
+});

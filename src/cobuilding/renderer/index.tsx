@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { FOCUS_CHAT_SEARCH_EVENT } from './chatSearchFocus';
 import { createRoot } from 'react-dom/client';
 import {
   useLocalRuntime,
@@ -876,6 +877,19 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
     deactivateAllTabs();
   }, [deactivateAllTabs]);
 
+  // ⌘K and the Home search box: show the chat list AND put the caret in its
+  // search input. The focus is announced from an effect on the nonce, because
+  // the Chats tab stays mounted behind display:none and can only take focus
+  // once this render has made it visible.
+  const [chatSearchFocusNonce, setChatSearchFocusNonce] = useState(0);
+  const handleSearchChats = useCallback(() => {
+    handleChatsClick();
+    setChatSearchFocusNonce((n) => n + 1);
+  }, [handleChatsClick]);
+  useEffect(() => {
+    if (chatSearchFocusNonce > 0) window.dispatchEvent(new Event(FOCUS_CHAT_SEARCH_EVENT));
+  }, [chatSearchFocusNonce]);
+
   const openChatById = useCallback((sessionId: string) => {
     setSidebarTab('chats');
     setChatViewMode('detail');
@@ -937,8 +951,8 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
     }
   }, [deactivateAllTabs, handleChatsClick, handleToolsClick, handleFilesClick]);
 
-  // ⌘K — interim: routes to the chat list (it has search) until a real
-  // command palette exists.
+  // ⌘K — interim: routes to the chat list and focuses its search until a
+  // real command palette exists.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const action = findShortcutAction(e);
@@ -950,12 +964,12 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        handleChatsClick();
+        handleSearchChats();
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [handleChatsClick]);
+  }, [handleSearchChats]);
 
   // Find results are a snapshot of the visible surface (Chromium does not
   // re-run a find when the DOM changes), so ask main to re-run the active
@@ -1073,7 +1087,6 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
               toolCount={activeApps.length}
               recents={sessions.slice(0, 5).map((s) => ({ id: s.id, title: s.title }))}
               pinned={pinnedTools}
-              workspaceName={workspaceName}
               onNavigate={handleRailNavigate}
               onOpenChat={openChatById}
               onOpenTool={handleSelectApp}
@@ -1089,7 +1102,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                 workspaceName={workspaceName}
                 onOpenChat={openChatById}
                 onOpenTool={handleSelectApp}
-                onNavigateChats={handleChatsClick}
+                onNavigateChats={handleSearchChats}
                 onNavigateTools={handleToolsClick}
                 onNavigateFiles={handleFilesClick}
                 onOpenFile={handleSelectFile}
