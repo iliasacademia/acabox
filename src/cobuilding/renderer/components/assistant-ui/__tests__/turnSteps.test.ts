@@ -137,3 +137,15 @@ describe('the fold line', () => {
     expect(turnFoldLabel(3, 0)).toBe('Worked · 3 steps');
   });
 });
+
+describe('a stopped turn', () => {
+  it('folds to "Stopped · N steps" with no duration', () => {
+    expect(turnFoldLabel(4, null, true)).toBe('Stopped · 4 steps');
+    expect(turnFoldLabel(1, 252_000, true)).toBe('Stopped · 1 step');
+  });
+
+  it('does not count a tool that was cut short as failed', () => {
+    // What the history converter produces for an unfinished call in a stopped turn.
+    expect(isFailed(tool('Bash', { status: 'incomplete', statusReason: 'cancelled' }))).toBe(false);
+  });
+});

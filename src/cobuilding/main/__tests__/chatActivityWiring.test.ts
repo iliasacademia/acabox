@@ -44,9 +44,15 @@ describe('agentSession announces every turn transition', () => {
   });
 
   it('a session destroyed mid-turn does not stay "working"', () => {
-    const at = SRC.indexOf('    destroy() {');
+    // destroy() either closes an open turn through completeTurnFromHost (whose
+    // `turnInProgress = false` write is pinned above) or, with none open,
+    // announces the end itself. Both must be in its body.
+    const at = SRC.indexOf('    destroy(reason?: StopReason) {');
     expect(at).toBeGreaterThan(0);
-    expect(SRC.slice(at, at + 500)).toMatch(/noteTurnEnded\(sessionId\)/);
+    const end = SRC.indexOf('    async stop(', at);
+    const body = SRC.slice(at, end);
+    expect(body).toMatch(/completeTurnFromHost\(/);
+    expect(body).toMatch(/noteTurnEnded\(sessionId\)/);
   });
 });
 

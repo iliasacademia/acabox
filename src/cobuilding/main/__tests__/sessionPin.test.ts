@@ -44,6 +44,7 @@ function makeSession() {
   const session: AgentSession = {
     sendMessage: () => {},
     destroy: () => { state.destroyed = true; },
+    stop: async () => { state.destroyed = true; },
     addListener: (cb) => { listeners.add(cb); return () => listeners.delete(cb); },
     get isRunning() { return !state.destroyed; },
     get isTurnInProgress() { return state.turnInProgress; },

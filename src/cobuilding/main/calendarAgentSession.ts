@@ -773,6 +773,12 @@ export function createCalendarAgentSession(
       abortController = new AbortController();
     },
 
+    // No host-authored turn rows here, so there is nothing to interrupt
+    // gently: a stop is a destroy.
+    async stop() {
+      this.destroy();
+    },
+
     addListener(cb: Partial<ChatCallbacks>): () => void {
       listeners.add(cb);
       return () => { listeners.delete(cb); };

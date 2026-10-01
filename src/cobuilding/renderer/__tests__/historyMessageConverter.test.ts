@@ -324,3 +324,43 @@ describe('turn duration (the "Worked for" line)', () => {
     expect(assistant.metadata).toBeUndefined();
   });
 });
+
+describe('a stopped turn', () => {
+  const stoppedTurn = (result: unknown): HistoryDbMessage[] => [
+    { type: 'user', content: { text: 'go' }, createdAt: '2026-09-22T10:00:00.000' },
+    { type: 'assistant', content: [{ type: 'text', text: 'running it' }, { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'sleep 100' } }], createdAt: '2026-09-22T10:00:05.000' },
+    { type: 'result', content: result, createdAt: '2026-09-22T10:01:00.000' },
+  ];
+
+  it('marks the message cancelled so an unfinished tool reads stopped, not running or failed', () => {
+    const [, assistant] = convertHistoryMessages(stoppedTurn({ subtype: 'stopped', result: '', is_error: false, stopped_by: 'user' })) as any[];
+    expect(assistant.status).toEqual({ type: 'incomplete', reason: 'cancelled' });
+    expect(assistant.metadata.custom.stopped).toBe(true);
+    // The kept prose and the tool call are both still there, the tool without a result.
+    expect(assistant.content.map((c: any) => c.type)).toEqual(['text', 'tool-call']);
+    expect(assistant.content[1].result).toBeUndefined();
+  });
+
+  it('carries no duration: none is measured', () => {
+    const [, assistant] = convertHistoryMessages(stoppedTurn({ subtype: 'stopped', result: '', is_error: false, stopped_by: 'crash' })) as any[];
+    expect(assistant.metadata.custom.workedMs).toBeUndefined();
+  });
+
+  it("also reads the CLI's own answer to an interrupt, which the host tags stopped_by", () => {
+    const [, assistant] = convertHistoryMessages(stoppedTurn({ subtype: 'error_during_execution', is_error: true, stopped_by: 'user' })) as any[];
+    expect(assistant.metadata.custom.stopped).toBe(true);
+  });
+
+  it('leaves the next turn after a stopped one alone', () => {
+    const rows: HistoryDbMessage[] = [
+      ...stoppedTurn({ subtype: 'stopped', result: '', is_error: false, stopped_by: 'user' }),
+      { type: 'user', content: { text: 'again' }, createdAt: '2026-09-22T11:00:00.000' },
+      { type: 'assistant', content: [{ type: 'text', text: 'ok' }], createdAt: '2026-09-22T11:00:30.000' },
+      { type: 'result', content: { subtype: 'success', result: 'ok', is_error: false }, createdAt: '2026-09-22T11:00:31.000' },
+    ];
+    const messages = convertHistoryMessages(rows) as any[];
+    expect(messages[3].status).toBeUndefined();
+    expect(messages[3].metadata.custom.stopped).toBeUndefined();
+    expect(messages[3].metadata.custom.workedMs).toBe(31_000);
+  });
+});

@@ -237,9 +237,13 @@ export function formatWorkedFor(ms: number): string {
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
 }
 
-/** The collapsed line for a finished turn: "Worked for 4m 12s · 26 steps". */
-export function turnFoldLabel(stepCount: number, workedMs: number | null): string {
+/**
+ * The collapsed line for a finished turn: "Worked for 4m 12s · 26 steps", or
+ * "Stopped · 26 steps" when a stop ended it (no duration — none is measured).
+ */
+export function turnFoldLabel(stepCount: number, workedMs: number | null, stopped = false): string {
   const steps = plural(stepCount, 'step', 'steps');
+  if (stopped) return `Stopped · ${steps}`;
   return workedMs != null && workedMs > 0
     ? `Worked for ${formatWorkedFor(workedMs)} · ${steps}`
     : `Worked · ${steps}`;
