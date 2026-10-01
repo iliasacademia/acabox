@@ -9,8 +9,9 @@ import { ChatComposer } from './chat-composer';
 import { MessageQuoteBlock } from './message-quote';
 import { TextWithChatLinks } from './chat-link-chip';
 import { useProcessingLabel, RECONNECTING_LABEL } from '../../progressStore';
-import { useSetupState } from '../../setupStore';
 import { MSymbol } from '../command-desk/MSymbol';
+import { isEmptyFinishedMessage } from './turnSteps';
+import { splitErrorDetails } from '../../../shared/errorDetails';
 import {
   AttachmentPrimitive,
   AuiIf,
@@ -97,40 +98,26 @@ export const Thread: FC<ThreadProps> = ({
 
 const EMPTY_CHIPS: { label: string; prompt: string }[] = [
   {
-    label: 'Turn a script into an app',
-    prompt: 'Turn one of my analysis scripts into a small app I can run here.',
-  },
-  {
-    label: "What's in my folders?",
+    label: "Summarise what's in my folders",
     prompt: 'Give me an overview of the research files in my shared folders.',
   },
   {
-    label: 'Build a PDF → BibTeX tool',
-    prompt: 'Build me a tool that turns paper PDFs into clean BibTeX entries.',
+    label: 'Plot a dataset',
+    prompt: 'Pick a dataset in my folders and plot it so I can see what is in it.',
+  },
+  {
+    label: 'Turn a spreadsheet into a dashboard',
+    prompt: 'Turn one of my spreadsheets into a small dashboard tool I can keep using.',
   },
 ];
 
 const ThreadEmpty: FC<{ variant: 'full' | 'panel' }> = ({ variant }) => {
-  const setup = useSetupState();
-
   // Design: the composer arrives focused on a brand-new chat.
   useEffect(() => {
     if (variant === 'full') {
       window.dispatchEvent(new CustomEvent('cd:focus-composer'));
     }
   }, [variant]);
-
-  if (setup.state === 'downloading') {
-    return (
-      <div className="cdChatEmpty">
-        <span className="cdChatEmpty__title">{setup.message || 'Setting up environment…'}</span>
-        <div className="cdProgressBar" style={{ width: 260, alignSelf: 'center' }}>
-          <div className="cdProgressBar__fill" style={{ width: `${setup.percent}%` }} />
-        </div>
-        <span className="cdChatEmpty__sub">This may take a few minutes on first launch.</span>
-      </div>
-    );
-  }
 
   if (variant === 'panel') {
     return (
@@ -145,7 +132,7 @@ const ThreadEmpty: FC<{ variant: 'full' | 'panel' }> = ({ variant }) => {
     <div className="cdChatEmpty">
       <span className="cdChatEmpty__glyph">▸</span>
       <span className="cdChatEmpty__title">Where to?</span>
-      <span className="cdChatEmpty__sub">Describe a tool, paste a repo, or drop files — it takes it from there.</span>
+      <span className="cdChatEmpty__sub">Describe a tool, drop in files, or ask a question — I'll take it from there.</span>
       <div className="cdChatEmpty__chips">
         {EMPTY_CHIPS.map((chip) => (
           <button
@@ -343,11 +330,36 @@ const WorkingIndicator: FC = () => {
   );
 };
 
+/**
+ * The error headline is a plain sentence; any raw text that came with it sits
+ * behind a "Details" fold (main joins the two — see shared/errorDetails.ts).
+ */
+const MessageErrorBody: FC = () => {
+  const error = useAuiState((s: any) => {
+    const st = s.message?.status;
+    return st?.type === 'incomplete' && st.reason === 'error' ? st.error : undefined;
+  }) as unknown;
+  if (error === undefined || error === null) return null;
+  const text = error instanceof Error ? error.message : String(error);
+  const { headline, details } = splitErrorDetails(text);
+  return (
+    <>
+      <span>{headline}</span>
+      {details && (
+        <details className="cdMsgError__details">
+          <summary>Details</summary>
+          {details}
+        </details>
+      )}
+    </>
+  );
+};
+
 const MessageError: FC = () => {
   return (
     <MessagePrimitive.Error>
       <ErrorPrimitive.Root className="cdMsgError">
-        <ErrorPrimitive.Message />
+        <MessageErrorBody />
       </ErrorPrimitive.Root>
     </MessagePrimitive.Error>
   );
@@ -390,6 +402,10 @@ const AssistantMessage: FC = () => {
     const last = parts[parts.length - 1];
     return last.type === 'text' && last.status?.type === 'running';
   });
+
+  const emptyShell = useAuiState((s: any) =>
+    isEmptyFinishedMessage(s.message.status, s.message.parts?.length ?? 0)) as boolean;
+  if (emptyShell) return null;
 
   return (
     <MessagePrimitive.Root

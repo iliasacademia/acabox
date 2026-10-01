@@ -59,10 +59,10 @@ function agoText(atMs: number, nowMs: number): string {
 }
 
 const KIND_LABEL: Record<string, string> = {
-  command: 'Command',
-  kernel: 'Code',
-  claude: 'Claude',
-  'agent-tool': 'Agent',
+  command: 'Script',
+  kernel: 'Analysis',
+  claude: 'Acabox',
+  'agent-tool': 'Helper',
 };
 
 /** How a finished job should read to someone who wasn't watching it. */
@@ -156,7 +156,7 @@ export function ActivityPanel({ apps, onOpenTool, onSwitchToChat }: Props) {
    * error goes in verbatim — it is the only thing that makes the request
    * actionable for the agent.
    */
-  const askClaudeToFix = useCallback((b: BuildHealth) => {
+  const askToFix = useCallback((b: BuildHealth) => {
     onSwitchToChat();
     composerRuntime.setText(
       `The mini-app "${nameOf(b.dirName)}" (\`.applications/${b.dirName}\`) fails to build. ` +
@@ -207,11 +207,11 @@ export function ActivityPanel({ apps, onOpenTool, onSwitchToChat }: Props) {
                 <div className="cdActivityRow__main">
                   <div className="cdActivityRow__title">{nameOf(b.dirName)}</div>
                   <div className="cdActivityRow__sub">
-                    This tool doesn’t build, so it can’t run. Last tried {agoText(b.at, now)}.
+                    This tool won’t open until its code is fixed. Last tried {agoText(b.at, now)}.
                   </div>
                 </div>
-                <button className="cdBtnXs" onClick={() => askClaudeToFix(b)}>
-                  Ask Claude to fix it
+                <button className="cdBtnXs" onClick={() => askToFix(b)}>
+                  Ask me to fix it
                 </button>
               </div>
             );

@@ -7,7 +7,7 @@
 export interface ToolCardDisplay {
   /** Material Symbols ligature name. */
   icon: string;
-  /** Short mono label, e.g. "bash", "write", "app". */
+  /** Short mono label, e.g. "command", "write", "tool". */
   name: string;
   /** Key arguments, pre-truncated by CSS ellipsis. */
   args: string;
@@ -45,7 +45,9 @@ export function getToolCardDisplay(
       if (cmd.startsWith('.applications/install')) {
         return { icon: 'download', name: 'install', args: cmd.replace(/^\.applications\/install\s*/, '') };
       }
-      return { icon: 'terminal', name: 'bash', args: cmd || str(a.description) };
+      // The model writes a one-line `description` for most commands; a
+      // scientist can read that, and cannot read the shell line.
+      return { icon: 'terminal', name: 'command', args: str(a.description).trim() || cmd };
     }
     case 'Read':
       return { icon: 'description', name: 'read', args: str(a.file_path) };
@@ -56,38 +58,38 @@ export function getToolCardDisplay(
     case 'NotebookEdit':
       return { icon: 'edit', name: 'notebook', args: str(a.notebook_path) };
     case 'Glob':
-      return { icon: 'search', name: 'glob', args: str(a.pattern) };
+      return { icon: 'search', name: 'find files', args: str(a.pattern) };
     case 'Grep':
-      return { icon: 'search', name: 'grep', args: str(a.pattern) };
+      return { icon: 'search', name: 'search text', args: str(a.pattern) };
     case 'WebSearch':
       return { icon: 'search', name: 'web', args: str(a.query) };
     case 'WebFetch':
-      return { icon: 'language', name: 'fetch', args: str(a.url) };
+      return { icon: 'language', name: 'web page', args: str(a.url) };
     case 'Agent':
-      return { icon: 'smart_toy', name: 'agent', args: str(a.description) || str(a.prompt) };
+      return { icon: 'smart_toy', name: 'helper', args: str(a.description) || str(a.prompt) };
     case 'Skill':
       return { icon: 'bolt', name: 'skill', args: str(a.skill) };
     case 'TodoWrite':
-    // Task* are the SDK 0.3 replacements; see tool-labels.ts for why both
-    // spellings are carried rather than one.
+    // Task* are the SDK 0.3 replacements; which spelling a session emits
+    // varies by model and build, so both are carried.
     case 'TaskCreate':
     case 'TaskUpdate':
     case 'TaskList':
     case 'TaskGet':
-      return { icon: 'checklist', name: 'todo', args: '' };
+      return { icon: 'checklist', name: 'checklist', args: '' };
     case 'ToolSearch':
-      return { icon: 'search', name: 'tool search', args: str(a.query) };
+      return { icon: 'search', name: 'find a tool', args: str(a.query) };
     case 'EnterPlanMode':
     case 'ExitPlanMode':
       return { icon: 'map', name: 'plan', args: '' };
     case 'mcp__mini-apps__open_mini_application':
-      return { icon: 'deployed_code', name: 'app', args: str(a.dir_name) };
+      return { icon: 'deployed_code', name: 'tool', args: str(a.dir_name) };
     case 'mcp__mini-apps__build_and_open_mini_application':
-      return { icon: 'deployed_code', name: 'app', args: str(a.dir_name) };
+      return { icon: 'deployed_code', name: 'tool', args: str(a.dir_name) };
     case 'mcp__workspace__get_scanned_files':
-      return { icon: 'folder_open', name: 'workspace', args: str(a.file_type) || 'scanned files' };
+      return { icon: 'folder_open', name: 'your files', args: str(a.file_type) || 'scanned files' };
     case 'mcp__workspace__get_research_profile':
-      return { icon: 'folder_open', name: 'workspace', args: 'research profile' };
+      return { icon: 'folder_open', name: 'your files', args: 'research profile' };
     default: {
       // MCP tools: mcp__server__tool → "server" + tool as args; anything
       // else falls back to the raw tool name.

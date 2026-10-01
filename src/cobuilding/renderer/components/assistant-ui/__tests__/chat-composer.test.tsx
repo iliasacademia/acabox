@@ -10,12 +10,6 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-jest.mock('../../../setupStore', () => ({
-  __esModule: true,
-  useSetupState: () => ({ state: 'ready', message: '', percent: 100 }),
-  setSetupState: () => {},
-}));
-
 jest.mock('@assistant-ui/react', () => {
   const React = require('react');
   const passthrough = ({ children, asChild: _asChild, ...rest }: any) =>

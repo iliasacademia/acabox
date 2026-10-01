@@ -292,7 +292,7 @@ describe('promote-on-enable — the security property', () => {
     });
     const wrongKind = await authored.promoteAndEnableAuthoredServer('not-authored');
     expect(wrongKind.ok).toBe(false);
-    expect(wrongKind.error).toMatch(/not written by claude/i);
+    expect(wrongKind.error).toMatch(/not written by me/i);
   });
 
   it('refuses to promote when the workspace source has been deleted', async () => {

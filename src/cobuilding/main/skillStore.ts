@@ -1079,7 +1079,7 @@ export async function writeSkillFile(
 }
 
 const NEW_SKILL_TEMPLATE = (id: string, description: string) =>
-  `---\nname: ${id}\ndescription: >\n  ${description}\n---\n\n# ${id}\n\nWhat Claude should do when this skill activates.\n`;
+  `---\nname: ${id}\ndescription: >\n  ${description}\n---\n\n# ${id}\n\nWhat I should do when this skill is used.\n`;
 
 /**
  * Scaffold a new skill. The id is the directory name and therefore the name
@@ -1101,7 +1101,7 @@ export async function createSkill(
       return { ok: false, error: `A directory called "${id}" already exists in the store.` };
     }
     const description =
-      opts.description?.trim() || 'Describe when Claude should use this skill.';
+      opts.description?.trim() || 'Describe when I should use this skill.';
     try {
       fs.mkdirSync(skillStorePath(id), { recursive: true });
       fs.writeFileSync(path.join(skillStorePath(id), 'SKILL.md'), NEW_SKILL_TEMPLATE(id, description));

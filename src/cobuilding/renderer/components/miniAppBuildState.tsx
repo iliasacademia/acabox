@@ -4,7 +4,7 @@
  * screen) and its tests.
  *
  * Why this exists (2026-09-18 incident): a tool card appears the moment
- * Claude runs the scaffold script, but `src/App.tsx` is written by a LATER
+ * the agent runs the scaffold script, but `src/App.tsx` is written by a LATER
  * tool call — sometimes minutes later for a large file. A viewer opened in
  * that window found no `dist/bundle.js`, triggered a build, and esbuild
  * failed with `Could not resolve "./App"` — a real compiler-looking error
@@ -44,7 +44,7 @@ export function classifyBuildResult(result: {
   // fallback should be unreachable — keep it honest rather than re-inventing
   // the old "esbuild exited with code N" phrasing, which reads as a compiler
   // error even when esbuild never ran.
-  const message = (result.error || `Build failed (exit ${result.exitCode}) with no output.`).trim();
+  const message = (result.error || 'The build stopped without saying why.').trim();
   return { kind: 'error', message };
 }
 
@@ -73,11 +73,10 @@ export const AwaitingSourceView: FC<{
   return (
     <div className="cdBuildErr">
       <div className="cdBuildErr__col">
-        <span className="cdBuildErr__eyebrow cdBuildErr__eyebrow--waiting">BEING WRITTEN · {hh}:{mm}</span>
-        <span className="cdBuildErr__title">Claude is still writing this tool.</span>
+        <span className="cdBuildErr__eyebrow cdBuildErr__eyebrow--waiting">STILL WRITING · {hh}:{mm}</span>
+        <span className="cdBuildErr__title">I'm still writing this tool.</span>
         <span className="cdBuildErr__sub">
-          It appeared here as soon as it was scaffolded, but its source has not been saved yet. This
-          view will build it on its own the moment the file lands.
+          It shows up here as soon as I start on it and opens on its own when I finish.
         </span>
         <div className="cdBuildErr__actions">
           <button type="button" className="cdBtnPrimary cdBtnPrimary--36" onClick={onRebuild}>

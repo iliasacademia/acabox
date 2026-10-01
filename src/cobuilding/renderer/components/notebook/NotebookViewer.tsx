@@ -299,7 +299,7 @@ export const NotebookViewer: FC<NotebookViewerProps> = ({ filePath, onDirtyChang
         {error && <p className="notebookViewerMessage notebookViewerMessage--error">{error}</p>}
         {kernel.status === 'starting' && (
           <p className="notebookViewerMessage">
-            Starting kernel... (this may take a moment if the container is starting)
+            Starting Python…
           </p>
         )}
         {kernel.status === 'dead' && kernel.error && (

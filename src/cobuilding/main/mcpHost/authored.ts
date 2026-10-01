@@ -557,7 +557,7 @@ async function promoteAndEnableAuthoredServerInner(id: string): Promise<PromoteA
   const record = await getHostedServer(id);
   if (!record) return { ok: false, error: `No agent-authored server named "${id}".` };
   if (record.install.kind !== 'authored') {
-    return { ok: false, error: `"${id}" was not written by Claude — there is nothing to promote.` };
+    return { ok: false, error: `"${id}" was not written by me — there is nothing to promote.` };
   }
 
   const sourceDir = path.join(workspaceAuthoredRoot(), id);

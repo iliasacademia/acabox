@@ -26,14 +26,14 @@ export interface ToolShareChipProps {
   dirName: string;
 }
 
-/** `SHARED` / `SHARED · BEHIND`, or nothing while unpublished/loading. */
+/** `SHARED` / `SHARED · OUT OF DATE`, or nothing while unpublished/loading. */
 export function ToolShareChip({ dirName }: ToolShareChipProps): React.ReactElement | null {
   const { published, behind, loading } = useToolShare(dirName);
   if (published === null || loading) return null;
   return (
     <span className="cdStatusChip">
       {behind && <span className="cdDot cdDot--busy" />}
-      {behind ? 'SHARED · BEHIND' : 'SHARED'}
+      {behind ? 'SHARED · OUT OF DATE' : 'SHARED'}
     </span>
   );
 }

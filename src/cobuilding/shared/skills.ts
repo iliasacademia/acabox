@@ -190,7 +190,7 @@ export function validateSkillId(id: string): SkillIdValidation {
     return {
       ok: false,
       problem: 'reserved',
-      error: `"${trimmed}" is the name of a skill the Claude Agent SDK ships. Pick another name.`,
+      error: `"${trimmed}" is the name of a built-in skill. Pick another name.`,
     };
   }
   return { ok: true };

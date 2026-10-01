@@ -258,7 +258,7 @@ export const ToolWorkspace: FC<ToolWorkspaceProps> = ({
 
 /**
  * Panel header: two rows. Row one is the chat title as a dropdown trigger over
- * this tool's other chats, the GENERATING chip, and new-chat / pop-out /
+ * this tool's other chats, the WORKING chip, and new-chat / pop-out /
  * collapse actions. Row two is the mono model · effort line for the chat the
  * panel is showing.
  */
@@ -325,7 +325,7 @@ const SidePanelHeader: FC<{
         {isRunning && (
           <span className="cdStatusChip">
             <span className="cdDot cdDot--busy cdDot--pulse" />
-            GENERATING
+            WORKING
           </span>
         )}
         <button type="button" className="cdIconBtn cdIconBtn--26" title="New chat for this tool" onClick={onNewChat}>

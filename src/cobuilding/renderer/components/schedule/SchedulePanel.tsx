@@ -285,7 +285,7 @@ export function SchedulePanel({
 
         <div className="connectorField">
           <label className="connectorField__label" htmlFor="sched-prompt">
-            What should Claude do?
+            What should I do?
           </label>
           <textarea
             id="sched-prompt"
@@ -293,14 +293,15 @@ export function SchedulePanel({
             value={prompt}
             rows={6}
             placeholder={
-              'Check the files in ~/Data for new results and tell me if anything looks wrong.'
+              'Check my Data folder for new results and tell me if anything looks wrong.'
             }
             onChange={(e) => setPrompt(e.target.value)}
           />
           <div className="connectorField__help">
-            This is sent as a chat message, on the schedule below. It can do
-            anything you could ask for in a chat — read your files, run code,
-            and use your servers. Ask it to notify you and it will.
+            This is sent as a chat message, on the schedule below. I can do
+            anything you could ask for in a chat — read your files, run
+            analyses, and use your connected services. Ask me to notify you
+            and I will.
           </div>
         </div>
 
@@ -365,8 +366,8 @@ export function SchedulePanel({
         </div>
 
         <div className="schedulePanel__note">
-          Each run is a real conversation with Claude, billed to your API key,
-          and it happens whether or not Acabox is on screen.
+          Each run is a real chat with me and is billed to your Anthropic key,
+          whether or not Acabox is open.
         </div>
 
         {!isNew && (

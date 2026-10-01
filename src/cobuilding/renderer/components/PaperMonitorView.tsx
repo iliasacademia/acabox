@@ -15,7 +15,7 @@ const SETTINGS_KEY = 'cobuild.paperMonitor.settings';
 const DEFAULT_TOPICS = ['wound healing', 'YAP/TAZ', 'mechanotransduction'];
 
 const TAKEAWAY_PLACEHOLDER =
-  'Cross-paper triage will appear here once Claude reviews this digest.';
+  'Cross-paper triage will appear here once I review this digest.';
 
 type FilterMode = 'all' | 'unread' | 'saved' | 'read';
 

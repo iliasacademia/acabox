@@ -61,12 +61,12 @@ export function useChatPreview(sessionId: string | undefined): ChatPreviewData |
   return useSyncExternalStore(subscribe, select, select);
 }
 
-/** Exactly the old thread-list format: `You: ... · CS: ...`. */
+/** Exactly the old thread-list format: `You: ... · ▸ ...`. */
 export function formatPreviewLine(preview: ChatPreviewData | null): string {
   if (!preview) return '';
   return [
     preview.userText ? `You: ${preview.userText}` : '',
-    preview.assistantText ? `CS: ${preview.assistantText}` : '',
+    preview.assistantText ? `▸ ${preview.assistantText}` : '',
   ].filter(Boolean).join(' · ');
 }
 

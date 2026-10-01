@@ -40,7 +40,7 @@ describe('classifyBuildResult', () => {
   it('falls back to a generic message when the build failed with no output', () => {
     expect(classifyBuildResult({ ok: false, exitCode: 1 })).toEqual({
       kind: 'error',
-      message: 'Build failed (exit 1) with no output.',
+      message: 'The build stopped without saying why.',
     });
   });
 });
@@ -67,10 +67,10 @@ describe('AwaitingSourceView', () => {
       root.render(<AwaitingSourceView since={Date.now()} onRebuild={() => {}} />);
     });
 
-    expect(container.textContent).toContain('Claude is still writing this tool.');
+    expect(container.textContent).toContain("I'm still writing this tool.");
     expect(container.textContent).not.toContain('BUILD FAILED');
 
-    const eyebrow = Array.from(container.querySelectorAll('span')).find((el) => el.textContent?.includes('BEING WRITTEN'));
+    const eyebrow = Array.from(container.querySelectorAll('span')).find((el) => el.textContent?.includes('STILL WRITING'));
     expect(eyebrow).toBeTruthy();
   });
 

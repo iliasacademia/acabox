@@ -93,14 +93,14 @@ function formatRelativeDate(iso: string): string {
 const ConversationCount: FC = () => {
   const threadIds = useThreadList((s: any) => s.threadIds);
   const count = threadIds?.length ?? 0;
-  // Hold the last non-zero count so the "0 CONVERSATIONS" flash during a
+  // Hold the last non-zero count so the "0 CHATS" flash during a
   // background refresh (sessions:changed → _loadThreadsPromise reset) doesn't
   // show. We only ever bump the displayed count up or hold it; the runtime
   // settles to the real count on its own.
   const stableRef = useRef(count);
   if (count > 0) stableRef.current = count;
   const display = count > 0 ? count : stableRef.current;
-  return <>{display} CONVERSATION{display !== 1 ? 'S' : ''}</>;
+  return <>{display} CHAT{display !== 1 ? 'S' : ''}</>;
 };
 
 // --- Stable items: hide the empty flash during refresh ---
@@ -120,8 +120,20 @@ let haveEverSeenThreads = false;
 
 const StableThreadItems: FC = () => {
   const threadIds = useThreadList((s: any) => s.threadIds) as string[] | undefined;
+  const isLoading = useThreadList((s: any) => s.isLoading) as boolean | undefined;
   const count = threadIds?.length ?? 0;
   if (count > 0) haveEverSeenThreads = true;
+
+  // A new user's first look at this page: header, search box, then nothing.
+  // Only say so once the runtime has finished loading, or every launch would
+  // flash "no chats" before the list arrives.
+  if (count === 0 && !haveEverSeenThreads && isLoading === false) {
+    return (
+      <div className="chatListEmpty">
+        No chats yet. Type below to start one — describe your data or what you want built.
+      </div>
+    );
+  }
 
   if (count === 0 && haveEverSeenThreads) {
     return (
@@ -202,7 +214,7 @@ export const ThreadList: FC<ThreadListProps> = ({ onSelectThread }) => {
                 </div>
                 <h1 className="pageShell__title">Chats</h1>
                 <p className="pageShell__subtitle">
-                  Every conversation you've had with me. Most recent first.
+                  Every chat you've had with me. Most recent first.
                 </p>
               </div>
 
@@ -242,7 +254,7 @@ const ThreadListItem: FC = () => {
   const proseResults = useContext(ProseResultsContext);
 
   const remoteId = runtime.getState().remoteId;
-  const title = runtime.getState().title ?? 'New Chat';
+  const title = runtime.getState().title ?? 'New chat';
   const lastActiveAt = getSessionUpdatedAt(remoteId);
   const appDirName = getSessionAppDirName(remoteId);
   const preview = useChatPreview(remoteId);
@@ -308,7 +320,7 @@ const ThreadListItem: FC = () => {
           <span className="chatListItemHits">
             {hits.map((h) => (
               <span key={h.messageId} className="chatListItemHit">
-                <span className="chatListItemHitWho">{h.role === 'user' ? 'You:' : 'CS:'}</span>{' '}
+                <span className="chatListItemHitWho">{h.role === 'user' ? 'You:' : '▸'}</span>{' '}
                 {highlightMatch(h.snippet, searchQuery)}
               </span>
             ))}
@@ -363,7 +375,7 @@ const ThreadListItem: FC = () => {
           }}>
             <AlertDialog.Title className="chatListModalTitle">Rename chat</AlertDialog.Title>
             <AlertDialog.Description className="chatListModalDesc">
-              Enter a new name for this conversation.
+              Enter a new name for this chat.
             </AlertDialog.Description>
             <input
               ref={renameInputRef}

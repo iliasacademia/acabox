@@ -668,6 +668,11 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
             onTogglePermission={() => handleTogglePermission(ud.id, ud.read_only)}
           />
         ))}
+        {rootLoaded && rootChildren.length === 0 && localDirs.length === 0 && (
+          <div className="filesTabEmpty">
+            No folders yet — add one in Settings → Your folders, and your files will show here.
+          </div>
+        )}
       </div>
       {copyProgress && (
         <div className="filesTabCopyProgress">

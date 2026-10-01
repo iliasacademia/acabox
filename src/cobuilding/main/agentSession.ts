@@ -16,8 +16,8 @@ import { containerService } from './containerService';
 import * as mcpHost from './mcpHost';
 import { commandLogger, parseAppDirFromArgs } from './commandLogger';
 import http from 'http';
-import { type HostApp } from './hostApps';
-import { IDENTITY_PREAMBLE } from './hostApps/identityPreamble';
+import { IDENTITY_PREAMBLE } from './identityPreamble';
+import { toUserFacingError, ASSISTANT_COULD_NOT_START } from './userFacingError';
 import { ACADEMIA_DIR, SOUL_MD } from '../shared/paths';
 import { recordConnectorStatus } from './connectorsStore';
 import { buildApiGuidance } from '../shared/apis';
@@ -160,9 +160,9 @@ export async function runStop(deps: {
 }
 
 const CONTEXT_OVERFLOW_MESSAGE =
-  "This conversation is too long for the model's context window, so the request was " +
-  'rejected before the model saw it. Its history has been reset — the next message will ' +
-  'start from a clean context, without the earlier turns in this chat.';
+  "This chat got too long for me to keep in memory, so I've had to start fresh. I no " +
+  "longer remember the earlier messages here — they're still shown above, so you can " +
+  'paste anything I need.';
 
 /**
  * A result that is NOT the end of the user's turn — the one case this file
@@ -255,15 +255,11 @@ const SWALLOW_FOLLOW_UP_WAIT_MS = 15_000;
 /**
  * Shown when the redelivery ALSO came back empty — the last path on which
  * silence would otherwise be the whole answer. Same voice as the overflow
- * message: host-authored, third person, says what happened and what to do.
+ * message: host-authored, first person, says what happened and what to do.
  */
 const SWALLOWED_TURN_MESSAGE =
-  'The agent did not answer that message. Its turn was spent on a background command left ' +
-  'over from the previous session, and a second attempt came back empty as well. Send it again.';
-
-export function resolveSessionHostApp(_documentPath: string | null | undefined): { hostApp: HostApp | null; matched: boolean } {
-  return { hostApp: null, matched: false };
-}
+  "I didn't manage to answer that — something left over from last time got in the way. " +
+  'Please send it again.';
 
 // ─── MCP Relay Dispatch ──────────────────────────────────────────
 // Maps MCP tool calls from the in-container agent to host-side MCP server handlers.
@@ -301,7 +297,7 @@ type ToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: bo
  * mentioning them.
  */
 function hostedToolRefusalMessage(serverId: string, toolName: string): string {
-  return `"${toolName}" on hosted MCP server "${serverId}" is not enabled for Claude to call. `
+  return `"${toolName}" on hosted MCP server "${serverId}" is not enabled for me to call. `
     + `Ask the user to enable "${toolName}" for "${serverId}" on the Servers page.`;
 }
 
@@ -539,13 +535,16 @@ export function createAgentSession(
     }
   }
 
-  function emitError(error: string) {
+  function emitError(rawError: string) {
     running = false;
     clearInterval(heartbeatTimer);
     // An error ends the turn as far as anyone watching is concerned, though
     // `turnInProgress` is left alone (the registry's deferred-destroy logic
     // reads it). Without this the chat would pulse "working" until destroyed.
     noteTurnEnded(sessionId);
+    // The funnel from raw host/SDK text to a plain headline (raw kept as Details).
+    const error = toUserFacingError(rawError);
+    if (error !== rawError) log.warn(`[AgentSession] Turn error for ${sessionId}: ${rawError}`);
     for (const listener of [...listeners]) {
       listener.onError?.(error);
     }
@@ -561,11 +560,6 @@ export function createAgentSession(
   if (orphansClosed > 0) {
     log.info(`[AgentSession] Closed an interrupted turn (${orphansClosed} rows kept) for sessionId=${sessionId}`);
   }
-
-  // Resolve which host app this session is acting on. See resolveSessionHostApp
-  // for the resolution order — document path first, focused-window bundle id
-  // as a backstop, then Word fallback.
-  const { hostApp: sessionHostApp, matched: hostAppMatched } = resolveSessionHostApp(documentPath);
 
   const state: MessageProcessingState = {
     currentToolCallId: null,
@@ -587,15 +581,15 @@ export function createAgentSession(
 
   // Wait for the agent server to be ready before connecting. Emits status
   // updates so the spinner shows what we're blocked on:
-  //   "Starting agent service..." — host-process service hasn't reported ready
-  //   "Waiting for agent..."      — service is up but the agent HTTP isn't responding yet
+  //   "Starting Acabox…" — host-process service hasn't reported ready
+  //   "Almost ready…"    — service is up but the agent HTTP isn't responding yet
   async function waitForAgent(): Promise<string> {
     const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
     const startTime = Date.now();
     let anyStatusEmitted = false;
     while (!sessionState.stopped) {
       if (Date.now() - startTime > TIMEOUT_MS) {
-        throw new Error('Agent failed to start. Check the Debug panel for details.');
+        throw new Error(ASSISTANT_COULD_NOT_START);
       }
       // The supervisor stopped restarting the agent: nothing will ever answer,
       // so say so now instead of polling for the full five minutes.
@@ -607,9 +601,9 @@ export function createAgentSession(
 
       let status = '';
       if (!isRunning) {
-        status = 'Starting agent service...';
+        status = 'Starting Acabox…';
       } else if (!port) {
-        status = 'Waiting for agent...';
+        status = 'Almost ready…';
       }
 
       if (port && isRunning) {
@@ -624,7 +618,7 @@ export function createAgentSession(
         } catch {
           // Agent server not responding yet
         }
-        status = 'Waiting for agent...';
+        status = 'Almost ready…';
       }
 
       // Emit status on every iteration — the forwarding listener may not be
@@ -654,9 +648,7 @@ export function createAgentSession(
     if (content) soulMdContent = content;
   } catch { /* doesn't exist */ }
 
-  const hostGuidance = (hostAppMatched && sessionHostApp)
-    ? [IDENTITY_PREAMBLE, sessionHostApp.systemPromptAppend].filter(Boolean).join('\n\n')
-    : IDENTITY_PREAMBLE;
+  const hostGuidance = IDENTITY_PREAMBLE;
 
   // Build workspace directories guidance. Each user-shared directory is
   // symlinked into the workspace root (e.g. ${workspace}/MyResearch), so the
@@ -851,7 +843,6 @@ export function createAgentSession(
           workspaceDirectoriesGuidance,
           permissionDeny: readOnlyDenyRules,
           apiGuidance,
-          ...((hostAppMatched && sessionHostApp) ? { additionalAllowedTools: sessionHostApp.allowedTools } : {}),
         });
 
         const createRes = await httpPost(`${agentBaseUrl}/sessions`, createBody);

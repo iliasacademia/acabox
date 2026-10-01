@@ -44,7 +44,7 @@ afterEach(() => {
 describe('formatPreviewLine', () => {
   it('joins both halves with a middle dot', () => {
     const line = formatPreviewLine({ sessionId: 's', userText: 'hi', assistantText: 'hello' });
-    expect(line).toBe('You: hi · CS: hello');
+    expect(line).toBe('You: hi · ▸ hello');
   });
 
   it('renders the user half alone when there is no assistant reply yet', () => {
@@ -52,7 +52,7 @@ describe('formatPreviewLine', () => {
   });
 
   it('renders the assistant half alone when there is no user text', () => {
-    expect(formatPreviewLine({ sessionId: 's', userText: '', assistantText: 'hello' })).toBe('CS: hello');
+    expect(formatPreviewLine({ sessionId: 's', userText: '', assistantText: 'hello' })).toBe('▸ hello');
   });
 
   it('is empty for null (no preview yet)', () => {
@@ -69,7 +69,7 @@ describe('useChatPreview', () => {
   it('renders the preview once previews() resolves', async () => {
     installBridge([{ sessionId: 's1', userText: 'hi', assistantText: 'hello' }]);
     await act(async () => { root.render(<Preview sessionId="s1" />); });
-    expect(container.textContent).toBe('You: hi · CS: hello');
+    expect(container.textContent).toBe('You: hi · ▸ hello');
   });
 
   it('renders nothing for a chat with no preview yet', async () => {
@@ -81,7 +81,7 @@ describe('useChatPreview', () => {
   it('re-reads on sessions:changed, and the new value renders', async () => {
     installBridge([{ sessionId: 's1', userText: 'hi', assistantText: 'hello' }]);
     await act(async () => { root.render(<Preview sessionId="s1" />); });
-    expect(container.textContent).toBe('You: hi · CS: hello');
+    expect(container.textContent).toBe('You: hi · ▸ hello');
 
     previews.mockImplementation(() => Promise.resolve([{ sessionId: 's1', userText: 'updated', assistantText: '' }]));
     await act(async () => { sessionsChanged(); });

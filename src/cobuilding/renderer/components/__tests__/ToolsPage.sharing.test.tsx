@@ -189,7 +189,7 @@ afterEach(async () => {
 });
 
 describe('ToolsPage — sharing block (U4)', () => {
-  it('shows a SHARED · BEHIND row chip and Refresh…/Copy link/Open/Unpublish in the panel for a published+behind tool', async () => {
+  it('shows a SHARED · OUT OF DATE row chip and Refresh…/Copy link/Open/Unpublish in the panel for a published+behind tool', async () => {
     installApis([sampleApp()]);
     installShareApi({ published: samplePublished(), behind: true });
 
@@ -198,12 +198,12 @@ describe('ToolsPage — sharing block (U4)', () => {
 
     const chip = container.querySelector('.cdStatusChip');
     expect(chip).not.toBeNull();
-    expect(chip!.textContent).toBe('SHARED · BEHIND');
+    expect(chip!.textContent).toBe('SHARED · OUT OF DATE');
     expect(chip!.querySelector('.cdDot')).not.toBeNull();
 
     await openSettings();
 
-    expect(container.querySelector('.toolRow__sharing')?.textContent).toContain('SHARED · BEHIND');
+    expect(container.querySelector('.toolRow__sharing')?.textContent).toContain('SHARED · OUT OF DATE');
     expect(queryButton('Refresh…')).not.toBeNull();
     expect(queryButton('Copy link')).not.toBeNull();
     expect(queryButton('Open')).not.toBeNull();

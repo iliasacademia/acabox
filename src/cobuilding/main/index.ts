@@ -26,6 +26,7 @@ import { getChatActivity, onChatActivityChanged, onChatTurnBoundary, setChatWind
 import type { IPCAttachment } from '../shared/types';
 import { parseStoredQuote } from '../shared/quotes';
 import { chatTotalCost } from '../shared/turnCost';
+import { isPlaceholderTitle } from '../shared/sessionTitle';
 import { provisionWorkspace } from './skills';
 import {
   createSkill,
@@ -142,7 +143,6 @@ import {
   setSessionAppDirName,
   setSessionModelInfo,
   countMessages,
-  DEFAULT_SESSION_TITLE,
 } from './db/chatRepository';
 import { listChatPreviews, searchChatProse } from './db/chatSearch';
 import { listWorkspaceDirectories } from './db/workspaceRepository';
@@ -1673,7 +1673,7 @@ ipcMain.handle('container:appDepsReady', (_event, dirName: string) => {
 ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
   const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) throw new Error('No active workspace');
-  if (!containerService.isRunning()) throw new Error('Container is not running');
+  if (!containerService.isRunning()) throw new Error('Acabox is still starting — try again in a moment.');
   if (ensuredApps.has(dirName)) {
     log.debug(`[ensureAppDeps] ${dirName}: already ensured, skipping`);
     return { installed: [] };
@@ -2279,7 +2279,7 @@ ipcMain.handle('chat:send', (event, { threadId, text, attachments, model, docume
     // tool-named first chat of a mini app, which keeps its name.
     isFirstMessage =
       countMessages(threadId) === 0 &&
-      (!existingDbSession || existingDbSession.title === DEFAULT_SESSION_TITLE);
+      (!existingDbSession || isPlaceholderTitle(existingDbSession.title));
 
     // Model and effort are pinned to the conversation on its first turn. Once
     // recorded they win over whatever the composer's picker currently says —

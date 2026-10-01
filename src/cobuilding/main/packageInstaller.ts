@@ -182,7 +182,7 @@ class PackageInstaller extends EventEmitter {
         clearTimeout(this.coalesceTimers[r]);
         this.coalesceTimers[r] = null;
       }
-      const err = new Error('Container restarted; install state reset');
+      const err = new Error('Acabox restarted before this finished installing. Open the tool again to retry.');
       for (const resolver of this.resolvers[r].values()) {
         resolver.reject(err);
       }
@@ -287,7 +287,7 @@ class PackageInstaller extends EventEmitter {
       try { await ensureNpmAvailable(); }
       catch (err) {
         if (err instanceof NpmUnavailableError) {
-          throw new Error('npm is not installed. Install Node.js (https://nodejs.org or "brew install node") and try again.');
+          throw new Error("This tool needs Node.js, which isn't installed on your Mac. Ask me and I'll explain how to install it.");
         }
         throw err;
       }
@@ -328,7 +328,8 @@ class PackageInstaller extends EventEmitter {
       });
       log.info(`[PackageInstaller] ${registry} wave exited with code ${exitCode} (packages: ${packages.join(', ')})`);
       if (exitCode !== 0) {
-        throw new Error(`${registry} install exited with code ${exitCode}`);
+        // The exit code is in the log line above; the person needs the next step.
+        throw new Error(`Couldn't install ${packages.join(', ')}. Ask me to look into it.`);
       }
     } finally {
       if (flushTimer) clearTimeout(flushTimer);
@@ -368,7 +369,7 @@ class PackageInstaller extends EventEmitter {
         // R and apt installs were container-only. On a host build we don't
         // own the system package manager, so refuse with a clear message
         // rather than silently no-op.
-        throw new Error(`${registry} installs are not supported on host. Install the dependency manually and re-open the app.`);
+        throw new Error("Acabox can only install Python and Node.js packages. Ask me to find another way to do this.");
       case 'manual':
         if (packages.length !== 1) {
           // Manual scripts can't be batched — they're side-effecting bash

@@ -65,7 +65,7 @@ export const HardResetDebug: React.FC = () => {
           <ul style={{ margin: '0 0 14px', paddingLeft: 18, fontSize: 13, color: '#444', lineHeight: 1.7 }}>
             <li>All chats and message history (the databases are recreated empty)</li>
             <li>The list of shared folders, your research profile, file activity and scheduled tasks</li>
-            <li>The whole agent workspace: every tool in <code>.applications/</code>, the saved data in <code>tool-data/</code>, notebooks, Claude-written servers in <code>.mcp-servers/</code>, and <code>.academia/</code></li>
+            <li>The whole agent workspace: every tool in <code>.applications/</code>, the saved data in <code>tool-data/</code>, notebooks, servers I wrote in <code>.mcp-servers/</code>, and <code>.academia/</code></li>
             <li>Every chat's saved agent transcript (nothing could resume them once the chats are gone)</li>
           </ul>
           <p style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 600, color: '#444' }}>

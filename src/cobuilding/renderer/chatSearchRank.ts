@@ -37,7 +37,7 @@ export function rankSearchRows(
     const remoteId = item?.remoteId;
     if (!remoteId) continue; // the unstarted "new thread" entry has no remoteId
 
-    const title = (item.title ?? 'New Chat').toLowerCase();
+    const title = (item.title ?? 'New chat').toLowerCase();
     const titleMatch = title.includes(q);
     const hasProse = prose.has(remoteId);
     if (!titleMatch && !hasProse) continue;

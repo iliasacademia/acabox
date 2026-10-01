@@ -261,7 +261,7 @@ const CellToolbar: FC<{
     }`}
   >
     {cellType === 'code' && isExecuting ? (
-      <button className="notebookCellBtn notebookCellBtn--interrupt" onClick={onInterrupt} title="Interrupt">
+      <button className="notebookCellBtn notebookCellBtn--interrupt" onClick={onInterrupt} title="Stop">
         <SquareIcon style={{ width: 10, height: 10 }} />
       </button>
     ) : (
