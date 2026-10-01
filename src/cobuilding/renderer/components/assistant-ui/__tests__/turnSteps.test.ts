@@ -134,6 +134,10 @@ describe('the fold line', () => {
 
   it('drops the duration rather than inventing one when it is unknown', () => {
     expect(turnFoldLabel(26, null)).toBe('Worked · 26 steps');
+    expect(turnFoldLabel(26, 252_000, false, 0.144)).toBe('Worked for 4m 12s · 26 steps · $0.14');
+    expect(turnFoldLabel(26, 252_000, false, null)).toBe('Worked for 4m 12s · 26 steps');
+    expect(turnFoldLabel(26, 252_000, false, 0)).toBe('Worked for 4m 12s · 26 steps');
+    expect(turnFoldLabel(3, null, true, 0.5)).toBe('Stopped · 3 steps · $0.50');
     expect(turnFoldLabel(3, 0)).toBe('Worked · 3 steps');
   });
 });

@@ -364,3 +364,43 @@ describe('a stopped turn', () => {
     expect(messages[3].metadata.custom.workedMs).toBe(31_000);
   });
 });
+
+describe('turn cost', () => {
+  const turn = (n: number, result: unknown): HistoryDbMessage[] => [
+    { type: 'user', content: { text: `q${n}` }, createdAt: `2026-09-22T1${n}:00:00.000` },
+    { type: 'assistant', content: [{ type: 'text', text: `a${n}` }], createdAt: `2026-09-22T1${n}:00:05.000` },
+    { type: 'result', content: result, createdAt: `2026-09-22T1${n}:00:06.000` },
+  ];
+
+  it('is the step between consecutive results, even across runs, and a restart when the total drops', () => {
+    const rows = [
+      ...turn(0, { subtype: 'success', is_error: false, run_id: 'a', total_cost_usd: 0.10 }),
+      ...turn(1, { subtype: 'success', is_error: false, run_id: 'a', total_cost_usd: 0.35 }),
+      ...turn(2, { subtype: 'success', is_error: false, run_id: 'b', total_cost_usd: 0.20 }),
+      ...turn(3, { subtype: 'success', is_error: false, run_id: 'c', total_cost_usd: 0.30 }),
+    ];
+    const assistants = (convertHistoryMessages(rows) as any[]).filter((m) => m.role === 'assistant');
+    expect(assistants[0].metadata.custom.costUsd).toBeCloseTo(0.10);
+    expect(assistants[1].metadata.custom.costUsd).toBeCloseTo(0.25);
+    expect(assistants[2].metadata.custom.costUsd).toBeCloseTo(0.20);
+    expect(assistants[3].metadata.custom.costUsd).toBeCloseTo(0.10);
+  });
+
+  it('carries nothing for a row with no cost, and for a host-authored stop', () => {
+    const rows = [
+      ...turn(0, { subtype: 'success', is_error: false }),
+      ...turn(1, { subtype: 'stopped', result: '', is_error: false, stopped_by: 'user' }),
+    ];
+    const assistants = (convertHistoryMessages(rows) as any[]).filter((m) => m.role === 'assistant');
+    expect(assistants[0].metadata?.custom?.costUsd).toBeUndefined();
+    expect(assistants[1].metadata.custom.costUsd).toBeUndefined();
+    expect(assistants[1].metadata.custom.stopped).toBe(true);
+  });
+
+  it("keeps the CLI's own cost on a stopped turn when its result carried one", () => {
+    const rows = turn(0, { subtype: 'error_during_execution', is_error: true, stopped_by: 'user', run_id: 'a', total_cost_usd: 0.07 });
+    const [, assistant] = convertHistoryMessages(rows) as any[];
+    expect(assistant.metadata.custom.costUsd).toBeCloseTo(0.07);
+    expect(assistant.metadata.custom.stopped).toBe(true);
+  });
+});

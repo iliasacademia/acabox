@@ -25,6 +25,7 @@ import { registerSession, unregisterSession, stopSession, getRegisteredSession, 
 import { getChatActivity, onChatActivityChanged, onChatTurnBoundary, setChatWindowFocused, setViewingChat } from './chatActivity';
 import type { IPCAttachment } from '../shared/types';
 import { parseStoredQuote } from '../shared/quotes';
+import { chatTotalCost } from '../shared/turnCost';
 import { provisionWorkspace } from './skills';
 import {
   createSkill,
@@ -129,6 +130,7 @@ import {
   listSessionsByDocPathLike,
   setSessionDocumentPath,
   getSession,
+  listResultCostRows,
   createSession,
   updateSessionTitle,
   deleteSession,
@@ -1838,6 +1840,8 @@ ipcMain.handle('sessions:countForDocument', (_event, documentPath: string): numb
   return listSessions(activeWorkspace.id, undefined, documentPath).length;
 });
 ipcMain.handle('sessions:get', (_event, id: string) => getSession(id));
+// The chat's running cost for the header: result rows only, never the history.
+ipcMain.handle('sessions:cost', (_event, id: string) => chatTotalCost(listResultCostRows(id)));
 ipcMain.handle('sessions:setDocumentPath', (_event, id: string, documentPath: string) => {
   const activeWorkspace = workspaceController.activeWorkspace;
   if (!activeWorkspace) return;

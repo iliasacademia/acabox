@@ -534,6 +534,8 @@ contextBridge.exposeInMainWorld('scannerAPI', {
 contextBridge.exposeInMainWorld('sessionsAPI', {
   list: (source?: string) => ipcRenderer.invoke('sessions:list', source),
   get: (id: string) => ipcRenderer.invoke('sessions:get', id),
+  /** Estimated cost of the whole chat so far; null when nothing was measured. */
+  cost: (id: string) => ipcRenderer.invoke('sessions:cost', id) as Promise<number | null>,
   setDocumentPath: (id: string, documentPath: string) =>
     ipcRenderer.invoke('sessions:setDocumentPath', id, documentPath),
   countForDocument: (documentPath: string) =>

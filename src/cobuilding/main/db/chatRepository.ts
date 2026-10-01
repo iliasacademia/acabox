@@ -1,5 +1,6 @@
 import { getDatabase } from './database';
 import { proseMatchClause } from './chatSearch';
+import { parseCostRow, type CostRow } from '../../shared/turnCost';
 
 /** Placeholder title a session row is created with (matches the schema default). */
 export const DEFAULT_SESSION_TITLE = 'New Chat';
@@ -140,6 +141,20 @@ export function getSession(id: string): Session | undefined {
   return getDatabase()
     .prepare('SELECT * FROM sessions WHERE id = ?')
     .get(id) as Session | undefined;
+}
+
+/**
+ * The cost-bearing slice of every result row of a chat, oldest first. Result
+ * rows only (a few hundred bytes each), so the header's running total never
+ * reads the chat's whole history.
+ */
+export function listResultCostRows(sessionId: string): CostRow[] {
+  const rows = getDatabase()
+    .prepare("SELECT content FROM messages WHERE session_id = ? AND type = 'result' ORDER BY id")
+    .all(sessionId) as Array<{ content: string }>;
+  return rows.map((r) => {
+    try { return parseCostRow(JSON.parse(r.content)); } catch { return parseCostRow(null); }
+  });
 }
 
 export function listSessions(workspaceId?: string, source?: string, documentPath?: string): Session[] {

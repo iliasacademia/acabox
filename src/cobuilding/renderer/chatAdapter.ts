@@ -276,7 +276,13 @@ export function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefO
             // recomputes it from row timestamps (historyMessageConverter).
             yield {
               content: response.getContent(),
-              metadata: { custom: { workedMs: Date.now() - turnStartMs } },
+              metadata: {
+                custom: {
+                  workedMs: Date.now() - turnStartMs,
+                  // Estimated cost of this turn, when the host measured one.
+                  ...(typeof (msg as any).costUsd === 'number' ? { costUsd: (msg as any).costUsd } : {}),
+                },
+              },
             };
             break;
           }

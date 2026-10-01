@@ -84,6 +84,7 @@ interface ChatProseResultData { sessionId: string; total: number; hits: ProseHit
 interface SessionsAPI {
   list(source?: string): Promise<SessionData[]>;
   get(id: string): Promise<SessionData | undefined>;
+  cost(id: string): Promise<number | null>;
   setDocumentPath(id: string, documentPath: string): Promise<void>;
   rename(id: string, title: string): Promise<void>;
   delete(id: string): Promise<void>;
@@ -653,6 +654,7 @@ declare global {
   interface SessionsAPI {
     list(source?: string): Promise<SessionData[]>;
     get(id: string): Promise<SessionData | undefined>;
+    cost(id: string): Promise<number | null>;
     setDocumentPath(id: string, documentPath: string): Promise<void>;
     countForDocument(documentPath: string): Promise<number>;
     rename(id: string, title: string): Promise<void>;

@@ -38,7 +38,7 @@ export type ChatStreamMessage =
   // chatAdapter uses to break from its loop while keeping the stream alive.
   // `messageId` correlates back to the user turn that prompted this response;
   // null for legacy turns that started before the messageId plumbing landed.
-  | { type: 'turn-complete'; messageId?: string }
+  | { type: 'turn-complete'; messageId?: string; /** This turn's estimated cost in USD; absent when unknown. */ costUsd?: number }
   // Cross-surface user message — emitted server-side right after a user
   // message is inserted into the DB, so subscribers on OTHER surfaces
   // (the desktop chat when the overlay sent it, or vice versa) can refresh
