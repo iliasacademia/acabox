@@ -19,8 +19,45 @@ set -euo pipefail
 # Read the full hook payload from stdin.
 input=$(cat)
 
+# An empty payload carries nothing to check.
+if [ -z "$input" ]; then
+  exit 0
+fi
+
+# --- payload parsing -------------------------------------------------------
+# This used to be `jq` alone. jq ships only with macOS 15+, so on 13/14 the
+# script died under `set -e` with a status other than 2, which the CLI reads
+# as "allow" — the guard was silently off. plutil ships with every supported
+# macOS; jq stays as a fallback for a machine where plutil is somehow absent.
+# (ACABOX_HOOK_PLUTIL exists only so tests can simulate that absence.)
+PLUTIL="${ACABOX_HOOK_PLUTIL:-/usr/bin/plutil}"
+
+# Pick a parser that can actually read this payload. Empty when none can.
+parser=""
+if [ -x "$PLUTIL" ] && printf '%s' "$input" | "$PLUTIL" -convert json -o /dev/null - >/dev/null 2>&1; then
+  parser="plutil"
+elif command -v jq >/dev/null 2>&1 && printf '%s' "$input" | jq -e . >/dev/null 2>&1; then
+  parser="jq"
+fi
+
+# json_field <key>: print tool_input.<key>, or nothing when the key is absent.
+json_field() {
+  if [ "$parser" = "plutil" ]; then
+    printf '%s' "$input" | "$PLUTIL" -extract "tool_input.$1" raw -o - - 2>/dev/null || true
+  else
+    printf '%s' "$input" | jq -r ".tool_input.$1 // empty" 2>/dev/null || true
+  fi
+}
+
+# Fail closed: a payload we cannot read is a command we cannot check, and a
+# non-2 exit would let it through.
+if [ -z "$parser" ]; then
+  echo "Acabox could not check this command, so it was blocked. Try again; if it repeats, report it." >&2
+  exit 2
+fi
+
 # Extract the command string.
-command=$(printf '%s' "$input" | jq -r '.tool_input.command // ""')
+command=$(json_field command)
 
 # No command, nothing to do.
 if [ -z "$command" ]; then
