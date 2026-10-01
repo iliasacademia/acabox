@@ -145,6 +145,12 @@ export class HostProcessService {
   private isStarting = false;
   private currentAgentDir: string | null = null;
 
+  /** The workspace root the agent server was started in, or null before then. */
+  getAgentDir(): string | null {
+    return this.currentAgentDir;
+  }
+
+
   private kernelGatewayProc: ChildProcess | null = null;
   private agentServerProc: ChildProcess | null = null;
 

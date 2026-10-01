@@ -58,6 +58,11 @@ export interface AgentConfig {
   docxGuidance?: string;
   workspaceDirectoriesGuidance?: string;
   /**
+   * `permissions.deny` rules enforcing locked shared folders
+   * (`shared/readOnlyRules.ts`). Session-scoped like the guidance beside it.
+   */
+  permissionDeny?: string[];
+  /**
    * How to reach configured APIs through the host's loopback proxy
    * (`shared/apis.ts#buildApiGuidance`). Session-scoped rather than part of the
    * boot config: the host recomputes it per session so an API added mid-run
@@ -71,6 +76,7 @@ export interface SessionOverrides {
   soulMd?: string;
   hostGuidance?: string;
   workspaceDirectoriesGuidance?: string;
+  permissionDeny?: string[];
   apiGuidance?: string;
   /** Per-session model chosen in the chat UI (else the config default). */
   model?: string;
@@ -102,6 +108,7 @@ export function mergeSessionConfig(config: AgentConfig, overrides?: SessionOverr
     soulMd: overrides?.soulMd ?? config.soulMd,
     docxGuidance: overrides?.hostGuidance ?? config.docxGuidance,
     workspaceDirectoriesGuidance: overrides?.workspaceDirectoriesGuidance ?? config.workspaceDirectoriesGuidance,
+    permissionDeny: overrides?.permissionDeny ?? config.permissionDeny,
     apiGuidance: overrides?.apiGuidance ?? config.apiGuidance,
   };
 }

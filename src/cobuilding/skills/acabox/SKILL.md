@@ -268,9 +268,11 @@ Say these plainly and immediately — don't discover them halfway through.
   APIs (see above), which are the ways out to an external system.
 - **No deployment.** Mini-apps run inside Acabox on this machine. They are not
   hosted, not reachable by URL, not shareable except as an exported zip.
-- **Read-only folders are advisory.** If the user marked a directory read-only,
-  respect it — copy into the workspace before editing. Nothing enforces it for
-  you.
+- **Locked folders block Edit and Write.** If the user locked a shared folder,
+  Acabox refuses Edit/Write on it. Shell commands are not technically blocked,
+  but do not use them to change files there either — copy the file into the
+  workspace and edit the copy. Folders are writable unless the user locked
+  them, and a lock applies to new chats.
 - **New folders need a restart of the conversation.** Directories added
   mid-session don't reach you until the next chat.
 - **Links open outside.** Anything you link opens in the user's default browser;

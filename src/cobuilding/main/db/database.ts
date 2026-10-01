@@ -524,6 +524,17 @@ const migrations = [
     version: 33,
     sql: MESSAGE_PROSE_SQL,
   },
+  {
+    // Shared folders become writable by default (2026-10-01). The repository
+    // used to default `read_only` to true and both callers omitted it, so every
+    // existing row was locked by an accident nobody chose. The lock was also
+    // never enforced, so the agent could in practice write to all of them;
+    // unlocking preserves what it could actually do. A lock is now enforced
+    // (deny rules, see shared/readOnlyRules.ts) and is an explicit choice made
+    // after this migration, which is why it can safely reset every old row.
+    version: 34,
+    sql: `UPDATE workspace_directories SET read_only = 0;`,
+  },
 ];
 
 function runMigrations(database: Database.Database, userDataPath: string) {

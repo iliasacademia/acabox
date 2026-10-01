@@ -8,6 +8,7 @@ import path from 'path';
 import log from 'electron-log';
 import { captureError } from '../shared/telemetry';
 import { composeQuotedText, type AcaboxQuote } from '../shared/quotes';
+import { buildReadOnlyDenyRules, mountNames } from '../shared/readOnlyRules';
 import { composeChatRefsText } from '../shared/chatLinks';
 import { resolveChatRefs } from './chatRefResolver';
 import { containerService } from './containerService';
@@ -582,13 +583,22 @@ export function createAgentSession(
   // agent — whose cwd is the workspace — addresses them with simple relative
   // paths.
   let workspaceDirectoriesGuidance: string | undefined;
+  // Deny rules that make the lock real; computed from the same rows as the
+  // guidance so the prompt and the enforcement cannot disagree.
+  let readOnlyDenyRules: string[] = [];
   try {
     const dirs = listWorkspaceDirectories(workspace.id);
+    // The workspace row's own directory_path is empty; the agent's cwd (where
+    // the folder symlinks live) is the one the container service started in.
+    const workspaceRoot = containerService.getAgentDir();
+    if (workspaceRoot) readOnlyDenyRules = buildReadOnlyDenyRules(workspaceRoot, dirs);
+    else if (dirs.some(d => d.read_only)) log.warn('[Session] Locked folders but no workspace root known; deny rules not built');
     if (dirs.length > 0) {
-      const lines = dirs.map(dir => {
-        const name = path.basename(dir.directory_path);
+      const linkNames = mountNames(dirs.map(d => d.directory_path));
+      const lines = dirs.map((dir, i) => {
+        const name = linkNames[i];
         return dir.read_only
-          ? `- ${name}/ (read only) — make a copy inside the workspace before editing; direct edits will fail.`
+          ? `- ${name}/ (locked by you) — Acabox blocks Edit/Write on it. Do not change files here with shell commands either; copy the file into the workspace and edit the copy.`
           : `- ${name}/ (read & write) — edit files directly.`;
       });
       workspaceDirectoriesGuidance = [
@@ -753,6 +763,7 @@ export function createAgentSession(
           soulMd: soulMdContent,
           hostGuidance,
           workspaceDirectoriesGuidance,
+          permissionDeny: readOnlyDenyRules,
           apiGuidance,
           ...((hostAppMatched && sessionHostApp) ? { additionalAllowedTools: sessionHostApp.allowedTools } : {}),
         });

@@ -17,6 +17,7 @@ import {
   type WorkspaceDirectory,
 } from '../db/workspaceRepository';
 import { provisionWorkspace } from '../skills';
+import { mountNames } from '../../shared/readOnlyRules';
 import { WORKSPACE_DATA_DIR, MAX_WORKSPACE_DIRECTORIES } from '../../shared/paths';
 
 const SENSITIVE_HOME_DIRS = ['.ssh', '.gnupg', '.aws', '.config', '.password-store'];
@@ -200,10 +201,6 @@ export class WorkspaceController {
 
 }
 
-function sanitizeMountName(dirPath: string): string {
-  return path.basename(dirPath).replace(/[^a-zA-Z0-9._-]/g, '') || 'dir';
-}
-
 // Builds the ordered list of volume mounts for the podman container.
 // The agent-controlled directory is always first, mounted at /data (the container's
 // working directory). User directories follow, each mounted at /data/<sanitized-name>.
@@ -218,12 +215,9 @@ export function buildMountMap(
   const result: Array<{ hostPath: string; containerPath: string; readOnly?: boolean }> = [
     { hostPath: agentDir, containerPath: '/data' },
   ];
-  const counts = new Map<string, number>();
-  for (const dir of directories) {
-    const base = sanitizeMountName(dir.directory_path);
-    const count = counts.get(base) ?? 0;
-    counts.set(base, count + 1);
-    const name = count > 0 ? `${base}_${count + 1}` : base;
+  const names = mountNames(directories.map(d => d.directory_path));
+  for (const [i, dir] of directories.entries()) {
+    const name = names[i];
     result.push({ hostPath: dir.directory_path, containerPath: `/data/${name}`, readOnly: dir.read_only });
   }
 
