@@ -32,6 +32,7 @@ interface DirectoryPermissionsProps {
 const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, userDirectories, onClose, onDirectoriesChanged, onOpenKnowledge, inline, active = true }) => {
   const [localDirs, setLocalDirs] = useState<WorkspaceDirectory[]>(userDirectories);
   const [dirError, setDirError] = useState<string | null>(null);
+  const [isExportingLogs, setIsExportingLogs] = useState(false);
   const [togglingDirId, setTogglingDirId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -393,6 +394,32 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
               </button>
             </div>
             {scanError && <p className="wsSettings__dirError">{scanError}</p>}
+
+            {/* The Debug tab is dev-only, so this is the one way a packaged
+                user can hand us the logs when something goes wrong. */}
+            <div className="wsSettings__dirRow" style={{ marginBottom: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div className="wsSettings__integrationName">Export logs</div>
+                <div className="wsSettings__integrationDesc">
+                  Save the app and command logs to a text file you can send when something goes wrong.
+                </div>
+              </div>
+              <button
+                type="button"
+                className="gsStep__btn gsStep__btn--secondary"
+                disabled={isExportingLogs}
+                onClick={async () => {
+                  setIsExportingLogs(true);
+                  try {
+                    await window.debugAPI.exportLogs();
+                  } finally {
+                    setIsExportingLogs(false);
+                  }
+                }}
+              >
+                {isExportingLogs ? 'Exporting…' : 'Export logs…'}
+              </button>
+            </div>
 
             <ApiKeySettings />
           </div>

@@ -22,7 +22,6 @@ export type CoScientistSurface =
   | 'main'
   | 'word-overlay'
   | 'popup'
-  | 'quick-chat'
   | 'paper-monitor'
   | 'reactions'
   | 'background';

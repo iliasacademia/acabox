@@ -97,7 +97,6 @@ export interface ChatAPI {
    *  local idle-stream optimizations. */
   unsubscribe(threadId: string): void;
   stopResponding(threadId: string): void;
-  onQuickChatInject(callback: (data: { text: string; context: any }) => void): () => void;
   /** Server-side authoritative check for whether the agent is currently mid-turn
    *  on this thread. Unlike assistant-ui's `thread.isRunning`, this survives the
    *  renderer's chatAdapter run ending (e.g. when the user navigates away). */

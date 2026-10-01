@@ -264,14 +264,6 @@ module.exports = {
               },
             },
             {
-              html: './src/cobuilding/renderer/quick-chat.html',
-              js: './src/cobuilding/renderer/quick-chat-entry.tsx',
-              name: 'quick_chat_window',
-              preload: {
-                js: './src/cobuilding/main/quickChatPreload.ts',
-              },
-            },
-            {
               html: './src/cobuilding/renderer/find-bar.html',
               js: './src/cobuilding/renderer/find-bar-entry.tsx',
               name: 'find_bar_window',

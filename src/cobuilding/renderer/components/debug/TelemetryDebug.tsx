@@ -104,16 +104,6 @@ export const TelemetryDebug: React.FC = () => {
     setBoundaryResetKey((k) => k + 1);
   };
 
-  const triggerRendererCrash = () => {
-    append('Renderer: calling process.crash() — the window will reload.');
-    // Tiny delay so the log line lands first.
-    setTimeout(() => {
-      // process.crash() on the renderer triggers render-process-gone in main.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (process as any).crash();
-    }, 100);
-  };
-
   // ─── Main-side triggers (via IPC) ───────────────────────────────────
 
   const triggerMain = async (kind: 'uncaught' | 'rejection' | 'capture') => {
@@ -165,20 +155,8 @@ export const TelemetryDebug: React.FC = () => {
           Renders a child component that throws. Caught by the local boundary, then forwarded to Sentry as <code>subsystem: ui</code>.
         </Hint>
       </Row>
-      <Row>
-        <Btn onClick={triggerRendererCrash} danger>Crash renderer process</Btn>
-        <Hint>
-          Calls <code>process.crash()</code>. Main hears <code>render-process-gone</code> → captures with <code>subsystem: render_process</code>. Window reloads.
-        </Hint>
-      </Row>
 
       <SectionHeader>Main-side (via IPC)</SectionHeader>
-      <Row>
-        <Btn onClick={() => triggerMain('uncaught')}>Uncaught exception in main</Btn>
-        <Hint>
-          <code>setImmediate(() =&gt; throw)</code> in main. Hits our <code>uncaughtException</code> handler → <code>subsystem: main_uncaught</code>.
-        </Hint>
-      </Row>
       <Row>
         <Btn onClick={() => triggerMain('rejection')}>Unhandled rejection in main</Btn>
         <Hint>

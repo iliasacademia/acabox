@@ -112,7 +112,6 @@ import { API_CATALOG, interpretApiTest, type ApiConfig } from '../shared/apis';
 import { buildApiKeyStatus } from '../shared/apiKeyCheck';
 import { checkAnthropicKey } from './apiKeyCheck';
 import { decryptSecret, encryptSecret, isEncrypted, isEncryptionAvailable } from './secretStore';
-import { processCpuMonitor } from '../../utils/processCpuMonitor';
 import { convertReferenceFile } from './directoryScanner/agents/fileTagging';
 import { getReport, getLatestReport, updateReportData } from './db/reportRepository';
 import {
@@ -176,7 +175,6 @@ import { packageInstaller, installStepsToRequests, type Registry, type PackageSt
 import { setBaseUrl, BASE_URL } from '../../apiClient';
 import { getDeviceId } from '../../utils/deviceId';
 import { destroyTokenManager, getCredentials, setCredentials } from './cobuildingTokenManager';
-import { createQuickChatWindow, showQuickChat, updateMainWindowRef } from './quickChat';
 import { installFindInPage } from './findInPageHost';
 import { installScreenshot } from './screenshotHost';
 import { registerCalendarHandlers } from './ipc/calendar';
@@ -721,8 +719,6 @@ function createMainWindow(): void {
   });
   log.info('[APP] Main window created.');
 
-  updateMainWindowRef(mainWindow);
-
   mainWindow.on('closed', () => {
     mainWindow = null;
     setChatWindowFocused(false);
@@ -908,8 +904,6 @@ app.whenReady().then(async () => {
     await runMcpHostSmokeTest();
     return;
   }
-
-  processCpuMonitor.start();
 
   // Encrypt secrets that predate encryption-at-rest. Must run after
   // whenReady (safeStorage throws before it) and before the key is read.
@@ -1238,7 +1232,6 @@ app.whenReady().then(async () => {
     }
     log.info('[APP] Updater and tray initialized.');
 
-    createQuickChatWindow(mainWindow!);
     installFindInPage({
       getMainWindow: () => mainWindow,
       barEntryUrl: FIND_BAR_WINDOW_WEBPACK_ENTRY,
@@ -1249,17 +1242,6 @@ app.whenReady().then(async () => {
       overlayEntryUrl: SCREENSHOT_OVERLAY_WINDOW_WEBPACK_ENTRY,
       overlayPreloadPath: SCREENSHOT_OVERLAY_WINDOW_PRELOAD_WEBPACK_ENTRY,
     });
-    // Alt+Shift+A rather than the original app's Alt+Shift+Space, so the two
-    // apps don't fight over one OS-wide exclusive hotkey when both are running.
-    const shortcutRegistered = globalShortcut.register('Alt+Shift+A', () => {
-      showQuickChat();
-    });
-    if (!shortcutRegistered) {
-      log.warn('[APP] Failed to register global shortcut Alt+Shift+A — may be in use by another app');
-    } else {
-      log.info('[APP] Global shortcut Alt+Shift+A registered');
-    }
-
     initSchedulingDatabase(app.getPath('userData'));
     if (getReactionsEnabled() && activeWorkspace) {
       ensureReactionsTask(activeWorkspace.id);
