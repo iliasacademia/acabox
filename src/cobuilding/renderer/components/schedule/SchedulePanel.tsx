@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { MSymbol } from '../command-desk/MSymbol';
 import {
   intervalToCron, cronToInterval, validateInterval, cronToHuman, snapIntervalToUnit,
+  isLegacyDayOfMonthStep, formatTime, parseTime, WEEKDAYS, DEFAULT_TIME,
   type ScheduleUnit,
 } from './scheduleCron';
 import type { ScheduledTask, ScheduledTaskRun } from '../../../shared/types';
@@ -32,7 +33,8 @@ import type { ScheduledTask, ScheduledTaskRun } from '../../../shared/types';
 const UNITS: { value: ScheduleUnit; label: string }[] = [
   { value: 'minutes', label: 'minutes' },
   { value: 'hours', label: 'hours' },
-  { value: 'days', label: 'days' },
+  { value: 'daily', label: 'day, at a set time' },
+  { value: 'weekly', label: 'week, on a set day' },
 ];
 
 /** A run's status as something a person would say. Never invents an outcome. */
@@ -151,6 +153,10 @@ export function SchedulePanel({
   const [prompt, setPrompt] = useState('');
   const [interval, setInterval] = useState(1);
   const [unit, setUnit] = useState<ScheduleUnit>('hours');
+  const [time, setTime] = useState(formatTime(DEFAULT_TIME));
+  const [weekday, setWeekday] = useState(DEFAULT_TIME.weekday);
+  // A task saved by the old "days" editor; see isLegacyDayOfMonthStep.
+  const [legacyCron, setLegacyCron] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
@@ -159,6 +165,7 @@ export function SchedulePanel({
     if (!taskId) {
       setTask(null); setName(''); setDescription(''); setPrompt('');
       setInterval(1); setUnit('hours'); setRuns([]);
+      setTime(formatTime(DEFAULT_TIME)); setWeekday(DEFAULT_TIME.weekday); setLegacyCron(null);
       return;
     }
     let live = true;
@@ -171,13 +178,24 @@ export function SchedulePanel({
       const parsed = cronToInterval(t.cron_expression);
       setInterval(parsed.interval);
       setUnit(parsed.unit);
+      setTime(formatTime(parsed));
+      setWeekday(parsed.weekday);
+      setLegacyCron(isLegacyDayOfMonthStep(t.cron_expression) ? t.cron_expression : null);
+      if (isLegacyDayOfMonthStep(t.cron_expression)) {
+        // Open on the nearest cadence (once a day) rather than the hourly
+        // fallback, so an untouched Save cannot turn a rare task into a frequent one.
+        setUnit('daily');
+        setTime('00:00');
+      }
     }).catch(() => {});
     window.scheduledTasksAPI.listRuns(taskId).then((r) => { if (live) setRuns(r); }).catch(() => {});
     return () => { live = false; };
   }, [taskId]);
 
-  const cronExpression = intervalToCron(interval, unit);
-  const intervalError = validateInterval(interval, unit);
+  const parsedTime = parseTime(time);
+  const cronExpression = intervalToCron(interval, unit, { ...(parsedTime ?? DEFAULT_TIME), weekday });
+  const intervalError = validateInterval(interval, unit)
+    ?? ((unit === 'daily' || unit === 'weekly') && !parsedTime ? 'Pick a time' : null);
   // A system task (the Reactions cron) owns its own name and prompt; only its
   // cadence is the user's to change.
   const isSystemTask = task?.session_source === 'reactions-system';
@@ -299,14 +317,16 @@ export function SchedulePanel({
           <span className="connectorField__label">How often</span>
           <div className="scheduleIntervalRow">
             <span>Every</span>
-            <input
-              className="connectorField__input scheduleIntervalRow__num"
-              type="number"
-              min={1}
-              value={Number.isFinite(interval) ? interval : ''}
-              onChange={(e) => setInterval(parseInt(e.target.value, 10))}
-              aria-label="Interval"
-            />
+            {(unit === 'minutes' || unit === 'hours') && (
+              <input
+                className="connectorField__input scheduleIntervalRow__num"
+                type="number"
+                min={1}
+                value={Number.isFinite(interval) ? interval : ''}
+                onChange={(e) => setInterval(parseInt(e.target.value, 10))}
+                aria-label="Interval"
+              />
+            )}
             <select
               className="connectorField__input scheduleIntervalRow__unit"
               value={unit}
@@ -316,6 +336,38 @@ export function SchedulePanel({
               {UNITS.map((u) => <option key={u.value} value={u.value}>{u.label}</option>)}
             </select>
           </div>
+          {unit === 'weekly' && (
+            <div className="scheduleIntervalRow">
+              <span>On</span>
+              <select
+                className="connectorField__input scheduleIntervalRow__unit"
+                value={weekday}
+                onChange={(e) => setWeekday(parseInt(e.target.value, 10))}
+                aria-label="Weekday"
+              >
+                {WEEKDAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
+              </select>
+            </div>
+          )}
+          {(unit === 'daily' || unit === 'weekly') && (
+            <div className="scheduleIntervalRow">
+              <span>At</span>
+              <input
+                className="connectorField__input scheduleIntervalRow__unit"
+                type="time"
+                value={time}
+                onChange={(e) => setTime(e.target.value)}
+                aria-label="Time"
+              />
+              <span>your local time</span>
+            </div>
+          )}
+          {legacyCron && (
+            <div className="connectorField__help">
+              This task used a day-of-the-month schedule ({cronToHuman(legacyCron)}).
+              Saving replaces it with the schedule above.
+            </div>
+          )}
           {intervalError
             ? <div className="schedulePanel__error">{intervalError}</div>
             : <div className="connectorField__help">{cronToHuman(cronExpression)}.</div>}

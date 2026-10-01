@@ -1,10 +1,18 @@
 import { CronExpressionParser } from 'cron-parser';
 import log from 'electron-log';
 import { captureError } from '../../shared/telemetry';
-import { getTask, getEnabledTasks, updateLastRun } from '../db/scheduledTaskRepository';
+import { getTask, getEnabledTasks, updateLastRun, failInterruptedRuns } from '../db/scheduledTaskRepository';
 import { getActiveWorkspace } from '../db/workspaceRepository';
 import { runScheduledTask } from './runner';
 import type { NotificationNavigationAction } from '../../shared/types';
+
+/**
+ * `setTimeout` stores its delay in a signed 32-bit int. Anything longer
+ * (~24.8 days) is not clamped to the maximum: Node warns and runs it after
+ * 1 ms. A far-off target would therefore fire at once, and re-arming toward
+ * the same date fired it again, in a tight loop of full model turns.
+ */
+export const MAX_TIMER_MS = 2 ** 31 - 1;
 
 export interface TaskScheduler {
   start(): void;
@@ -40,8 +48,21 @@ export function createTaskScheduler(
 
     log.info(`[ScheduledTasks] Task "${task.name}" next run in ${Math.round(delay / 1000)}s at ${nextDate.toISOString()}`);
 
+    arm(taskId, nextDate);
+  }
+
+  /** Arm a timer toward `target`, in hops no longer than MAX_TIMER_MS. */
+  function arm(taskId: string, target: Date): void {
+    const remaining = target.getTime() - Date.now();
     const timer = setTimeout(async () => {
       timers.delete(taskId);
+
+      // Woken by a clamped hop, not by the target: go back to sleep toward the
+      // same date rather than running the task early.
+      if (target.getTime() - Date.now() > 1000) {
+        arm(taskId, target);
+        return;
+      }
 
       const currentTask = getTask(taskId);
       if (!currentTask || !currentTask.enabled) return;
@@ -77,7 +98,7 @@ export function createTaskScheduler(
       }
 
       scheduleNext(taskId);
-    }, delay);
+    }, Math.min(Math.max(remaining, 0), MAX_TIMER_MS));
 
     timers.set(taskId, timer);
   }
@@ -92,6 +113,9 @@ export function createTaskScheduler(
 
   return {
     start() {
+      const repaired = failInterruptedRuns();
+      if (repaired > 0) log.warn(`[ScheduledTasks] Marked ${repaired} run(s) left running by a previous process as failed`);
+
       const workspace = getActiveWorkspace();
       if (!workspace) {
         log.warn('[ScheduledTasks] No active workspace, scheduler not starting');

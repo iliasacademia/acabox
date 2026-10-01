@@ -157,6 +157,22 @@ export function completeTaskRun(id: string, status: 'completed' | 'failed', erro
   notifyChanged();
 }
 
+/**
+ * A run row is written `running` and only ever closed by the process that ran
+ * it. If that process died (quit mid-run, crash, update swap) the row stays
+ * `running` forever and the UI reads "Running now" for a run nobody is
+ * executing. Called once at scheduler start, when no run can legitimately be
+ * in flight. Returns how many rows were repaired.
+ */
+export function failInterruptedRuns(): number {
+  const db = getSchedulingDatabase();
+  const res = db.prepare(
+    "UPDATE scheduled_task_runs SET status = 'failed', completed_at = strftime('%Y-%m-%dT%H:%M:%f', 'now'), error = ? WHERE status = 'running'",
+  ).run('Interrupted — Acabox closed before this run finished');
+  if (res.changes > 0) notifyChanged();
+  return res.changes;
+}
+
 export function listTaskRuns(taskId: string, limit = 20): ScheduledTaskRun[] {
   const db = getSchedulingDatabase();
   return db.prepare('SELECT * FROM scheduled_task_runs WHERE task_id = ? ORDER BY started_at DESC LIMIT ?').all(taskId, limit) as ScheduledTaskRun[];
