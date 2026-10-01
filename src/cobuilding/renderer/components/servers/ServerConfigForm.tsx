@@ -164,8 +164,8 @@ export function ServerConfigForm({
       </div>
 
       <p className="connectorForm__note">
-        Most people never need this form — describe what you want in a chat and Claude can
-        write and run a small server for you. This is the manual path: a command Acabox will
+        Most people never need this form — describe what you want in a chat and I can
+        write and run a small add-on for you. This is the manual path: a command Acabox will
         run directly, with no shell in between.
       </p>
 
@@ -180,7 +180,7 @@ export function ServerConfigForm({
           autoFocus={mode === 'add'}
         />
         <span className="connectorField__help">
-          The agent calls its tools as <code>mcp__{id || 'name'}__…</code>. {CONNECTOR_ID_RULE}
+          A short name, letters and hyphens.
         </span>
         {idProblem && <p className="gsStep__error">{idProblem}</p>}
       </label>
@@ -267,10 +267,10 @@ export function ServerConfigForm({
       <div className="serversDisclosure">
         Adding this server means Acabox will run <code>{resolvedForDisclosure}</code> on your
         machine, with your user account and your files, every time you start it. Every tool it
-        offers is auto-approved: Acabox supplies no permission handler, so Claude calls them
+        offers is auto-approved: Acabox supplies no permission handler, so I use them
         without asking you, and the server&rsquo;s own description of each tool is instruction
-        text the model will follow. A pinned commit makes it reproducible and auditable.{' '}
-        <strong>It does not make it safe.</strong>
+        text I will follow.{' '}
+        <strong>Only add programs you trust.</strong>
       </div>
 
       <div className="connectorForm__actions" style={{ justifyContent: 'space-between' }}>
@@ -292,15 +292,15 @@ export function ServerConfigForm({
           {testResult.ok ? (
             <>
               <div>Started successfully.</div>
-              <div className="serversTestResult__row">Resolved to <code>{testResult.resolvedCommand}</code></div>
+              <div className="serversTestResult__row">Found at <code>{testResult.resolvedCommand}</code></div>
               {!testResult.pathResolved && (
                 <div className="serversTestResult__row">
-                  Acabox could not read your login shell&rsquo;s PATH — this used a fallback.
+                  Acabox couldn&rsquo;t see all the programs installed on your Mac, so it used a fallback.
                 </div>
               )}
               <div className="serversTestResult__row">
                 {testResult.toolNames.length === 0
-                  ? 'It answered, but offered no tools.'
+                  ? 'It answered, but has no tools to offer.'
                   : `${testResult.toolNames.length} tool${testResult.toolNames.length === 1 ? '' : 's'}: ${testResult.toolNames.join(', ')}`}
               </div>
             </>

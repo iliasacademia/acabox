@@ -372,10 +372,10 @@ export interface ConnectorStatusReport {
 export function describeStatus(status: ConnectorStatus): string {
   switch (status) {
     case 'connected': return 'Connected';
-    case 'needs-auth': return 'Needs authentication';
+    case 'needs-auth': return 'Needs sign-in';
     case 'failed': return 'Failed';
     case 'pending': return 'Connecting…';
     case 'disabled': return 'Disabled';
-    default: return 'Unknown';
+    default: return 'Not checked yet';
   }
 }

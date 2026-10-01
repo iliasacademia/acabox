@@ -118,7 +118,7 @@ describe('startAll — single-flight (R10) and never-throws', () => {
     await registerAndEnable('refused-a');
     encryptionAvailable = false;
     await expect(mcpHost.startAll()).resolves.toBeUndefined(); // never throws
-    expect(mcpHost.lastStartAllErrorMessage()).toMatch(/OS keyring is not available/);
+    expect(mcpHost.lastStartAllErrorMessage()).toMatch(/store their settings securely/);
 
     const entries = await mcpHost.list();
     const entry = entries.find((e) => e.id === 'refused-a');

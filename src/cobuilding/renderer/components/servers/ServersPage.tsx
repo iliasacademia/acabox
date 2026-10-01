@@ -77,12 +77,12 @@ function hostedStatusText(row: ServerRowModel): string {
  * states for `pid`/command.
  */
 function hostedTarget(meta: Extract<ServerRowModel['meta'], { kind: 'hosted' }>, driftCount?: number): string {
+  // No pid or command line on a row (they are terminal vocabulary); both live
+  // in the detail panel's "Technical details" fold.
   const parts: string[] = [];
-  if (meta.pid != null) parts.push(`pid ${meta.pid}`);
   if (meta.toolCount !== undefined) parts.push(`${meta.toolCount} tool${meta.toolCount === 1 ? '' : 's'}`);
-  parts.push([meta.command, ...meta.args].join(' ') || '(no command)');
   if (meta.install.kind === 'authored' && driftCount !== undefined && driftCount > 0) {
-    parts.push(`${driftCount} change${driftCount === 1 ? '' : 's'} in the workspace since you approved`);
+    parts.push(`${driftCount} change${driftCount === 1 ? '' : 's'} since you approved`);
   }
   return parts.join(' · ');
 }
@@ -191,7 +191,7 @@ export function ServersPage({
     // this just gets a dialogue going rather than dropping them on a blank
     // composer with no sense of what a local server even is.
     composerRuntime.setText(
-      "I'd like a small local MCP server for something I do here. Ask me what I need before writing anything.",
+      "I'd like a small add-on (a local MCP server) for something I do here. Ask me what I need before writing anything.",
     );
     composerRuntime.send();
   }, [composerRuntime, onSwitchToChat]);
@@ -261,8 +261,8 @@ export function ServersPage({
       const drift = authoredInfoById.get(row.id)?.driftCount;
       if (drift !== undefined && drift > 0) {
         actions.push({
-          label: 'Re-promote', disabled: busy,
-          title: 'Copy the changed files from the workspace and restart with them.',
+          label: 'Approve changes', disabled: busy,
+          title: 'Use the changed files and restart.',
           onClick: () => void runMutation(row.id, () => window.mcpServersAPI.approveAuthored(row.id)),
         });
       }
@@ -270,7 +270,7 @@ export function ServersPage({
     actions.push({
       label: 'Remove', danger: true, disabled: busy,
       onClick: () => {
-        if (window.confirm(`Remove "${row.label}"? This stops it and deletes its saved configuration.`)) {
+        if (window.confirm(`Remove "${row.label}"? This stops it and deletes its saved settings.`)) {
           void runMutation(row.id, () => window.mcpServersAPI.remove(row.id));
         }
       },
@@ -284,12 +284,12 @@ export function ServersPage({
         <div className="pageShell__inner">
           <div className="pageShell__headerBlock">
             <div className="pageShell__stats">
-              {hostedRows.length} {hostedRows.length === 1 ? 'SERVER' : 'SERVERS'} RUNNING HERE
+              {hostedRows.length} {hostedRows.length === 1 ? 'ADD-ON' : 'ADD-ONS'} RUNNING HERE
             </div>
             <h1 className="pageShell__title">Servers</h1>
             <p className="pageShell__subtitle">
-              Local MCP servers Acabox runs on this machine — separate from Connectors, which
-              are remote services Acabox connects to.
+              Add-ons I run on this Mac &mdash; separate from Connected services, which
+              live online.
             </p>
           </div>
 
@@ -316,11 +316,11 @@ export function ServersPage({
               pendingAuthoredRows.length === 0 && (
                 <div className="serversEmpty">
                   <p className="serversEmpty__lead">
-                    No servers yet. Ask Claude to build one for you — describe what you need in a
-                    chat and it can write and run a small server.
+                    Nothing here yet. If you need me to talk to a program or database on this
+                    Mac, ask me in chat and I&rsquo;ll build the bridge.
                   </p>
                   <div className="serversEmpty__links">
-                    <button type="button" className="connectorLink" onClick={askClaude}>Open chat</button>
+                    <button type="button" className="connectorLink" onClick={askClaude}>Ask in chat</button>
                     {/* Reachable from the empty state on purpose. This used to
                         live only inside "Authored by Claude", which renders
                         only once a server has been found — so the one control
@@ -332,7 +332,7 @@ export function ServersPage({
                       disabled={rescanBusy}
                       onClick={() => void handleRescanAuthored()}
                     >
-                      {rescanBusy ? 'Checking…' : 'Claude just built one? Check now'}
+                      {rescanBusy ? 'Checking…' : 'I just built one? Check now'}
                     </button>
                     <button type="button" className="connectorLink" onClick={openAddForm}>
                       Advanced: add a server yourself
@@ -372,7 +372,7 @@ export function ServersPage({
             <section className="toolsSection">
               <div className="toolsSection__headingRow">
                 <h2 className="toolsSection__heading">
-                  Authored by Claude
+                  Bridges I wrote
                   <span className="toolsSection__count">{pendingAuthoredRows.length}</span>
                 </h2>
                 <button
@@ -387,10 +387,8 @@ export function ServersPage({
               {pendingAuthoredRows.length > 0 && (
                 <>
                   <p className="serversAuthoredNote">
-                    Small local servers Claude has written into your workspace, waiting for you to
-                    review. Nothing here runs until you enable it — Acabox then copies the files
-                    out and runs that copy, so editing them afterwards changes nothing until you
-                    approve again.
+                    Bridges I wrote for you, waiting for your OK. Nothing runs until you turn it
+                    on; after that, changes I make need your OK again.
                   </p>
                   <div className="connectorList">
                     {pendingAuthoredRows.map((row) => {
@@ -400,12 +398,12 @@ export function ServersPage({
                         <KnowledgeRow
                           key={row.id}
                           name={row.label}
-                          chips={[{ label: 'Awaiting review' }]}
+                          chips={[{ label: 'Waiting for your OK' }]}
                           description={info?.description || 'No description given.'}
                           meta={`.mcp-servers/${row.id}`}
                           actions={[
                             {
-                              label: 'Review & enable',
+                              label: 'Review & turn on',
                               disabled: busy,
                               onClick: () => void runMutation(row.id, () => window.mcpServersAPI.approveAuthored(row.id)),
                             },
@@ -414,7 +412,7 @@ export function ServersPage({
                               danger: true,
                               disabled: busy,
                               onClick: () => {
-                                if (window.confirm(`Remove "${row.label}"? Acabox won't offer to adopt this workspace directory again.`)) {
+                                if (window.confirm(`Remove "${row.label}"? I won't suggest it again.`)) {
                                   void runMutation(row.id, () => window.mcpServersAPI.remove(row.id));
                                 }
                               },
@@ -429,9 +427,12 @@ export function ServersPage({
               {authoredInfo.rejected.length > 0 && (
                 <div className="knowledgeSectionFoot">
                   <span className="knowledgeSectionFoot__note">
-                    {authoredInfo.rejected.length} item{authoredInfo.rejected.length === 1 ? '' : 's'} in
-                    {' '}.mcp-servers could not be adopted:{' '}
-                    {authoredInfo.rejected.map((r) => `"${r.dir}" — ${r.reason}`).join('; ')}
+                    {authoredInfo.rejected.length} folder{authoredInfo.rejected.length === 1 ? '' : 's'} here
+                    {authoredInfo.rejected.length === 1 ? ' isn\'t a valid bridge' : ' aren\'t valid bridges'}.
+                    <details>
+                      <summary>Show details</summary>
+                      {authoredInfo.rejected.map((r) => `"${r.dir}" — ${r.reason}`).join('; ')}
+                    </details>
                   </span>
                 </div>
               )}
@@ -454,16 +455,16 @@ export function ServersPage({
                       key={row.id}
                       name={row.label}
                       description={serverStateLabel(row.state)}
-                      meta={`published by ${meta.dirName} · ${meta.toolCount} tool${meta.toolCount === 1 ? '' : 's'}`}
+                      meta={`from the tool ${meta.dirName} · ${meta.toolCount} tool${meta.toolCount === 1 ? '' : 's'}`}
                     />
                   );
                 })}
               </div>
               <div className="knowledgeSectionFoot">
                 <span className="knowledgeSectionFoot__note">
-                  A tool publishes its server while it is open and withdraws it when you close
-                  it. Claude can only call these while the tool is on screen — there is nothing
-                  to configure and nothing to start.
+                  A tool offers these while it is open and withdraws them when you close it.
+                  I can use them only while the tool is open &mdash; there is nothing to
+                  configure and nothing to start.
                 </span>
               </div>
             </section>

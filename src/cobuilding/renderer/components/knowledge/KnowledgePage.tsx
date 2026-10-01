@@ -4,7 +4,7 @@ import { MSymbol } from '../command-desk/MSymbol';
 import { KnowledgeRow, type RowAction, type RowChip } from './KnowledgeRow';
 import { KnowledgeDetail, type DetailTarget } from './KnowledgeDetail';
 import { ImportSkillPanel } from './ImportSkillPanel';
-import { validateSkillId, type SkillDescriptor } from '../../../shared/skills';
+import { validateSkillId, SKILL_DESCRIPTION_MAX_CHARS, type SkillDescriptor } from '../../../shared/skills';
 // Rows, buttons and the editor are borrowed wholesale from Settings, so their
 // stylesheets are a real dependency of this page rather than an ambient one.
 // Webpack dedupes; importing them here means the page cannot silently lose its
@@ -65,7 +65,7 @@ function timeAgo(ms: number): string {
 function originChip(origin: SkillDescriptor['origin']): RowChip {
   if (origin === 'builtin') return { label: 'BUILT IN', title: 'Ships with Acabox.' };
   if (origin === 'imported') return { label: 'IMPORTED', title: 'Fetched from a repository.' };
-  return { label: 'MINE', title: 'You or Claude created this one here.' };
+  return { label: 'MINE', title: 'You or I created this one here.' };
 }
 
 function skillChips(s: SkillDescriptor): RowChip[] {
@@ -74,14 +74,14 @@ function skillChips(s: SkillDescriptor): RowChip[] {
     chips.push({
       label: 'OFF',
       tone: 'off',
-      title: 'Not in the roster, so Claude will not see it listed. The files are still on disk.',
+      title: 'Off — I won\'t use it until you turn it back on. The files are still here.',
     });
   }
   if (!s.frontmatterOk) {
     chips.push({
       label: 'BROKEN',
       tone: 'warn',
-      title: 'The CLI drops a skill whose frontmatter will not parse, silently.',
+      title: 'This skill\'s header is malformed, so I can\'t load it.',
     });
   }
   // UNDEFINED for a custom skill — there is no shipped copy to compare against,
@@ -101,13 +101,13 @@ function skillChips(s: SkillDescriptor): RowChip[] {
     chips.push({
       label: `${s.findingsCount} FINDING${s.findingsCount === 1 ? '' : 'S'}`,
       tone: 'good',
-      title: 'Things Claude discovered while working and wrote back into this skill.',
+      title: 'Things I discovered while working and wrote back into this skill.',
     });
   }
   if (s.execCount > 0) {
     chips.push({
       label: `${s.execCount} SCRIPT${s.execCount === 1 ? '' : 'S'}`,
-      title: 'Runnable files. They run with your privileges the moment Claude invokes one.',
+      title: 'These can run on your Mac when I use this skill.',
     });
   }
   return chips;
@@ -151,16 +151,15 @@ function provenancePrefix(s: SkillDescriptor): React.ReactNode {
 
 function skillMeta(s: SkillDescriptor): string {
   const parts: string[] = [];
-  parts.push(`SKILL.md ${formatBytes(s.skillMdBytes)}`);
   if (s.fileCount > 1) parts.push(`${s.fileCount} files`);
   // The one roster number that IS measurable here. The total is not — the CLI
   // also budgets the user's own ~/.claude/skills, which this process cannot
   // see — but a single skill's description length is exactly its own share of
   // the cost, and it is the number to look at before writing a longer one.
-  if (s.description) parts.push(`desc ${s.description.length} chars`);
+  if (s.description && s.description.length > SKILL_DESCRIPTION_MAX_CHARS) parts.push('description too long');
   if (s.importedAt) {
     const t = Date.parse(s.importedAt);
-    if (!Number.isNaN(t)) parts.push(`imported ${timeAgo(t)}`);
+    if (!Number.isNaN(t)) parts.push(`added ${timeAgo(t)}`);
   } else if (s.changedAt) {
     parts.push(`changed ${timeAgo(s.changedAt)}`);
   }
@@ -245,7 +244,7 @@ export function KnowledgePage({
     const ok = window.confirm(
       `Restore the built-in skills Acabox ships?\n\n${lines.join('\n')}\n\n` +
       `${summary.unaffected.length} untouched built-in skill${summary.unaffected.length === 1 ? '' : 's'} ` +
-      'are left alone, and so is every skill you or Claude made. Your versions go to the ' +
+      'are left alone, and so is every skill you or I made. Your versions go to the ' +
       'skills trash, not the bin.',
     );
     if (!ok) return;
@@ -266,8 +265,8 @@ export function KnowledgePage({
         label: s.enabled ? 'Disable' : 'Enable',
         disabled: busy,
         title: s.enabled
-          ? 'Take it off the roster. The files stay; Claude stops seeing it listed.'
-          : 'Put it back on the roster.',
+          ? 'Turn it off. The files stay; I stop using it.'
+          : 'Turn it back on.',
         onClick: () => void runMutation(s.id, () => window.skillsAPI.setEnabled(s.id, !s.enabled)),
       },
     ];
@@ -309,10 +308,10 @@ export function KnowledgePage({
             {liveSkills.length} {liveSkills.length === 1 ? 'SKILL' : 'SKILLS'} ·{' '}
             {memoryCount} {memoryCount === 1 ? 'MEMORY' : 'MEMORIES'}
           </div>
-          <h1 className="pageShell__title">Knowledge</h1>
+          <h1 className="pageShell__title">What I know</h1>
           <p className="pageShell__subtitle">
-            What Claude can do here, and what it has learned. All of it is markdown you can
-            read and correct.
+            The skills I can use here and the notes I&rsquo;ve kept. You can read and
+            correct all of it.
           </p>
         </div>
 
@@ -351,8 +350,8 @@ export function KnowledgePage({
           <div className="toolsAskCard__text">
             <div className="toolsAskCard__title">Add a skill</div>
             <div className="toolsAskCard__description">
-              A skill is a folder of instructions Claude loads when it decides the job needs
-              them &mdash; a warehouse&rsquo;s traps, a house query form, a procedure worth
+              A skill is a folder of instructions I load when I decide the job needs
+              them &mdash; a lab protocol, a plotting style, a procedure worth
               getting right twice.
             </div>
           </div>
@@ -367,7 +366,7 @@ export function KnowledgePage({
           <div className="connectorList">
             {!loaded && <div className="knowledgeEmpty">Loading&hellip;</div>}
             {loaded && liveSkills.length === 0 && (
-              <div className="knowledgeEmpty">No skills in the store.</div>
+              <div className="knowledgeEmpty">No skills yet.</div>
             )}
             {liveSkills.map((s) => (
               <KnowledgeRow
@@ -381,7 +380,7 @@ export function KnowledgePage({
                     // js-yaml's message carries a multi-line snippet of the
                     // offending source. The first line names the fault; the
                     // rest belongs in the editor, which is one click away.
-                    : `Frontmatter did not parse${s.frontmatterError ? `: ${s.frontmatterError.split('\n')[0]!.trim()}` : ''}. Claude will not see this skill at all.`
+                    : `The header of this skill is malformed, so I can\'t use it.${s.frontmatterError ? ` Details: ${s.frontmatterError.split('\n')[0]!.trim()}` : ''}`
                 }
                 meta={<>{provenancePrefix(s)}{skillMeta(s)}</>}
                 actions={skillActions(s)}
@@ -392,8 +391,8 @@ export function KnowledgePage({
           </div>
           <div className="knowledgeSectionFoot">
             <span className="knowledgeSectionFoot__note">
-              {enabledCount} of {liveSkills.length} on the roster. A skill that is off keeps its
-              files and stays readable; Claude just stops seeing it listed.
+              {enabledCount} of {liveSkills.length} turned on. A skill that is off keeps its
+              files and stays readable; I just won&rsquo;t use it.
             </span>
             {restorable && (
               <button
@@ -411,7 +410,7 @@ export function KnowledgePage({
         {memories.length > 0 && (
           <section className="toolsSection">
             <h2 className="toolsSection__heading">
-              What Claude has learned
+              What I&rsquo;ve learned
               <span className="toolsSection__count">{memoryCount}</span>
             </h2>
             <div className="connectorList">
@@ -425,7 +424,7 @@ export function KnowledgePage({
                     <>
                       {formatBytes(m.bytes)}
                       {m.changedAt > 0 && ` · changed ${timeAgo(m.changedAt)}`}
-                      {!m.isIndex && !m.indexed && ' · not indexed in MEMORY.md'}
+                      {!m.isIndex && !m.indexed && ' · not linked from my notes index'}
                       {m.originChat && (
                         <>
                           {' · from '}
@@ -449,7 +448,7 @@ export function KnowledgePage({
         )}
 
         <button type="button" className="connectorLink knowledgeConnectorLink" onClick={onOpenSettings}>
-          Claude reaches Hex and other services through Connectors &rarr;
+          I reach Hex and other services through Connected services &rarr;
         </button>
       </div>
 
@@ -498,7 +497,7 @@ function memoryChips(m: MemoryFileInfo): RowChip[] {
     chips.push({
       label: 'UNLINKED',
       tone: 'warn',
-      title: 'MEMORY.md does not link to this file, so the model has no pointer to it.',
+      title: 'My notes index does not link to this file, so I have no pointer to it.',
     });
   }
   return chips;
@@ -524,8 +523,7 @@ function ReviewRow({
         <MSymbol name="compare_arrows" size={18} className="cdActivityRow__icon" />
         <div className="cdActivityRow__main">
           <div className="cdActivityRow__title">
-            {ids || 'Two findings'} may say the same thing
-            {review.skill ? ` in ${review.skill}` : ''}
+            {review.skill ? `Two notes in ${review.skill} may overlap` : 'Two notes may overlap'}
           </div>
           <div className="cdActivityRow__sub">{timeLabel}</div>
         </div>
@@ -555,7 +553,7 @@ function ReviewRow({
       <MSymbol name="database_off" size={18} className="cdActivityRow__icon" />
       <div className="cdActivityRow__main">
         <div className="cdActivityRow__title">
-          This chat queried {connectors || 'a connector'} without consulting the ledger
+          A chat used {connectors || 'a connected service'} without checking what I already know about it
         </div>
         <div className="cdActivityRow__sub">
           {review.chatTitle ? `"${review.chatTitle}" · ` : ''}{timeLabel}
@@ -568,7 +566,7 @@ function ReviewRow({
         title={review.sessionId ? undefined : 'That chat no longer exists.'}
         onClick={() => onAct(prompt, review.sessionId)}
       >
-        Ask Claude to extract it
+        Ask me to save what I learned
       </button>
       <button type="button" className="connectorBtn" onClick={onDismiss}>Dismiss</button>
     </div>
@@ -637,8 +635,8 @@ function AddSkillModal({
       >
         <h2 className="createToolModal__title">Add a skill</h2>
         <p className="createToolModal__subtitle">
-          A folder of instructions Claude loads when it decides the job needs them. Only the
-          one-line description is in context every turn; the body costs nothing until the skill
+          A folder of instructions I load when I decide the job needs them. Only the
+          one-line description is in my head every chat; the rest costs nothing until the skill
           is actually used.
         </p>
 
@@ -678,19 +676,18 @@ function AddSkillModal({
             className="connectorField__input connectorField__input--mono"
             value={id}
             onChange={(e) => setId(e.target.value)}
-            placeholder="coscientist-analytics"
+            placeholder="qpcr-analysis"
             autoFocus
           />
           <span className="connectorField__help">
-            Lowercase letters, digits and single hyphens. This is the name Claude types to load
-            it, and it is the directory name on disk.
+            A short name, lowercase with hyphens.
           </span>
           {idProblem && <p className="gsStep__error">{idProblem}</p>}
         </div>
 
         <div className="connectorField">
           <label className="connectorField__label" htmlFor="knowledge-skill-desc">
-            When should Claude use it?
+            When should I use it?
           </label>
           <textarea
             id="knowledge-skill-desc"
@@ -698,11 +695,11 @@ function AddSkillModal({
             rows={3}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="How to analyse Co-Scientist product data in Redshift through the Hex connector."
+            placeholder="How to normalise and plot qPCR results from our plate reader exports."
           />
           <span className="connectorField__help">
-            Becomes the skill&rsquo;s <code>description</code>. It is the only part Claude reads
-            before deciding whether to load the skill, so write it as the question it should catch.
+            This is all I read before deciding whether to use the skill, so write it as the
+            kind of question it should catch.
           </span>
         </div>
 
@@ -724,7 +721,7 @@ function AddSkillModal({
               'roster characters on every turn.',
             )}
           >
-            Ask Claude to write it
+            Ask me to write it
           </button>
           <button
             type="button"

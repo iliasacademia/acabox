@@ -124,7 +124,7 @@ export function ImportSkillPanel({
   }, [run]);
 
   const handleLookup = useCallback(async () => {
-    const target = await run('Resolving the commit…', () => window.skillsAPI.parseImportUrl(url));
+    const target = await run('Checking the link…', () => window.skillsAPI.parseImportUrl(url));
     if (!target) return;
     if (target.kind === 'skill') {
       await openPreview({
@@ -137,7 +137,7 @@ export function ImportSkillPanel({
       });
       return;
     }
-    const result = await run('Downloading the repository…', () =>
+    const result = await run('Downloading…', () =>
       window.skillsAPI.fetchCatalogue({
         owner: target.owner,
         repo: target.repo,
@@ -240,7 +240,7 @@ export function ImportSkillPanel({
             disabled={!!busy || !!idProblemFor(asId, step.preview)}
             onClick={() => void handleImport()}
           >
-            {busy === 'Importing…' ? 'Importing…' : 'Import, off the roster'}
+            {busy === 'Importing…' ? 'Importing…' : 'Import (turned off until you enable it)'}
           </button>
         )}
       </div>
@@ -324,10 +324,13 @@ function UrlStep({
           </button>
         </div>
         <span className="connectorField__help">
-          A repository root lists everything inside it to pick from; a link to one folder
-          imports that folder. Whatever you paste, the branch is resolved to a commit and it is
-          the commit that gets recorded &mdash; so the import is reproducible even after the
-          branch moves.
+          Paste a GitHub link to a skill or a collection of skills. A link to a whole
+          collection lets you pick from what&rsquo;s inside.
+          <details>
+            <summary>Why this is safe to re-run</summary>
+            Whatever you paste is pinned to the exact version it pointed at, so the import
+            gives the same result even after the author changes the original.
+          </details>
         </span>
       </div>
 
@@ -336,7 +339,7 @@ function UrlStep({
           Choose a folder&hellip;
         </button>
         <span className="knowledgeImport__localHelp">
-          Or import a skill folder already on this machine. It is copied into the store, not
+          Or import a skill folder already on this machine. It is copied, not
           linked, and goes through the same checks.
         </span>
       </div>
@@ -394,7 +397,7 @@ function CatalogueStep({
           <span className="connectorRow__chip">{result.marketplaceName.toUpperCase()}</span>
         )}
         <span className="knowledgeImport__cost">
-          {result.skills.length} skills &middot; {formatBytes(result.archiveBytes)} downloaded once
+          {result.skills.length} skills &middot; {formatBytes(result.archiveBytes)} downloaded
         </span>
       </div>
 
@@ -413,7 +416,7 @@ function CatalogueStep({
         {matches.length === 0 && (
           <div className="knowledgeEmpty">
             {result.skills.length === 0
-              ? 'No SKILL.md anywhere in this repository, so there is nothing to import.'
+              ? 'No skills found here, so there is nothing to import.'
               : `Nothing matches "${filter}".`}
           </div>
         )}
@@ -493,7 +496,7 @@ function PreviewStep({
       </div>
 
       <div className="connectorField">
-        <label className="connectorField__label" htmlFor="knowledge-import-id">Store as</label>
+        <label className="connectorField__label" htmlFor="knowledge-import-id">Save as</label>
         <input
           id="knowledge-import-id"
           className="connectorField__input connectorField__input--mono"
@@ -505,11 +508,10 @@ function PreviewStep({
           {preview.collides
             ? `A skill called "${preview.id}" already exists, so this one needs another name. `
             : ''}
-          The directory name is what Claude types to load the skill.
+          A short name, lowercase with hyphens.
           {preview.declaredName && (
-            <> This one&rsquo;s frontmatter declares <code>{preview.declaredName}</code> instead;
-            that stays exactly as written, because rewriting it would mark a pristine import as
-            edited on day one.</>
+            <> Inside the skill it is also called <code>{preview.declaredName}</code>; that stays
+            as written.</>
           )}
         </span>
         {idProblem && <p className="gsStep__error">{idProblem}</p>}
@@ -522,8 +524,6 @@ function PreviewStep({
       <div className="knowledgeImport__facts">
         <span>{preview.fileCount} {preview.fileCount === 1 ? 'file' : 'files'}</span>
         <span>{formatBytes(preview.totalBytes)}</span>
-        <span>SKILL.md {formatBytes(preview.skillMdBytes)}</span>
-        {preview.description && <span>desc {preview.description.length} chars</span>}
         <span className={preview.execCount > 0 ? 'knowledgeImport__factWarn' : undefined}>
           {preview.execCount} executable{preview.execCount === 1 ? '' : 's'}
         </span>
@@ -537,11 +537,11 @@ function PreviewStep({
 
       {preview.strippedSymlinks.length > 0 && (
         <p className="knowledgeImport__stripped">
-          {preview.strippedSymlinks.length} symlink
+          {preview.strippedSymlinks.length} shortcut
           {preview.strippedSymlinks.length === 1 ? ' was' : 's were'} removed from this skill
-          before anything was written:{' '}
+          before anything was saved:{' '}
           {preview.strippedSymlinks.map((l) => `${l.path} → ${l.target}`).join(', ')}. A skill has
-          no legitimate reason to link out of its own folder.
+          no reason to point outside its own folder.
         </p>
       )}
 
@@ -555,15 +555,14 @@ function PreviewStep({
           this app: `allowedTools` is auto-approve, there is no `canUseTool`
           handler anywhere, and Bash is on the list. */}
       <p className="knowledgeImport__disclosure">
-        Bash is auto-approved in Acabox with no permission handler. An imported skill can
-        instruct Claude to do anything you could do at a terminal, and a bundled script runs
-        with your full privileges the moment Claude invokes it. Importing is a trust decision
-        equivalent to <code>curl … | sh</code> from that repository. The pinned commit makes it
-        reproducible and auditable. It does not make it safe.
+        Importing a skill is like installing software from a stranger: once it&rsquo;s on, I
+        will follow its instructions and may run its scripts on your Mac with your access.
+        Only import from people you trust. Pinning the version makes the import repeatable; it
+        does not make it safe.
       </p>
 
       <div className="connectorField">
-        <label className="connectorField__label">SKILL.md</label>
+        <label className="connectorField__label">What the skill says</label>
         {/* Unrendered on purpose: this is the instruction text the model will
             follow, and markdown formatting would present it as documentation. */}
         <pre className="knowledgeImport__body">{preview.skillMd}</pre>

@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  CONNECTOR_ID_RULE,
   connectorDisplayName,
   connectorTarget,
   describeStatus,
@@ -170,8 +169,8 @@ export const ConnectorsSettings: React.FC = () => {
     setConnectors(result.connectors);
     setError(null);
     setNotice(result.pushed
-      ? 'Saved and applied to open chats.'
-      : 'Saved. It will apply when the agent next starts.');
+      ? 'Saved — it applies to open chats.'
+      : 'Saved — it applies from your next chat.');
     void refreshStatus();
     return true;
   };
@@ -217,9 +216,8 @@ export const ConnectorsSettings: React.FC = () => {
   return (
     <div className="connectors">
       <p className="wsSettings__hint">
-        Connect Acabox to external services over MCP. Anything you connect becomes
-        a set of tools the agent can call in chat. Changes apply to open chats
-        straight away.
+        Connect services like Hex, Notion or GitHub so I can use them in chat.
+        Changes take effect straight away.
       </p>
 
       {connectors.length > 0 && (
@@ -243,14 +241,13 @@ export const ConnectorsSettings: React.FC = () => {
                 <div className="connectorRow__main">
                   <div className="connectorRow__name">
                     {connectorDisplayName(c)}
-                    <span className="connectorRow__chip">{c.transport.toUpperCase()}</span>
                   </div>
                   <div className="connectorRow__target" title={connectorTarget(c)}>
                     {connectorTarget(c)}
                   </div>
                   <div className="connectorRow__status">
                     {demoted
-                      ? `Not checked${observedAt ? ` · last seen ${new Date(observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}`
+                      ? `Not checked${observedAt ? ` · last checked ${new Date(observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}`
                       : describeStatus(status)}
                     {report?.toolCount !== undefined && status === 'connected'
                       && ` · ${report.toolCount} tool${report.toolCount === 1 ? '' : 's'}`}
@@ -305,10 +302,10 @@ export const ConnectorsSettings: React.FC = () => {
 
       <div className="connectorStatusMeta">
         {statusLive
-          ? 'Status read live from the running agent.'
+          ? 'Checked just now.'
           : observedAt
-            ? `Status from the last chat session (${new Date(observedAt).toLocaleTimeString()}). Start a chat for live state.`
-            : 'No chat session has run yet, so no status has been observed.'}
+            ? `Last checked ${new Date(observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — open a chat to check again.`
+            : 'Not checked yet — open a chat and I\'ll check.'}
         <button type="button" className="connectorLink" onClick={() => void refreshStatus()}>
           Refresh
         </button>
@@ -361,8 +358,8 @@ export const ConnectorsSettings: React.FC = () => {
             >
               <div className="connectorCard__name">Custom…</div>
               <div className="connectorCard__desc">
-                Any remote MCP server: an HTTP or SSE endpoint. To run a server
-                on this machine, use Servers.
+                Any other online service by its address. To run something on this
+                Mac, use Servers.
               </div>
             </button>
           </div>
@@ -391,14 +388,13 @@ export const ConnectorsSettings: React.FC = () => {
 
       {unmanaged && (
         <div className="connectorWarn">
-          <div className="connectorWarn__title">Unmanaged servers in the workspace</div>
+          <div className="connectorWarn__title">A connection file I didn't set up</div>
           <div className="connectorWarn__body">
-            <code>{unmanaged.path}</code> declares{' '}
+            I found <code>{unmanaged.path}</code> in your workspace, naming{' '}
             {unmanaged.serverNames.map((n) => <code key={n}>{n}</code>).reduce<React.ReactNode[]>(
               (acc, el, i) => (i === 0 ? [el] : [...acc, ', ', el]), [],
             )}
-            . Acabox loads it, but it isn't managed here — and the agent can write
-            that file itself. Remove it unless you put it there deliberately.
+            . If you didn&apos;t add it yourself, remove it.
           </div>
           <button type="button" className="connectorBtn connectorBtn--danger" onClick={handleRemoveUnmanaged}>
             Remove file
@@ -448,7 +444,7 @@ const ConnectorForm: React.FC<{
           placeholder="hex"
         />
         <span className="connectorField__help">
-          The agent calls its tools as <code>mcp__{draft.id || 'name'}__…</code>. {CONNECTOR_ID_RULE}
+          A short name, letters and hyphens &mdash; e.g. hex.
         </span>
       </label>
 
@@ -516,10 +512,10 @@ const ConnectorForm: React.FC<{
           + Add header
         </button>
         <span className="connectorField__help">
-          Leave empty for services that sign in with OAuth — the agent handles
-          that in chat. Tokens are encrypted with your macOS keychain and are
-          never shown again after saving; leave a saved field blank to keep
-          it, or delete the row to remove it.
+          Leave empty if the service asks you to sign in through your browser
+          &mdash; I&apos;ll handle that in chat. Keys are encrypted in your Mac&apos;s
+          keychain and never shown again; leave a saved field blank to keep it,
+          or delete the row to remove it.
         </span>
       </div>
 
@@ -530,10 +526,10 @@ const ConnectorForm: React.FC<{
           onChange={(e) => set('alwaysLoad', e.target.checked)}
         />
         <span>
-          Always load this server&apos;s tools
+          Always keep this service&apos;s tools ready
           <span className="connectorField__help">
-            Off by default: tools stay behind tool search, which keeps them out
-            of every prompt. Turn on only if the agent keeps missing them.
+            Off by default to keep chats fast. Turn on only if I keep
+            forgetting this service exists.
           </span>
         </span>
       </label>

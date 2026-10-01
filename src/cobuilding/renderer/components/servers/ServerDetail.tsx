@@ -164,43 +164,13 @@ export function ServerDetail({
         </div>
 
         <div className="serversDetail__section">
-          <div className="serversDetail__label">Command</div>
-          <div className="serversDetail__mono">
-            as typed: {meta.command} {meta.args.join(' ')}
-          </div>
-          <div className="serversDetail__mono">
-            argv: {JSON.stringify([meta.command, ...meta.args])}
-          </div>
-        </div>
-
-        <div className="serversDetail__section">
-          <div className="serversDetail__label">Working directory</div>
-          <div className="serversDetail__mono">
-            {meta.cwd ?? "Acabox's own directory for this server (no cwd set)"}
-          </div>
-        </div>
-
-        <div className="serversDetail__section">
-          <div className="serversDetail__label">Environment</div>
-          {meta.envKeys.length === 0 ? (
-            <div className="serversDetail__muted">No environment variables.</div>
-          ) : (
-            <div>
-              {meta.envKeys.map((k) => (
-                <div key={k} className="serversDetail__mono">{k} = &bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="serversDetail__section">
           <div className="serversDetail__label">Tools</div>
           {neverRead ? (
-            <div className="serversDetail__muted">Never read — the server has not started.</div>
+            <div className="serversDetail__muted">Not started yet, so I don't know its tools.</div>
           ) : (
             <>
               <div className="serversDetail__muted">
-                Read from the server
+                Asked the server
                 {meta.startedAt ? ` at ${new Date(meta.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}.
               </div>
               {tools === undefined ? (
@@ -254,10 +224,34 @@ export function ServerDetail({
           )}
         </div>
 
-        <div className="serversDetail__section">
+
+        <details className="serversDetail__section">
+          <summary className="serversDetail__label" style={{ cursor: 'pointer' }}>Technical details</summary>
+          {meta.pid != null && <div className="serversDetail__mono">pid {meta.pid}</div>}
+          <div className="serversDetail__label">Command</div>
+          <div className="serversDetail__mono">
+            as typed: {meta.command} {meta.args.join(' ')}
+          </div>
+          <div className="serversDetail__mono">
+            argv: {JSON.stringify([meta.command, ...meta.args])}
+          </div>
+          <div className="serversDetail__label">Working directory</div>
+          <div className="serversDetail__mono">
+            {meta.cwd ?? "Acabox's own directory for this server (no cwd set)"}
+          </div>
+          <div className="serversDetail__label">Environment</div>
+          {meta.envKeys.length === 0 ? (
+            <div className="serversDetail__muted">No environment variables.</div>
+          ) : (
+            <div>
+              {meta.envKeys.map((k) => (
+                <div key={k} className="serversDetail__mono">{k} = &bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</div>
+              ))}
+            </div>
+          )}
           <div className="serversDetail__label">Log</div>
           <pre className="serversLog">{stderrTail || '(nothing written yet)'}</pre>
-        </div>
+        </details>
 
         {meta && (
           <button type="button" className="connectorLink" onClick={onOpenSchedule}>
@@ -300,15 +294,15 @@ export function ServerDetail({
           <div className={`serversTestResult${testResult.ok ? ' serversTestResult--ok' : ' serversTestResult--error'}`}>
             {testResult.ok ? (
               <>
-                <div className="serversTestResult__row">Resolved to <code>{testResult.resolvedCommand}</code></div>
+                <div className="serversTestResult__row">Found at <code>{testResult.resolvedCommand}</code></div>
                 {!testResult.pathResolved && (
                   <div className="serversTestResult__row">
-                    Acabox could not read your login shell&rsquo;s PATH — this used a fallback.
+                    Acabox couldn&rsquo;t see all the programs installed on your Mac, so it used a fallback.
                   </div>
                 )}
                 <div className="serversTestResult__row">
                   {testResult.toolNames.length === 0
-                    ? 'It answered, but offered no tools.'
+                    ? 'It answered, but has no tools to offer.'
                     : `${testResult.toolNames.length} tool${testResult.toolNames.length === 1 ? '' : 's'}: ${testResult.toolNames.join(', ')}`}
                 </div>
               </>

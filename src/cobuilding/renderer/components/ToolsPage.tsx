@@ -607,7 +607,7 @@ export function ToolsPage({
                         <button
                           className="toolRow__settingsBtn"
                           onClick={() => window.filesAPI.revealInFinder(`tool-data/${entry.dirName}`)}
-                          title="Reveal in Finder"
+                          title="Show in Finder"
                         >
                           <FolderOpenIcon style={{ width: 14, height: 14 }} />
                           Finder

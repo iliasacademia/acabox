@@ -134,7 +134,7 @@ function authoredEntry(id: string): HostedMcpEntry {
 // the other direction for one string would make the two files circularly
 // dependent. One literal, kept in sync by eye, is cheaper than that.
 const NO_ENCRYPTION_MESSAGE =
-  'Hosted MCP servers are disabled on this machine: the OS keyring is not available, so server configs cannot be sealed at rest.';
+  "Acabox can't run add-ons on this Mac because it can't store their settings securely (no keychain).";
 
 // ---------------------------------------------------------------------------
 // Manifest validation

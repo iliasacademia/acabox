@@ -81,7 +81,13 @@ export const SharingSettings: React.FC = () => {
       const r = await window.shareAPI.test();
       setTestResult({
         ok: r.ok,
-        text: r.ok ? 'Connected' : r.status ? `HTTP ${r.status}: ${r.error}` : (r.error ?? 'Something went wrong.'),
+        text: r.ok
+          ? 'Connected'
+          : r.status === 401 || r.status === 403
+            ? 'Couldn\'t sign in to the sharing service — check the token.'
+            : r.status
+              ? `The sharing service answered with an error (${r.status}). ${r.error ?? ''}`.trim()
+              : (r.error ?? 'Something went wrong.'),
       });
     } finally {
       setTesting(false);
@@ -96,11 +102,9 @@ export const SharingSettings: React.FC = () => {
   return (
     <div className="connectors">
       <p className="wsSettings__hint">
-        Publish a mini-app or a single workspace file as a read-only, login-gated
-        link on your own Cloudflare Workers deployment — setup lives in{' '}
-        <code>src/share-workers/README.md</code>. Viewers sign in with an
-        @academia.edu Google account, and Cloudflare Access is free for the
-        first 50 viewers.
+        Share a tool or a file as a private link that only @academia.edu
+        accounts can open. Someone technical sets this up once &mdash; ask them
+        for the two addresses and the token below.
       </p>
 
       <label className="connectorField">
@@ -155,7 +159,7 @@ export const SharingSettings: React.FC = () => {
           className="gsStep__btn gsStep__btn--secondary"
           disabled={!canTest || testing}
           onClick={() => void handleTest()}
-          title={canTest ? 'Send one real GET at /v1/health' : 'Save a site URL, API URL and token first'}
+          title={canTest ? 'Check that the sharing service answers with your token' : 'Save a site URL, API URL and token first'}
         >
           {testing ? 'Testing…' : 'Test'}
         </button>

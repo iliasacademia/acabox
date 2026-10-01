@@ -82,7 +82,7 @@ export function KnowledgeRow({
           {alias && (
             <span
               className="knowledgeRow__alias"
-              title="The skill's frontmatter declares this name; the directory name is what Claude calls."
+              title={`Also called ${alias} inside the skill.`}
             >
               {alias}
             </span>
