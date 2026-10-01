@@ -33,6 +33,7 @@ jest.mock('electron-log', () => ({
 jest.mock('../containerService', () => ({
   containerService: {
     isRunning: () => true,
+    hasAgentGivenUp: () => false,
     getAgentPort: () => mockAgent.port,
   },
 }));
