@@ -42,9 +42,9 @@ export const KNOWLEDGE_RECORD_FINDING_TOOL = 'mcp__knowledge__record_finding';
  */
 export const BASE_AGENT_ALLOWED_TOOLS: readonly string[] = [
   'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'Agent',
-  // WebSearch finds pages; WebFetch reads them. Several skills
-  // (database-lookup, reaction) instruct the agent to call WebFetch
-  // directly, so it has to be auto-approved here.
+  // WebSearch finds pages; WebFetch reads them. The
+  // database-lookup skill instructs the agent to call WebFetch directly, so it
+  // has to be auto-approved here.
   'WebSearch', 'WebFetch',
   // Task tracking, BOTH spellings on purpose. SDK 0.3.142 announced that
   // headless/SDK sessions use the Task tools instead of `TodoWrite`, but
@@ -71,7 +71,6 @@ export const BASE_AGENT_ALLOWED_TOOLS: readonly string[] = [
   'mcp__mini-apps__list_published_servers',
   'mcp__mini-apps__call_published_tool',
   'mcp__notification__show_notification',
-  'mcp__reaction__create_reaction_thread',
   'mcp__workspace__get_scanned_files',
   'mcp__workspace__get_research_profile',
   // Read-only access to the user's other chats (a pasted acabox://chat/<id>

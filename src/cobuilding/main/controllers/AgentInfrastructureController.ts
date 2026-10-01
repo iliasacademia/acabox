@@ -2,7 +2,6 @@ import { app, Notification as ElectronNotification } from 'electron';
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
-import { randomUUID } from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import log from 'electron-log';
 import type { WorkspaceController } from './WorkspaceController';
@@ -13,7 +12,6 @@ import { getScannedFilesByType, getScannedFiles } from '../db/scannedFilesReposi
 import { getLatestReport } from '../db/reportRepository';
 import { AGENT_MEMORY_SUBDIR, REFERENCES_SUBDIR, REFERENCES_INDEX } from '../../shared/paths';
 import { queryActivity } from '../activityQuery';
-import { createSession as createDbSession, insertMessage as insertDbMessage, updateSessionTitle } from '../db/chatRepository';
 import { readChatForAgent, listChatsForAgent } from '../chatReference';
 import { buildMiniApp } from '../miniAppBuilder';
 import { ensurePythonVenv } from '../pythonSetup';
@@ -172,20 +170,6 @@ export class AgentInfrastructureController {
             return ok('Notification shown successfully.');
           } catch (err: any) {
             return fail(`Failed to show notification: ${err.message}`);
-          }
-        },
-      },
-
-      reaction: {
-        create_reaction_thread: async (args: any) => {
-          try {
-            const sessionId = randomUUID();
-            createDbSession(sessionId, workspace.id, 'reactions');
-            insertDbMessage(sessionId, 'assistant', JSON.stringify([{ type: 'text', text: args.message }]));
-            updateSessionTitle(sessionId, args.title);
-            return ok(`Reaction thread created: ${args.title} (id: ${sessionId})`);
-          } catch (err: any) {
-            return fail(`Failed to create reaction thread: ${err.message}`);
           }
         },
       },

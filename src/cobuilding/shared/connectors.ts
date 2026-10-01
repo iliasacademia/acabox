@@ -157,7 +157,6 @@ export const CONNECTOR_ID_RULE =
 export const RESERVED_CONNECTOR_IDS = [
   'activity',
   'notification',
-  'reaction',
   'mini-apps',
   'workspace',
   // The findings ledger relay. Reserved for the same reason as the rest — a

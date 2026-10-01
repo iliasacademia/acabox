@@ -936,9 +936,8 @@ export async function reconcile(opts: ReconcileOptions = {}): Promise<ReconcileR
       //     the file. Nothing to recover from, and no warning.
       //
       // Never reachable before 0.1.9 (no release had retired a shipped skill),
-      // but `differential-expression` is recorded in CLAUDE.md as unrunnable
-      // and staged for exactly that, which is what turns this from latent into
-      // a blocker.
+      // but the first skill retired this way was an R-only (unrunnable) one,
+      // which is what turned this from latent into a blocker.
       const findings = hostOwnedFiles(id, entry);
       if (modifiedFiles(id, entry).length === 0 && findings.length === 0) {
         try {

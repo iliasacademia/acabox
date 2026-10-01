@@ -29,7 +29,6 @@ import { KnowledgePage } from './components/knowledge/KnowledgePage';
 import { ServersPage } from './components/servers/ServersPage';
 import { useHomeData } from './components/command-desk/useHomeData';
 import { findShortcutAction } from './components/command-desk/findShortcut';
-import { ReactionsToolView } from './components/ReactionsToolView';
 import { resolveWorkspacePath } from './utils/resolveWorkspacePath';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { useElectronChatAdapter } from './chatAdapter';
@@ -85,7 +84,7 @@ function NotificationNavigator({
 }: {
   setSidebarTab: (tab: SidebarTab) => void;
   setChatViewMode: (mode: 'list' | 'detail') => void;
-  setToolsViewMode: (mode: 'listing' | 'detail' | 'paper-monitor' | 'reactions') => void;
+  setToolsViewMode: (mode: 'listing' | 'detail' | 'paper-monitor') => void;
   deactivateAllTabs: () => void;
 }) {
   const runtime = useAssistantRuntime();
@@ -94,14 +93,8 @@ function NotificationNavigator({
     const handler = async (_event: unknown, navigation: { type: string; threadId?: string; tab?: SidebarTab; sidebarTab?: SidebarTab }) => {
       if (navigation.type === 'thread' && navigation.threadId) {
         const session = await window.sessionsAPI.get(navigation.threadId);
-        const isReactions = session?.source === 'reactions' || session?.source === 'reactions-system';
-        if (isReactions) {
-          setSidebarTab('tools');
-          setToolsViewMode('reactions');
-        } else {
-          setSidebarTab(navigation.sidebarTab ?? 'chats');
-          setChatViewMode('detail');
-        }
+        setSidebarTab(navigation.sidebarTab ?? 'chats');
+        setChatViewMode('detail');
         deactivateAllTabs();
         try {
           runtime.threads.switchToThread(navigation.threadId);
@@ -391,14 +384,14 @@ function ShowChatOnThreadSelect({ onShowChat, suppressRef }: { onShowChat: () =>
  * GlobalComposer is visible and they're not viewing a specific chat.
  *
  * Watching only the chat-detail edge wasn't enough: other components
- * (`AppSessionSwitcher`, `ReactionsToolView`, notification navigation) call
+ * (`AppSessionSwitcher`, notification navigation) call
  * `switchToThread(existingId)` from views where the GlobalComposer is
  * hidden, leaving `mainThreadId` pinned to that session. When the user
  * navigates from one of those views back to home / files / chats-list,
  * `mainThreadId` is still the existing session and the next GlobalComposer
  * send routes there. Triggering on `(globalComposerVisible && !isInChatDetail)`
  * catches every such transition; views that legitimately pin a thread
- * (miniapp, paper-monitor, reactions) all hide the GlobalComposer, so the
+ * (miniapp, paper-monitor) all hide the GlobalComposer, so the
  * reset only fires when the user actually surfaces it again.
  */
 function ResetThreadWhenComposerVisible({
@@ -590,7 +583,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
 
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('home');
   const [chatViewMode, setChatViewMode] = useState<'list' | 'detail'>('list');
-  const [toolsViewMode, setToolsViewMode] = useState<'listing' | 'detail' | 'paper-monitor' | 'reactions'>('listing');
+  const [toolsViewMode, setToolsViewMode] = useState<'listing' | 'detail' | 'paper-monitor'>('listing');
   const [toolChatOpen, setToolChatOpen] = useState(true);
   const [filesViewMode, setFilesViewMode] = useState<'listing' | 'detail'>('listing');
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
@@ -696,13 +689,12 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
   // (rendered as `<Thread />` inside one of the tools detail views). In those
   // modes the GlobalComposer is hidden, so the only composer available is the
   // side-panel one — and the chat the user is sending to is already on
-  // screen. Switching tabs would close the miniapp/paper-monitor/reactions
+  // screen. Switching tabs would close the miniapp/paper-monitor
   // view the user was looking at.
   navigateToChatDetailRef.current = () => {
     const inToolsSidePanel = sidebarTab === 'tools' && (
       (toolsViewMode === 'detail' && activeTab?.kind === 'miniapp') ||
-      toolsViewMode === 'paper-monitor' ||
-      toolsViewMode === 'reactions'
+      toolsViewMode === 'paper-monitor'
     );
     if (inToolsSidePanel) return;
 
@@ -1034,8 +1026,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
     sidebarTab !== 'settings' &&
     sidebarTab !== 'debug' &&
     !(sidebarTab === 'tools' && toolsViewMode === 'detail' && activeTab?.kind === 'miniapp') &&
-    !(sidebarTab === 'tools' && toolsViewMode === 'paper-monitor') &&
-    !(sidebarTab === 'tools' && toolsViewMode === 'reactions');
+    !(sidebarTab === 'tools' && toolsViewMode === 'paper-monitor');
 
   // The selection toolbar is mounted wherever a quote has somewhere to land.
   // That is a WIDER set than `globalComposerVisible`: mini-app detail hides the
@@ -1047,8 +1038,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
   const quoteToolbarEnabled =
     sidebarTab !== 'settings' &&
     sidebarTab !== 'debug' &&
-    !(sidebarTab === 'tools' && toolsViewMode === 'paper-monitor') &&
-    !(sidebarTab === 'tools' && toolsViewMode === 'reactions');
+    !(sidebarTab === 'tools' && toolsViewMode === 'paper-monitor');
 
   // Toggle a body class while dragging any panel divider so iframes/webviews
   // don't swallow the mousemove/mouseup events. CSS pairs this with
@@ -1194,42 +1184,6 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                     <div style={{ flex: 1, display: 'flex', position: 'relative' }}>
                       <div className="mainPanel" style={{ flex: 1 }}>
                         <PaperMonitorView onBack={() => setToolsViewMode('listing')} />
-                      </div>
-                      <button
-                        className="panelExpandBtn"
-                        onClick={() => setToolChatOpen(true)}
-                        title="Open chat panel"
-                      />
-                    </div>
-                  )}
-                </div>
-              ) : toolsViewMode === 'reactions' ? (
-                <div className="toolDetailContent">
-                  {toolChatOpen ? (
-                    <PanelGroup direction="horizontal" autoSaveId="cobuild.reactionsLayout" className="appPanelGroup">
-                      <Panel id="reactionsMain" order={1} defaultSize={50} minSize={30}>
-                        <div className="mainPanel">
-                          <ReactionsToolView onBack={() => setToolsViewMode('listing')} />
-                        </div>
-                      </Panel>
-                      <div className="panelBorder">
-                        <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
-                        <button
-                          className="panelCollapseBtn"
-                          onClick={() => setToolChatOpen(false)}
-                          title="Close chat panel"
-                        />
-                      </div>
-                      <Panel id="reactionsChat" order={2} defaultSize={50} minSize={18} maxSize={70}>
-                        <div className="chatSidePanel">
-                          <Thread scrollToBottomOnThreadSwitch={false} scrollToBottomOnInitialize={false} />
-                        </div>
-                      </Panel>
-                    </PanelGroup>
-                  ) : (
-                    <div style={{ flex: 1, display: 'flex', position: 'relative' }}>
-                      <div className="mainPanel" style={{ flex: 1 }}>
-                        <ReactionsToolView onBack={() => setToolsViewMode('listing')} />
                       </div>
                       <button
                         className="panelExpandBtn"

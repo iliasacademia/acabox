@@ -750,17 +750,6 @@ declare global {
     shutdownKernel(kernelId: string): Promise<boolean>;
   }
 
-  interface ReactionPromptAPI {
-    get(): Promise<{ instructions: string | null }>;
-    set(instructions: string): Promise<void>;
-    reset(): Promise<void>;
-  }
-
-  interface ReactionSourcesAPI {
-    get(): Promise<string[]>;
-    set(sources: string[]): Promise<void>;
-  }
-
   interface AcademiaFileAPI {
     read(relativePath: string): Promise<{ content: string }>;
     write(relativePath: string, content: string): Promise<void>;
@@ -847,8 +836,6 @@ declare global {
   interface SettingsAPI {
     getMaxAttachmentSizeMB(): Promise<number>;
     setMaxAttachmentSizeMB(sizeMB: number): Promise<void>;
-    getReactionsEnabled(): Promise<boolean>;
-    setReactionsEnabled(enabled: boolean): Promise<void>;
   }
 
   interface MiniAppEntry {
@@ -1319,8 +1306,6 @@ declare global {
     skillsAPI: SkillsAPI;
     knowledgeAPI: KnowledgeAPI;
     electronAPI: ElectronAPI;
-    reactionPromptAPI: ReactionPromptAPI;
-    reactionSourcesAPI: ReactionSourcesAPI;
     academiaFileAPI: AcademiaFileAPI;
     scheduledTasksAPI: ScheduledTasksAPI;
     fileMonitorAPI: FileMonitorAPI;

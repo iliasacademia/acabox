@@ -42,7 +42,7 @@ The script prints `{ name, dir_name, dir }` to stdout and creates:
 - `<dir>/src/index.html` — HTML shell: the Acabox design system (`_vendor/acabox.css` — fonts, tokens, `ab-*` classes), Tailwind, and a Tailwind config that maps the tokens onto class names. You should not need to edit it.
 - `<dir>/src/index.tsx` — React mount boilerplate with error boundary
 - `<dir>/dist/` directory, plus `<dir>/output/` and `<dir>/input/` — these two are symlinks into `tool-data/<dir_name>/`, a **durable** data area that is preserved when the tool is deleted (deleting a tool only removes its code dir). Keep writing to `.applications/<dir_name>/input|output/...` as usual; the paths are unchanged and resolve through the symlinks. Do **not** write user data loosely into `<dir>/` itself — that is code and is destroyed on delete.
-- `<dir>/notebook.ipynb` — canonical notebook with a `parameters` cell + cobuild metadata; default kernel is `python3` (override with `--kernel ir` for R)
+- `<dir>/notebook.ipynb` — canonical notebook with a `parameters` cell + cobuild metadata; kernel is `python3` (the only one Acabox has; R is not available)
 - `<dir>/manifest.json` — `{ name, description, icon, lastOpened }`. The Tools page uses `name` as the title, `description` as the subtitle, `icon` to render the app's Lucide icon, and orders apps by `lastOpened` (most recent first). `lastOpened` is initialized to the current time when the app is created and is updated by the host each time the app is opened — do not set it yourself.
 
 If you later edit an app's purpose, also update `manifest.json` (name/description/icon) so the Tools page stays in sync.
@@ -110,7 +110,6 @@ If `--template` is specified, the template tree at `.applications/_templates/<na
 
 Each template also ships with a colocated `template.md` describing its parameters, output contract, and design rationale; read that before editing the template's code. The `template.md` itself is excluded from the per-app copy. Available templates:
 
-- `differentialExpression` — **currently non-functional, do not scaffold it.** DESeq2 analysis with interactive volcano/MA plots. Its notebook and `src/App.tsx` both request the `ir` (R) kernel, which Acabox does not have — the Python venv registers only `python3`, and R cannot be installed. An app scaffolded from it builds but fails the moment the user clicks Run. See the note in `.claude/skills/differential-expression/SKILL.md`.
 - `westernBlotAnnotator` — interactive Western blot annotation: GelGenie-based band/lane detection, LLM-assisted band filtering, click-to-edit labels, and PNG figure export. Ships with a Python pipeline and a `setup/download_model.sh` that pulls the TorchScript GelGenie checkpoint from HuggingFace. See `.applications/_templates/westernBlotAnnotator/template.md`.
 
 ### Step 2: Write `src/App.tsx`
@@ -272,7 +271,7 @@ import { readJsonOutput } from "@reusable/readJsonOutput";
 
 const action = useKernelAction({
   dirName: "myApp",
-  kernel: "ir",                         // or "python3"
+  kernel: "python3",
   buildKernelParams: () => ({
     ...params,
     outdir: `.applications/myApp/output`,
@@ -439,12 +438,12 @@ scaffold in `scripts/manage_mini_app.mjs` when you touch such an app.
 
 Every app already has a `<dir>/notebook.ipynb` from the scaffold, with a markdown doc cell, a `parameters`-tagged cell that `useAppState` reads/writes, and `cobuild` metadata for run-state bookkeeping.
 
-If the app needs R or Python computation, append an **action cell** (tag: `action`) using `NotebookEdit`. It should source existing skill scripts and call functions with parsed parameters. Use relative file paths.
+If the app needs Python computation, append an **action cell** (tag: `action`) using `NotebookEdit`. It should source existing skill scripts and call functions with parsed parameters. Use relative file paths.
 
-```r
-source(".claude/skills/<skill-name>/scripts/<script>.R")
-params <- jsonlite::fromJSON(params_json)
-# ... call your functions with params$<field> ...
+```python
+import json
+params = json.loads(params_json)
+# ... call your functions with params["<field>"] ...
 ```
 
 The React app injects a fresh `params_json` (built from the persistent `params` plus run-time-only fields like `outdir`) into the kernel before executing this cell, so the cell can rely on `params_json` being defined.
@@ -613,7 +612,7 @@ const relativePath = "./" + hostPath.slice(window.getWorkspacePath().length + 1)
 
 All output files must be written to `.applications/<dir_name>/output/`, regardless of how they are generated. There are two ways output files are created:
 
-1. **From a backing notebook** — R or Python code writes results to the output directory during kernel execution (e.g. CSVs, images, JSON metadata).
+1. **From a backing notebook** — Python code writes results to the output directory during kernel execution (e.g. CSVs, images, JSON metadata).
 2. **From the React app** — The app generates data in-browser (e.g. a user transforms a dataset, shuffles rows, exports a selection) and writes it via `window.filesAPI.writeFile()`.
 
 Both cases must follow the same pattern: write to the output directory as soon as data is generated, then display all outputs using the `OutputFileList` reusable component at the bottom of the app UI. Every app that has output files should render this component.

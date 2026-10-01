@@ -60,7 +60,6 @@ describe('connectorIdOfTool', () => {
     expect(connectorIdOfTool('mcp__mini-apps__open_mini_application')).toBeNull();
     expect(connectorIdOfTool('mcp__activity__query_activity')).toBeNull();
     expect(connectorIdOfTool('mcp__notification__show_notification')).toBeNull();
-    expect(connectorIdOfTool('mcp__reaction__x')).toBeNull();
     expect(connectorIdOfTool('mcp__knowledge__record_finding')).toBeNull();
   });
 

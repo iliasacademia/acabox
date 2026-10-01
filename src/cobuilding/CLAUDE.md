@@ -78,7 +78,7 @@ Use relative paths for both the script path and all input/output file arguments.
 
 ## Opening mini-applications
 
-When the user asks to open, launch, show, or run a mini-app/tool (e.g. "open my tool randomPlot", "show me the differentialExpression app"), call the `mcp__mini-apps__open_mini_application` tool with the app's `dir_name`. Do not just claim the app is open — the tool call is what actually opens it in the UI.
+When the user asks to open, launch, show, or run a mini-app/tool (e.g. "open my tool randomPlot", "show me the volcanoPlot app"), call the `mcp__mini-apps__open_mini_application` tool with the app's `dir_name`. Do not just claim the app is open — the tool call is what actually opens it in the UI.
 
 Use `mcp__mini-apps__build_and_open_mini_application` instead when you've just created or edited the app's source and the bundle needs to be rebuilt before the user sees the change.
 

@@ -128,12 +128,6 @@ export function updateLastRun(id: string, lastRunAt: string, nextRunAt: string):
   notifyChanged();
 }
 
-export function getTaskBySessionSource(workspaceId: string, sessionSource: string): ScheduledTask | undefined {
-  const db = getSchedulingDatabase();
-  return db.prepare('SELECT * FROM scheduled_tasks WHERE workspace_id = ? AND session_source = ?')
-    .get(workspaceId, sessionSource) as ScheduledTask | undefined;
-}
-
 export function getEnabledTasks(workspaceId: string): ScheduledTask[] {
   const db = getSchedulingDatabase();
   return db.prepare('SELECT * FROM scheduled_tasks WHERE workspace_id = ? AND enabled = 1').all(workspaceId) as ScheduledTask[];

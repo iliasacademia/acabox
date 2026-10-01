@@ -5,7 +5,7 @@ description: >
   metadata. Search for studies by gene, condition, tissue, or platform. Download and
   parse GSE series files (microarray, RNA-seq, ChIP-seq, proteomics). Use to find
   expression datasets for a gene of interest or to retrieve raw data for downstream
-  analysis with the differential-expression skill.
+  analysis with a Python differential expression package.
 license: MIT
 source: jaechang-hits/SciAgent-Skills
 ---
@@ -132,21 +132,20 @@ metadata = pd.DataFrame({
     for gsm_name, gsm in gse.gsms.items()
 }).T
 
-# 4. Save for differential-expression skill
+# 4. Save for downstream analysis
 matrix.to_csv("./raw_counts.csv")
 metadata[["sample_id", "condition"]].to_csv("./sample_annotations.csv", index=False)
-# → Then run the differential-expression skill on these outputs
+# → Then analyse these outputs with a Python differential expression package
 ```
 
 ## Best Practices
 
 - Use `destdir` with a relative workspace path to keep downloads within the workspace
 - GEOparse caches downloads — re-running on the same GSE is fast
-- For RNA-seq GSEs, confirm raw vs. normalized counts in the series metadata before using for DESeq2
+- For RNA-seq GSEs, confirm raw vs. normalized counts in the series metadata before running differential expression
 - Large series (>100 samples) are faster via FTP direct download
 
 ## Related Skills
 
-- `differential-expression` — run DESeq2 on counts downloaded from GEO
 - `ensembl-database` — annotate genes from Ensembl IDs found in GEO platforms
 - `pubmed-database` — find the paper associated with a GSE accession

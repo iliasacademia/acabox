@@ -96,7 +96,7 @@ segment of an SDK tool name, `mcp__<id>__<tool>`):
 - Must match `/^[a-zA-Z0-9][a-zA-Z0-9-]*$/` — letters, numbers, and hyphens
   only, starting with a letter or number. No underscores, no dots, no spaces.
 - Must not be one of the reserved names Acabox's own built-in relays use:
-  `activity`, `notification`, `reaction`, `mini-apps`, `workspace`,
+  `activity`, `notification`, `mini-apps`, `workspace`,
   `knowledge`, `apis`.
 - Must not collide with an existing connector or another hosted server's id.
   There is no tool that lets you check this list before you write files, so

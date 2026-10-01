@@ -160,7 +160,6 @@ import {
   deleteTask,
   setTaskEnabled,
   listTaskRuns,
-  getTaskBySessionSource,
   onScheduledTasksChanged,
 } from './db/scheduledTaskRepository';
 import { startScheduledTasks, stopScheduledTasks, getTaskScheduler } from './scheduledTasks';
@@ -180,7 +179,6 @@ import { installScreenshot } from './screenshotHost';
 import { registerCalendarHandlers } from './ipc/calendar';
 import { registerDebugHandlers } from './ipc/debug';
 import { cancelDesignLogin, registerClaudeDesignHandlers } from './claudeDesignLogin';
-import { registerReactionsHandlers, getReactionsEnabled, ensureReactionsTask } from './ipc/reactions';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
 import { validateExternalUrl } from '../../utils/urlValidation';
 import {
@@ -1213,7 +1211,6 @@ app.whenReady().then(async () => {
       return buildMiniApp(workspacePath, dirName);
     });
     registerWorkspaceHandlers(workspaceController, () => mainWindow, containerService);
-    registerReactionsHandlers(() => workspaceController.activeWorkspace, rebuildTrayMenu);
     setupUpdaterIpcHandlers();
     setupUpdater(rebuildTrayMenu);
     createTray();
@@ -1243,11 +1240,6 @@ app.whenReady().then(async () => {
       overlayPreloadPath: SCREENSHOT_OVERLAY_WINDOW_PRELOAD_WEBPACK_ENTRY,
     });
     initSchedulingDatabase(app.getPath('userData'));
-    if (getReactionsEnabled() && activeWorkspace) {
-      ensureReactionsTask(activeWorkspace.id);
-      const rTask = getTaskBySessionSource(activeWorkspace.id, 'reactions-system');
-      if (rTask && !rTask.enabled) setTaskEnabled(rTask.id, true);
-    }
     startScheduledTasks(handleNotificationNavigation);
 
     if (isSmokeTest) {
@@ -3416,10 +3408,6 @@ ipcMain.handle('scheduledTasks:create', (_event, data: CreateTaskData) => {
 });
 
 ipcMain.handle('scheduledTasks:update', (_event, id: string, data: UpdateTaskData) => {
-  const existing = getTask(id);
-  if (existing?.session_source === 'reactions-system') {
-    data = { cron_expression: data.cron_expression, enabled: data.enabled };
-  }
   const task = updateTask(id, data);
   if (task) {
     if (task.enabled) {
@@ -3432,10 +3420,6 @@ ipcMain.handle('scheduledTasks:update', (_event, id: string, data: UpdateTaskDat
 });
 
 ipcMain.handle('scheduledTasks:delete', (_event, id: string) => {
-  const task = getTask(id);
-  if (task?.session_source === 'reactions-system') {
-    throw new Error('System tasks cannot be deleted');
-  }
   getTaskScheduler()?.unscheduleTask(id);
   deleteTask(id);
 });
