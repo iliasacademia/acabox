@@ -65,6 +65,12 @@ const migrations = [
     version: 7,
     sql: `UPDATE scheduled_tasks SET cron_expression = '*/15 * * * *', description = 'Summarizes your recent activity every 15 minutes' WHERE session_source = 'reactions-system' AND cron_expression = '0 */2 * * *';`,
   },
+  {
+    // The Reactions feature (and its 15-minute system task) is deleted; drop any row
+    // an older install still carries so the scheduler never arms it. Runs cascade.
+    version: 8,
+    sql: `DELETE FROM scheduled_tasks WHERE session_source = 'reactions-system';`,
+  },
 ];
 
 function runMigrations(database: Database.Database) {

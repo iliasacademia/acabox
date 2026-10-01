@@ -297,8 +297,6 @@ contextBridge.exposeInMainWorld('miniAppMcpAPI', {
 contextBridge.exposeInMainWorld('settingsAPI', {
   getMaxAttachmentSizeMB: () => ipcRenderer.invoke('settings:getMaxAttachmentSizeMB'),
   setMaxAttachmentSizeMB: (sizeMB: number) => ipcRenderer.invoke('settings:setMaxAttachmentSizeMB', sizeMB),
-  getReactionsEnabled: () => ipcRenderer.invoke('settings:getReactionsEnabled'),
-  setReactionsEnabled: (enabled: boolean) => ipcRenderer.invoke('settings:setReactionsEnabled', enabled),
 });
 
 contextBridge.exposeInMainWorld('systemStatsAPI', {
@@ -482,17 +480,6 @@ contextBridge.exposeInMainWorld('scheduledTasksAPI', {
     ipcRenderer.on('scheduledTasks:changed', handler);
     return () => ipcRenderer.removeListener('scheduledTasks:changed', handler);
   },
-});
-
-contextBridge.exposeInMainWorld('reactionPromptAPI', {
-  get: () => ipcRenderer.invoke('reactionPrompt:get'),
-  set: (instructions: string) => ipcRenderer.invoke('reactionPrompt:set', instructions),
-  reset: () => ipcRenderer.invoke('reactionPrompt:reset'),
-});
-
-contextBridge.exposeInMainWorld('reactionSourcesAPI', {
-  get: () => ipcRenderer.invoke('reactionSources:get'),
-  set: (sources: string[]) => ipcRenderer.invoke('reactionSources:set', sources),
 });
 
 contextBridge.exposeInMainWorld('academiaFileAPI', {

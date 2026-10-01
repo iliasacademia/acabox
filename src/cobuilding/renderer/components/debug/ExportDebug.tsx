@@ -57,7 +57,7 @@ export const ExportDebug: React.FC = () => {
 
       <div style={{ marginBottom: 24 }}>
         <p className="debugSection__desc" style={{ marginBottom: 10 }}>
-          Export all workspace data — chats, reactions, applications, and briefings — as a ZIP file.
+          Export all workspace data — chats, applications, and briefings — as a ZIP file.
         </p>
         <div className="debugSection__actions">
           <button

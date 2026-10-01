@@ -207,8 +207,8 @@ describe('roster arithmetic against the real shipped tree', () => {
   // Last re-measured 2026-08-13, when `manage-mcp-server` took the count from
   // 21 to 22 (+889 description chars).
 
-  it('parses all 22 shipped skills', () => {
-    expect(shipped).toHaveLength(22);
+  it('parses all 19 shipped skills', () => {
+    expect(shipped).toHaveLength(19);
     for (const id of shipped) {
       expect(parseSkillFrontmatter(readSkillMd(id)).ok).toBe(true);
     }
@@ -225,7 +225,7 @@ describe('roster arithmetic against the real shipped tree', () => {
     // folded scalar produces (js-yaml keeps them, and they are what the model
     // actually receives), and +889 for manage-mcp-server.
     const total = entries.reduce((sum, e) => sum + (e.description?.length ?? 0), 0);
-    expect(total).toBe(11090);
+    expect(total).toBe(9884);
   });
 
   it('keeps folded block scalars intact — the specific thing a regex reader loses', () => {
@@ -254,8 +254,8 @@ describe('roster arithmetic against the real shipped tree', () => {
       contextTokens: ROSTER_CONTEXT_TOKENS_DEFAULT,
       fraction: ROSTER_DEFAULT_BUDGET_FRACTION,
     });
-    expect(usage.entries).toBe(22);
-    expect(usage.chars).toBe(11506);
+    expect(usage.entries).toBe(19);
+    expect(usage.chars).toBe(10238);
     expect(usage.budget).toBe(8000);
     // This is the state Acabox ships in today: roughly half of the
     // descriptions are being silently shortened before a single import.
@@ -329,7 +329,7 @@ describe('buildSkillRuntimeConfig', () => {
         xlsx: entry(),
         pdf: entry(),
         'airtable-cli': entry({ origin: 'imported', enabled: false }),
-        'differential-expression': entry({ removed: true }),
+        'retired-skill': entry({ removed: true }),
       }),
     );
     expect(result).toEqual(['pdf', 'xlsx', 'claude-api']);

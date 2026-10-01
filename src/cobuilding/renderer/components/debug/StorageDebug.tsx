@@ -35,7 +35,7 @@ const STORAGE_TREE: TreeNode[] = [
         id: 'scheduling-db',
         label: 'Scheduling Database',
         children: [
-          { id: 'scheduled-tasks', label: 'Scheduled Tasks', description: 'Task definitions and run history (e.g., Reactions)' },
+          { id: 'scheduled-tasks', label: 'Scheduled Tasks', description: 'Task definitions and run history' },
           { id: 'task-runs', label: 'Task Run History Only', description: 'Execution history, keeps task definitions' },
         ],
       },

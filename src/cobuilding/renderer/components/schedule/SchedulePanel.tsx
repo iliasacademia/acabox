@@ -178,10 +178,7 @@ export function SchedulePanel({
 
   const cronExpression = intervalToCron(interval, unit);
   const intervalError = validateInterval(interval, unit);
-  // A system task (the Reactions cron) owns its own name and prompt; only its
-  // cadence is the user's to change.
-  const isSystemTask = task?.session_source === 'reactions-system';
-  const missingFields = !isSystemTask && (!name.trim() || !prompt.trim());
+  const missingFields = !name.trim() || !prompt.trim();
   const canSave = !intervalError && !missingFields && !saving;
 
   const changeUnit = useCallback((next: ScheduleUnit) => {
@@ -200,8 +197,6 @@ export function SchedulePanel({
           prompt: prompt.trim(),
           cron_expression: cronExpression,
         });
-      } else if (isSystemTask) {
-        await window.scheduledTasksAPI.update(taskId!, { cron_expression: cronExpression });
       } else {
         await window.scheduledTasksAPI.update(taskId!, {
           name: name.trim(),
@@ -215,7 +210,7 @@ export function SchedulePanel({
     } finally {
       setSaving(false);
     }
-  }, [canSave, isNew, isSystemTask, taskId, name, description, prompt, cronExpression, onChanged, onClose]);
+  }, [canSave, isNew, taskId, name, description, prompt, cronExpression, onChanged, onClose]);
 
   const runNow = useCallback(async () => {
     if (!taskId) return;
@@ -242,58 +237,54 @@ export function SchedulePanel({
       <div className="schedulePanel__header">
         <MSymbol name="schedule" size={18} />
         <div className="schedulePanel__title">
-          {isNew ? 'New scheduled task' : isSystemTask ? task!.name : 'Scheduled task'}
+          {isNew ? 'New scheduled task' : 'Scheduled task'}
         </div>
         <button className="cdBtnXs" onClick={onClose} title="Close">Close</button>
       </div>
 
       <div className="schedulePanel__body">
-        {!isSystemTask && (
-          <>
-            <div className="connectorField">
-              <label className="connectorField__label" htmlFor="sched-name">Name</label>
-              <input
-                id="sched-name"
-                className="connectorField__input"
-                value={name}
-                placeholder="Overnight data check"
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
+        <div className="connectorField">
+          <label className="connectorField__label" htmlFor="sched-name">Name</label>
+          <input
+            id="sched-name"
+            className="connectorField__input"
+            value={name}
+            placeholder="Overnight data check"
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
 
-            <div className="connectorField">
-              <label className="connectorField__label" htmlFor="sched-desc">Description</label>
-              <input
-                id="sched-desc"
-                className="connectorField__input"
-                value={description}
-                placeholder="Optional — a note to your future self"
-                onChange={(e) => setDescription(e.target.value)}
-              />
-            </div>
+        <div className="connectorField">
+          <label className="connectorField__label" htmlFor="sched-desc">Description</label>
+          <input
+            id="sched-desc"
+            className="connectorField__input"
+            value={description}
+            placeholder="Optional — a note to your future self"
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
 
-            <div className="connectorField">
-              <label className="connectorField__label" htmlFor="sched-prompt">
-                What should Claude do?
-              </label>
-              <textarea
-                id="sched-prompt"
-                className="connectorField__input schedulePanel__prompt"
-                value={prompt}
-                rows={6}
-                placeholder={
-                  'Check the files in ~/Data for new results and tell me if anything looks wrong.'
-                }
-                onChange={(e) => setPrompt(e.target.value)}
-              />
-              <div className="connectorField__help">
-                This is sent as a chat message, on the schedule below. It can do
-                anything you could ask for in a chat — read your files, run code,
-                and use your servers. Ask it to notify you and it will.
-              </div>
-            </div>
-          </>
-        )}
+        <div className="connectorField">
+          <label className="connectorField__label" htmlFor="sched-prompt">
+            What should Claude do?
+          </label>
+          <textarea
+            id="sched-prompt"
+            className="connectorField__input schedulePanel__prompt"
+            value={prompt}
+            rows={6}
+            placeholder={
+              'Check the files in ~/Data for new results and tell me if anything looks wrong.'
+            }
+            onChange={(e) => setPrompt(e.target.value)}
+          />
+          <div className="connectorField__help">
+            This is sent as a chat message, on the schedule below. It can do
+            anything you could ask for in a chat — read your files, run code,
+            and use your servers. Ask it to notify you and it will.
+          </div>
+        </div>
 
         <div className="connectorField">
           <span className="connectorField__label">How often</span>
@@ -352,7 +343,7 @@ export function SchedulePanel({
             {running ? 'Running…' : 'Run now'}
           </button>
         )}
-        {!isNew && !isSystemTask && (
+        {!isNew && (
           <button className="cdBtnXs" onClick={() => setPendingDelete(true)}>Delete</button>
         )}
         <div className="schedulePanel__footerSpacer" />

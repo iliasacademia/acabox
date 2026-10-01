@@ -24,7 +24,6 @@ export type CoScientistSurface =
   | 'popup'
   | 'quick-chat'
   | 'paper-monitor'
-  | 'reactions'
   | 'background';
 
 /** Narrowed from NodeJS.Platform — only desktop platforms we ship. */

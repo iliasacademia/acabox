@@ -266,20 +266,6 @@ function createMcpRelayServers(state: SessionState) {
       ],
     }),
 
-    reaction: createSdkMcpServer({
-      name: 'reaction',
-      tools: [
-        tool('create_reaction_thread',
-          'Create a new reaction thread visible to the user in the Reactions tab.',
-          {
-            title: z.string().describe('A short, descriptive title summarizing the reaction content (e.g., "New CRISPR delivery method in Nature" or "Grant deadline approaching for NIH R01"). Do NOT use generic timestamps like "Reaction — date".'),
-            message: z.string().describe('The full reaction message content (markdown text).'),
-          },
-          relay('reaction', 'create_reaction_thread'),
-        ),
-      ],
-    }),
-
     'mini-apps': createSdkMcpServer({
       name: 'mini-apps',
       tools: [

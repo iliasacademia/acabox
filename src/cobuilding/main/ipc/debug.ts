@@ -249,17 +249,6 @@ export function registerDebugHandlers() {
     const calendarResources = db.prepare('SELECT * FROM calendar_resources WHERE workspace_id = ?').all(wid);
     const calendarReactions = db.prepare('SELECT * FROM calendar_reactions WHERE workspace_id = ?').all(wid);
 
-    // Reactions config from settings file
-    const settingsPath = path.join(app.getPath('userData'), 'cobuilding-settings.json');
-    let reactions: { prompt: string | null; sources: string[] } = { prompt: null, sources: ['browser', 'file'] };
-    try {
-      const data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-      reactions = {
-        prompt: data.reactionUserInstructions ?? null,
-        sources: data.reactionSources ?? ['browser', 'file'],
-      };
-    } catch { /* no settings file */ }
-
     const exportData = {
       exportedAt: new Date().toISOString(),
       appVersion: app.getVersion(),
@@ -275,7 +264,6 @@ export function registerDebugHandlers() {
       workspaceReports,
       scannedFiles,
       calendar: { groups, events: calendarEvents, eventFiles, groupFiles, eventDependencies, resources: calendarResources, reactions: calendarReactions },
-      reactions,
     };
 
     const safeName = workspace.name.replace(/[^a-z0-9]/gi, '-').toLowerCase();
@@ -361,7 +349,6 @@ export function registerDebugHandlers() {
           resources?: Record<string, unknown>[];
           reactions?: Record<string, unknown>[];
         };
-        reactions?: { prompt?: string | null; sources?: string[] };
       };
       let exportData: ExportData;
       try {
@@ -511,16 +498,6 @@ export function registerDebugHandlers() {
       })();
       } finally {
         db.pragma('foreign_keys = ON');
-      }
-
-      // Apply reactions settings
-      if (exportData.reactions) {
-        const settingsPath = path.join(app.getPath('userData'), 'cobuilding-settings.json');
-        let settings: Record<string, unknown> = {};
-        try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch { /* ok */ }
-        if (exportData.reactions.prompt != null) settings.reactionUserInstructions = exportData.reactions.prompt;
-        if (exportData.reactions.sources) settings.reactionSources = exportData.reactions.sources;
-        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
       }
 
       // Touch so this workspace sorts as the most-recently-accessed

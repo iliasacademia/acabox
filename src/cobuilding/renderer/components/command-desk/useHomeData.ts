@@ -32,6 +32,7 @@ export function useHomeData() {
         .list()
         .then((rows) => {
           const chats = rows
+            // Chats from the deleted Reactions feature may still sit in an old database.
             .filter((r) => r.source !== 'reactions' && r.source !== 'reactions-system')
             .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
           setSessions(chats);
