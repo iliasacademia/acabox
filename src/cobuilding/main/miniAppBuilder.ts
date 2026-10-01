@@ -76,6 +76,25 @@ function resolveEsbuildBin(): { bin: string } | { error: string } {
   };
 }
 
+/**
+ * Pin every tool bundle to ONE React, the npm-site's.
+ *
+ * A package that carries its own nested React copy (seen with `lucide-react`
+ * and `react-plotly.js` in the dev npm-site) otherwise gets a second React
+ * bundled beside the tool's, and the tool crashes with "Invalid hook call …
+ * useContext of null". Aliasing makes every import resolve to the same
+ * directory. Absolute paths, as with `@reusable`: esbuild does not resolve a
+ * relative alias against cwd. Only emitted for a directory that exists, so a
+ * prefix without React (or a fresh machine) keeps the old resolution.
+ */
+export function reactAliasFlags(npmPrefix: string): string[] {
+  const modules = path.join(npmPrefix, 'lib', 'node_modules');
+  return ['react', 'react-dom']
+    .map((name) => [name, path.join(modules, name)] as const)
+    .filter(([, dir]) => fs.existsSync(dir))
+    .map(([name, dir]) => `--alias:${name}=${dir}`);
+}
+
 export async function buildMiniApp(workspacePath: string, dirName: string): Promise<MiniAppBuildResult> {
   const appDir = path.join(workspacePath, '.applications', dirName);
   if (!fs.existsSync(appDir)) {
@@ -127,6 +146,7 @@ export async function buildMiniApp(workspacePath: string, dirName: string): Prom
     '--loader:.ts=ts',
     '--format=iife',
     `--alias:@reusable=${reusableAlias}`,
+    ...reactAliasFlags(getNpmPrefix()),
   ], { source: 'build', appDirName: dirName });
 
   if (result.exitCode !== 0) {

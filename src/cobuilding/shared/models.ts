@@ -133,14 +133,14 @@ export const KNOWN_MODEL_IDS: readonly string[] = [
 
 /**
  * Pinned, and pinned on purpose — see the header. Changing it is a decision,
- * so it is a code edit.
+ * so it is a code edit: discovery never moves it.
  *
- * Deliberately NOT moved to `claude-opus-5-5` when that shipped (2026-09-22).
- * The default is what every new chat costs, and nobody chose it; moving it
- * because Anthropic released something is exactly the auto-jump the header
- * rules out. Opus 5.5 is one click away in the picker.
+ * Opus 5.5 since 2026-10-01, chosen by the owner: it is the newer model and
+ * costs less per token at list price ($4/$20 per MTok against Opus 5's
+ * $5/$25). The default is what every new chat costs, which is why it stays a
+ * deliberate edit and does not track whatever Anthropic released last.
  */
-export const DEFAULT_MODEL = 'claude-opus-5';
+export const DEFAULT_MODEL = 'claude-opus-5-5';
 
 /**
  * Most a single discovery may add.
