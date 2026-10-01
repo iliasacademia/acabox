@@ -14,7 +14,8 @@
  *   POST /sessions              — create a new agent session
  *   POST /sessions/:id/messages — send a user message (text + attachments)
  *   GET  /sessions/:id/events   — SSE stream of raw SDKMessages + mcp-call events
- *   POST /sessions/:id/stop     — interrupt / destroy a session
+ *   POST /sessions/:id/stop     — destroy a session (closes the query)
+ *   POST /sessions/:id/interrupt — abort the current turn, keep the session
  *   POST /sessions/:id/mcp-result — deliver MCP tool call result from host
  *   GET  /health                — liveness check
  */
@@ -1157,6 +1158,25 @@ function startServer(initialConfig: AgentConfig): void {
           }
           bumpActivity(route.sessionId, state);
           sendJSON(res, 200, { ok: true });
+          return;
+        }
+
+        // POST /sessions/:id/interrupt — the user's Stop. Asks the CLI to abort
+        // the turn in flight and emit its own result, so the transcript and the
+        // host's rows end cleanly. Unlike /stop it neither closes the query nor
+        // ends the session; the host calls /stop afterwards.
+        if (route.action === 'interrupt' && req.method === 'POST') {
+          const q = state.queryInstance;
+          if (!q) {
+            sendJSON(res, 409, { error: 'No active query' });
+            return;
+          }
+          try {
+            await q.interrupt();
+            sendJSON(res, 200, { ok: true });
+          } catch (err: unknown) {
+            sendJSON(res, 500, { error: err instanceof Error ? err.message : String(err) });
+          }
           return;
         }
 

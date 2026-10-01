@@ -317,31 +317,42 @@ export function findMessageByMessageId(
 }
 
 /**
- * Delete `assistant` and `tool_result` rows that follow the most recent
- * `result` row in a session. These are the rows produced mid-turn before a
- * crash/restart left the turn unfinished — without cleanup the renderer
- * shows a tool-use spinner forever. User rows are preserved so the user
- * can still see what they asked even if no reply landed.
+ * Close a turn that a crash/restart left open. Assistant and tool_result rows
+ * that follow the most recent `result` row were produced mid-turn and never
+ * got their terminator; without one the renderer shows a tool-use spinner
+ * forever. They are KEPT — a user who pressed Stop or lost a turn to a crash
+ * is owed the record of what ran (this used to delete them: 237 rows on one
+ * Stop in production) — and a `stopped` result row is appended so the turn
+ * reads as ended. User rows are untouched.
  *
- * Called at AgentSession startup before any new turn begins. Caller is
- * expected to log the row count when nonzero.
+ * Returns how many rows the new result row closes over (0 = nothing was open,
+ * nothing written). Called at AgentSession startup before any new turn begins;
+ * the caller logs a nonzero count.
  */
-export function cleanupOrphanTurnRows(sessionId: string): number {
+export function closeOrphanTurn(sessionId: string): number {
   const lastResult = getDatabase()
     .prepare("SELECT MAX(id) as maxId FROM messages WHERE session_id = ? AND type = 'result'")
     .get(sessionId) as { maxId: number | null } | undefined;
   const cursor = lastResult?.maxId ?? 0;
 
-  const result = getDatabase()
+  const open = getDatabase()
     .prepare(`
-      DELETE FROM messages
-      WHERE session_id = ?
-        AND id > ?
-        AND type IN ('assistant', 'tool_result')
+      SELECT COUNT(*) AS n, MAX(id) AS lastId FROM messages
+      WHERE session_id = ? AND id > ? AND type IN ('assistant', 'tool_result')
     `)
-    .run(sessionId, cursor);
+    .get(sessionId, cursor) as { n: number; lastId: number | null };
+  if (!open.n || open.lastId === null) return 0;
 
-  return result.changes as number;
+  const last = getDatabase()
+    .prepare('SELECT message_id FROM messages WHERE id = ?')
+    .get(open.lastId) as { message_id: string | null } | undefined;
+  insertMessage(
+    sessionId,
+    'result',
+    JSON.stringify({ subtype: 'stopped', result: '', is_error: false, stopped_by: 'crash' }),
+    last?.message_id ?? undefined,
+  );
+  return open.n;
 }
 
 export function deleteSession(id: string): void {

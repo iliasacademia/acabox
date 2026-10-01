@@ -1,7 +1,7 @@
 
 import { type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatStreamMessage, IPCAttachment, Workspace, NotificationNavigationAction } from '../shared/types';
-import { createSession, setSdkSessionId, clearSdkSessionId, setSessionModelInfo, setSessionAppDirName, insertMessage, cleanupOrphanTurnRows, getSession, getSessionActivity } from './db/chatRepository';
+import { createSession, setSdkSessionId, clearSdkSessionId, setSessionModelInfo, setSessionAppDirName, insertMessage, closeOrphanTurn, getSession, getSessionActivity } from './db/chatRepository';
 import { listWorkspaceDirectories } from './db/workspaceRepository';
 import * as fs from 'fs';
 import path from 'path';
@@ -96,6 +96,66 @@ interface TurnState {
   redelivered: boolean;
   /** Armed while waiting for the CLI's follow-up turn; see armFollowUpWatchdog. */
   swallowWatchdog: NodeJS.Timeout | null;
+  /** One-shot, set by `stop()` while it waits for the interrupted turn's own
+   *  result. The SSE reader's result branch fires it once the result row is
+   *  written, so the result the CLI produces for an interrupt is persisted by
+   *  the ordinary path rather than replaced by a host-authored one. */
+  onTurnEnded: (() => void) | null;
+  /** Set when the user's Stop (or a teardown) has begun. Read by the result
+   *  branch to tag the CLI's interrupt result as stopped-by-user, and by
+   *  `isRunning` so a message sent mid-stop gets a fresh session. */
+  stopReason: StopReason | null;
+}
+
+/** Why a session is being torn down while a turn is still open. */
+export type StopReason = 'user' | 'teardown';
+
+/** How long `stop()` gives the CLI to answer an interrupt with its own result. */
+export const INTERRUPT_WAIT_MS = 4_000;
+
+/**
+ * The two rows a host-authored stop writes, and the text the user sees.
+ * Pure so the wording and the row shape are pinned by a test: the row's
+ * `subtype: 'stopped'` is what the history converter, the fold and
+ * `read_chat` key on.
+ */
+export function stoppedTurnRows(reason: StopReason | 'crash'): { text: string | null; result: Record<string, unknown> } {
+  return {
+    text:
+      reason === 'user' ? 'Stopped by you.'
+      : reason === 'teardown' ? 'Stopped — Acabox closed this chat before the reply finished.'
+      : null,
+    result: { subtype: 'stopped', result: '', is_error: false, stopped_by: reason },
+  };
+}
+
+/**
+ * Orchestrates a user Stop: interrupt, give the CLI `waitMs` to finish the turn
+ * itself, then destroy no matter what. Dependencies are injected so the
+ * ordering (interrupt before destroy, destroy even on failure, no wait when
+ * the interrupt could not be delivered) is testable without an agent server.
+ */
+export async function runStop(deps: {
+  turnInProgress: boolean;
+  /** Resolves true when the interrupt was delivered. */
+  interrupt: () => Promise<boolean>;
+  /** Resolves true if the turn's result arrived within `ms`. */
+  waitForResult: (ms: number) => Promise<boolean>;
+  destroy: () => void;
+}): Promise<'idle' | 'result' | 'timeout' | 'undelivered'> {
+  if (!deps.turnInProgress) {
+    deps.destroy();
+    return 'idle';
+  }
+  let outcome: 'result' | 'timeout' | 'undelivered' = 'undelivered';
+  try {
+    if (await deps.interrupt()) {
+      outcome = (await deps.waitForResult(INTERRUPT_WAIT_MS)) ? 'result' : 'timeout';
+    }
+  } finally {
+    deps.destroy();
+  }
+  return outcome;
 }
 
 const CONTEXT_OVERFLOW_MESSAGE =
@@ -381,7 +441,14 @@ export interface AgentSession {
   // Optional so internal callers (scheduled tasks, calendar) that don't model
   // turns this way can omit it.
   sendMessage(userMessage: string, attachments?: IPCAttachment[], messageId?: string, quote?: AcaboxQuote): void;
-  destroy(): void;
+  /** Tear the session down. Idempotent. If a turn is still open (no result
+   *  arrived) a host-authored `stopped` row is written first; `reason` picks
+   *  its wording. Defaults to 'teardown' (quit, eviction, crash restart). */
+  destroy(reason?: StopReason): void;
+  /** The user's Stop: interrupt the turn so the CLI ends it cleanly, wait up
+   *  to INTERRUPT_WAIT_MS for its result, then destroy. Resolves once torn
+   *  down. */
+  stop(reason?: StopReason): Promise<void>;
   addListener(callbacks: Partial<ChatCallbacks>): () => void;
   /** True while the session loop is alive — does NOT track per-turn busy state. */
   readonly isRunning: boolean;
@@ -437,6 +504,8 @@ export function createAgentSession(
     waitedForFollowUp: false,
     redelivered: false,
     swallowWatchdog: null,
+    onTurnEnded: null,
+    stopReason: null,
   };
   // Cursor into the agent-server's per-session event sequence. Updated as we
   // parse `id:` lines from the SSE stream. On reconnect we send this as the
@@ -484,11 +553,12 @@ export function createAgentSession(
   createSession(sessionId, workspace.id, source ?? null, documentPath ?? null);
 
   // Resuming or starting fresh on a session that crashed mid-turn leaves
-  // orphan `assistant` / `tool_result` rows after the last `result` row;
-  // without this sweep the renderer shows a forever-spinning tool-use.
-  const orphansRemoved = cleanupOrphanTurnRows(sessionId);
-  if (orphansRemoved > 0) {
-    log.info(`[AgentSession] Cleaned ${orphansRemoved} orphan turn rows for sessionId=${sessionId}`);
+  // `assistant` / `tool_result` rows after the last `result` row; without a
+  // terminator the renderer shows a forever-spinning tool-use. They are kept
+  // and closed with a `stopped` result row — never deleted.
+  const orphansClosed = closeOrphanTurn(sessionId);
+  if (orphansClosed > 0) {
+    log.info(`[AgentSession] Closed an interrupted turn (${orphansClosed} rows kept) for sessionId=${sessionId}`);
   }
 
   // Resolve which host app this session is acting on. See resolveSessionHostApp
@@ -618,14 +688,20 @@ export function createAgentSession(
    * Finish a turn from the host side with a host-authored line. Used only when
    * a redelivery could not even be sent; the ordinary completion lives in the
    * SSE reader's result branch. The result row is required, not decorative:
-   * `cleanupOrphanTurnRows` sweeps assistant rows that sit after the last
-   * result at boot, so without it the explanation would vanish on relaunch.
+   * `closeOrphanTurn` appends a `stopped` terminator to assistant rows that sit
+   * after the last result at boot, so without our own the turn would read as
+   * crashed on relaunch.
+   *
+   * `result` defaults to an ordinary success row; `destroy()` passes the
+   * `stopped` shape from `stoppedTurnRows`.
    */
-  const completeTurnFromHost = (text: string) => {
+  const completeTurnFromHost = (text: string | null, result: Record<string, unknown> = { subtype: 'success', result: '', is_error: false }) => {
     const messageId = turnState.currentMessageId ?? undefined;
-    insertMessage(sessionId, 'assistant', JSON.stringify([{ type: 'text', text }]), messageId);
-    emitEvent({ type: 'text', text });
-    insertMessage(sessionId, 'result', JSON.stringify({ subtype: 'success', result: '', is_error: false }), messageId);
+    if (text !== null) {
+      insertMessage(sessionId, 'assistant', JSON.stringify([{ type: 'text', text }]), messageId);
+      emitEvent({ type: 'text', text });
+    }
+    insertMessage(sessionId, 'result', JSON.stringify(result), messageId);
     turnState.turnInProgress = false;
     noteTurnEnded(sessionId);
     emitEvent({ type: 'turn-complete', messageId } as ChatStreamMessage);
@@ -887,7 +963,7 @@ export function createAgentSession(
 
   startLoop();
 
-  return {
+  const api: AgentSession = {
     sendMessage(userMessage: string, attachments?: IPCAttachment[], messageId?: string, quote?: AcaboxQuote) {
       // Stamp the turn so the SSE reader's synthetic turn-complete event can
       // include the same messageId. Cleared when the turn completes.
@@ -1016,15 +1092,33 @@ export function createAgentSession(
       }
     },
 
-    destroy() {
+    destroy(reason?: StopReason) {
+      // Idempotent: the registry, chat:stop and a turn-complete listener can
+      // all reach here for the same session, and the second arrival must not
+      // write a second stopped row or re-POST /stop.
+      if (sessionState.stopped) return;
+      // Set first. It makes any SSE message still in flight a no-op (see the
+      // guard in connectSSE) and turns a re-entrant destroy — the registry's
+      // turn-complete listener destroys the session from inside the emit
+      // below — into the early return above.
       sessionState.stopped = true;
       clearInterval(heartbeatTimer);
-      // A session torn down mid-turn (quit, crash-restart, eviction) never
-      // reaches its result row. No-op when no turn was running.
-      noteTurnEnded(sessionId);
       if (turnState.swallowWatchdog) {
         clearTimeout(turnState.swallowWatchdog);
         turnState.swallowWatchdog = null;
+      }
+      // A turn still open here never reached a result row (the interrupt
+      // failed or timed out, or this is quit / eviction / crash teardown).
+      // Write the terminator ourselves, BEFORE severing the SSE, so the
+      // record survives and the renderer's indicator stops. No-op when idle.
+      if (turnState.turnInProgress) {
+        const effective = reason ?? turnState.stopReason ?? 'teardown';
+        const { text, result } = stoppedTurnRows(effective);
+        log.info(`[AgentSession] Closing open turn as stopped (${effective}) sessionId=${sessionId} messageId=${turnState.currentMessageId ?? '(none)'}`);
+        completeTurnFromHost(text, result);
+      } else {
+        // Also covers a session that was torn down between turns.
+        noteTurnEnded(sessionId);
       }
       if (sseRequest) {
         sseRequest.destroy();
@@ -1035,19 +1129,67 @@ export function createAgentSession(
       }
     },
 
+    async stop(reason: StopReason = 'user') {
+      if (sessionState.stopped) return;
+      // Also what makes a registry-driven destroy() that lands mid-wait (the
+      // turn-complete deferred-destroy hook, or quit) word the stop row by what
+      // the user actually did.
+      turnState.stopReason = reason;
+      // The interrupt is what lets the CLI close its own turn. A hard /stop
+      // SIGTERMs its Bash tool under it, and the model then writes a reply
+      // blaming a "sandbox" that does not exist.
+      await runStop({
+        turnInProgress: turnState.turnInProgress,
+        destroy: () => api.destroy(reason),
+        interrupt: async () => {
+          if (!agentSessionId) return false;
+          try {
+            const { status, body } = await httpPostWithStatus(`${agentBaseUrl}/sessions/${agentSessionId}/interrupt`, '{}');
+            if (status >= 400) {
+              log.warn(`[AgentSession] Interrupt refused: HTTP ${status} ${body}`);
+              return false;
+            }
+            return true;
+          } catch (err) {
+            log.warn('[AgentSession] Interrupt failed:', err);
+            return false;
+          }
+        },
+        waitForResult: (ms) => new Promise<boolean>((resolve) => {
+          const timer = setTimeout(() => {
+            turnState.onTurnEnded = null;
+            log.warn(`[AgentSession] No result ${ms}ms after interrupt for sessionId=${sessionId}; writing the stop row ourselves`);
+            resolve(false);
+          }, ms);
+          turnState.onTurnEnded = () => {
+            clearTimeout(timer);
+            turnState.onTurnEnded = null;
+            resolve(true);
+          };
+          // The result may have landed while the interrupt POST was in flight.
+          if (!turnState.turnInProgress) turnState.onTurnEnded();
+        }),
+      });
+    },
+
     addListener(cb: Partial<ChatCallbacks>): () => void {
       listeners.add(cb);
       return () => { listeners.delete(cb); };
     },
 
     get isRunning() {
-      return running;
+      // A session that is being stopped is not one a new message may join:
+      // chat:send would push onto it and the message would die with the
+      // destroy that follows. Reporting it not-running makes chat:send build a
+      // fresh session (the registry destroys this one on replace).
+      return running && !turnState.stopReason;
     },
 
     get isTurnInProgress() {
       return turnState.turnInProgress;
     },
   };
+  return api;
 }
 
 // ─── HTTP Helpers ───────────────────────────────────────────────
@@ -1238,6 +1380,13 @@ async function connectSSE(
           if (!eventType || !data) continue;
 
           if (eventType === 'message') {
+            // Once the session is destroyed the record is closed: the stopped
+            // row has been written and the renderer told the turn is over.
+            // Anything the CLI says after that — notably the reply blaming a
+            // "sandbox" its own SIGTERMed Bash tool inspired — must not become
+            // a row or an event. destroy() severs the socket, but a chunk
+            // already read can still be mid-loop here.
+            if (sessionState.stopped) continue;
             try {
               const message = JSON.parse(data) as SDKMessage;
               if (message.type !== 'stream_event') {
@@ -1318,9 +1467,9 @@ async function connectSSE(
                 // Every later turn resumes the same oversized history and is
                 // rejected identically, so without dropping the resume pointer
                 // the chat is dead permanently — typing "Hi" fails too. Handled
-                // BEFORE the result row is written: cleanupOrphanTurnRows sweeps
-                // assistant rows that land after the last result, so the
-                // explanation has to precede it to survive the next boot.
+                // BEFORE the result row is written: an assistant row that lands
+                // after the last result reads as an open turn at the next boot
+                // (closeOrphanTurn), so the explanation has to precede it.
                 if (isContextOverflowResult(message)) {
                   log.warn(
                     `[AgentSession] Context window exceeded for sessionId=${sessionId}; ` +
@@ -1340,6 +1489,9 @@ async function connectSSE(
                   subtype: (message as any).subtype,
                   result: (message as any).subtype === 'success' ? (message as any).result : undefined,
                   is_error: (message as any).is_error,
+                  // The CLI's own answer to an interrupt reads as an error
+                  // result; tagging it keeps it from rendering as a failure.
+                  ...(turnState.stopReason ? { stopped_by: turnState.stopReason } : {}),
                 }), completedMessageId ?? undefined);
                 // Did this turn go to the warehouse without consulting the
                 // ledger? Evaluated here rather than incrementally because the
@@ -1375,6 +1527,11 @@ async function connectSSE(
                 // Turn over — clear so a subsequent send's messageId isn't
                 // inherited if the SSE stream emits stray events.
                 turnState.currentMessageId = null;
+                // A user Stop is waiting on this result (see `stop()`).
+                if (turnState.onTurnEnded) {
+                  log.info(`[AgentSession:SSE] Result after interrupt: subtype=${(message as any).subtype ?? '(none)'} is_error=${(message as any).is_error ?? '(none)'} terminal_reason=${(message as any).terminal_reason ?? '(none)'}`);
+                  turnState.onTurnEnded();
+                }
               }
             } catch (err) {
               log.error('[AgentSession] Failed to parse SSE message:', err);

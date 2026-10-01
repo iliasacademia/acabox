@@ -223,6 +223,7 @@ export const AssistantParts: FC<{ components: PartComponents }> = ({ components 
     const v = s.message.metadata?.custom?.workedMs;
     return typeof v === 'number' && Number.isFinite(v) ? v : null;
   }) as number | null;
+  const stopped = useAuiState((s: any) => s.message.metadata?.custom?.stopped === true) as boolean;
   const [expanded, setExpanded] = useState(false);
 
   const toolCount = parts.filter((p) => p.type === 'tool-call').length;
@@ -248,7 +249,7 @@ export const AssistantParts: FC<{ components: PartComponents }> = ({ components 
           aria-expanded={expanded}
         >
           <MSymbol name={expanded ? 'expand_more' : 'chevron_right'} size={16} className="cdSteps__chevron" />
-          <span className="cdTurnFold__label">{turnFoldLabel(toolCount, workedMs)}</span>
+          <span className="cdTurnFold__label">{turnFoldLabel(toolCount, workedMs, stopped)}</span>
           {failedCount > 0 && <span className="cdTurnFold__failed">{failedCount} failed</span>}
         </button>
         {expanded && (

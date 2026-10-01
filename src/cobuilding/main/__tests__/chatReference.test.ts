@@ -381,3 +381,30 @@ describe('readChatForAgent / listChatsForAgent — against a real database', () 
     });
   });
 });
+
+describe('renderChatTranscript — stopped turns', () => {
+  const session = makeSession();
+  const rows = (resultContent: unknown) => [
+    makeMessage(1, 'user', { text: 'run it' }, '2026-09-18T07:00:00.000'),
+    makeMessage(2, 'assistant', [{ type: 'text', text: 'Started the run.' }], '2026-09-18T07:00:05.000'),
+    makeMessage(3, 'result', resultContent, '2026-09-18T07:00:10.000'),
+  ];
+
+  it('marks a user stop and keeps what the turn said before it', () => {
+    const out = renderChatTranscript(session, rows({ subtype: 'stopped', result: '', is_error: false, stopped_by: 'user' }), { detail: 'conversation' });
+    expect(out.text).toContain('[assistant 07:00] Started the run.');
+    expect(out.text).toContain('[stopped by the user]');
+  });
+
+  it('says plain [stopped] for a crash or teardown', () => {
+    const out = renderChatTranscript(session, rows({ subtype: 'stopped', result: '', is_error: false, stopped_by: 'crash' }), { detail: 'conversation' });
+    expect(out.text).toContain('[stopped]');
+    expect(out.text).not.toContain('by the user');
+  });
+
+  it("does not render the CLI's interrupt result as a failed turn", () => {
+    const out = renderChatTranscript(session, rows({ subtype: 'error_during_execution', is_error: true, stopped_by: 'user' }), { detail: 'full' });
+    expect(out.text).toContain('[stopped by the user]');
+    expect(out.text).not.toContain('turn failed');
+  });
+});

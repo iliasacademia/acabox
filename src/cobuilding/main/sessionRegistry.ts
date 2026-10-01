@@ -179,6 +179,26 @@ export function unregisterSession(id: string): void {
   destroyEntry(id);
 }
 
+/**
+ * The user's Stop. Interrupts the turn (so the CLI closes it cleanly and the
+ * record is kept), then tears the entry down. `session.stop()` ends in a
+ * destroy, which is idempotent, so the turn-complete deferred-destroy hook
+ * racing it is harmless. The entry is only removed if it is still the session
+ * we stopped: a new message during the wait may have replaced it.
+ */
+export async function stopSession(id: string, reason: 'user' | 'teardown' = 'user'): Promise<void> {
+  const entry = entries.get(id);
+  if (!entry) return;
+  const session = entry.session;
+  try {
+    await session.stop(reason);
+  } catch (err) {
+    log.error(`[SessionRegistry] stop(${id}) threw:`, err);
+    captureError(err, { subsystem: 'agent', extra: { phase: 'session_stop', session_id: id } });
+  }
+  if (entries.get(id)?.session === session) destroyEntry(id);
+}
+
 export function getRegisteredSession(id: string): AgentSession | undefined {
   return entries.get(id)?.session;
 }

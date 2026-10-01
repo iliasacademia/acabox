@@ -21,7 +21,7 @@ import log from 'electron-log';
 import { createAgentSession } from './agentSession';
 import { createCalendarAgentSession } from './calendarAgentSession';
 import type { CalendarMutationEvent } from './calendarAgentSession';
-import { registerSession, unregisterSession, getRegisteredSession, hasSession, destroyAllSessions, addSubscriber, removeSubscriber, onSessionDestroyed } from './sessionRegistry';
+import { registerSession, unregisterSession, stopSession, getRegisteredSession, hasSession, destroyAllSessions, addSubscriber, removeSubscriber, onSessionDestroyed } from './sessionRegistry';
 import { getChatActivity, onChatActivityChanged, onChatTurnBoundary, setChatWindowFocused, setViewingChat } from './chatActivity';
 import type { IPCAttachment } from '../shared/types';
 import { parseStoredQuote } from '../shared/quotes';
@@ -2368,12 +2368,13 @@ ipcMain.on('chat:unsubscribe', (event, threadId: string) => {
   removeForwarding(threadId, event.sender.id);
 });
 
-// Explicit user-initiated stop (Stop button). Tears the session down
-// regardless of other subscribers — "stop" means stop.
+// Explicit user-initiated stop (Stop button). Ends the session regardless of
+// other subscribers — "stop" means stop — but by interrupting the turn first,
+// so the CLI closes it itself and what already ran stays in the chat.
 ipcMain.on('chat:stop', (event, threadId: string) => {
   removeForwarding(threadId, event.sender.id);
   if (getRegisteredSession(threadId)) {
-    unregisterSession(threadId);
+    void stopSession(threadId, 'user');
   }
 });
 

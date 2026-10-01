@@ -82,6 +82,10 @@ export function convertHistoryMessages(dbMessages: readonly HistoryDbMessage[]):
   // is left out rather than guessed.
   let turnStartAt: string | undefined;
   let turnEndAt: string | undefined;
+  // Set when the turn ended on a `stopped` result (a user Stop, a teardown, or
+  // a crash closed by `closeOrphanTurn`). Its unfinished tool calls then read
+  // as stopped rather than running forever.
+  let turnStopped = false;
 
   const flushAssistant = () => {
     if (pendingAssistantContent && pendingAssistantContent.length > 0) {
@@ -92,7 +96,21 @@ export function convertHistoryMessages(dbMessages: readonly HistoryDbMessage[]):
         role: 'assistant',
         content: pendingAssistantContent,
         ...(pendingAssistantCreatedAt ? { createdAt: new Date(pendingAssistantCreatedAt) } : {}),
-        ...(Number.isFinite(workedMs) && workedMs > 0 ? { metadata: { custom: { workedMs } } } : {}),
+        // `incomplete / cancelled` is the status assistant-ui hands to a
+        // tool call that has no result; the tool card and `isFailed` already
+        // read it as "stopped", not failed.
+        ...(turnStopped ? { status: { type: 'incomplete' as const, reason: 'cancelled' as const } } : {}),
+        ...(turnStopped || (Number.isFinite(workedMs) && workedMs > 0)
+          ? {
+            metadata: {
+              custom: {
+                ...(turnStopped ? { stopped: true } : {}),
+                // No duration for a stopped turn: none is measured.
+                ...(!turnStopped && Number.isFinite(workedMs) && workedMs > 0 ? { workedMs } : {}),
+              },
+            },
+          }
+          : {}),
       });
     }
     pendingAssistantContent = null;
@@ -104,6 +122,7 @@ export function convertHistoryMessages(dbMessages: readonly HistoryDbMessage[]):
       flushAssistant();
       turnStartAt = msg.createdAt;
       turnEndAt = undefined;
+      turnStopped = false;
       messages.push(convertUserMessage(msg.content, msg.createdAt));
       continue;
     }
@@ -118,11 +137,20 @@ export function convertHistoryMessages(dbMessages: readonly HistoryDbMessage[]):
         pendingAssistantCreatedAt = msg.createdAt;
       }
     }
+    if (msg.type === 'result' && isStoppedResult(msg.content)) turnStopped = true;
     // tool_result rows are folded into their tool_use parents via the
     // toolResults map; no top-level message emitted for them.
   }
   flushAssistant();
   return messages;
+}
+
+/** A result row written by a stop: the host's own (`subtype: 'stopped'`) or the
+ *  CLI's answer to an interrupt, which the host tags with `stopped_by`. */
+function isStoppedResult(content: unknown): boolean {
+  if (typeof content !== 'object' || content === null) return false;
+  const c = content as { subtype?: unknown; stopped_by?: unknown };
+  return c.subtype === 'stopped' || typeof c.stopped_by === 'string';
 }
 
 function buildToolResultsMap(dbMessages: readonly HistoryDbMessage[]): ToolResultsMap {

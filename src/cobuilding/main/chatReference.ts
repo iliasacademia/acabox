@@ -100,6 +100,7 @@ interface StoredResultContent {
   subtype?: string;
   result?: string;
   is_error?: boolean;
+  stopped_by?: string;
 }
 
 function renderUserLine(row: Message): string {
@@ -242,6 +243,15 @@ function buildContributions(
 
     if (row.type === 'result') {
       const parsed = safeParse<StoredResultContent>(row.content, {});
+      if (parsed.subtype === 'stopped' || parsed.stopped_by) {
+        // A stopped turn keeps what it said before the stop, so flush rather
+        // than discard the buffered text, then mark where it ended.
+        if (detail === 'conversation') flushPending();
+        const by = parsed.stopped_by === 'user' ? ' by the user' : '';
+        contributions.push({ id: row.id, lines: [`[stopped${by}]`] });
+        pending = null;
+        continue;
+      }
       if (parsed.is_error) {
         contributions.push({ id: row.id, lines: [`[assistant ${hhmm(row.created_at)}] (turn failed: ${parsed.result || 'error'})`] });
       } else if (parsed.subtype === 'success') {
