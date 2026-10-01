@@ -636,10 +636,14 @@ export function createAgentSession(
 
   let agentBaseUrl: string;
 
-  // Read SOUL.md
+  // Read SOUL.md — the "Instructions for Acabox" the user writes in Settings.
+  // From the agent dir, NOT `workspace.directory_path`: that column is empty
+  // for every workspace (`createWorkspace` inserts ''), so joining it read
+  // `.academia/SOUL.md` relative to the main process's cwd and the user's
+  // instructions silently never reached a chat (found 2026-10-01).
   let soulMdContent: string | undefined;
   try {
-    const soulPath = path.join(workspace.directory_path, ACADEMIA_DIR, SOUL_MD);
+    const soulPath = path.join(containerService.getAgentDir() ?? workspace.directory_path, ACADEMIA_DIR, SOUL_MD);
     const content = fs.readFileSync(soulPath, 'utf-8').trim();
     if (content) soulMdContent = content;
   } catch { /* doesn't exist */ }
