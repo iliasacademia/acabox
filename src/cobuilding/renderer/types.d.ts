@@ -104,7 +104,7 @@ interface SessionsAPI {
 interface ContainerAPI {
   start(): Promise<void>;
   stop(): Promise<void>;
-  status(): Promise<{ running: boolean }>;
+  status(): Promise<{ running: boolean; agentAlive: boolean; gaveUp: boolean }>;
   exec(command: string[]): Promise<{ stdout: string; stderr: string }>;
   execLogged(command: string[], meta?: { source?: string; appDirName?: string | null }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
   quitApp(): Promise<void>;
@@ -687,7 +687,7 @@ declare global {
   interface ContainerAPI {
     start(): Promise<void>;
     stop(): Promise<void>;
-    status(): Promise<{ running: boolean }>;
+    status(): Promise<{ running: boolean; agentAlive: boolean; gaveUp: boolean }>;
     exec(command: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }>;
     execLogged(command: string[], meta?: { source?: string; appDirName?: string | null }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
     quitApp(): Promise<void>;
@@ -786,7 +786,7 @@ declare global {
   }
 
   interface FileMonitorAPI {
-    status(): Promise<{ running: boolean }>;
+    status(): Promise<{ running: boolean; agentAlive: boolean; gaveUp: boolean }>;
     start(): Promise<void>;
     stop(): Promise<void>;
     getTodaySessions(): Promise<TodayFileSession[]>;

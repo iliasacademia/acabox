@@ -11,10 +11,11 @@ import type { FC } from 'react';
 import {
   dateFromSessionStoredAt,
   getSessionAppDirName,
-  getSessionCreatedAt,
+  getSessionUpdatedAt,
 } from '../../sessionTimestamps';
 import { resolveToolIcon } from '../command-desk/toolIcon';
 import { ChatMarkDot } from '../command-desk/ChatMarkDot';
+import { FOCUS_CHAT_SEARCH_EVENT } from '../../chatSearchFocus';
 import { formatRelativeDate as formatRelativeDateFromDate } from '../../../../shared/utils';
 import { useChatPreview, formatPreviewLine } from '../../chatPreviewStore';
 import { useProseSearch, type ProseSearchState } from '../../useProseSearch';
@@ -179,6 +180,12 @@ export const ThreadList: FC<ThreadListProps> = ({ onSelectThread }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const toolsByDirName = useToolsByDirName();
   const prose = useProseSearch(searchQuery);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const focus = () => searchInputRef.current?.focus();
+    window.addEventListener(FOCUS_CHAT_SEARCH_EVENT, focus);
+    return () => window.removeEventListener(FOCUS_CHAT_SEARCH_EVENT, focus);
+  }, []);
   const isSearching = searchQuery.trim().length > 0;
 
   return (
@@ -204,6 +211,7 @@ export const ThreadList: FC<ThreadListProps> = ({ onSelectThread }) => {
                 <div className="chatListSearchBox">
                   <SearchIcon className="chatListSearchIcon" />
                   <input
+                    ref={searchInputRef}
                     className="chatListSearchInput"
                     placeholder="Search chat titles and messages…"
                     value={searchQuery}
@@ -235,7 +243,7 @@ const ThreadListItem: FC = () => {
 
   const remoteId = runtime.getState().remoteId;
   const title = runtime.getState().title ?? 'New Chat';
-  const createdAt = getSessionCreatedAt(remoteId);
+  const lastActiveAt = getSessionUpdatedAt(remoteId);
   const appDirName = getSessionAppDirName(remoteId);
   const preview = useChatPreview(remoteId);
   const previewText = formatPreviewLine(preview);
@@ -315,8 +323,8 @@ const ThreadListItem: FC = () => {
 
       {/* Date + menu, vertically centered together */}
       <div className="chatListItemMeta">
-        {createdAt ? (
-          <span className="chatListItemDate">{formatRelativeDate(createdAt)}</span>
+        {lastActiveAt ? (
+          <span className="chatListItemDate">{formatRelativeDate(lastActiveAt)}</span>
         ) : null}
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>

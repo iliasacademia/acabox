@@ -4,6 +4,7 @@ import {
   setSessionAppDirName,
   setSessionCreatedAt,
   setSessionDocumentPath,
+  setSessionUpdatedAt,
 } from './sessionTimestamps';
 
 export const sessionListAdapter: RemoteThreadListAdapter = {
@@ -44,6 +45,7 @@ export const sessionListAdapter: RemoteThreadListAdapter = {
     const session = await window.sessionsAPI.get(threadId);
     if (session) {
       setSessionCreatedAt(session.id, session.created_at);
+      if (session.updated_at) setSessionUpdatedAt(session.id, session.updated_at);
       setSessionDocumentPath(session.id, session.document_path ?? null);
       setSessionAppDirName(session.id, session.app_dir_name ?? null);
     }

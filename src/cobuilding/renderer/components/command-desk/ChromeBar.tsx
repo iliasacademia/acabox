@@ -1,5 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { AcaboxMark } from './AcaboxMark';
+import { chromeHealth } from './chromeHealth';
+
+const HEALTH_DOT = {
+  starting: 'var(--cd-busy)',
+  ready: 'var(--cd-success)',
+  offline: 'var(--cd-error)',
+} as const;
 
 /**
  * The 40px window-chrome bar. With `titleBarStyle: 'hiddenInset'` on the main
@@ -9,15 +16,15 @@ import { AcaboxMark } from './AcaboxMark';
  * Health = agent-server liveness via containerAPI.status(), polled.
  */
 export function ChromeBar({ right }: { right?: React.ReactNode }) {
-  const [running, setRunning] = useState<boolean | null>(null);
+  const [health, setHealth] = useState<'starting' | 'ready' | 'offline'>('starting');
 
   useEffect(() => {
     let alive = true;
     const poll = () => {
       window.containerAPI
         .status()
-        .then((s) => { if (alive) setRunning(s.running); })
-        .catch(() => { if (alive) setRunning(false); });
+        .then((s) => { if (alive) setHealth(chromeHealth(s)); })
+        .catch(() => { if (alive) setHealth('starting'); });
     };
     poll();
     const timer = setInterval(poll, 10_000);
@@ -38,12 +45,15 @@ export function ChromeBar({ right }: { right?: React.ReactNode }) {
       </div>
       <div className="cdChrome__right">
         {right}
-        <span className="cdChrome__health">
+        <span
+          className="cdChrome__health"
+          title={health === 'offline' ? 'The assistant stopped. Quit and reopen Acabox.' : undefined}
+        >
           <span
             className="cdDot"
-            style={{ background: running ? 'var(--cd-success)' : 'var(--cd-busy)' }}
+            style={{ background: HEALTH_DOT[health] }}
           />
-          {running ? 'HEALTHY' : 'STARTING'}
+          {health.toUpperCase()}
         </span>
       </div>
     </div>

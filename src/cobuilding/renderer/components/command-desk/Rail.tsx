@@ -46,7 +46,6 @@ export function Rail({
   toolCount,
   recents,
   pinned,
-  workspaceName,
   onNavigate,
   onOpenChat,
   onOpenTool,
@@ -56,7 +55,6 @@ export function Rail({
   toolCount: number;
   recents: RailRecentChat[];
   pinned: RailPinnedTool[];
-  workspaceName: string;
   onNavigate: (tab: RailTab) => void;
   onOpenChat: (sessionId: string) => void;
   onOpenTool: (dirName: string) => void;
@@ -205,11 +203,6 @@ export function Rail({
       <span className="cdRail__spacer" />
 
       <div className="cdRail__footer">
-        <button className="cdRail__row" onClick={() => onNavigate('files')}>
-          <MSymbol name="hard_drive" size={16} />
-          <span className="cdRail__mono12">~/{workspaceName}</span>
-          <span className="cdRail__mono9">SYNCED</span>
-        </button>
         {SHOW_DEBUG && (
           <button className="cdRail__row" onClick={() => onNavigate('debug')}>
             <MSymbol name="bug_report" size={16} />

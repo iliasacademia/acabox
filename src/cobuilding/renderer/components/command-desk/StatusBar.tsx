@@ -74,7 +74,9 @@ export function StatusBar() {
           )}
         </>
       )}
-      {agentCount != null && <span>AGENTS {agentCount} LIVE</span>}
+      {agentCount != null && agentCount > 0 && (
+        <span>{agentCount} CHAT{agentCount === 1 ? '' : 'S'} WORKING</span>
+      )}
       {/* Tools can be working with no viewer open — this is the only place
           that is visible from every screen. Hidden when nothing is running. */}
       {workingTools > 0 && (

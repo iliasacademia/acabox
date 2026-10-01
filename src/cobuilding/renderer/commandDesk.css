@@ -330,19 +330,6 @@
   border-top: 1px solid var(--cd-border-soft);
   padding-top: 10px;
 }
-.cdRail__mono12 {
-  font-family: var(--cd-mono);
-  font-size: 12px;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cdRail__mono9 {
-  font-family: var(--cd-mono);
-  font-size: 9px;
-  color: var(--cd-text3);
-}
 
 /* Collapsed-rail icon buttons (40×40). */
 .cdRail__bigIconBtn {
