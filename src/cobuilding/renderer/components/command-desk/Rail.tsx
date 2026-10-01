@@ -8,6 +8,10 @@ import { useServerCounts } from '../../mcpServerStore';
 import { useHasUnreadChats } from '../../chatActivityStore';
 import { ChatMarkDot } from './ChatMarkDot';
 
+// The Debug tab is a developer tool (hard reset, raw DB views); a packaged
+// user has no use for it and one click on Hard Reset wipes their workspace.
+const SHOW_DEBUG = typeof window !== 'undefined' && window.authAPI?.isDev === true;
+
 export type RailTab = 'home' | 'chats' | 'tools' | 'knowledge' | 'servers' | 'files' | 'activity' | 'debug' | 'settings';
 
 export interface RailRecentChat {
@@ -100,9 +104,11 @@ export function Rail({
           </button>
         ))}
         <span className="cdRail__spacer" />
-        <button className="cdRail__bigIconBtn" title="Debug" onClick={() => onNavigate('debug')}>
-          <MSymbol name="bug_report" size={20} />
-        </button>
+        {SHOW_DEBUG && (
+          <button className="cdRail__bigIconBtn" title="Debug" onClick={() => onNavigate('debug')}>
+            <MSymbol name="bug_report" size={20} />
+          </button>
+        )}
         <button className="cdRail__bigIconBtn" title="Settings" onClick={() => onNavigate('settings')}>
           <MSymbol name="settings" size={20} />
         </button>
@@ -204,10 +210,12 @@ export function Rail({
           <span className="cdRail__mono12">~/{workspaceName}</span>
           <span className="cdRail__mono9">SYNCED</span>
         </button>
-        <button className="cdRail__row" onClick={() => onNavigate('debug')}>
-          <MSymbol name="bug_report" size={16} />
-          Debug
-        </button>
+        {SHOW_DEBUG && (
+          <button className="cdRail__row" onClick={() => onNavigate('debug')}>
+            <MSymbol name="bug_report" size={16} />
+            Debug
+          </button>
+        )}
         <button className="cdRail__row" onClick={() => onNavigate('settings')}>
           <MSymbol name="settings" size={16} />
           Settings

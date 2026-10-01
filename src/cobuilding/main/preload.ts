@@ -794,11 +794,6 @@ function createStreamIterator(threadId: string, options?: { discardBuffered?: bo
 }
 
 contextBridge.exposeInMainWorld('chatAPI', {
-  onQuickChatInject: (callback: (data: { text: string; context: any }) => void) => {
-    const handler = (_event: unknown, data: { text: string; context: any }) => callback(data);
-    ipcRenderer.on('quick-chat:inject', handler);
-    return () => { ipcRenderer.removeListener('quick-chat:inject', handler); };
-  },
   sendMessage: (threadId: string, text: string, attachments?: any[], model?: string, documentPath?: string, messageId?: string, effort?: string, quote?: any) => {
     // Fire-and-forget invoke for the ack/dedup round-trip. We can't await it
     // here because contextBridge doesn't proxy nested methods through a

@@ -7,7 +7,6 @@ import {
   useThreadList,
   useAssistantToolUI,
   useAssistantRuntime,
-  useComposerRuntime,
   useAuiState,
 } from '@assistant-ui/react';
 import { TooltipProvider } from './components/ui/tooltip';
@@ -74,49 +73,6 @@ initSentryRenderer();
 initCoScientistAnalytics();
 // Main calls this for screenshots taken outside Acabox (see screenshotGrab.ts).
 installScreenshotGrab();
-
-/** Listens for quick-chat:inject IPC and creates a new thread with the message + context. */
-function QuickChatInjector({ onSwitchToChat }: { onSwitchToChat: () => void }) {
-  const assistantRuntime = useAssistantRuntime();
-  const composerRuntime = useComposerRuntime();
-
-  useEffect(() => {
-    const cleanup = window.chatAPI.onQuickChatInject((data: { text: string; context: any }) => {
-      onSwitchToChat();
-
-      // Format message with context
-      let message = '';
-      const ctx = data.context;
-      if (ctx) {
-        const contextParts: string[] = [];
-        if (ctx.frontmostApp) contextParts.push(`App: ${ctx.frontmostApp}`);
-        if (ctx.documentUrl) contextParts.push(`URL: ${ctx.documentUrl}`);
-        if (ctx.selectedText) contextParts.push(`Selected text:\n${ctx.selectedText}`);
-        if (ctx.focusedElementValue && ctx.focusedElementValue !== ctx.selectedText) {
-          contextParts.push(`Focused element value:\n${ctx.focusedElementValue}`);
-        }
-        if (ctx.focusedElementDescription) contextParts.push(`Focused element: ${ctx.focusedElementDescription}`);
-        if (contextParts.length > 0) {
-          message = `[Context]\n${contextParts.join('\n')}\n\n[User Request]\n${data.text}`;
-        } else {
-          message = data.text;
-        }
-      } else {
-        message = data.text;
-      }
-
-      assistantRuntime.switchToNewThread();
-      setTimeout(() => {
-        composerRuntime.setText(message);
-        composerRuntime.send();
-      }, 100);
-    });
-
-    return cleanup;
-  }, [assistantRuntime, composerRuntime, onSwitchToChat]);
-
-  return null;
-}
 
 /** Listens for notification:navigate IPC and navigates to the specified target. */
 type SidebarTab = 'home' | 'tools' | 'knowledge' | 'servers' | 'files' | 'chats' | 'activity' | 'debug' | 'settings';
@@ -1111,7 +1067,6 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
       <ShowChatOnThreadSelect onShowChat={() => { deactivateAllTabs(); setChatViewMode('detail'); }} suppressRef={suppressThreadDeactivateRef} />
       <AppSessionSwitcher activeDirName={activeMiniAppDirName} cacheRef={appSessionCacheRef} suppressRef={suppressThreadDeactivateRef} />
       <OpenMiniAppHandler onOpen={handleSelectApp} />
-      <QuickChatInjector onSwitchToChat={() => { setSidebarTab('chats'); setChatViewMode('detail'); deactivateAllTabs(); }} />
       <ResetThreadWhenComposerVisible globalComposerVisible={globalComposerVisible} isInChatDetail={isInChatDetail} suppressRef={suppressThreadDeactivateRef} suppressResetRef={suppressThreadResetRef} />
       <RefreshOnEnterChatDetail isInChatDetail={isInChatDetail} />
       <RefreshOnTurnEnd isInChatDetail={isInChatDetail} />
@@ -1361,7 +1316,8 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
               )}
             </div>
 
-            {/* Debug tab */}
+            {/* Debug tab — dev builds only (see Rail's SHOW_DEBUG) */}
+            {window.authAPI?.isDev === true && (
             <div style={{ display: sidebarTab === 'debug' ? 'flex' : 'none', flex: 1 }}>
               <PanelGroup direction="horizontal" autoSaveId="cobuild.debugLayout" className="appPanelGroup">
                 <Panel id="debugSidebar" order={1} defaultSize={18} minSize={12} maxSize={40}>
@@ -1379,6 +1335,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                 </Panel>
               </PanelGroup>
             </div>
+            )}
 
             {/* Settings tab */}
             <div style={{ display: sidebarTab === 'settings' ? 'flex' : 'none', flex: 1 }}>

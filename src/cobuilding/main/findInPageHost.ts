@@ -32,9 +32,8 @@ interface FindInstance {
 }
 
 /**
- * Registers the IPC handlers once. Returns nothing — like `quickChat.ts`,
- * this module holds its own module-scope state rather than being a class,
- * matching the existing pattern for a second web-contents host owned by main.
+ * Registers the IPC handlers once. Returns nothing — this module holds its own module-scope state rather
+ * than being a class.
  */
 export function installFindInPage(opts: InstallFindInPageOptions): void {
   let current: FindInstance | null = null;

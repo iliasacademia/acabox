@@ -50,15 +50,6 @@ const STORAGE_TREE: TreeNode[] = [
       { id: 'app-log', label: 'App Log', description: 'cobuilding.log (electron-log)' },
     ],
   },
-  {
-    id: 'podman',
-    label: 'Podman',
-    children: [
-      { id: 'podman-binaries', label: 'Podman Binaries', description: 'Downloaded podman, gvproxy, vfkit' },
-      { id: 'podman-config-data', label: 'Config & VM Images', description: 'Podman config, container layers, VM disk images' },
-      { id: 'podman-vm', label: 'VM State & Sockets', description: 'Machine state, SSH keys, Unix sockets' },
-    ],
-  },
   { id: 'settings', label: 'Settings', description: 'cobuilding-settings.json (binary mode, image source, etc.)' },
   { id: 'electron-cache', label: 'Electron Cache', description: 'GPU cache, code cache, local/session storage' },
 ];
