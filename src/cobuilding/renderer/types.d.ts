@@ -121,10 +121,9 @@ interface ContainerAPI {
 }
 
 interface AuthAPI {
-  getApiKey(): Promise<{ apiKey: string | null; baseURL?: string }>;
-  getApiKeyStatus(): Promise<{ hasKey: boolean; source: 'env' | 'settings' | null; baseURL: string | null }>;
+  getApiKeyStatus(): Promise<{ hasKey: boolean; source: 'env' | 'settings' | null; baseURL: string | null; maskedKey: string | null }>;
   /** `warning` = saved to disk, but the running assistant could not be told; a restart may be needed. */
-  setApiKey(key: string, baseURL?: string): Promise<{ success: boolean; error?: string; warning?: string }>;
+  setApiKey(key: string, baseURL?: string): Promise<{ success: boolean; error?: string; warning?: string; check?: { verdict: 'accepted' | 'rejected' | 'unconfirmed'; detail?: string } }>;
   isDev: boolean;
   setEndpoint(endpoint: string): Promise<{ success: boolean; endpoint: string }>;
 }

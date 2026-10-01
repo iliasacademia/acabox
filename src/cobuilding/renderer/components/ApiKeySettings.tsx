@@ -12,16 +12,14 @@ export const ApiKeySettings: React.FC = () => {
   const [newKey, setNewKey] = useState('');
   const [newBaseURL, setNewBaseURL] = useState('');
   const [saving, setSaving] = useState(false);
-  const [result, setResult] = useState<{ success: boolean; error?: string; warning?: string } | null>(null);
+  const [result, setResult] = useState<Awaited<ReturnType<typeof window.authAPI.setApiKey>> | null>(null);
 
   const load = () => {
-    Promise.all([window.authAPI.getApiKey(), window.authAPI.getApiKeyStatus()]).then(
-      ([{ apiKey }, status]) => {
-        setMaskedKey(apiKey ? `${apiKey.slice(0, 10)}…${apiKey.slice(-4)}` : null);
-        setSource(status.source);
-        setBaseURL(status.baseURL);
-      },
-    );
+    window.authAPI.getApiKeyStatus().then((status) => {
+      setMaskedKey(status.maskedKey);
+      setSource(status.source);
+      setBaseURL(status.baseURL);
+    });
   };
 
   useEffect(load, []);
@@ -90,6 +88,13 @@ export const ApiKeySettings: React.FC = () => {
               {saving ? 'Saving…' : maskedKey ? 'Update key' : 'Save key'}
             </button>
           </div>
+          <div className="wsSettings__integrationDesc">
+            <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">
+              Get a key from the Anthropic Console
+            </a>
+            <br />
+            A Claude.ai Pro or Max subscription is not an API key. Usage is billed to your Anthropic API account.
+          </div>
           {result && result.success && result.warning && (
             // Saved, but the running assistant did not get the new key. Saying
             // nothing here is what made a stored-but-401ing key look like a bad
@@ -99,8 +104,18 @@ export const ApiKeySettings: React.FC = () => {
           {result && !result.success && (
             <div style={{ color: 'var(--error-color, #e5484d)', fontSize: 12 }}>{result.error || 'Save failed'}</div>
           )}
-          {result?.success && (
-            <div style={{ color: 'var(--success-color, #30a46c)', fontSize: 12 }}>Saved.</div>
+          {result?.success && result.check?.verdict === 'accepted' && (
+            <div style={{ color: 'var(--success-color, #30a46c)', fontSize: 12 }}>Key accepted.</div>
+          )}
+          {result?.success && result.check?.verdict === 'rejected' && (
+            <div style={{ color: 'var(--error-color, #e5484d)', fontSize: 12 }}>
+              Anthropic rejected this key. Check it was copied in full.
+            </div>
+          )}
+          {result?.success && result.check?.verdict === 'unconfirmed' && (
+            <div style={{ color: 'var(--cd-text-muted, #91919e)', fontSize: 12 }}>
+              Saved, but Acabox couldn't confirm it with Anthropic just now ({result.check.detail}).
+            </div>
           )}
         </>
       )}
