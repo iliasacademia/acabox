@@ -164,6 +164,17 @@ function isStoppedResult(content: unknown): boolean {
   return c.subtype === 'stopped' || typeof c.stopped_by === 'string';
 }
 
+const INTERRUPT_REJECTION = "The user doesn't want to proceed with this tool use";
+
+/** Acabox has no permission prompt, so this text only ever comes from a Stop. */
+function isInterruptRejection(content: unknown): boolean {
+  if (typeof content === 'string') return content.startsWith(INTERRUPT_REJECTION);
+  if (Array.isArray(content)) {
+    return content.some((b) => typeof b?.text === 'string' && b.text.startsWith(INTERRUPT_REJECTION));
+  }
+  return false;
+}
+
 function buildToolResultsMap(dbMessages: readonly HistoryDbMessage[]): ToolResultsMap {
   const map: ToolResultsMap = new Map();
   for (const msg of dbMessages) {
@@ -171,6 +182,11 @@ function buildToolResultsMap(dbMessages: readonly HistoryDbMessage[]): ToolResul
       const blocks = asArray<AnthropicToolResultBlock>(msg.content);
       for (const block of blocks) {
         if (typeof block?.tool_use_id === 'string') {
+          // The CLI answers an interrupted tool with this rejection. It is a
+          // Stop, not a failure, so the call is left without a result and the
+          // stopped turn renders it as cancelled (measured live 2026-10-01:
+          // otherwise the fold read "Stopped · 1 step · 1 FAILED").
+          if (block.is_error && isInterruptRejection(block.content)) continue;
           map.set(block.tool_use_id, { result: block.content, isError: block.is_error ?? false });
         }
       }

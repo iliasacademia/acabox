@@ -351,6 +351,29 @@ describe('a stopped turn', () => {
     expect(assistant.metadata.custom.stopped).toBe(true);
   });
 
+  it("drops the CLI's interrupt rejection so the tool reads stopped, not failed (the live shape)", () => {
+    const rows = stoppedTurn({ subtype: 'error_during_execution', is_error: true, stopped_by: 'user' });
+    rows.splice(2, 0, {
+      type: 'tool_result',
+      content: [{ type: 'tool_result', tool_use_id: 't1', is_error: true, content: "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed." }],
+      createdAt: '2026-09-22T10:00:20.000',
+    });
+    const [, assistant] = convertHistoryMessages(rows) as any[];
+    expect(assistant.content[1].result).toBeUndefined();
+    expect(assistant.content[1].isError).toBe(false);
+  });
+
+  it('keeps an ordinary tool error as a failure', () => {
+    const rows = stoppedTurn({ subtype: 'success', result: 'x', is_error: false });
+    rows.splice(2, 0, {
+      type: 'tool_result',
+      content: [{ type: 'tool_result', tool_use_id: 't1', is_error: true, content: 'Exit code 1' }],
+      createdAt: '2026-09-22T10:00:20.000',
+    });
+    const [, assistant] = convertHistoryMessages(rows) as any[];
+    expect(assistant.content[1].isError).toBe(true);
+  });
+
   it('leaves the next turn after a stopped one alone', () => {
     const rows: HistoryDbMessage[] = [
       ...stoppedTurn({ subtype: 'stopped', result: '', is_error: false, stopped_by: 'user' }),
