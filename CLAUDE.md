@@ -178,7 +178,108 @@ to `PATH`.
   SIGKILLs the suite mid-run and the tail prints `[exited with code 0]`
   from the pipe, which reads as a pass. Measured 2026-09-18.
 
-## Status (last updated 2026-09-28)
+## Status (last updated 2026-09-30)
+
+**Product review against other chatbot and vibecoding platforms, for
+non-technical scientists (2026-09-30).** Review only — no code changed. The
+document is `docs/design/product-review-2026-09-30.md`; its evidence is
+archived in `docs/design/review-2026-09-30/` (16 reader and research reports,
+3 syntheses, the 36 adversarial verifier verdicts, the completeness critique,
+12 screenshots and the five analysis/driver scripts — the production-DB copy
+and the intermediate JSON were NOT committed). Method: eight code readers + a read-only production miner +
+seven web researchers + a live CDP walkthrough of every screen on `npm start`,
+then a three-lens synthesis → merge → one adversarial verifier per item →
+completeness critic. **The verifiers corrected about a third of the items, so
+read the document, not any earlier draft's claims.** NOT done: no scientific
+task was run end to end in the live app (the dev workspace had no shared
+folders), no fresh-Mac install, no packaged build, no hands-on competitor use.
+- **Verified live:** pressing Stop destroys the session, the model keeps
+  talking during the kill grace and blames a nonexistent sandbox, the UI shows
+  it as a finished turn, and the next message's `cleanupOrphanTurnRows`
+  deletes the rows (production: 237 rows on one Stop). **Code reading says
+  `destroy()` severs the SSE synchronously, so that reply should never have
+  rendered; it did — the ingress is unmeasured. Measure before guarding.** A
+  render-time mini-app crash is a blank pane under IDLE: the scaffold boundary
+  renders null and the host tracks build errors only. `error-capture.ts` DOES
+  buffer errors and `ErrorDisplay` replays them, so the dev overlay most likely
+  crashed itself — lucide-react against a nested React copy in the dev
+  npm-site; `--alias:react` / `--alias:react-dom` in `miniAppBuilder.ts` is the
+  two-line fix. The agent has no `AskUserQuestion` (no `canUseTool`), and
+  unlisted tools are DENIED on SDK 0.3.280 — the `agentAllowedTools.ts:12-16`
+  comment and the 2026-07-28 "allowedTools: [] still ran Bash" measurement are
+  stale. ⌘K only switches to Chats. Home "Jump back in" parses zone-less SQLite
+  timestamps as local (`CommandDesk.tsx:171`; `dateFromSessionStoredAt` exists
+  and is unused there), and `historyMessageConverter.ts:94,169` do the same
+  for message times, so bubble times and day separators are very likely off
+  too. `SYNCED` in the rail is a literal; `HEALTHY` is `startedFlag`, and
+  `waitForAgent` trusts the same flag for five minutes.
+- **Found by code reading, not yet seen live:** Files-tab Delete is `rm -rf`
+  with no confirm and a hover icon on shared-folder roots (`FilesTab.tsx:368-371`,
+  `fileHandlers.ts:323`). **Every shared folder is read-only by default** —
+  `workspaceRepository.ts:63` declares `readOnly = true` and both callers omit
+  it — so "enforce the lock" would refuse edits in every folder a user shares;
+  decide the default first. **Both PreToolUse hooks need `jq`**
+  (`block-host-installs.sh:23`, `block-secret-reads.sh:29`), which ships only
+  on macOS 15+: on 13/14 the install guard and the secret-read guard are
+  silently inert. **Scheduler: an interval of 25–31 days** (`validateInterval`
+  allows 31) overflows `setTimeout` (`scheduler.ts:43`, no clamp), so the run
+  fires at once, re-arms on the same far date and loops full Opus-high turns
+  until quit — latent (0 tasks exist) but the only unbounded bill in the
+  product. "Every N days" emits `0 0 */N * *`, a day-of-month step (Oct 29 →
+  **Nov 1**). The Reactions `*/15` system task is NOT a live cost — no shipped
+  build ever had a UI that sets its flag — but `ReactionsToolView` is reachable
+  via the chat-invoked `create_reaction_thread` relay and dead-ends at "Enable
+  in Settings → Reactions", a section that does not exist. `auth:getApiKey`
+  returns the plaintext key over IPC. `OutputFileList`'s Download works only
+  for `type === 'text'` (CSV/XLSX/PDF/images silently no-op). The dev pip wave
+  logs exit 1 on every boot with every package satisfied — readiness is
+  in-memory, so re-running is by design — and the real FAILED→QUEUED loop
+  trigger is `readAppDeps` using the raw spec as a package's identity while
+  `parsePipLine` stops at `<>=!~`.
+- **Production data (nine weeks, 56 chats):** 19 "any update?" nudges and
+  ~56 h stalled across 8 incidents — a product manager's Devin/Hex workload,
+  i.e. work that ran elsewhere, not a bench scientist's; 386 dead
+  `task_notification` events in 5 days; scheduler 0 tasks / 0 runs. Cost is
+  received on every SDK result (cumulative per `query()`) and dropped at
+  `agentSession.ts:1328-1332`; estimated ≈$2,750 spent with nothing shown; 40
+  of the last 73 sessions at `max`. **Lead not followed: the CLI transcripts
+  hold 142 `cost-state` lines carrying `totalCostUSD` — if cumulative, real
+  per-chat cost history already exists on disk.** At list price the pinned
+  default Opus 5 ($5/$25) costs 25% more per token than Opus 5.5 ($4/$20), yet
+  all 23 fallback blocks and both hard refusals were in Opus 5.5 chats — a
+  coupled decision, not a free move. 14 tools, 7 published within hours, 3
+  ever re-run as host jobs; every notebook is the untouched scaffold (the
+  notebook FILE works as each tool's state store; the kernel never ran). The
+  fold hid prose in 0 of 305 turns — the inferred "fold trap" is not real.
+  **`mcp__knowledge__record_finding` IS volunteered (134 calls)** — the
+  2026-07-29 "NOT verified" line is stale. The empty-state chips are
+  hard-coded, not profile-seeded (the Phase B entry is stale). `ContainerTests`
+  is unmounted, so the hazard about it below is stale too.
+- **Stock Mac (expected, not reproduced):** the scaffold needs `node` and the
+  "already installed" React packages need `npm`; neither ships and nothing
+  seeds them (`nodeSetup.ts:9`). Launch execs `python3` from PATH
+  (`AgentInfrastructureController.ts:550`); the CLT stub's installer dialog is
+  Apple's documented behaviour and was never observed here; `userActionable`
+  has no consumer. The eager venv bootstrap is recorded as deliberate above —
+  guard the probe, do not defer the bootstrap. "Right-click → Open" is stale
+  for macOS 15+ (Open Anyway in System Settings); release notes are the
+  version string (`release.mjs:144`).
+- **Dead weight the simplify rule applies to:** ~10,000 unreachable renderer
+  lines (28 files by import walk from the forge entries) + 2,618 in
+  `prebuilt-apps/grantFinder` + ~1,200 backend lines and 31 IPC handlers for
+  the calendar; `processCpuMonitor.ts` (Podman VM watchdog, `ps -eo` every 60 s,
+  ~140 false warnings per 5 days); Quick Chat on a global `Alt+Shift+A` that
+  hijacks typing Å; the `.docx` → Word branch plus a throwing dropped overlay
+  call (`renderer/index.tsx:758-765`) — deleting that branch alone makes
+  `.docx` render as mojibake in a `<pre>`, so pair it with a viewer.
+  `coscientistAnalytics.ts` stays (recorded keep). Three proposed removals
+  reverse recorded decisions and are listed as owner calls, not cleanup:
+  Knowledge out of the rail (`skills-knowledge-loop.md:487`, "Settled"), the
+  status bar's hardware stats (Home handoff), hosted servers under Settings
+  (`mcp-hosting.md`).
+- The CDP driving recipe is in the project memory (`driving-dev-app-over-cdp`).
+
+## Status (earlier on 2026-09-28)
 
 **Chat lists re-sort when a turn runs, not only when a chat is created
 (2026-09-28).** Reported as "chats attached to an app don't appear in Recents"
@@ -1705,8 +1806,8 @@ are moot — do not re-raise them.
   a hand-made custom skill **survived and was adopted**, and a real import from
   `anthropics/skills` landed with all four `upstreamBlobs` matching GitHub's tree
   API byte-for-byte.
-- **NOT verified, and the headline rests on the first one:** whether the model
-  *volunteers* `mcp__knowledge__record_finding` mid-task — every ledger test drove
+- ~~**NOT verified, and the headline rests on the first one:** whether the model
+  *volunteers* `mcp__knowledge__record_finding` mid-task~~ **Verified 2026-09-30: it does — 134 calls across 11 skills in production (see the 2026-09-30 entry).** The rest of this bullet is kept as written: — every ledger test drove
   the call directly or instructed it, and the design's one-week measurement has not
   been run. Also unverified: that `skillListingBudgetFraction` is honoured **at
   runtime** (fallback is the env var `SLASH_COMMAND_TOOL_CHAR_BUDGET`); that the
@@ -3036,7 +3137,7 @@ always boots straight into the Command Desk shell.
   safe" is not conservative, it is just wrong.
 - **Mid-session directory changes don't refresh agent context** — new dirs
   only surface to the next chat session (guidance is set at session create).
-- **ContainerTests debug panel is stale** — it runs old container commands
+- ~~**ContainerTests debug panel is stale**~~ **Stale hazard (2026-09-30): `ContainerTests.tsx` is imported by nothing and never mounts; it is dead code on the 4.4a removal list.** It used to run old container commands
   (`ls /data`, `R --version`); failures there are cosmetic.
 - **Requires system Python 3.9+ and npm on PATH** for Python/npm mini-app
   deps. No bundled Python yet (python-build-standalone is a future option).
