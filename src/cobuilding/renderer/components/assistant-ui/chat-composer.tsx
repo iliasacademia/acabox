@@ -5,7 +5,6 @@ import { DictationButton } from '../command-desk/DictationButton';
 import { ScreenshotButton } from '../command-desk/ScreenshotButton';
 import { composerAttachmentComponents } from './composer-attachments';
 import { ComposerQuoteChip } from './message-quote';
-import { useSetupState } from '../../setupStore';
 
 /**
  * The narrow side-panel composer (Phase B spec): `▸` glyph + input + send/stop.
@@ -16,18 +15,6 @@ import { useSetupState } from '../../setupStore';
 export const ChatComposer: FC<{ placeholder?: string }> = ({
   placeholder = 'Reply — or ask for the next change',
 }) => {
-  const setup = useSetupState();
-
-  if (setup.state === 'downloading') {
-    return (
-      <div className="cdPanelComposer">
-        <div className="cdPanelComposer__field" style={{ alignItems: 'center', padding: '0 12px' }}>
-          <span className="cdWorking__label">{setup.message || 'Setting up environment…'}</span>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <ComposerPrimitive.Root className="cdPanelComposer">
       <ComposerQuoteChip />

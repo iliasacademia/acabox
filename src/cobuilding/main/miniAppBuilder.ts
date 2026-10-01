@@ -123,7 +123,7 @@ export async function buildMiniApp(workspacePath: string, dirName: string): Prom
         ok: false,
         reason: 'source-missing',
         exitCode: 1,
-        error: 'src/App.tsx has not been written yet. If Claude is building this tool, it is still writing the source — the tool will build once the file exists.',
+        error: "This tool's code (src/App.tsx) hasn't been written yet. If I'm still building it, it will build once the file exists.",
       };
     }
   }

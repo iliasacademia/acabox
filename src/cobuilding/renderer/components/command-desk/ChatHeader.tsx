@@ -4,11 +4,12 @@ import { MSymbol } from './MSymbol';
 import { formatSessionModelMeta, useSessionMeta } from './useSessionMeta';
 import { buildChatLink } from '../../../shared/chatLinks';
 import { formatCost } from '../../../shared/turnCost';
+import { isPlaceholderTitle } from '../../../shared/sessionTitle';
 import type { FC } from 'react';
 
 /**
  * Chat view header (56px, Phase B spec): back to the chat list, title,
- * mono meta, GENERATING chip while a turn runs, and per-chat actions —
+ * mono meta, WORKING chip while a turn runs, and per-chat actions —
  * "Open tool" (when the chat belongs to a mini-app), rename, delete.
  */
 
@@ -100,7 +101,11 @@ export const ChatHeader: FC<ChatHeaderProps> = ({ onBack, onOpenTool }) => {
     onBack();
   }, [remoteId, runtime, onBack]);
 
-  const isNewChat = !title || isEmpty;
+  // "Still waiting for a name" is a fact about the TITLE the header renders,
+  // not about whether the thread has messages: `thread.isEmpty` stayed true
+  // after the first reply landed, which left the hint up beside a real title
+  // until the user navigated away.
+  const isNewChat = isPlaceholderTitle(title);
   // pickerNonce is read so the empty-chat fallback re-evaluates on picker changes.
   void pickerNonce;
   const modelMeta = formatSessionModelMeta(meta, isEmpty);
@@ -128,11 +133,11 @@ export const ChatHeader: FC<ChatHeaderProps> = ({ onBack, onOpenTool }) => {
         </span>
       )}
       <span className="cdChatHeader__meta">
-        {[modelMeta, isNewChat ? 'NAMES ITSELF AFTER THE FIRST REPLY' : null]
+        {[modelMeta, isNewChat ? 'TITLE COMES AFTER THE FIRST REPLY' : null]
           .filter(Boolean)
           .join(' · ')}
         {costLabel && (
-          <span title="Estimated at list price by the Claude Agent SDK.">
+          <span title="Estimated at list price.">
             {modelMeta || isNewChat ? ' · ' : ''}{costLabel} so far
           </span>
         )}
@@ -140,7 +145,7 @@ export const ChatHeader: FC<ChatHeaderProps> = ({ onBack, onOpenTool }) => {
       {isRunning && (
         <span className="cdStatusChip">
           <span className="cdDot cdDot--busy cdDot--pulse" />
-          GENERATING
+          WORKING
         </span>
       )}
       <span className="cdChatHeader__spacer" />

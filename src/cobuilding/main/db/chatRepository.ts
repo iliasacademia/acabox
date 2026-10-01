@@ -2,8 +2,10 @@ import { getDatabase } from './database';
 import { proseMatchClause } from './chatSearch';
 import { parseCostRow, type CostRow } from '../../shared/turnCost';
 
-/** Placeholder title a session row is created with (matches the schema default). */
-export const DEFAULT_SESSION_TITLE = 'New Chat';
+import { DEFAULT_SESSION_TITLE } from '../../shared/sessionTitle';
+
+// Re-exported for the main-process callers that already import it from here.
+export { DEFAULT_SESSION_TITLE };
 
 export interface Session {
   id: string;
@@ -48,9 +50,11 @@ export function createSession(
 ): void {
   getDatabase()
     .prepare(
-      'INSERT OR IGNORE INTO sessions (id, workspace_id, source, document_path, app_dir_name) VALUES (?, ?, ?, ?, ?)',
+      // The title is passed rather than left to the schema default, which
+      // still says 'New Chat' on every existing database.
+      'INSERT OR IGNORE INTO sessions (id, workspace_id, source, document_path, app_dir_name, title) VALUES (?, ?, ?, ?, ?, ?)',
     )
-    .run(id, workspaceId, source, documentPath, appDirName);
+    .run(id, workspaceId, source, documentPath, appDirName, DEFAULT_SESSION_TITLE);
 }
 
 /**
@@ -130,8 +134,8 @@ export function setSessionDocumentPath(
 ): void {
   const db = getDatabase();
   db.prepare(
-    'INSERT OR IGNORE INTO sessions (id, workspace_id, document_path) VALUES (?, ?, ?)',
-  ).run(id, workspaceId, documentPath);
+    'INSERT OR IGNORE INTO sessions (id, workspace_id, document_path, title) VALUES (?, ?, ?, ?)',
+  ).run(id, workspaceId, documentPath, DEFAULT_SESSION_TITLE);
   db.prepare(
     'UPDATE sessions SET document_path = ? WHERE id = ? AND document_path IS NULL',
   ).run(documentPath, id);

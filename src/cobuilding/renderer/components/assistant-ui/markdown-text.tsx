@@ -14,7 +14,6 @@ import { type FC, memo, useEffect, useMemo, useState } from 'react';
 import { CheckIcon, CopyIcon } from 'lucide-react';
 
 import { TooltipIconButton } from './tooltip-icon-button';
-import { ApprovalParagraph, ApprovalList } from './approval-buttons';
 import { AnchorWithDoi, parseAgentHtml } from './doi-link';
 
 /** Detect if content is HTML (starts with a tag like <article>, <div>, <p>, etc.) */
@@ -183,7 +182,7 @@ const useCopyToClipboard = ({
 
 const ParagraphWithDoiLinks = (props: any) => {
   const children = autolinkChildren(props.children, 'p');
-  return <ApprovalParagraph {...props}>{children}</ApprovalParagraph>;
+  return <p {...props}>{children}</p>;
 };
 
 const ListItemWithDoiLinks = (props: any) => (
@@ -196,7 +195,6 @@ const TableCellWithDoiLinks = (props: any) => (
 
 const defaultComponents = memoizeMarkdownComponents({
   p: ParagraphWithDoiLinks as any,
-  ul: ApprovalList as any,
   li: ListItemWithDoiLinks as any,
   td: TableCellWithDoiLinks as any,
   a: ({ href, children, ...props }) => (

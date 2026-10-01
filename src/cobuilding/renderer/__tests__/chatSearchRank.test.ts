@@ -75,7 +75,7 @@ describe('rankSearchRows', () => {
     expect(rows[0].titleMatch).toBe(true);
   });
 
-  it('treats a missing title as "New Chat"', () => {
+  it('treats a missing title as "New chat"', () => {
     const rows = rankSearchRows(['t1'], { t1: { remoteId: 's1' } }, 'new chat', new Map());
     expect(rows).toHaveLength(1);
     expect(rows[0].titleMatch).toBe(true);

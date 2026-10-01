@@ -454,7 +454,7 @@ describe('validateImportedSkill', () => {
 
   it('rejects an id the SDK already owns', () => {
     const problems = validateImportedSkill('simplify', fm());
-    expect(problems).toEqual([{ level: 'error', message: expect.stringContaining('Claude Agent SDK ships') }]);
+    expect(problems).toEqual([{ level: 'error', message: expect.stringContaining('name of a built-in skill') }]);
   });
 
   it('rejects an id outside the spec charset', () => {

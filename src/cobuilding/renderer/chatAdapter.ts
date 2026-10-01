@@ -168,6 +168,10 @@ export function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefO
       const response = responseBuilder(threadId);
       resetProgress(threadId);
 
+      // Marking the message "stopped" is NOT done from here: assistant-ui
+      // discards everything this generator yields once the signal is aborted
+      // and sets `{ incomplete, cancelled }` itself, so `custom.stopped` could
+      // never land. The thread reads that status instead (`isStoppedMessage`).
       const onAbort = () => window.chatAPI.stopResponding(threadId);
       abortSignal.addEventListener('abort', onAbort, { once: true });
 

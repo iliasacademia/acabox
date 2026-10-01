@@ -27,7 +27,7 @@ export function toolStatusLabel(status: ToolRuntimeStatus): string | null {
   switch (status.kind) {
     case 'buildFailed': return 'BUILD FAILED';
     case 'building': return 'BUILDING';
-    case 'installing': return 'FIRST BOOT';
+    case 'installing': return 'SETTING UP';
     case 'working': return 'WORKING';
     case 'interrupted':
       // A command outlives the app, so we genuinely don't know how it ended;

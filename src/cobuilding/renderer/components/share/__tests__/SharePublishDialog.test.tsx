@@ -196,7 +196,7 @@ describe('SharePublishDialog', () => {
     expect(rowText('Code')).toBe('1 file · 100 B');
     expect(rowText('Output')).toBe('2 files · 2.0 KB');
     expect(rowText('Input')).toBe('4 files · 4.0 KB');
-    expect(rowText('Vendor')).toBe('5 files · 50 KB');
+    expect(rowText('Libraries')).toBe('5 files · 50 KB');
     expect(rowText('Total')).toBe('12 files · 56 KB');
     expect(container.textContent).toContain('Publish "DNA Toolkit"');
   });

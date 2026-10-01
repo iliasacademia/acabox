@@ -182,7 +182,7 @@ function categoryOf(p: PartLite): Category {
     case 'WebFetch':
       return { key: 'fetch', phrase: (n) => `fetched ${plural(n, 'page', 'pages')}` };
     case 'Agent':
-      return { key: 'agent', phrase: (n) => `ran ${plural(n, 'agent', 'agents')}` };
+      return { key: 'agent', phrase: (n) => `ran ${plural(n, 'helper', 'helpers')}` };
     case 'Skill':
       return { key: 'skill', phrase: (n) => `used ${plural(n, 'skill', 'skills')}` };
     case 'TodoWrite':
@@ -236,6 +236,42 @@ export function formatWorkedFor(ms: number): string {
   const s = total % 60;
   if (h > 0) return `${h}h ${m}m`;
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
+interface MessageStatusLite {
+  type?: string;
+  reason?: string;
+}
+
+/**
+ * Did a Stop end this message? A reloaded turn says so through the `stopped`
+ * flag the history converter sets. A LIVE turn cannot: assistant-ui drops
+ * anything the run generator yields after the abort signal fires and writes
+ * `{ incomplete, cancelled }` itself, so that status is the only live evidence
+ * and counts the same. Without it a live Stop read "Worked · 3 steps" until
+ * the chat was reloaded.
+ */
+export function isStoppedMessage(
+  status: MessageStatusLite | undefined,
+  custom: Record<string, unknown> | undefined,
+): boolean {
+  if (custom?.stopped === true) return true;
+  return status?.type === 'incomplete' && status.reason === 'cancelled';
+}
+
+/**
+ * A finished (or cancelled) assistant message with no parts and no error is an
+ * empty shell — the placeholder created when the run started, left behind when
+ * the user pressed Stop before anything arrived. It must render nothing, not a
+ * bubble holding only a timestamp.
+ */
+export function isEmptyFinishedMessage(
+  status: MessageStatusLite | undefined,
+  partCount: number,
+): boolean {
+  if (partCount > 0) return false;
+  if (status?.type === 'running') return false;
+  return !(status?.type === 'incomplete' && status.reason === 'error');
 }
 
 /**

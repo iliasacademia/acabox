@@ -34,14 +34,14 @@ function focusComposer() {
 function toolCardMetric(app: MiniAppEntry): string {
   if (app.lastRun) return `LAST RUN ${relTimeShort(app.lastRun)}`;
   if (app.lastOpened) return `OPENED ${relTimeShort(app.lastOpened)}`;
-  return app.preBuilt ? 'PRE-BUILT' : 'NEW';
+  return 'NEW';
 }
 
 /**
  * Home screen ("Command Desk"). The Tools grid shows the user's mini-apps.
  *
  * A card carries a status chip only when there is something to report —
- * WORKING, BUILDING, FIRST BOOT or BUILD FAILED. An idle tool shows no chip at
+ * WORKING, BUILDING, SETTING UP or BUILD FAILED. An idle tool shows no chip at
  * all, so any chip on this screen means the tool is genuinely doing something.
  * (This used to read RUNNING for every tool with an open viewer tab, which is
  * not the same thing as running.)
@@ -148,7 +148,7 @@ export function CommandDesk({
           >
             <MSymbol name="add" size={22} />
             <span className="cdCard__newTitle">Build a new tool</span>
-            <span className="cdCard__newSub">Describe it below — ACABOX scaffolds it</span>
+            <span className="cdCard__newSub">Describe it below and I'll build it.</span>
           </div>
         </div>
 

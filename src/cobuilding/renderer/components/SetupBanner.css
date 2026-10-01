@@ -8,13 +8,6 @@
   flex-shrink: 0;
 }
 
-.setupBanner--done {
-  background: #1a7f37;
-  padding: 8px 16px;
-  text-align: center;
-  animation: setupBanner-fadeOut 2s ease forwards;
-}
-
 .setupBanner--error {
   background: #e57373;
 }
@@ -26,19 +19,10 @@
   margin-bottom: 6px;
 }
 
-.setupBanner__progressTrack {
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.25);
-  overflow: hidden;
-}
-
-.setupBanner__progressBar {
-  height: 100%;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.9);
-  transition: width 0.4s ease;
-  width: 0%;
+.setupBanner__details {
+  margin-top: 6px;
+  font-family: var(--cd-mono, monospace);
+  word-break: break-word;
 }
 
 .setupBanner__detail {
@@ -66,9 +50,4 @@
 
 .setupBanner__retryBtn:hover {
   background: rgba(0, 0, 0, 0.35);
-}
-
-@keyframes setupBanner-fadeOut {
-  0%, 70% { opacity: 1; }
-  100% { opacity: 0; }
 }

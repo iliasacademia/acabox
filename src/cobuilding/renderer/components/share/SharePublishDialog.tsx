@@ -204,7 +204,7 @@ export const SharePublishDialog: React.FC<SharePublishDialogProps> = ({ dirName,
                   <SummaryRow label="Code" group={plan.summary.code} />
                   <SummaryRow label="Output" group={plan.summary.output} />
                   <SummaryRow label="Input" group={plan.summary.input} notIncluded={!includeInput} />
-                  <SummaryRow label="Vendor" group={plan.summary.vendor} />
+                  <SummaryRow label="Libraries" group={plan.summary.vendor} />
                   <SummaryRow label="Total" group={plan.summary.total} total />
                 </tbody>
               </table>

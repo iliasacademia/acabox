@@ -50,7 +50,8 @@ function resolveClaudeBinary(): { bin: string } | { error: string } {
   });
   const bin = candidates.find((candidate) => fs.existsSync(candidate));
   if (bin) return { bin };
-  return { error: `Claude executable not found. Looked in:\n  ${candidates.join('\n  ')}` };
+  log.warn(`[ClaudeDesign] CLI binary not found. Looked in: ${candidates.join(', ')}`);
+  return { error: "Acabox can't find the part it needs to sign in. Reinstall Acabox and try again." };
 }
 
 function spawnDesignLogin(bin: string, args: string[]): ChildProcess {

@@ -6,7 +6,6 @@ import { CodeView, languageForPath } from './CodeView';
 import { useKernel } from './notebook/useKernel';
 import { NotebookViewer } from './notebook/NotebookViewer';
 import type { CellOutput } from './notebook/types';
-import { useSetupState } from '../setupStore';
 import { track as trackAnalytics } from '../coscientistAnalytics';
 import { captureError } from '../../shared/telemetry';
 import { MSymbol } from './command-desk/MSymbol';
@@ -37,9 +36,9 @@ interface RequestFixError {
  * `mcp:callTool`) is sub-second plumbing and would just strobe the chip.
  */
 const JOB_BRIDGE_KINDS: Record<string, { kind: 'kernel' | 'claude'; label: string }> = {
-  executeCode: { kind: 'kernel', label: 'Running code' },
-  'anthropic:complete': { kind: 'claude', label: 'Claude request' },
-  'anthropic:stream': { kind: 'claude', label: 'Claude request' },
+  executeCode: { kind: 'kernel', label: 'Running a step' },
+  'anthropic:complete': { kind: 'claude', label: 'Writing with Acabox' },
+  'anthropic:stream': { kind: 'claude', label: 'Writing with Acabox' },
 };
 
 function buildFixPrompt(appName: string, err: RequestFixError): string {
@@ -279,7 +278,7 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
     await window.filesAPI.showInFinder(appDir);
   }, [appDir]);
 
-  // "Send to chat — let it fix itself": opens the panel and posts the build
+  // "Ask me to fix it": opens the panel and posts the build
   // output as a user message in the tool's chat.
   const handleSendErrorToChat = useCallback(() => {
     if (rebuildState.kind !== 'error') return;
@@ -445,7 +444,7 @@ const MiniAppHeader: FC<{
       ) : awaiting ? (
         <span className="cdStatusChip">
           <span className="cdDot cdDot--busy cdDot--pulse" />
-          BEING WRITTEN
+          STILL WRITING
         </span>
       ) : isBuilding ? (
         <span className="cdStatusChip">
@@ -455,7 +454,7 @@ const MiniAppHeader: FC<{
       ) : installing ? (
         <span className="cdStatusChip">
           <span className="cdDot cdDot--busy cdDot--pulse" />
-          FIRST BOOT
+          SETTING UP
         </span>
       ) : working ? (
         <>
@@ -583,26 +582,31 @@ const BuildErrorView: FC<{
     <div className="cdBuildErr">
       <div className="cdBuildErr__col">
         <span className="cdBuildErr__eyebrow">BUILD FAILED · {hh}:{mm}</span>
-        <span className="cdBuildErr__title">Build failed.</span>
-        <span className="cdBuildErr__sub">The rebundle didn't come up. Full output:</span>
-        <pre className="cdBuildErr__out">{message}</pre>
+        <span className="cdBuildErr__title">This tool won't open right now.</span>
+        <span className="cdBuildErr__sub">
+          Something in its code needs fixing. The quickest fix is to let me do it.
+        </span>
         <div className="cdBuildErr__actions">
-          <button type="button" className="cdBtnPrimary cdBtnPrimary--36" onClick={onRebuild}>
-            <MSymbol name="refresh" size={16} />
-            Rebuild
+          <button type="button" className="cdBtnPrimary cdBtnPrimary--36" onClick={onSendToChat}>
+            <MSymbol name="forum" size={16} />
+            Ask me to fix it
           </button>
-          <button type="button" className="cdBtnXs cdBtnXs--sm" onClick={onSendToChat}>
-            <MSymbol name="forum" size={15} />
-            Send to chat — let it fix itself
+          <button type="button" className="cdBtnXs cdBtnXs--sm" onClick={onRebuild}>
+            <MSymbol name="refresh" size={15} />
+            Try again
           </button>
+        </div>
+        <details className="cdBuildErr__details">
+          <summary>Show details</summary>
+          <pre className="cdBuildErr__out">{message}</pre>
           <button
             type="button"
             className="cdTextLink"
             onClick={() => navigator.clipboard.writeText(message)}
           >
-            Copy output
+            Copy details
           </button>
-        </div>
+        </details>
       </div>
     </div>
   );
@@ -681,7 +685,7 @@ const PackageChecklistView: FC<{ packages: AppPackage[] }> = ({ packages }) => {
     <div className="cdInstallWrap">
       <div className="cdInstall">
         <div className="cdInstall__header">
-          <span className="cdInstall__title">FIRST BOOT — INSTALLING {total} PACKAGE{total === 1 ? '' : 'S'}</span>
+          <span className="cdInstall__title">SETTING UP — {total} THING{total === 1 ? '' : 'S'} TO INSTALL</span>
           <span className="cdInstall__count">{done}/{total}</span>
         </div>
         {packages.map((p) => (
@@ -702,10 +706,7 @@ const PackageChecklistView: FC<{ packages: AppPackage[] }> = ({ packages }) => {
 const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dirName, children }) => {
   const [containerReady, setContainerReady] = useState<boolean | null>(null);
   const [depsReady, setDepsReady] = useState<boolean | null>(null);
-  const setup = useSetupState();
-  const statusMessage = (setup.state === 'downloading' || setup.state === 'pending')
-    ? (setup.message || 'Setting up environment...')
-    : 'Waiting for container...';
+  const statusMessage = 'Starting Acabox…';
 
   // The tool's package list + each one's current state/line, used for the
   // per-package checklist while deps are installing.
@@ -862,7 +863,7 @@ const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dir
   if (depsReady === null) return null;
   if (!depsReady) {
     if (packages === null) return null;  // still fetching the install plan
-    if (packages.length === 0) return <CenteredMonoStatus label="FIRST BOOT — INSTALLING" />;
+    if (packages.length === 0) return <CenteredMonoStatus label="SETTING UP — INSTALLING" />;
     return <PackageChecklistView packages={packages} />;
   }
 
@@ -1238,10 +1239,11 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
   if (loadError) {
     return (
       <div style={{ padding: 24, color: '#888' }}>
-        <p>Could not load application <strong>{dirName}</strong>.</p>
-        <p style={{ fontSize: 13, marginTop: 8 }}>
+        <p>This tool's page couldn't be opened. Try Rebuild, or ask me to fix it.</p>
+        <details style={{ fontSize: 13, marginTop: 8 }}>
+          <summary>Details</summary>
           Expected: <code>{nativeToolUrl || `${appDir}/src/index.html`}</code>
-        </p>
+        </details>
       </div>
     );
   }
@@ -1372,7 +1374,7 @@ const SourceViewer: FC<{
     <div className="sourceViewer">
       {rebuildState.kind === 'error' && (
         <div className="sourceViewerRebuildError">
-          <div className="sourceViewerRebuildErrorTitle">Build failed</div>
+          <div className="sourceViewerRebuildErrorTitle">This tool couldn't be built</div>
           <pre className="sourceViewerRebuildErrorMessage">{rebuildState.message}</pre>
         </div>
       )}

@@ -948,7 +948,7 @@ describe('create, write, delete, enable', () => {
   });
 
   it('refuses a reserved, malformed or duplicate id', async () => {
-    expect((await createSkill('update-config')).error).toMatch(/Claude Agent SDK ships/);
+    expect((await createSkill('update-config')).error).toMatch(/name of a built-in skill/);
     expect((await createSkill('My Skill')).error).toMatch(/Invalid name/);
     await createSkill('taken');
     expect((await createSkill('taken')).error).toMatch(/already exists/);

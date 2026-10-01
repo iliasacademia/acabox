@@ -70,7 +70,7 @@ const ToolFallbackImpl: ToolCallMessagePartComponent = (props: any) => {
   } else if (isCancelled) {
     meta = <span className="cdTool__meta">CANCELLED</span>;
   } else if (failed) {
-    meta = <span className="cdTool__meta cdTool__meta--error">{extractExitMeta(toolName, args, argsText, outputText) ?? 'ERROR'}</span>;
+    meta = <span className="cdTool__meta cdTool__meta--error">FAILED</span>;
   } else if (finalElapsed != null) {
     meta = <span className="cdTool__meta">{formatToolSeconds(finalElapsed)}</span>;
   } else {
@@ -120,18 +120,6 @@ const ToolFallbackImpl: ToolCallMessagePartComponent = (props: any) => {
     </div>
   );
 };
-
-/** "EXIT 1" when a Bash failure reports its exit code; null otherwise. */
-function extractExitMeta(
-  toolName: string,
-  args: Record<string, unknown> | undefined,
-  argsText: string | undefined,
-  output: string,
-): string | null {
-  if (toolName !== 'Bash') return null;
-  const m = output.match(/exit(?:ed with)?(?: code| status)?[ :]+(\d+)/i);
-  return m ? `EXIT ${m[1]}` : null;
-}
 
 /** Line-count meta for file and shell instruments when no duration is known. */
 function resultLineMeta(

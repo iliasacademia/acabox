@@ -483,6 +483,24 @@
 }
 
 /* Message error strip */
+.cdBuildErr__details {
+  margin-top: 14px;
+  font-size: 12px;
+}
+.cdBuildErr__details > summary {
+  cursor: pointer;
+}
+
+.cdMsgError__details {
+  margin-top: 6px;
+  font-size: 11px;
+  opacity: 0.85;
+  word-break: break-word;
+}
+.cdMsgError__details > summary {
+  cursor: pointer;
+}
+
 .cdMsgError {
   border: 1px solid var(--cd-error);
   border-radius: 8px;
@@ -1298,23 +1316,6 @@
   letter-spacing: 0.08em;
   color: var(--cd-idle);
   text-transform: uppercase;
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   Shared progress bar (chat empty-state environment setup)
-   ═══════════════════════════════════════════════════════════════════ */
-
-.cdProgressBar {
-  height: 4px;
-  border-radius: 2px;
-  background: var(--cd-border-soft);
-  overflow: hidden;
-  margin-top: 10px;
-}
-.cdProgressBar__fill {
-  height: 100%;
-  background: var(--cd-ink);
-  transition: width 400ms ease-out;
 }
 
 /* ═══ Activity — running / needs attention / recently finished ═══ */

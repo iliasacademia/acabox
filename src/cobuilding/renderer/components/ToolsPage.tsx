@@ -134,7 +134,7 @@ function ToolRowSharing({
     return (
       <span className="cdStatusChip">
         {behind && <span className="cdDot cdDot--busy" />}
-        {behind ? 'SHARED · BEHIND' : 'SHARED'}
+        {behind ? 'SHARED · OUT OF DATE' : 'SHARED'}
       </span>
     );
   }
@@ -144,7 +144,7 @@ function ToolRowSharing({
     : !published
       ? 'NOT SHARED'
       : behind
-        ? 'SHARED · BEHIND'
+        ? 'SHARED · OUT OF DATE'
         : 'SHARED · UP TO DATE';
 
   const openDialog = () => onOpenDialog?.(app.dirName, app.name);
@@ -437,8 +437,6 @@ export function ToolsPage({
                           >
                             {app.name}
                           </button>
-                          {app.preBuilt && <span className="toolRow__tag toolRow__tag--prebuilt">PRE-BUILT</span>}
-                          <span className="toolRow__tag toolRow__tag--plain">ON-DEMAND</span>
                         </div>
                         {app.description && <div className="toolRow__description">{app.description}</div>}
                         {(() => {
@@ -544,7 +542,6 @@ export function ToolsPage({
                     <div className="toolRow__info">
                       <div className="toolRow__header">
                         <span className="toolRow__name toolRow__name--static">{app.name}</span>
-                        {app.preBuilt && <span className="toolRow__tag toolRow__tag--prebuilt">PRE-BUILT</span>}
                         <span className="toolRow__tag toolRow__tag--plain">ARCHIVED</span>
                       </div>
                       {app.description && <div className="toolRow__description">{app.description}</div>}

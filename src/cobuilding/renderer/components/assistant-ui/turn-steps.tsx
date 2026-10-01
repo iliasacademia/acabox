@@ -8,6 +8,7 @@ import {
   isFailed,
   isInstallCommand,
   isOutcomePart,
+  isStoppedMessage,
   segmentParts,
   summarizeSteps,
   turnFoldLabel,
@@ -223,7 +224,8 @@ export const AssistantParts: FC<{ components: PartComponents }> = ({ components 
     const v = s.message.metadata?.custom?.workedMs;
     return typeof v === 'number' && Number.isFinite(v) ? v : null;
   }) as number | null;
-  const stopped = useAuiState((s: any) => s.message.metadata?.custom?.stopped === true) as boolean;
+  const stopped = useAuiState((s: any) =>
+    isStoppedMessage(s.message.status, s.message.metadata?.custom)) as boolean;
   const costUsd = useAuiState((s: any) => {
     const v = s.message.metadata?.custom?.costUsd;
     return typeof v === 'number' && Number.isFinite(v) ? v : null;

@@ -27,6 +27,12 @@ import { replaceConnectorAllowedTools } from '../shared/connectors';
 import type { HostedServerPush } from '../shared/hostedMcp';
 import { API_BASE_ENV, API_TOKEN_ENV } from '../shared/apis';
 import { apiProxy, type ProxyCallerRef } from './apiProxy';
+import { withErrorDetails } from '../shared/errorDetails';
+
+/** Headline for a notebook whose Python session would not come up; the raw cause rides along as Details. */
+const KERNEL_START_FAILED =
+  "Acabox couldn't start Python for this notebook. Quit and reopen Acabox; if it still fails, the details may help.";
+
 
 const execFileAsync = promisify(execFile);
 
@@ -1050,16 +1056,17 @@ export class HostProcessService {
         return;
       }
       if (proc.exitCode !== null || proc.signalCode !== null) {
-        throw new Error(
+        throw new Error(withErrorDetails(
+          KERNEL_START_FAILED,
           `Kernel gateway exited before becoming healthy (code=${proc.exitCode}, signal=${proc.signalCode}). ` +
           `Is jupyter installed in ${getPythonVenvDir()}?`,
-        );
+        ));
       }
       await new Promise(r => setTimeout(r, 250));
     }
 
     this.killProc('kernelGatewayProc');
-    throw new Error('Kernel gateway failed to become healthy within 15s');
+    throw new Error(withErrorDetails(KERNEL_START_FAILED, 'Kernel gateway failed to become healthy within 15s'));
   }
 
   private async isKernelGatewayHealthy(timeoutMs = 1500): Promise<boolean> {

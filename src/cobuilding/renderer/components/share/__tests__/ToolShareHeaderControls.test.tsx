@@ -128,13 +128,13 @@ afterEach(async () => {
 });
 
 describe('ToolShareChip', () => {
-  it('reads "SHARED · BEHIND" with a busy dot when published and behind', async () => {
+  it('reads "SHARED · OUT OF DATE" with a busy dot when published and behind', async () => {
     installShareAPI({ published: samplePublished(), behind: true });
     await renderHeader();
 
     const chip = container.querySelector('.cdStatusChip');
     expect(chip).not.toBeNull();
-    expect(chip!.textContent).toBe('SHARED · BEHIND');
+    expect(chip!.textContent).toBe('SHARED · OUT OF DATE');
     expect(chip!.querySelector('.cdDot--busy')).not.toBeNull();
   });
 

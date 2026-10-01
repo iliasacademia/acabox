@@ -71,7 +71,7 @@ const ComposerBody: FC = () => {
         <ComposerPrimitive.Input
           placeholder={
             isEmpty
-              ? 'What are we building? — describe a tool, paste a repo, or ask'
+              ? 'What should I do? — describe an analysis, a tool, or a question about your files'
               : 'Reply — or ask for the next change'
           }
           className="cdComposerInput"
