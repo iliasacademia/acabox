@@ -43,31 +43,44 @@ export function parseCostRow(content: unknown): CostRow {
 
 /**
  * Per-turn cost for each row, in order. `null` where it cannot be known.
+ *
+ * The first costed row after one or more result rows WITHOUT a cost is also
+ * null: its cumulative total already includes those earlier turns (a chat that
+ * predates cost tracking, or a turn the host closed without a CLI result), so
+ * presenting it as one turn's cost would overstate it. It still becomes the
+ * baseline, and `chatTotalCost` still counts it.
  */
 export function turnCosts(rows: readonly CostRow[]): Array<number | null> {
   let prev: number | null = null;
+  let sawUncosted = false;
   return rows.map((row) => {
     const v = row.totalCostUsd;
-    if (v === null || !Number.isFinite(v) || v <= 0) return null;
-    const cost = prev === null || v < prev ? v : v - prev;
+    if (v === null || !Number.isFinite(v) || v <= 0) {
+      if (prev === null) sawUncosted = true;
+      return null;
+    }
+    let cost: number | null;
+    if (prev === null) cost = sawUncosted ? null : v;
+    else cost = v < prev ? v : v - prev;
     prev = v;
     return cost;
   });
 }
 
 /**
- * The chat's total: the sum of the per-turn costs (equivalently, each restart
- * segment's last value). `null` when no row carries a cost at all.
+ * The chat's total: each restart segment's last cumulative value, summed.
+ * `null` when no row carries a cost at all.
  */
 export function chatTotalCost(rows: readonly CostRow[]): number | null {
   let sum = 0;
-  let any = false;
-  for (const c of turnCosts(rows)) {
-    if (c === null) continue;
-    sum += c;
-    any = true;
+  let prev: number | null = null;
+  for (const row of rows) {
+    const v = row.totalCostUsd;
+    if (v === null || !Number.isFinite(v) || v <= 0) continue;
+    if (prev !== null && v < prev) sum += prev;
+    prev = v;
   }
-  return any ? sum : null;
+  return prev === null ? null : sum + prev;
 }
 
 /** `<$0.01`, then two decimals. Missing, non-finite or non-positive -> null (render nothing). */

@@ -46,6 +46,14 @@ describe('turnCosts', () => {
   it('is unknown for a stopped turn that has no cost (a host-authored stop row)', () => {
     expect(turnCosts([row(null, null)])).toEqual([null]);
   });
+
+  it('does not present the first costed row after uncosted ones as one turn (it carries the earlier turns)', () => {
+    // A chat from before cost tracking: two legacy result rows, then the
+    // first tracked turn, whose cumulative 2.0 includes the legacy spend.
+    const c = turnCosts([row(null, null), row(null, null), row('a', 2.0), row('b', 2.3)]);
+    expect(c[2]).toBeNull();
+    expect(c[3]).toBeCloseTo(0.3);
+  });
 });
 
 describe('chatTotalCost', () => {
@@ -54,6 +62,9 @@ describe('chatTotalCost', () => {
   });
   it('adds each restart segment', () => {
     expect(chatTotalCost([row('a', 0.5), row('a', 0.7), row('b', 0.2), row('b', 0.5)])).toBeCloseTo(1.2);
+  });
+  it('still counts a legacy chat\'s first costed value, which carries the earlier spend', () => {
+    expect(chatTotalCost([row(null, null), row('a', 2.0), row('b', 2.3)])).toBeCloseTo(2.3);
   });
   it('ignores unknown rows', () => {
     expect(chatTotalCost([row('a', 0.5), row(null, null), row('a', 0)])).toBeCloseTo(0.5);
