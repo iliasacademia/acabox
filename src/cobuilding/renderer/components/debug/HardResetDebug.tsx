@@ -66,6 +66,7 @@ export const HardResetDebug: React.FC = () => {
             <li>All chats and message history (the databases are recreated empty)</li>
             <li>The list of shared folders, your research profile, file activity and scheduled tasks</li>
             <li>The whole agent workspace: every tool in <code>.applications/</code>, the saved data in <code>tool-data/</code>, notebooks, Claude-written servers in <code>.mcp-servers/</code>, and <code>.academia/</code></li>
+            <li>Every chat's saved agent transcript (nothing could resume them once the chats are gone)</li>
           </ul>
           <p style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 600, color: '#444' }}>
             These survive:
@@ -75,7 +76,7 @@ export const HardResetDebug: React.FC = () => {
             <li>Your API key, connectors and registered APIs (settings)</li>
             <li>Skills, including edits and imports</li>
             <li>Approved MCP servers (the copies Acabox runs), the Python environment and installed npm packages</li>
-            <li>Claude's own transcripts and sign-ins, and the logs</li>
+            <li>Connector sign-ins and the logs</li>
           </ul>
           <div style={{ display: 'flex', gap: 8 }}>
             <button

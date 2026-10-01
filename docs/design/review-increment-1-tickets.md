@@ -194,6 +194,30 @@ Waves: **1** = T01–T09 in parallel; **2** = T10, T11 once wave 1 is merged; **
 
 ---
 
-## T12 — One name, one voice (Q7, C21) — wave 3
+## T12 — One name, one voice (Q7, C21, C19) — wave 3, split in two
 
-Spec written after waves 1–2 merge, from `docs/design/review-2026-09-30/copy-jargon-audit.md`.
+Source list: `docs/design/review-2026-09-30/copy-jargon-audit.md` (cited below as `#N`). Line numbers there are from 2026-09-30 and have moved — find each string by grep. **Skip any string whose code was deleted by wave 1/2** (Debug, Quick Chat, Reactions, Podman rows, SYNCED, AGENTS LIVE, HEALTHY are already handled). Skip #83 (unreachable) and do not copy #67's invented "usually a minute or two".
+
+**The voice rules (both halves):**
+- Where Acabox speaks, it speaks in the **first person** ("I", "me"): "Ask me to fix it", "What should I do?". Where the UI labels something neutrally, use **Acabox** ("Starting Acabox…").
+- **"Claude" survives only** as a model name in the model picker (e.g. "Claude Opus 5.5"), in "Claude Design" (Anthropic's product), and in "Anthropic API key" contexts. Every other user-visible "Claude" becomes I/me/Acabox (audit §4 lists the sites; re-grep `Claude` in string literals and JSX text).
+- Nouns: **tool** (never mini-app/application in UI), **chat** (never conversation/session), **your folders** (never workspace directories), **Show in Finder**, **New chat** (sentence case, including `DEFAULT_SESSION_TITLE` — existing rows keep their stored title; any code that compares against the placeholder must accept both spellings).
+- Errors reaching a user: a plain headline + next step; raw text (paths, codes, compiler output) goes behind a "Details" disclosure or into the log, never as the headline.
+
+### T12a — agent identity, chat, tools, shell
+
+1. **Identity.** `main/hostApps/identityPreamble.ts`: replace "Never identify yourself as Claude; you are Acabox." with: "You are Acabox, built on Claude by Anthropic. If asked what you are, say so plainly — "I'm Acabox, built on Claude". Speak in the first person." Keep the rest. Add one paragraph: "The person you are working with is usually a scientist, not a programmer. Use plain language. Keep internal names — directory names, tool ids, error codes, `mcp__` names — out of replies unless asked; name the file, the column and the row count instead. End a turn that changed files by saying which files changed." Update `skills/acabox/SKILL.md`'s voice rule (~lines 39-42) to match (first person, named Acabox, built on Claude; never deny it). Then **delete `main/hostApps/`'s other files if they are a dead stub registry** (CLAUDE.md/review say its only live consumer is the identity preamble): move `IDENTITY_PREAMBLE` to `main/identityPreamble.ts`, update importers, delete the rest of the folder and anything only it used (e.g. `resolveSessionHostApp` in `agentSession.ts` if it only serves dropped host apps — read before deleting; keep behaviour for the remaining caller).
+2. **`CS:` → `▸`** in `renderer/chatPreviewStore.ts` and `thread-list.tsx` (search-hit prefix). `You:` stays.
+3. **Chat surfaces:** #13, #21 (Chats browse-mode empty state), #22, #23, #28 (one working word: chip `WORKING`; `GENERATING` gone; `THINKING…` only inside the thread), #30, #31, #32 (chips: "Summarise what's in my folders" · "Plot a dataset" · "Turn a spreadsheet into a dashboard"), #34, #47/#48/#49/#50 (funnel raw agent/host errors in main into the plain headlines given in the audit; raw text to the log), #51, #52, #172 (Files empty state).
+4. **Step rows (C19):** `renderer/components/assistant-ui/tool-card-display.ts` — use the model's `description` when present, falling back to the command (`description || cmd`, ~line 48); step names per #41 (`command`, `find files`, `search text`, `web page`, `helper`, `checklist`, `your files`); #42 `EXIT n` → `FAILED` (code stays in the expanded body); #43 humanize `mcp__x__y` → `x: y`; delete the dead labels #44 (`tool-labels.ts` dropped integrations) and `approval-buttons.tsx` (#54) if wave 1 left them. Update the step-row tests.
+5. **Tool viewer / build states:** #56 (`ON-DEMAND`), #57/#18 (`PRE-BUILT` branches — delete if no pre-built tool can exist), #64, #65 (build-failed screen: headline "This tool won't open right now.", sub "Something in its code needs fixing. The quickest fix is to let me do it.", primary "Ask me to fix it", secondary "Try again", raw output behind "Show details"), #66, #67 (`STILL WRITING` / "I'm still writing this tool." / "It shows up here as soon as I start on it and opens on its own when I finish."), #68, #69, #70, #73, #80, #81, #86, #87, #88, #89, #90, #179, #183, #187, #188 (container/npm wording only), #130 (delete dead Podman stages in `SetupBanner.tsx` and the `'downloading'` setup state + its "Setting up environment…" copy if nothing else sets it).
+
+### T12b — Settings, Knowledge, Servers, Activity copy
+
+1. **Settings:** #93, #94, #95 (section "Instructions for Acabox"; drop the `.academia/SOUL.md` path from the copy), #96, #97 (Rescan copy only — moving it is fine if trivial), #98, #100 (Base URL behind a "Advanced" disclosure), #103, #104 (transport chip off the row), #106, #107, #109, #110, #111, #112, #113, #114, #115, #117, #118, #119, #123, #124, #126 (Sharing intro — no repo path), #128, #129 (copy only).
+2. **Knowledge:** #131, #132, #133 (qPCR placeholders), #134–#146, #149–#155.
+3. **Servers:** #156–#167 (copy only; hide `pid`/command on the row per #158 — keep them in the detail panel under a "Technical details" fold), #171.
+4. **Files/notebooks/dialogs:** #173, #174, #175, #176 (copy only), #180, #181, #182, #184 (headline + Details), #185.
+5. Update tests that assert any changed string.
+
+Both halves: gate green; a final grep for `Claude` in renderer string literals/JSX must show only model names, "Claude Design" and Anthropic-key contexts — list the survivors in the report.
