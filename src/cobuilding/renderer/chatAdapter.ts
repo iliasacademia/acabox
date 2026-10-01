@@ -1,4 +1,5 @@
 import { useMemo, useRef } from 'react';
+import { isUserCancel } from './userCancel';
 import type {
   ChatModelAdapter,
   ThreadAssistantMessagePart,
@@ -294,6 +295,14 @@ export function createElectronChatAdapter(aui: any, onSendRef: React.MutableRefO
           yield { content: response.getContent() };
         }
         console.log(`[ChatAdapter] Stream loop ended for ${threadId}, total events=${eventCount}`);
+        // assistant-ui marks the message `incomplete / cancelled` only if the
+        // generator yields again after the abort or throws an AbortError —
+        // returning normally reads as `complete`, and the thread then said
+        // "Worked" for a turn the user stopped (measured live 2026-10-01).
+        // Rethrow the runtime's own reason for a user Stop; a detach (switching
+        // threads mid-turn, `detach: true`) keeps returning normally, since
+        // that turn is still running in main.
+        if (isUserCancel(abortSignal.reason)) throw abortSignal.reason;
       } finally {
         abortSignal.removeEventListener('abort', onAbort);
         resetProgress(threadId);
