@@ -15,6 +15,7 @@ beforeAll(() => {
     readDirectory: mockReadDirectory,
     revealInFinder: jest.fn(),
     deleteFile: jest.fn(),
+    trashFile: jest.fn(),
     renameFile: jest.fn(),
     copyToWorkspace: jest.fn(),
     moveFile: jest.fn(),
@@ -365,5 +366,92 @@ describe('FilesTab – Share / Copy link / Unpublish (context menu)', () => {
     expect(labels).not.toContain('Share…');
     expect(labels).not.toContain('Copy link');
     expect(labels).not.toContain('Unpublish');
+  });
+});
+
+describe('FilesTab – Move to Trash', () => {
+  const trashFile = () => (window as any).filesAPI.trashFile as jest.Mock;
+  let confirmSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    confirmSpy = jest.spyOn(window, 'confirm');
+  });
+  afterEach(() => {
+    confirmSpy.mockRestore();
+  });
+
+  function rowFor(name: string): HTMLElement {
+    const nameEl = Array.from(container.querySelectorAll('.fileTreeName')).find(
+      (el) => el.textContent === name,
+    );
+    if (!nameEl) throw new Error(`row not found: ${name}`);
+    return nameEl.closest('.fileTreeRow') as HTMLElement;
+  }
+
+  function contextMenuOn(row: HTMLElement) {
+    return act(async () => {
+      row.dispatchEvent(
+        new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }),
+      );
+    });
+  }
+
+  function trashButton(): HTMLButtonElement | undefined {
+    return Array.from(container.querySelectorAll('.fileTreeContextMenuItem')).find(
+      (b) => b.textContent === 'Move to Trash',
+    ) as HTMLButtonElement | undefined;
+  }
+
+  async function renderWithData() {
+    mockReadDirectory.mockResolvedValueOnce([
+      { name: 'Data.csv', path: '/workspace/Data.csv', isDirectory: false },
+    ]);
+    await act(async () => {
+      root.render(
+        <FilesTab
+          workspacePath="/workspace"
+          userDirectories={[
+            {
+              id: 'd1', workspace_id: 'w', directory_path: '/Users/x/MyResearch',
+              display_name: 'MyResearch', sort_order: 0, created_at: '', source: 'local',
+              read_only: false,
+            },
+          ]}
+          onSelectFile={jest.fn()}
+        />,
+      );
+    });
+    await flushPromises();
+  }
+
+  it('renders no hover trash button on rows', async () => {
+    await renderWithData();
+    expect(container.querySelector('[title="Delete"]')).toBeNull();
+    expect(container.querySelector('.fileTreeRowAction--delete')).toBeNull();
+  });
+
+  it('offers no Move to Trash on a shared-folder root', async () => {
+    await renderWithData();
+    await contextMenuOn(rowFor('MyResearch'));
+    expect(trashButton()).toBeUndefined();
+  });
+
+  it('does not trash when the confirm is cancelled', async () => {
+    confirmSpy.mockReturnValue(false);
+    await renderWithData();
+    await contextMenuOn(rowFor('Data.csv'));
+    await act(async () => { trashButton()!.click(); });
+    expect(confirmSpy).toHaveBeenCalledWith('Move "Data.csv" to the Trash?');
+    expect(trashFile()).not.toHaveBeenCalled();
+    expect((window as any).filesAPI.deleteFile).not.toHaveBeenCalled();
+  });
+
+  it('trashes the path when the confirm is accepted', async () => {
+    confirmSpy.mockReturnValue(true);
+    await renderWithData();
+    await contextMenuOn(rowFor('Data.csv'));
+    await act(async () => { trashButton()!.click(); });
+    expect(trashFile()).toHaveBeenCalledWith('/workspace/Data.csv');
+    expect((window as any).filesAPI.deleteFile).not.toHaveBeenCalled();
   });
 });

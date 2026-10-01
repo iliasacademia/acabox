@@ -9,7 +9,6 @@ import {
   FolderPlusIcon,
   PencilIcon,
   RefreshCwIcon,
-  TrashIcon,
   FileTextIcon,
 } from 'lucide-react';
 import DirectoryPermBadge from './DirectoryPermBadge';
@@ -365,12 +364,25 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
     }
   }, []);
 
-  const handleDelete = useCallback(async () => {
+  // Shared-folder roots (depth 0) and the workspace root are never offered for
+  // the Trash: removing one is "stop sharing", not a file operation.
+  const isRootPath = useCallback(
+    (p: string) => p === workspacePath || localDirs.some((d) => d.directory_path === p),
+    [workspacePath, localDirs],
+  );
+
+  const handleTrash = useCallback(async () => {
     if (!contextMenu) return;
+    const { node } = contextMenu;
     setContextMenu(null);
-    await window.filesAPI.deleteFile(contextMenu.node.path);
+    if (isRootPath(node.path)) return;
+    const detail = node.isDirectory
+      ? '\n\nEverything inside it goes too. You can restore it from the Trash in Finder.'
+      : '';
+    if (!window.confirm(`Move "${node.name}" to the Trash?${detail}`)) return;
+    await window.filesAPI.trashFile(node.path);
     await refreshTree();
-  }, [contextMenu, refreshTree]);
+  }, [contextMenu, isRootPath, refreshTree]);
 
   const handleRenameStart = useCallback(() => {
     if (!contextMenu) return;
@@ -445,14 +457,6 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
   const handleRenameNodePath = useCallback((path: string) => {
     setRenamingPath(path);
   }, []);
-
-  const handleDeleteNodePath = useCallback(
-    async (path: string) => {
-      await window.filesAPI.deleteFile(path);
-      await refreshTree();
-    },
-    [refreshTree],
-  );
 
   const handleRenameCommit = useCallback(async (filePath: string, newName: string) => {
     setRenamingPath(null);
@@ -627,7 +631,6 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
               onRenameCommit={handleRenameCommit}
               onRenameCancel={handleRenameCancel}
               onRenameRequest={handleRenameNodePath}
-              onDeleteRequest={handleDeleteNodePath}
               creatingIn={creatingIn}
               onCreateCommit={handleCreateCommit}
               onCreateCancel={handleCreateCancel}
@@ -657,7 +660,6 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
             onRenameCommit={handleRenameCommit}
             onRenameCancel={handleRenameCancel}
             onRenameRequest={handleRenameNodePath}
-            onDeleteRequest={handleDeleteNodePath}
             creatingIn={creatingIn}
             onCreateCommit={handleCreateCommit}
             onCreateCancel={handleCreateCancel}
@@ -759,9 +761,11 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
               </>
             );
           })()}
-          <button className="fileTreeContextMenuItem fileTreeContextMenuItem--destructive" onClick={handleDelete}>
-            Delete
-          </button>
+          {!isRootPath(contextMenu.node.path) && (
+            <button className="fileTreeContextMenuItem fileTreeContextMenuItem--destructive" onClick={handleTrash}>
+              Move to Trash
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -785,7 +789,6 @@ interface FileTreeNodeProps {
   onRenameCommit: (filePath: string, newName: string) => void;
   onRenameCancel: () => void;
   onRenameRequest: (path: string) => void;
-  onDeleteRequest: (path: string) => void | Promise<void>;
   creatingIn: { dirPath: string; type: 'file' | 'folder' } | null;
   onCreateCommit: (name: string) => void;
   onCreateCancel: () => void;
@@ -811,7 +814,6 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
   onRenameCommit,
   onRenameCancel,
   onRenameRequest,
-  onDeleteRequest,
   creatingIn,
   onCreateCommit,
   onCreateCancel,
@@ -966,17 +968,6 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
             >
               <PencilIcon style={{ width: 14, height: 14 }} />
             </button>
-            <button
-              type="button"
-              className="fileTreeRowAction fileTreeRowAction--delete"
-              title="Delete"
-              onClick={(e) => {
-                e.stopPropagation();
-                void onDeleteRequest(node.path);
-              }}
-            >
-              <TrashIcon style={{ width: 14, height: 14 }} />
-            </button>
           </div>
         )}
       </div>
@@ -1017,7 +1008,6 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
             onRenameCommit={onRenameCommit}
             onRenameCancel={onRenameCancel}
             onRenameRequest={onRenameRequest}
-            onDeleteRequest={onDeleteRequest}
             creatingIn={creatingIn}
             onCreateCommit={onCreateCommit}
             onCreateCancel={onCreateCancel}

@@ -2136,11 +2136,6 @@ body.cobuild-resizing webview {
   color: #333;
 }
 
-.fileTreeRowAction--delete:hover {
-  background: rgba(204, 51, 51, 0.1);
-  color: #c33;
-}
-
 .fileTreeRowAction--word {
   color: #0645b1;
 }

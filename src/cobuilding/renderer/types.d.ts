@@ -32,6 +32,7 @@ interface FilesAPI {
   copyToWorkspace(sourcePaths: string[], destinationDir: string): Promise<{ copied: number }>;
   moveFile(sourcePath: string, destinationDir: string): Promise<void>;
   deleteFile(filePath: string): Promise<void>;
+  trashFile(filePath: string): Promise<void>;
   createFile(filePath: string): Promise<void>;
   createDirectory(dirPath: string): Promise<void>;
   renameFile(filePath: string, newName: string): Promise<void>;
@@ -598,6 +599,7 @@ declare global {
     copyToWorkspace(sourcePaths: string[], destinationDir: string): Promise<{ copied: number }>;
     moveFile(sourcePath: string, destinationDir: string): Promise<void>;
     deleteFile(filePath: string): Promise<void>;
+    trashFile(filePath: string): Promise<void>;
     createFile(filePath: string): Promise<void>;
     createDirectory(dirPath: string): Promise<void>;
     renameFile(filePath: string, newName: string): Promise<void>;
