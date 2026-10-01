@@ -109,6 +109,8 @@ import { apiProxy, callerWithGrants, performApiRequest, setToolGrantResolver } f
 import { allowedModelIds, DEFAULT_MODEL, mergeModels } from '../shared/models';
 import { discoveredModels, discoveryError, refreshModels } from './modelCatalog';
 import { API_CATALOG, interpretApiTest, type ApiConfig } from '../shared/apis';
+import { buildApiKeyStatus } from '../shared/apiKeyCheck';
+import { checkAnthropicKey } from './apiKeyCheck';
 import { decryptSecret, encryptSecret, isEncrypted, isEncryptionAvailable } from './secretStore';
 import { processCpuMonitor } from '../../utils/processCpuMonitor';
 import { convertReferenceFile } from './directoryScanner/agents/fileTagging';
@@ -2716,22 +2718,18 @@ ipcMain.handle('academia:fetch', async (_event, args: { method: string; endpoint
 });
 
 // Auth IPC handlers
-ipcMain.handle('auth:getApiKey', () => {
-  const { apiKey, baseURL } = getCredentials();
-  return { apiKey, baseURL };
-});
-
 // Boot gate for the renderer: does a usable Anthropic key exist (env or
-// settings)? Never returns the key itself. `source` lets Settings show where
-// the active key comes from (env keys are read-only from the UI's view).
+// settings)? Never returns the key itself — only `maskedKey`, computed here.
+// `source` lets Settings show where the active key comes from (env keys are
+// read-only from the UI's view).
 ipcMain.handle('auth:getApiKeyStatus', () => {
   const envKey = process.env.ANTHROPIC_API_KEY?.trim();
   const { apiKey, baseURL } = resolveApiKey();
-  return {
-    hasKey: !!apiKey,
+  return buildApiKeyStatus({
+    apiKey,
+    baseURL,
     source: envKey ? 'env' : (getCustomAnthropicKey() ? 'settings' : null),
-    baseURL: baseURL ?? null,
-  };
+  });
 });
 
 ipcMain.handle('auth:setApiKey', async (_event, key: string, baseURL?: string) => {
@@ -2758,6 +2756,10 @@ ipcMain.handle('auth:setApiKey', async (_event, key: string, baseURL?: string) =
   // key, the cached answer is an auth failure, and the whole point of this
   // save is that the key changed.
   void refreshModels({ apiKey: trimmed, baseURL: url }, true);
+  // Ask Anthropic whether it accepts the key. The key is already saved, so a
+  // rejection or a network failure never loses what the user pasted.
+  const check = await checkAnthropicKey(trimmed, url);
+  log.info(`[Auth] Key check: ${check.verdict}${check.detail ? ` (${check.detail})` : ''}`);
   // A failed push is not a failed save — the key is on disk and every future
   // session reads it — but it IS the case where a restart is genuinely needed,
   // so say so instead of reporting a clean success the next turn contradicts.
@@ -2765,9 +2767,10 @@ ipcMain.handle('auth:setApiKey', async (_event, key: string, baseURL?: string) =
     return {
       success: true,
       warning: 'Saved. The assistant was not reachable just now, so restart Acabox if the next message still reports a key problem.',
+      check,
     };
   }
-  return { success: true };
+  return { success: true, check };
 });
 
 // ─── Connectors IPC (user-configured MCP servers) ─────────────────

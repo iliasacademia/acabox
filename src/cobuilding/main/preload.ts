@@ -12,7 +12,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
 });
 
 contextBridge.exposeInMainWorld('authAPI', {
-  getApiKey: () => ipcRenderer.invoke('auth:getApiKey'),
   getApiKeyStatus: () => ipcRenderer.invoke('auth:getApiKeyStatus'),
   setApiKey: (key: string, baseURL?: string) => ipcRenderer.invoke('auth:setApiKey', key, baseURL),
   isDev: process.env.NODE_ENV === 'development',
