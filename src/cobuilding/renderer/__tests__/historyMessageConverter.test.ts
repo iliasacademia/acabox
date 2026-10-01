@@ -372,16 +372,18 @@ describe('turn cost', () => {
     { type: 'result', content: result, createdAt: `2026-09-22T1${n}:00:06.000` },
   ];
 
-  it('is the step between results of one run, and a restart on a new run', () => {
+  it('is the step between consecutive results, even across runs, and a restart when the total drops', () => {
     const rows = [
       ...turn(0, { subtype: 'success', is_error: false, run_id: 'a', total_cost_usd: 0.10 }),
       ...turn(1, { subtype: 'success', is_error: false, run_id: 'a', total_cost_usd: 0.35 }),
       ...turn(2, { subtype: 'success', is_error: false, run_id: 'b', total_cost_usd: 0.20 }),
+      ...turn(3, { subtype: 'success', is_error: false, run_id: 'c', total_cost_usd: 0.30 }),
     ];
     const assistants = (convertHistoryMessages(rows) as any[]).filter((m) => m.role === 'assistant');
     expect(assistants[0].metadata.custom.costUsd).toBeCloseTo(0.10);
     expect(assistants[1].metadata.custom.costUsd).toBeCloseTo(0.25);
     expect(assistants[2].metadata.custom.costUsd).toBeCloseTo(0.20);
+    expect(assistants[3].metadata.custom.costUsd).toBeCloseTo(0.10);
   });
 
   it('carries nothing for a row with no cost, and for a host-authored stop', () => {
