@@ -178,7 +178,87 @@ to `PATH`.
   SIGKILLs the suite mid-run and the tail prints `[exited with code 0]`
   from the pipe, which reads as a pass. Measured 2026-09-18.
 
-## Status (last updated 2026-09-30)
+## Status (last updated 2026-10-01)
+
+**Review increment 1 shipped: the truth-week fixes and the owner's four
+decisions (2026-10-01).** Twelve tickets from `docs/design/product-review-2026-09-30.md`,
+written in `docs/design/review-increment-1-tickets.md`, implemented by Sonnet
+agents in worktrees, reviewed, merged, and checked live over CDP on `npm start`.
+Owner decisions taken: **Opus 5.5 is the default model** (cost: $4/$20 vs
+$5/$25 — `DEFAULT_MODEL` in `shared/models.ts`); **folders writable by default,
+a lock enforced**; **one name** ("I'm Acabox, built on Claude" — the old "Never
+identify yourself as Claude" line is gone); **delete Quick Chat, Reactions and
+the R/DESeq2 skills; Debug dev-only**.
+- **Found during review, the most consequential bug of the batch: the user's
+  custom instructions never reached a chat.** `workspace.directory_path` is `''`
+  for every workspace (`createWorkspace` inserts it empty), so `agentSession`
+  read `SOUL.md` relative to the main process's cwd. Production holds 8,000
+  bytes of instructions the agent never saw. Now read from
+  `containerService.getAgentDir()`; proven live with a planted codeword.
+  **Anything else that joins `workspace.directory_path` is suspect** — the
+  attachment translation in `sendMessage` does too, but it only ever receives
+  workspace-relative paths, so it is dead rather than wrong (C16 deletes it).
+- **Stop (T02):** `chat:stop` → `stopSession` → `session.stop()` POSTs the new
+  agent-server `/sessions/:id/interrupt` (`queryInstance.interrupt()`), waits up
+  to 4 s for the CLI's own result, then destroys. Measured live: the CLI answers
+  in ~100 ms with `error_during_execution` / `terminal_reason: aborted_tools`,
+  the host tags it `stopped_by: 'user'`, and there is no "blames the sandbox"
+  reply. A turn still open at destroy gets a host `{subtype:'stopped'}` row;
+  `cleanupOrphanTurnRows` became `closeOrphanTurn`, which **appends** a
+  terminator instead of deleting (the next message after a Stop kept all 5
+  rows; yesterday's run lost 4). Two follow-ups found live and fixed: the CLI
+  records the interrupted tool as a rejection ("The user doesn't want to
+  proceed…"), which counted as FAILED — the converter now drops it; and a live
+  Stop read "Worked" because assistant-ui marks a run cancelled only when the
+  generator throws an AbortError — `chatAdapter` now rethrows the runtime's
+  reason for a user cancel (`renderer/userCancel.ts`; a detach keeps returning).
+- **Cost (T10):** result rows carry `total_cost_usd`/`duration_api_ms`/
+  `modelUsage`; fold line `· $0.14`, header `$3.40 so far`. **The rule is a delta
+  across the WHOLE chat, not per run**: the SDK documents that "a resumed …
+  session continues from the total its transcript saved", and every Acabox turn
+  is a resumed query — confirmed live (a torn-down-and-resumed session continued
+  $0.047 → $0.055 and the turn showed `<$0.01`). A drop is a restart; the first
+  costed row after uncosted ones (older chats) shows no per-turn figure.
+  `shared/turnCost.ts`. The stored `run_id` equals the chat id and is useless;
+  harmless.
+- **Lock (T05):** see Known hazards. Live: an Edit through the workspace link
+  was refused with "File is in a directory that is denied by your permission
+  settings"; the file was untouched.
+- **Hooks (T04):** both PreToolUse hooks parse with `/usr/bin/plutil -extract …
+  raw` (ships with every supported macOS; handles quotes, unicode, newlines and
+  JSON null), jq only as a fallback, and **fail closed** (exit 2) on a payload
+  they cannot read. Verified live: settings read and `pip install` both blocked.
+- **Also shipped:** Files-tab Delete → "Move to Trash" behind a confirm, never
+  on a root (T01, live: root refused, file trashed); scheduler clamps timers to
+  2^31−1 ms and offers Daily/Weekly at a set time instead of a day-of-month
+  step, repairs stale `running` rows at boot (T03); esbuild aliases react/
+  react-dom to the npm-site copy (T06); API key verified on save
+  (`shared/apiKeyCheck.ts`), never sent to the renderer — only `maskedKey`
+  (T09); `SYNCED`/`~/workspace-data`/`AGENTS 0 LIVE` gone, chip STARTING/READY/
+  OFFLINE from a real `agentAlive`/`gaveUp`, message and Home times parsed as UTC
+  (live: history read 18:16 for an 11:16 message before), ⌘K focuses chat search
+  (T11); Quick Chat + `processCpuMonitor` deleted, Debug hidden when packaged,
+  Export logs moved to Settings (T07); Reactions vertical, `reaction`/
+  `activity-summary`/`differential-expression` skills and the R template
+  deleted, scheduling migration 8 (T08); one voice across ~150 strings, plain
+  error headlines with Details (`main/userFacingError.ts`), `main/hostApps/`
+  deleted (T12a/b).
+- Verified: tsc clean; **2022/2022 across 150 suites**; `--smoke-test` exits 0;
+  `--smoke-test-mcp` PASS. Live on the dev channel: every item above marked
+  "live". **Not verified live:** the Opus 5.5 default on a fresh profile (the dev
+  profile has Haiku stored), the key-check verdicts on save (would overwrite the
+  dev key), the OFFLINE chip, and the build-failed/crash screens.
+- **Known, not fixed:** the chat header title does not update when the title
+  arrives (it shows `New chat` until navigation — pre-existing; the hint beside
+  it is now at least consistent with it); ChromeBar polls every 10 s, so it reads
+  STARTING for up to one poll after the agent is healthy; ModelSelector's effort
+  help still says "uses your limits" (#34); `preBuilt` branches are dead code;
+  agent-server still accepts the now-unused `additionalAllowedTools`. Two jest
+  suites (`skillImporter`, `skillImportService`) hit live GitHub unauthenticated
+  — nine parallel agents exhausted the 60/hour limit; they are not flaky, they
+  are rate-limited.
+
+## Status (2026-09-30)
 
 **Product review against other chatbot and vibecoding platforms, for
 non-technical scientists (2026-09-30).** Review only — no code changed. The
@@ -3122,10 +3202,13 @@ always boots straight into the Command Desk shell.
   the host now absorbs it, and the agent is told not to start pollers. Keeping
   sessions alive to make pollers real was deliberately NOT done — see the cost
   bullet in that entry.
-- **Read-only directories are advisory only.** The agent is told via
-  `workspaceDirectoriesGuidance` text, but `Write`/`Edit` still hit the
-  filesystem. Real enforcement would need a PreToolUse hook that checks the
-  DB read-only flag.
+- **A locked folder blocks the file tools, not the shell.** Since 2026-10-01 a
+  lock is SDK `permissions.deny` rules for `Edit`/`Write`/`NotebookEdit` on the
+  real path and the workspace symlink (`shared/readOnlyRules.ts`), verified
+  live. Bash can still write there; the agent is only told not to. Rules are
+  built at session create, so a lock applies to new chats. Folders are
+  writable unless locked (migration 34 unlocked every pre-existing row — the
+  old `readOnly = true` default was never chosen by anyone).
 - ~~**`findFreePort` probes the wrong interface — dev can hijack prod's agent
   server.**~~ **FIXED 2026-07-28** — see the Status entry. The probe now binds
   `127.0.0.1` (`main/freePort.ts`, extracted so it is unit-testable), and
