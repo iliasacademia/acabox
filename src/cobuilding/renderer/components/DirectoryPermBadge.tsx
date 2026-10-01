@@ -12,6 +12,7 @@ const DirectoryPermBadge: React.FC<DirectoryPermBadgeProps> = ({ readOnly, isTog
   <button
     type="button"
     className={`fileTreeDirPermBtn${readOnly ? ' fileTreeDirPermBtn--locked' : ''}`}
+    title="Applies to new chats."
     disabled={disabled ?? isToggling}
     onClick={(e) => { e.stopPropagation(); onToggle(e); }}
   >
@@ -21,7 +22,7 @@ const DirectoryPermBadge: React.FC<DirectoryPermBadgeProps> = ({ readOnly, isTog
         ? <LockIcon style={{ width: 12, height: 12 }} />
         : <LockOpenIcon style={{ width: 12, height: 12 }} />}
     <span className="fileTreeDirPermBtn__label">
-      {isToggling ? 'Applying…' : readOnly ? 'Read only' : 'Editable'}
+      {isToggling ? 'Applying…' : readOnly ? 'Locked — Acabox won\'t edit files here' : 'Lock'}
     </span>
   </button>
 );

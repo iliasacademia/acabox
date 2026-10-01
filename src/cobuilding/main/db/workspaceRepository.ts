@@ -60,7 +60,9 @@ export function addWorkspaceDirectory(
   sortOrder = 0,
   source: 'local' | 'google-drive' = 'local',
   metadata?: string | null,
-  readOnly = true,
+  // Writable unless the user chose to lock the folder. This used to default to
+  // true, which locked every folder nobody had chosen to lock.
+  readOnly = false,
 ): void {
   getDatabase()
     .prepare(

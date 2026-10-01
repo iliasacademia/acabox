@@ -684,6 +684,11 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
           // import — and the ones truncated first are the long, carefully
           // written ones that exist to catch oblique questions. 5% = 40,000.
           skillListingBudgetFraction: 0.05,
+          // Locked shared folders. A deny rule beats `allowedTools`, which is
+          // what makes the lock real; omitted entirely when nothing is locked.
+          ...(sessionConfig.permissionDeny?.length
+            ? { permissions: { deny: sessionConfig.permissionDeny } }
+            : {}),
         },
         // Acabox's relay servers, the user's connectors, and local hosted
         // servers (Increment 4) — see `mergeDynamicMcpServers`. Connector and
@@ -1086,6 +1091,7 @@ function startServer(initialConfig: AgentConfig): void {
           soulMd: body.soulMd,
           hostGuidance: body.hostGuidance,
           workspaceDirectoriesGuidance: body.workspaceDirectoriesGuidance,
+          permissionDeny: Array.isArray(body.permissionDeny) ? body.permissionDeny : undefined,
           apiGuidance: body.apiGuidance,
           model: body.model,
           effort: body.effort,
