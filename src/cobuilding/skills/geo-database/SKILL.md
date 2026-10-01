@@ -5,7 +5,7 @@ description: >
   metadata. Search for studies by gene, condition, tissue, or platform. Download and
   parse GSE series files (microarray, RNA-seq, ChIP-seq, proteomics). Use to find
   expression datasets for a gene of interest or to retrieve raw data for downstream
-  analysis in Python (for example pydeseq2).
+  analysis with a Python differential expression package.
 license: MIT
 source: jaechang-hits/SciAgent-Skills
 ---
@@ -135,7 +135,7 @@ metadata = pd.DataFrame({
 # 4. Save for downstream analysis
 matrix.to_csv("./raw_counts.csv")
 metadata[["sample_id", "condition"]].to_csv("./sample_annotations.csv", index=False)
-# → Then analyse these outputs in Python (e.g. pydeseq2)
+# → Then analyse these outputs with a Python differential expression package
 ```
 
 ## Best Practices

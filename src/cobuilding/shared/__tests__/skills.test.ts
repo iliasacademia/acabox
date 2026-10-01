@@ -225,7 +225,7 @@ describe('roster arithmetic against the real shipped tree', () => {
     // folded scalar produces (js-yaml keeps them, and they are what the model
     // actually receives), and +889 for manage-mcp-server.
     const total = entries.reduce((sum, e) => sum + (e.description?.length ?? 0), 0);
-    expect(total).toBe(9884);
+    expect(total).toBe(9897);
   });
 
   it('keeps folded block scalars intact — the specific thing a regex reader loses', () => {
@@ -255,7 +255,7 @@ describe('roster arithmetic against the real shipped tree', () => {
       fraction: ROSTER_DEFAULT_BUDGET_FRACTION,
     });
     expect(usage.entries).toBe(19);
-    expect(usage.chars).toBe(10238);
+    expect(usage.chars).toBe(10251);
     expect(usage.budget).toBe(8000);
     // This is the state Acabox ships in today: roughly half of the
     // descriptions are being silently shortened before a single import.
