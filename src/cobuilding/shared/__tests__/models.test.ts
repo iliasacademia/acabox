@@ -178,3 +178,10 @@ describe('allowedModelIds', () => {
     expect(allowedModelIds([]).has('gpt-4')).toBe(false);
   });
 });
+
+describe('DEFAULT_MODEL', () => {
+  test('is Opus 5.5 (owner decision 2026-10-01) and is allowed in mini-apps', () => {
+    expect(DEFAULT_MODEL).toBe('claude-opus-5-5');
+    expect(allowedModelIds([]).has(DEFAULT_MODEL)).toBe(true);
+  });
+});

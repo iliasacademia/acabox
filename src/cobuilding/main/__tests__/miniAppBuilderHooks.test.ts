@@ -21,7 +21,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 jest.mock('electron', () => ({
-  app: { isPackaged: false, getAppPath: () => process.cwd() },
+  app: { isPackaged: false, getAppPath: () => process.cwd(), getPath: () => '/nonexistent-userdata' },
 }));
 jest.mock('electron-log', () => ({
   __esModule: true,
