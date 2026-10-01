@@ -691,10 +691,10 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
           {contextMenu.node.isDirectory && (
             <>
               <button className="fileTreeContextMenuItem" onClick={() => handleCreateNew(contextMenu.node.path, 'file')}>
-                New File
+                New file
               </button>
               <button className="fileTreeContextMenuItem" onClick={() => handleCreateNew(contextMenu.node.path, 'folder')}>
-                New Folder
+                New folder
               </button>
               <div className="fileTreeContextMenuSeparator" />
             </>
@@ -710,7 +710,7 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
                     className={`fileTreeContextMenuItem${isActive ? ' fileTreeContextMenuItem--active' : ''}`}
                     onClick={() => handleSetTag(t)}
                   >
-                    Tag as {FILE_TAG_LABEL[t]}
+                    Label as {FILE_TAG_LABEL[t]}
                   </button>
                 );
               })}
@@ -718,7 +718,7 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, userDirectories, on
                 const relPath = resolveRelPath(contextMenu.node.path);
                 return fileTagMap.has(relPath) ? (
                   <button className="fileTreeContextMenuItem fileTreeContextMenuItem--destructive" onClick={handleRemoveTag}>
-                    Remove Tag
+                    Remove label
                   </button>
                 ) : null;
               })()}

@@ -102,7 +102,7 @@ async function render(): Promise<void> {
 }
 
 describe('ServersPage', () => {
-  it('never puts a pid in the status line — only in the mono target line', async () => {
+  it('never puts a pid or command on a row — they live in the detail panel under Technical details', async () => {
     applyHostedServers([{
       id: 'files', label: 'Files', enabled: true, autostart: false,
       install: { kind: 'custom' }, command: '/usr/bin/node', args: ['server.js'],
@@ -114,10 +114,18 @@ describe('ServersPage', () => {
     const targetEls = container.querySelectorAll('.connectorRow__target');
     expect(statusEls.length).toBeGreaterThan(0);
     expect(Array.from(statusEls).some((el) => /pid \d+/.test(el.textContent ?? ''))).toBe(false);
-    expect(Array.from(targetEls).some((el) => /pid 41823/.test(el.textContent ?? ''))).toBe(true);
+    expect(Array.from(targetEls).some((el) => /pid|server\.js/.test(el.textContent ?? ''))).toBe(false);
+    expect(Array.from(targetEls).some((el) => /3 tools/.test(el.textContent ?? ''))).toBe(true);
+
+    act(() => { findButton('Open').click(); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    const fold = container.querySelector('details.serversDetail__section');
+    expect(fold?.querySelector('summary')?.textContent).toBe('Technical details');
+    expect(fold?.textContent).toContain('pid 41823');
+    expect(fold?.textContent).toContain('server.js');
   });
 
-  it('a hosted server that has never started shows no tool count, and its detail says "Never read"', async () => {
+  it('a hosted server that has never started shows no tool count, and its detail says it has not started', async () => {
     applyHostedServers([{
       id: 'never-started', label: 'Never Started', enabled: true, autostart: false,
       install: { kind: 'custom' }, command: 'node', args: ['s.js'], state: 'stopped',
@@ -131,7 +139,7 @@ describe('ServersPage', () => {
     act(() => { findButton('Open').click(); });
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 
-    expect(container.textContent).toContain('Never read — the server has not started.');
+    expect(container.textContent).toContain('Not started yet, so I don\'t know its tools.');
   });
 
   it('lists exactly builtinServers(), computed from BASE_AGENT_ALLOWED_TOOLS', async () => {
@@ -166,10 +174,10 @@ describe('ServersPage', () => {
     expect(container.textContent).toContain('myToolDir');
   });
 
-  it('the empty state names the real acquisition path — ask Claude, not the form', async () => {
+  it('the empty state names the real acquisition path — ask in chat, not the form', async () => {
     await render();
-    expect(container.textContent).toContain('No servers yet.');
-    expect(container.textContent).toContain('Ask Claude to build one for you');
+    expect(container.textContent).toContain('Nothing here yet.');
+    expect(container.textContent).toContain('ask me in chat and I’ll build the bridge');
     // The Advanced form is present, but as the SECONDARY link, not the headline.
     expect(container.textContent).toContain('Advanced: add a server yourself');
   });
@@ -178,7 +186,7 @@ describe('ServersPage', () => {
     await render();
     act(() => { findButton('Advanced: add a server yourself').click(); });
 
-    expect(container.textContent).toContain('It does not make it safe.');
+    expect(container.textContent).toContain('Only add programs you trust.');
     const saveBtn = findButton('Add server');
     expect(saveBtn.disabled).toBe(true); // no name/command typed yet
   });

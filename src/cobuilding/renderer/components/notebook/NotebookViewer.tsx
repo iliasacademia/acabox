@@ -279,11 +279,11 @@ export const NotebookViewer: FC<NotebookViewerProps> = ({ filePath, onDirtyChang
             <PlayIcon style={{ width: 16, height: 16 }} />
           </button>
           {isBusy && (
-            <button className="btn btn--ghost btn--icon-xs" onClick={() => kernel.interrupt()} title="Interrupt kernel">
+            <button className="btn btn--ghost btn--icon-xs" onClick={() => kernel.interrupt()} title="Stop">
               <SquareIcon style={{ width: 16, height: 16 }} />
             </button>
           )}
-          <button className="btn btn--ghost btn--icon-xs" onClick={() => kernel.restart()} title="Restart kernel">
+          <button className="btn btn--ghost btn--icon-xs" onClick={() => kernel.restart()} title="Restart Python">
             <RotateCcwIcon style={{ width: 16, height: 16 }} />
           </button>
           <button className="btn btn--ghost btn--icon-xs" onClick={clearAllOutputs} title="Clear all outputs">
@@ -304,8 +304,11 @@ export const NotebookViewer: FC<NotebookViewerProps> = ({ filePath, onDirtyChang
         )}
         {kernel.status === 'dead' && kernel.error && (
           <div className="notebookViewerError">
-            <p className="notebookViewerError__title">Kernel failed to start</p>
-            <p className="notebookViewerError__detail">{kernel.error}</p>
+            <p className="notebookViewerError__title">Python couldn't start</p>
+            <details>
+              <summary>Details</summary>
+              <p className="notebookViewerError__detail">{kernel.error}</p>
+            </details>
             <button
               className="btn btn--outline btn--sm"
               onClick={() => kernel.connect(defaultKernelName)}

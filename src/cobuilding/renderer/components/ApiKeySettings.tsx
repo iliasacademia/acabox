@@ -52,7 +52,7 @@ export const ApiKeySettings: React.FC = () => {
         <div className="wsSettings__integrationName">Anthropic API key</div>
         <div className="wsSettings__integrationDesc">
           {maskedKey
-            ? `Active key: ${maskedKey}${source ? ` (from ${source})` : ''}${baseURL ? ` · ${baseURL}` : ''}`
+            ? `${envManaged ? 'Key set by your system (ANTHROPIC_API_KEY)' : 'Key saved'}: ${maskedKey}${baseURL ? ` · ${baseURL}` : ''}`
             : 'No API key set. Paste one below to use Acabox.'}
         </div>
       </div>
@@ -71,13 +71,16 @@ export const ApiKeySettings: React.FC = () => {
             placeholder="sk-ant-..."
             style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border-color, #555)', fontFamily: 'monospace', fontSize: 12 }}
           />
-          <input
-            type="text"
-            value={newBaseURL}
-            onChange={(e) => setNewBaseURL(e.target.value)}
-            placeholder="Base URL (optional — defaults to api.anthropic.com)"
-            style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border-color, #555)', fontFamily: 'monospace', fontSize: 12 }}
-          />
+          <details>
+            <summary className="wsSettings__integrationDesc" style={{ cursor: 'pointer' }}>Advanced</summary>
+            <input
+              type="text"
+              value={newBaseURL}
+              onChange={(e) => setNewBaseURL(e.target.value)}
+              placeholder="Base URL (optional — defaults to api.anthropic.com)"
+              style={{ marginTop: 8, width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border-color, #555)', fontFamily: 'monospace', fontSize: 12 }}
+            />
+          </details>
           <div>
             <button
               type="button"

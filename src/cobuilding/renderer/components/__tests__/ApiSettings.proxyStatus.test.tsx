@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { ApiSettings } from '../ApiSettings';
 
 /**
- * Regression coverage for "The API proxy isn't running" shown while the proxy
+ * Regression coverage for "These services aren't reachable right now" shown while the proxy
  * was, in fact, listening.
  *
  * The Settings tab is mounted at app boot and only hidden behind
@@ -42,7 +42,7 @@ function proxyComesUpAfterFirstCall(): jest.Mock {
 }
 
 const bannerText = () => container.textContent ?? '';
-const bannerShown = () => bannerText().includes("The API proxy isn't running");
+const bannerShown = () => bannerText().includes("These services aren't reachable right now");
 
 beforeEach(() => {
   listSpy = proxyComesUpAfterFirstCall();

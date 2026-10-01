@@ -46,12 +46,12 @@ export function useNotebook(filePath: string) {
     window.filesAPI.readFile(filePath).then((result) => {
       if (stale) return;
       if ('error' in result) {
-        setError('File too large to open');
+        setError('This notebook is too large to open.');
         setLoading(false);
         return;
       }
       if (result.type !== 'text') {
-        setError('Cannot read notebook file');
+        setError('This notebook can\'t be read.');
         setLoading(false);
         return;
       }
@@ -65,7 +65,7 @@ export function useNotebook(filePath: string) {
         try {
           doc = JSON.parse(content) as NotebookDocument;
         } catch {
-          setError('Invalid notebook JSON');
+          setError('This notebook file is damaged and can\'t be opened.');
           setLoading(false);
           return;
         }

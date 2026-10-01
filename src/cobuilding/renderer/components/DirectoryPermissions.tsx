@@ -85,7 +85,7 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
       await window.academiaFileAPI.write(SOUL_MD, soulContent);
       setSavedSoulContent(soulContent);
     } catch (err) {
-      setSoulError(err instanceof Error ? err.message : 'Failed to save system prompt.');
+      setSoulError(err instanceof Error ? err.message : 'Couldn\'t save your instructions.');
     } finally {
       setIsSavingSoul(false);
     }
@@ -101,7 +101,7 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
     const selected = await window.workspacesAPI.selectDirectory();
     if (!selected) return;
     if (localDirs.some(d => d.directory_path === selected)) {
-      setDirError('This directory is already in your workspace.');
+      setDirError('That folder is already added.');
       return;
     }
     try {
@@ -110,12 +110,12 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
       setLocalDirs(updated);
       onDirectoriesChanged?.(updated);
     } catch (err) {
-      setDirError(err instanceof Error ? err.message : 'Failed to add directory.');
+      setDirError(err instanceof Error ? err.message : 'Couldn\'t add that folder.');
     }
   };
 
   const handleRemoveDirectory = async (dirId: string) => {
-    if (!window.confirm('Are you sure you want to remove this directory from your workspace?')) return;
+    if (!window.confirm('Stop sharing this folder with Acabox? Your files are not touched.')) return;
     setDirError(null);
     try {
       await window.workspacesAPI.removeDirectory(dirId);
@@ -123,7 +123,7 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
       setLocalDirs(updated);
       onDirectoriesChanged?.(updated);
     } catch (err) {
-      setDirError(err instanceof Error ? err.message : 'Failed to remove directory.');
+      setDirError(err instanceof Error ? err.message : 'Couldn\'t remove that folder.');
     }
   };
 
@@ -145,7 +145,7 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
     } catch (err) {
       setLocalDirs(snapshot);
       onDirectoriesChanged?.(snapshot);
-      setDirError(err instanceof Error ? err.message : 'Failed to update directory permission.');
+      setDirError(err instanceof Error ? err.message : 'Couldn\'t change that folder\'s lock.');
     } finally {
       setTogglingDirId(null);
     }
@@ -188,10 +188,9 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
         onClick={(e) => e.stopPropagation()}
       >
         <section className="wsSettings__section">
-          <p className="wsSettings__sectionLabel">Workspace directories</p>
+          <p className="wsSettings__sectionLabel">Your folders</p>
           <div className="wsSettings__sectionCard">
-            <div className="wsSettings__integrationName" style={{ marginBottom: 6 }}>Local folders</div>
-            {localDirs.length > 0 ? (
+                        {localDirs.length > 0 ? (
               <div className="wsSettings__dirList">
                 {localDirs.map((dir) => (
                   <div key={dir.id} className="wsSettings__dirRow">
@@ -208,7 +207,7 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
                       type="button"
                       className="wsSettings__dirRemoveBtn"
                       onClick={() => handleRemoveDirectory(dir.id)}
-                      aria-label="Remove directory"
+                      aria-label="Stop sharing this folder"
                     >
                       <XIcon size={14} />
                     </button>
@@ -217,7 +216,7 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
               </div>
             ) : (
               <p className="wsSettings__hint" style={{ margin: 0 }}>
-                No local directories added.
+                No folders yet — add the folder your data lives in.
               </p>
             )}
             {dirError && <p className="wsSettings__dirError">{dirError}</p>}
@@ -227,20 +226,47 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
                 Add folder
               </button>
             )}
+            <div className="wsSettings__dirRow" style={{ marginTop: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div className="wsSettings__integrationName">Look through my folders again</div>
+                <div className="wsSettings__integrationDesc">
+                  Have me re-read your folders to refresh what I know about your research.
+                </div>
+              </div>
+              <button
+                type="button"
+                className="gsStep__btn gsStep__btn--secondary"
+                disabled={isScanning || localDirs.length === 0}
+                onClick={async () => {
+                  setIsScanning(true);
+                  setScanError(null);
+                  try {
+                    await window.scannerAPI.start();
+                  } catch (err) {
+                    setScanError(err instanceof Error ? err.message : String(err));
+                  } finally {
+                    setIsScanning(false);
+                  }
+                }}
+              >
+                {isScanning ? 'Looking…' : 'Look again'}
+              </button>
+            </div>
+            {scanError && <p className="wsSettings__dirError">{scanError}</p>}
           </div>
         </section>
 
         <section className="wsSettings__section">
-          <p className="wsSettings__sectionLabel">System prompt</p>
+          <p className="wsSettings__sectionLabel">Instructions for Acabox</p>
           <div className="wsSettings__sectionCard">
             <p className="wsSettings__hint">
-              Custom instructions appended to the AI system prompt for this workspace. Saved to .academia/SOUL.md.
+              Anything I should always keep in mind — your field, preferred formats, house rules.
             </p>
             <textarea
               className="wsSettings__textarea"
               value={soulContent}
               onChange={(e) => setSoulContent(e.target.value)}
-              placeholder="Enter custom instructions for the AI agent..."
+              placeholder="e.g. Always report p-values to 3 decimals; our lab uses R-style column names."
               rows={6}
               disabled={!soulLoaded}
             />
@@ -268,22 +294,19 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
 
         <section className="wsSettings__section">
           {/* This section used to be headed "Researcher profile" over copy that
-              read as though these two files were everything Claude remembers.
-              They are two files in a directory Claude writes to itself, and it
-              had grown to ten. Naming exactly which two, and pointing at the
-              page that shows the rest, is the whole correction. */}
+              read as though these two notes were everything Acabox remembers.
+              It is two of the notes it keeps; the rest live on the Knowledge
+              page, which the link below opens. */}
           <p className="wsSettings__sectionLabel">About you</p>
           <div className="wsSettings__sectionCard">
             <p className="wsSettings__hint">
-              Two files Claude reads to know who you are and what you are working on:{' '}
-              <code>about_you.md</code> and <code>working_on.md</code>, in{' '}
-              <code>.academia/agent-memory/</code>. Claude writes other memories into that same
-              directory on its own, and they are not shown here.
+              Who you are and what you&rsquo;re working on. I read these before every chat, and I
+              add my own notes over time &mdash; see them under What I know.
               {onOpenKnowledge && (
                 <>
                   {' '}
                   <button type="button" className="connectorLink" onClick={onOpenKnowledge}>
-                    See everything Claude has learned &rarr;
+                    See everything I&rsquo;ve learned &rarr;
                   </button>
                 </>
               )}
@@ -337,7 +360,7 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
         </section>
 
         <section className="wsSettings__section">
-          <p className="wsSettings__sectionLabel">Connectors</p>
+          <p className="wsSettings__sectionLabel">Connected services</p>
           <div className="wsSettings__sectionCard">
             <ConnectorsSettings />
           </div>
@@ -351,7 +374,7 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
         </section>
 
         <section className="wsSettings__section">
-          <p className="wsSettings__sectionLabel">APIs</p>
+          <p className="wsSettings__sectionLabel">Online data services</p>
           <div className="wsSettings__sectionCard">
             <ApiSettings active={active} />
           </div>
@@ -365,35 +388,8 @@ const DirectoryPermissions: React.FC<DirectoryPermissionsProps> = ({ workspace, 
         </section>
 
         <section className="wsSettings__section">
-          <p className="wsSettings__sectionLabel">Account</p>
+          <p className="wsSettings__sectionLabel">Anthropic account &amp; key</p>
           <div className="wsSettings__sectionCard">
-            <div className="wsSettings__dirRow" style={{ marginBottom: 12 }}>
-              <div style={{ flex: 1 }}>
-                <div className="wsSettings__integrationName">Rescan workspace</div>
-                <div className="wsSettings__integrationDesc">
-                  Re-scan your folders to refresh your research profile and file tags.
-                </div>
-              </div>
-              <button
-                type="button"
-                className="gsStep__btn gsStep__btn--secondary"
-                disabled={isScanning || localDirs.length === 0}
-                onClick={async () => {
-                  setIsScanning(true);
-                  setScanError(null);
-                  try {
-                    await window.scannerAPI.start();
-                  } catch (err) {
-                    setScanError(err instanceof Error ? err.message : String(err));
-                  } finally {
-                    setIsScanning(false);
-                  }
-                }}
-              >
-                {isScanning ? 'Scanning...' : 'Rescan'}
-              </button>
-            </div>
-            {scanError && <p className="wsSettings__dirError">{scanError}</p>}
 
             {/* The Debug tab is dev-only, so this is the one way a packaged
                 user can hand us the logs when something goes wrong. */}

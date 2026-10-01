@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  API_ID_RULE,
   apiDisplayName,
   apiFromCatalog,
   describeAuthStyle,
@@ -120,10 +119,15 @@ function draftToApi(d: Draft, enabled: boolean): ApiConfig {
 
 function describeCounters(c: ApiCounters | undefined): string | null {
   if (!c || !c.calls) return null;
-  const parts = [`${c.calls} call${c.calls === 1 ? '' : 's'} since launch`];
-  if (c.refused) parts.push(`${c.refused} refused`);
-  if (c.lastStatus) parts.push(`last ${c.lastStatus}`);
+  // The last HTTP status is an engineer's detail; it stays in the tooltip
+  // (see `counterTitle`), not in the row.
+  const parts = [`${c.calls} use${c.calls === 1 ? '' : 's'} since Acabox opened`];
+  if (c.refused) parts.push(`${c.refused} blocked`);
   return parts.join(' · ');
+}
+
+function counterTitle(c: ApiCounters | undefined): string | undefined {
+  return c?.lastStatus ? `Last response: HTTP ${c.lastStatus}` : undefined;
 }
 
 export interface ApiSettingsProps {
@@ -254,21 +258,17 @@ export const ApiSettings: React.FC<ApiSettingsProps> = ({ active = true }) => {
   return (
     <div className="connectors">
       <p className="wsSettings__hint">
-        HTTP APIs Claude may call directly, for services with no MCP connector —
-        or where the connector is read-only and the REST API isn&apos;t. Acabox
-        holds the credentials and attaches them itself, so a key is never shown
-        to the agent, written into a script, or stored in a chat.
+        Online data services I can use &mdash; PubMed, UniProt, Zenodo and more.
+        Acabox keeps the keys; I never see them, and they never end up in a chat
+        or a file.
       </p>
 
       {!proxy.running && (
         <div className="connectorWarn">
-          <div className="connectorWarn__title">The API proxy isn&apos;t running</div>
+          <div className="connectorWarn__title">These services aren&apos;t reachable right now</div>
           <div className="connectorWarn__body">
-            {proxy.error
-              ? <>It failed to start: <code>{proxy.error}</code></>
-              : 'It starts with the agent — open a chat, or restart Acabox.'}{' '}
-            Nothing configured here can be called until it does, and Claude is not
-            told the APIs exist.
+            Quit and reopen Acabox; if this keeps happening, here are the details:{' '}
+            <code>{proxy.error ?? 'the service did not start'}</code>
           </div>
         </div>
       )}
@@ -297,7 +297,7 @@ export const ApiSettings: React.FC<ApiSettingsProps> = ({ active = true }) => {
                     )}
                   </div>
                   <div className="connectorRow__target" title={a.baseUrl}>{a.baseUrl}</div>
-                  <div className="connectorRow__status">
+                  <div className="connectorRow__status" title={counterTitle(counters[a.id])}>
                     {describeAuthStyle(a.auth)}
                     {` · ${effectiveAllowedHosts(a).join(', ')}`}
                     {counterText && ` · ${counterText}`}
@@ -314,7 +314,7 @@ export const ApiSettings: React.FC<ApiSettingsProps> = ({ active = true }) => {
                     className="connectorBtn"
                     disabled={busy || testing === a.id || !proxy.running}
                     onClick={() => void handleTest(a.id)}
-                    title={proxy.running ? 'Send one real GET at the base URL' : 'The proxy is not running'}
+                    title={proxy.running ? 'Check that this service answers with your key' : 'These services aren\'t reachable right now'}
                   >
                     {testing === a.id ? 'Testing…' : 'Test'}
                   </button>
@@ -464,8 +464,7 @@ const ApiForm: React.FC<{
           placeholder="hex"
         />
         <span className="connectorField__help">
-          Claude calls it as <code>$ACABOX_API_BASE/{draft.id || 'name'}/…</code>.{' '}
-          {API_ID_RULE} Uppercase is lowercased on save.
+          A short name, letters and hyphens &mdash; e.g. hex.
         </span>
       </label>
 
@@ -478,8 +477,8 @@ const ApiForm: React.FC<{
           placeholder="https://app.hex.tech/api/v1/"
         />
         <span className="connectorField__help">
-          Requests resolve against this, and on this host they may not escape its
-          path — so a trailing slash matters. https:// only, except localhost.
+          Paste the address from the service&apos;s documentation. It must start
+          with https://.
         </span>
       </label>
 
@@ -582,18 +581,17 @@ const ApiForm: React.FC<{
       </label>
 
       <label className="connectorField">
-        <span className="connectorField__label">Notes for Claude</span>
+        <span className="connectorField__label">Notes for me</span>
         <textarea
           className="connectorField__input apiNotes"
           value={draft.notes}
           onChange={(e) => set('notes', e.target.value)}
           rows={3}
-          placeholder="What this API is for, and the one thing Claude needs to know about it."
+          placeholder="What this service is for, and the one thing I should know about it."
         />
         <span className="connectorField__help">
-          Goes into the prompt verbatim. This is the field that stops Claude
-          guessing endpoints — a sentence here is worth more than any other
-          setting on this form.
+          What this service is for and anything I should know &mdash; one sentence
+          here saves a lot of guessing.
         </span>
       </label>
 
@@ -604,12 +602,10 @@ const ApiForm: React.FC<{
           onChange={(e) => set('allowWrites', e.target.checked)}
         />
         <span>
-          Allow writes
+          Allow changes
           <span className="connectorField__help">
-            Off by default: only GET and HEAD are permitted, and anything else is
-            refused by Acabox before it reaches the network. Turn this on only for
-            an API you intend Claude to change things in — a page it reads
-            mid-task could otherwise talk it into a DELETE.
+            Off by default, so I can only read from this service. Turn on only if
+            you want me to create or delete things there.
           </span>
         </span>
       </label>

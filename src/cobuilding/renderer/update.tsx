@@ -59,7 +59,7 @@ function UpdateWindow() {
           <>
             <p>Update {version ? `v${version} ` : ''}is available.</p>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={downloadAndRestart} style={buttonStyle}>Download & Restart</button>
+              <button onClick={downloadAndRestart} style={buttonStyle}>Download and restart</button>
               <button onClick={cancel} style={{ ...buttonStyle, background: '#666' }}>Cancel</button>
             </div>
           </>
@@ -67,7 +67,7 @@ function UpdateWindow() {
       case 'downloading':
         return (
           <>
-            <p>Downloading update... {downloadPercent}%</p>
+            <p>Downloading the update… {downloadPercent}%</p>
             <div style={{ width: '100%', height: '6px', background: '#333', borderRadius: '3px' }}>
               <div style={{ width: `${downloadPercent}%`, height: '100%', background: '#4a9eff', borderRadius: '3px', transition: 'width 0.3s' }} />
             </div>
@@ -76,7 +76,13 @@ function UpdateWindow() {
       case 'error':
         return (
           <>
-            <p style={{ color: '#ff6b6b' }}>Update error: {errorMessage}</p>
+            <p style={{ color: '#ff6b6b' }}>Couldn&apos;t download the update. Try again later.</p>
+            {errorMessage && (
+              <details style={{ fontSize: '12px', opacity: 0.8 }}>
+                <summary>Details</summary>
+                {errorMessage}
+              </details>
+            )}
             <div style={{ display: 'flex', gap: '8px' }}>
               <button onClick={retry} style={buttonStyle}>Retry</button>
               <button onClick={cancel} style={{ ...buttonStyle, background: '#666' }}>Cancel</button>

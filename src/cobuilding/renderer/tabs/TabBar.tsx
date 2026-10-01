@@ -72,7 +72,7 @@ export const TabBar: FC<TabBarProps> = ({
                 if (isDirty) {
                   if (!window.confirm('You have unsaved changes. Close anyway?')) return;
                 } else if (hasLiveKernel?.(tab.id)) {
-                  if (!window.confirm('This will shut down the running kernel and lose any in-memory state. Close anyway?')) return;
+                  if (!window.confirm('Closing this notebook stops its Python session and clears unsaved results. Close anyway?')) return;
                 }
                 onClose(tab.id);
               }}

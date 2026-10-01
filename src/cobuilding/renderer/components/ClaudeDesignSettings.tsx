@@ -80,9 +80,9 @@ export const ClaudeDesignSettings: React.FC<ClaudeDesignSettingsProps> = ({ acti
   let description: string;
   if (!status) description = 'Checking…';
   else if (!status?.available) description = status?.reason || 'Claude Design is not available in this build.';
-  else if (status.signedIn) description = 'Signed in. Chats can read your claude.ai/design design-system projects.';
+  else if (status.signedIn) description = 'Signed in. Chats can read your claude.ai/design projects.';
   else if (!status.canSignInHere) description = status.reason || 'Sign-in is not possible on this machine.';
-  else description = 'Not signed in. Sign in to let chats read your claude.ai/design design-system projects.';
+  else description = 'Not signed in. Sign in to let me read your claude.ai/design projects.';
 
   const canStart = !!status?.available && status.canSignInHere && !busy;
 

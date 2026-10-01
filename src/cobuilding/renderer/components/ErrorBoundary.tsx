@@ -41,16 +41,18 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
             justifyContent: 'center',
             height: '100vh',
             padding: '24px',
-            fontFamily: 'system-ui, sans-serif',
-            color: '#1f2937',
-            backgroundColor: '#f9fafb',
+            fontFamily: 'var(--cd-sans, system-ui), sans-serif',
+            color: 'var(--cd-ink, #1f2937)',
+            backgroundColor: 'var(--cd-pale, #f9fafb)',
             gap: '12px',
           }}
         >
           <h2 style={{ margin: 0 }}>Something went wrong.</h2>
           <p style={{ margin: 0, color: '#6b7280', fontSize: '14px' }}>
-            The error has been reported. Reloading usually clears it.
+            Reloading usually clears it. If it keeps happening, open Details and share what it says.
           </p>
+          <details style={{ maxWidth: '600px' }}>
+          <summary style={{ cursor: 'pointer', fontSize: '13px' }}>Details</summary>
           <pre
             style={{
               maxWidth: '600px',
@@ -65,6 +67,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
           >
             {this.state.error.message}
           </pre>
+          </details>
           <button
             type="button"
             onClick={this.handleReload}
@@ -72,7 +75,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
               padding: '8px 16px',
               border: 'none',
               borderRadius: '6px',
-              backgroundColor: '#2563eb',
+              backgroundColor: 'var(--cd-blue, #0645b1)',
               color: '#fff',
               cursor: 'pointer',
               fontSize: '14px',

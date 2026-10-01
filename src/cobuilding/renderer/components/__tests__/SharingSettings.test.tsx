@@ -152,7 +152,7 @@ describe('SharingSettings', () => {
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 
     expect(testMock).toHaveBeenCalledTimes(1);
-    expect(container.textContent).toContain('HTTP 503: Service unavailable');
+    expect(container.textContent).toContain('The sharing service answered with an error (503). Service unavailable');
   });
 
   it('Test renders "Connected" on success', async () => {

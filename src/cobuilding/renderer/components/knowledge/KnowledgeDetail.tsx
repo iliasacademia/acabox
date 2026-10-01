@@ -87,7 +87,7 @@ export function KnowledgeDetail({
   onOpenChat?: (sessionId: string) => void;
 }) {
   const isSkill = target.kind === 'skill';
-  const title = isSkill ? `${target.skill.id}/SKILL.md` : target.memory.file;
+  const title = isSkill ? target.skill.id : target.memory.file;
   const storePath = isSkill ? target.skill.storePath : target.memory.academiaPath;
   const hasLedger = isSkill && target.skill.findingsCount !== undefined;
 
@@ -230,9 +230,8 @@ export function KnowledgeDetail({
   const supersede = useCallback(async (row: FindingRow) => {
     if (target.kind !== 'skill') return;
     const ok = window.confirm(
-      `Mark ${row.id} superseded?\n\n"${row.title}"\n\n` +
-      'Its body moves to the archive file and its index row moves with it. ' +
-      'Nothing is deleted.',
+      `Retire ${row.id}?\n\n"${row.title}"\n\n` +
+      'It moves to the archive; nothing is deleted.',
     );
     if (!ok) return;
     await window.knowledgeAPI.supersede(target.skill.id, row.id);
@@ -305,7 +304,7 @@ export function KnowledgeDetail({
                 <>
                   {frontmatter && (
                     <div className="knowledgeFm">
-                      <div className="knowledgeFm__label">Frontmatter</div>
+                      <div className="knowledgeFm__label">Header</div>
                       <pre className="knowledgeFm__body">{frontmatter}</pre>
                     </div>
                   )}
@@ -326,12 +325,11 @@ export function KnowledgeDetail({
               {conflict && (
                 <div className="knowledgeConflict">
                   <div className="knowledgeConflict__title">
-                    This file changed on disk while you had it open.
+                    This changed while you had it open.
                   </div>
                   <div className="knowledgeConflict__body">
-                    The copy on disk is now {formatBytes(new Blob([conflict.theirs]).size)} and it is
-                    not what you opened. Claude can write here directly, so this is most likely its
-                    work. Nothing has been saved.
+                    The new version is {formatBytes(new Blob([conflict.theirs]).size)} &mdash; probably
+                    my work during a chat. Nothing has been saved yet.
                   </div>
                   <div className="knowledgeConflict__actions">
                     <button type="button" className="connectorBtn" onClick={takeTheirs}>
@@ -351,15 +349,15 @@ export function KnowledgeDetail({
             <div className="knowledgeFindings">
               {ledger.active.length === 0 && ledger.archived.length === 0 && (
                 <p className="knowledgeDetail__note">
-                  This skill has a findings ledger, but nothing has been recorded in it yet.
+                  Nothing has been recorded for this skill yet.
                 </p>
               )}
               {ledger.active.length > 0 && (
                 <table className="knowledgeFindings__table">
                   <thead>
                     <tr>
-                      <th>ID</th>
-                      <th>Finding</th>
+                      <th>Ref</th>
+                      <th>Note</th>
                       <th>Scope</th>
                       <th>Recorded</th>
                       <th>Last read</th>
@@ -387,7 +385,7 @@ export function KnowledgeDetail({
                               className="connectorBtn"
                               onClick={(e) => { e.stopPropagation(); void supersede(row); }}
                             >
-                              Supersede
+                              Retire this note
                             </button>
                           </td>
                         </tr>
@@ -408,8 +406,8 @@ export function KnowledgeDetail({
               <p className="knowledgeDetail__note">
                 {ledger.lastReadNote}
                 {ledger.archived.length > 0 &&
-                  ` ${ledger.archived.length} superseded finding${ledger.archived.length === 1 ? '' : 's'} ` +
-                  'kept in the archive file.'}
+                  ` ${ledger.archived.length} retired note${ledger.archived.length === 1 ? '' : 's'} ` +
+                  'kept in the archive.'}
               </p>
             </div>
           )}
@@ -433,11 +431,11 @@ export function KnowledgeDetail({
               className="connectorBtn"
               onClick={() => void window.skillsAPI.reveal(target.skill.id)}
             >
-              Reveal in Finder
+              Show in Finder
             </button>
           )}
           <button type="button" className="connectorBtn" onClick={() => onAskClaude(askPrompt)}>
-            Ask Claude to improve this
+            Ask me to improve this
           </button>
           <button
             type="button"

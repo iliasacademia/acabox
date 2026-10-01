@@ -128,7 +128,7 @@ describe('KnowledgePage', () => {
     expect(container.textContent).toContain('BROKEN');
     // The point of the row is that the CLI's drop is silent. Saying so is the
     // feature; a bare badge would leave the user no better off.
-    expect(container.textContent).toContain('Claude will not see this skill at all');
+    expect(container.textContent).toContain('The header of this skill is malformed, so I can\'t use it.');
     expect(container.textContent).toContain('bad indentation');
   });
 
@@ -176,10 +176,10 @@ describe('KnowledgePage', () => {
   it('omits both empty sections rather than showing empty headings', async () => {
     await render();
     expect(container.textContent).not.toContain('Needs attention');
-    expect(container.textContent).not.toContain('What Claude has learned');
+    expect(container.textContent).not.toContain('What I’ve learned');
     // Skills is always present — it is the page's subject, and "no skills in
     // the store" is itself a finding worth showing.
-    expect(container.textContent).toContain('No skills in the store.');
+    expect(container.textContent).toContain('No skills yet.');
   });
 
   it('shows a Needs-attention row for a connector turn that skipped the ledger', async () => {
@@ -193,7 +193,7 @@ describe('KnowledgePage', () => {
     }];
     await render();
     expect(container.textContent).toContain('Needs attention');
-    expect(container.textContent).toContain('This chat queried hex without consulting the ledger');
+    expect(container.textContent).toContain('A chat used hex without checking what I already know about it');
     expect(container.textContent).toContain('Weekly active users');
     expect(container.textContent).toContain('2h ago');
   });

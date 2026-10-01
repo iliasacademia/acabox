@@ -116,7 +116,7 @@ export function setupUpdater(onRebuildTrayMenu: (statusLabel?: string) => void) 
       });
       dialog.showMessageBox({
         type: 'info',
-        title: 'No Updates Available',
+        title: 'No updates available',
         message: "You're on the latest version",
         detail: `Version: ${app.getVersion()}\nChecked at: ${checkedAt}`,
       });

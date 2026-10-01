@@ -590,7 +590,7 @@ export function validateImportedSkill(id: string, frontmatter: SkillFrontmatter)
     // import would hide a skill the user would otherwise see behaving oddly.
     problems.push({
       level: 'warning',
-      message: `Claude cannot read this skill's frontmatter (${frontmatter.error}). It will still load, but with a description invented from the first heading of the body.`,
+      message: `This skill's header is malformed (${frontmatter.error}); I'll guess its purpose from its first heading.`,
     });
     return problems;
   }
@@ -598,12 +598,12 @@ export function validateImportedSkill(id: string, frontmatter: SkillFrontmatter)
   if (!frontmatter.description) {
     problems.push({
       level: 'warning',
-      message: 'No description in the frontmatter, so Claude has nothing to decide when to use this skill on.',
+      message: 'This skill has no description, so I have nothing to decide when to use it on.',
     });
   } else if (frontmatter.description.length > SKILL_DESCRIPTION_MAX_CHARS) {
     problems.push({
       level: 'warning',
-      message: `The description is ${frontmatter.description.length} characters; the spec caps it at ${SKILL_DESCRIPTION_MAX_CHARS} and it competes with every other skill for the roster budget.`,
+      message: `Its description is long (${frontmatter.description.length} characters, over the ${SKILL_DESCRIPTION_MAX_CHARS} limit), which slows every chat a little.`,
     });
   }
 
